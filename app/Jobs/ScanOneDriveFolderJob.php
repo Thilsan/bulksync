@@ -1,0 +1,123 @@
+<?php
+
+namespace App\Jobs;
+
+use App\Models\UploadItem;
+use App\Models\UploadSession;
+use App\Services\OneDriveService;
+use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Foundation\Bus\Dispatchable;
+use Illuminate\Queue\InteractsWithQueue;
+use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\Log;
+
+class ScanOneDriveFolderJob implements ShouldQueue
+{
+    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
+
+    public int $timeout = 3600;  // 1 hour — scanning 30k files takes time
+    public int $tries   = 2;
+
+    private const INSERT_CHUNK = 500; // rows per bulk insert
+
+    public function __construct(
+        public readonly int $sessionId,
+    ) {}
+
+    public function handle(OneDriveService $oneDrive): void
+    {
+        $session = UploadSession::findOrFail($this->sessionId);
+
+        $session->update(['scan_status' => 'scanning', 'status' => 'processing']);
+
+        Log::info("ScanOneDriveFolderJob: starting scan for session {$this->sessionId}");
+
+        try {
+            $totalScanned = 0;
+            $buffer       = [];
+
+            // Stream through OneDrive pages one at a time — never load all 30k into memory
+            $oneDrive->streamFolderImages(
+                $session->onedrive_link,
+                function (array $file) use ($session, &$buffer, &$totalScanned) {
+                    $sku = pathinfo($file['filename'], PATHINFO_FILENAME);
+
+                    $buffer[] = [
+                        'upload_session_id'  => $session->id,
+                        'filename'           => $file['filename'],
+                        'sku_detected'       => $sku,
+                        'onedrive_drive_id'  => $file['drive_id'],
+                        'onedrive_item_id'   => $file['item_id'],
+                        'original_size_kb'   => (int) round(($file['size_bytes'] ?? 0) / 1024),
+                        'status'             => 'pending',
+                        'created_at'         => now(),
+                        'updated_at'         => now(),
+                    ];
+
+                    $totalScanned++;
+
+                    // Flush to DB every INSERT_CHUNK items to keep memory flat
+                    if (count($buffer) >= self::INSERT_CHUNK) {
+                        $this->flushBuffer($session, $buffer);
+                        $buffer = [];
+
+                        // Update live scan count so the UI can show progress during scan
+                        $session->increment('scanned_files', self::INSERT_CHUNK);
+                        Log::info("ScanOneDriveFolderJob: {$totalScanned} files found so far…");
+                    }
+                }
+            );
+
+            // Flush any remaining items
+            if (!empty($buffer)) {
+                $this->flushBuffer($session, $buffer);
+                $session->increment('scanned_files', count($buffer));
+            }
+
+            $session->update([
+                'scan_status' => 'scanned',
+                'total_files' => $totalScanned,
+            ]);
+
+            Log::info("ScanOneDriveFolderJob: scan complete — {$totalScanned} files. Dispatching process jobs.");
+
+            // Dispatch a ProcessUploadItemJob for every pending item in chunks
+            // to avoid loading all 30k models at once
+            UploadItem::where('upload_session_id', $session->id)
+                ->where('status', 'pending')
+                ->select('id')
+                ->chunkById(1000, function ($items) {
+                    foreach ($items as $item) {
+                        ProcessUploadItemJob::dispatch($item->id)
+                            ->onQueue('bulk-upload');
+                    }
+                });
+
+        } catch (\Throwable $e) {
+            Log::error("ScanOneDriveFolderJob failed for session {$this->sessionId}: " . $e->getMessage());
+            $session->update([
+                'scan_status'  => 'failed',
+                'status'       => 'failed',
+                'error_message' => $e->getMessage(),
+            ]);
+            throw $e;
+        }
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+
+    private function flushBuffer(UploadSession $session, array $buffer): void
+    {
+        UploadItem::insert($buffer);
+    }
+
+    public function failed(\Throwable $e): void
+    {
+        UploadSession::where('id', $this->sessionId)->update([
+            'scan_status'  => 'failed',
+            'status'       => 'failed',
+            'error_message' => 'Scan failed: ' . $e->getMessage(),
+        ]);
+    }
+}
