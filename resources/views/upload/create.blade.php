@@ -27,8 +27,8 @@
         <div class="px-6 py-5 border-b border-gray-100">
             <h2 class="font-semibold text-gray-800 text-lg">Upload Configuration</h2>
             <p class="text-sm text-gray-500 mt-1">
-                Name your image files as <code class="bg-gray-100 px-1.5 py-0.5 rounded text-xs font-mono">{SKU}.jpg</code>
-                — the filename (without extension) is matched to the Shopify product SKU.
+                Organise your OneDrive folder with <strong class="text-gray-700">subfolders named by item code</strong>
+                — each subfolder name is matched to the Shopify product SKU.
             </p>
         </div>
 
@@ -158,12 +158,12 @@
         <h3 class="font-semibold text-gray-700 text-sm mb-3">How it works</h3>
         <ol class="space-y-2 text-sm text-gray-600">
             @foreach ([
-                'Paste your shared OneDrive folder link',
+                'Paste your shared OneDrive folder link (the folder that contains your item-code subfolders)',
                 'Set the exact output dimensions you need',
-                'We scan the folder — up to 30,000+ images',
-                'Each filename (without extension) = Shopify product SKU',
+                'We scan all subfolders — up to 30,000+ images',
+                'Each subfolder name = Shopify product SKU (image filenames inside don\'t matter)',
                 'If you chose dimensions, images are resized to fit exactly. Otherwise original dimensions are kept. Compressed only if needed to stay under 1 MB.',
-                'Matched images are uploaded to the correct Shopify product',
+                'All images in each subfolder are uploaded to the matching Shopify product',
             ] as $n => $step)
             <li class="flex items-start gap-3">
                 <span class="w-6 h-6 rounded-full bg-brand-100 text-brand-700 text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">{{ $n + 1 }}</span>
