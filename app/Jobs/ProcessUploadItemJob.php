@@ -5,7 +5,7 @@ namespace App\Jobs;
 use App\Models\UploadItem;
 use App\Models\UploadSession;
 use App\Services\ImageProcessingService;
-use App\Services\GoogleDriveService;
+use App\Services\OneDriveService;
 use App\Services\ShopifyService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
