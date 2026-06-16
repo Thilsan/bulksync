@@ -41,7 +41,11 @@ class ScanOneDriveFolderJob implements ShouldQueue
             $oneDrive->streamFolderImages(
                 $session->onedrive_link,
                 function (array $file) use ($session, &$buffer, &$totalScanned) {
-                    $sku = pathinfo($file['filename'], PATHINFO_FILENAME);
+                    // Use folder name as SKU if images are organised in item-code folders,
+                    // otherwise fall back to the filename (without extension)
+                    $sku = !empty($file['folder_name'])
+                        ? $file['folder_name']
+                        : pathinfo($file['filename'], PATHINFO_FILENAME);
 
                     $buffer[] = [
                         'upload_session_id'  => $session->id,

@@ -41,6 +41,7 @@ class OneDriveService
                 "https://graph.microsoft.com/v1.0/shares/{$encoded}/driveItem/children?\$top=200",
                 $token,
                 $callback,
+                '', // root level — no folder name yet
             );
         } catch (GuzzleException $e) {
             throw new \RuntimeException('OneDrive API error: ' . $e->getMessage());
@@ -83,7 +84,7 @@ class OneDriveService
 
     // ──────────────────────────────────────────────────────────────────────
 
-    private function streamPage(string $url, string $token, callable $callback): void
+    private function streamPage(string $url, string $token, callable $callback, string $folderName = ''): void
     {
         $response = $this->http->get($url, [
             'headers' => [
@@ -97,12 +98,14 @@ class OneDriveService
 
         foreach ($items as $item) {
             if (isset($item['folder'])) {
-                // Recurse into sub-folders
+                // Recurse into sub-folders, passing the folder name as the SKU context
                 if (isset($item['id'], $item['parentReference']['driveId'])) {
                     $driveId  = $item['parentReference']['driveId'];
                     $childUrl = "https://graph.microsoft.com/v1.0/drives/{$driveId}/items/{$item['id']}/children?\$top=200";
+                    // Use this folder's name as the SKU for files inside it
+                    $childFolderName = $folderName ?: $item['name'];
                     try {
-                        $this->streamPage($childUrl, $token, $callback);
+                        $this->streamPage($childUrl, $token, $callback, $childFolderName);
                     } catch (\Throwable $e) {
                         Log::warning("OneDrive: could not scan sub-folder [{$item['name']}]: " . $e->getMessage());
                     }
@@ -117,24 +120,23 @@ class OneDriveService
                 continue;
             }
 
-            // Prefer the parentReference driveId; fall back to the root driveId
             $driveId = $item['parentReference']['driveId']
                 ?? $item['remoteItem']['parentReference']['driveId']
                 ?? '';
 
             $callback([
-                'filename'   => $name,
-                'drive_id'   => $driveId,
-                'item_id'    => $item['id'] ?? '',
-                'size_bytes' => $item['size'] ?? 0,
+                'filename'    => $name,
+                'folder_name' => $folderName, // parent folder name = item code/SKU
+                'drive_id'    => $driveId,
+                'item_id'     => $item['id'] ?? '',
+                'size_bytes'  => $item['size'] ?? 0,
             ]);
         }
 
-        // Follow pagination (@odata.nextLink) — Graph returns max 200 per page
+        // Follow pagination
         if (!empty($data['@odata.nextLink'])) {
-            // Refresh access token if near expiry before next page
             $token = $this->getAccessToken();
-            $this->streamPage($data['@odata.nextLink'], $token, $callback);
+            $this->streamPage($data['@odata.nextLink'], $token, $callback, $folderName);
         }
     }
 
