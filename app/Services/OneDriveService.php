@@ -167,7 +167,7 @@ class OneDriveService
         }
 
         $response = $this->http->post(
-            'https://login.microsoftonline.com/common/oauth2/v2.0/token',
+            'https://login.microsoftonline.com/consumers/oauth2/v2.0/token',
             [
                 'form_params' => [
                     'grant_type'    => 'refresh_token',
