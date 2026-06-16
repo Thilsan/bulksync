@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" class="h-full bg-brand-400">
+<html lang="en" class="h-full" style="background-color:#1d5a74">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -40,7 +40,7 @@
                 </svg>
                 <span class="text-white font-bold text-3xl">BulkSync</span>
             </div>
-            <p class="text-black text-sm">Products Bulk Image Uploader</p>
+            <p class="text-white/70 text-sm">Products Bulk Image Uploader</p>
         </div>
 
         {{-- Card --}}
@@ -86,7 +86,7 @@
             </form>
         </div>
 
-        <p class="text-center text-xs text-black mt-6">
+        <p class="text-center text-xs text-white/70 mt-6">
             BulkSync v1.0 — Internal admin tool
         </p>
     </div>

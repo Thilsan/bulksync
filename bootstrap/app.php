@@ -12,7 +12,8 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        //
+        $middleware->appendToGroup('web', \App\Http\Middleware\CheckActive::class);
+        $middleware->alias(['super-admin' => \App\Http\Middleware\SuperAdmin::class]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(

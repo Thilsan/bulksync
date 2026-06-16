@@ -5,6 +5,8 @@ use App\Http\Controllers\BulkUploadController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\ShopifyAuthController;
+use App\Http\Controllers\StoreController;
+use App\Http\Controllers\SuperAdminController;
 use Illuminate\Support\Facades\Route;
 
 // Auth
@@ -32,8 +34,23 @@ Route::middleware('auth')->group(function () {
     // Settings
     Route::get('/settings',                [SettingsController::class, 'index'])->name('settings.index');
     Route::put('/settings',                [SettingsController::class, 'update'])->name('settings.update');
-    Route::get('/settings/test-shopify',   [SettingsController::class, 'testShopify'])->name('settings.test-shopify');
     Route::get('/settings/test-onedrive',  [SettingsController::class, 'testOnedrive'])->name('settings.test-onedrive');
+
+    // Stores
+    Route::get('/stores',                     [StoreController::class, 'index'])->name('stores.index');
+    Route::post('/stores',                    [StoreController::class, 'store'])->name('stores.store');
+    Route::put('/stores/{store}',             [StoreController::class, 'update'])->name('stores.update');
+    Route::delete('/stores/{store}',          [StoreController::class, 'destroy'])->name('stores.destroy');
+    Route::post('/stores/{store}/switch',     [StoreController::class, 'switch'])->name('stores.switch');
+    Route::get('/stores/{store}/test',        [StoreController::class, 'test'])->name('stores.test');
+
+    // Super admin
+    Route::middleware('super-admin')->prefix('super-admin')->name('super-admin.')->group(function () {
+        Route::get('/',                              [SuperAdminController::class, 'index'])->name('index');
+        Route::post('/users',                        [SuperAdminController::class, 'storeUser'])->name('users.store');
+        Route::post('/users/{user}/toggle',          [SuperAdminController::class, 'toggleUser'])->name('users.toggle');
+        Route::post('/users/{user}/toggle-admin',    [SuperAdminController::class, 'toggleSuperAdmin'])->name('users.toggle-admin');
+    });
 
     // Shopify OAuth
     Route::get('/auth/shopify/redirect',  [ShopifyAuthController::class, 'redirect'])->name('shopify.auth.redirect');

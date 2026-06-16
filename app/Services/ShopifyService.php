@@ -2,10 +2,9 @@
 
 namespace App\Services;
 
-use App\Models\Setting;
+use App\Models\Store;
 use GuzzleHttp\Client;
 use GuzzleHttp\Exception\ClientException;
-use GuzzleHttp\Exception\ServerException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 
@@ -22,10 +21,12 @@ class ShopifyService
     private const BUCKET_MAX  = 40.0;
     private const BUCKET_RATE = 2.0;   // calls per second restored
 
-    public function __construct()
+    public function __construct(?Store $store = null)
     {
-        $this->shop  = rtrim(Setting::get('shopify_domain', config('services.shopify.domain', '')), '/');
-        $this->token = Setting::get('shopify_access_token', config('services.shopify.access_token', ''));
+        $target = $store ?? Store::getActive();
+
+        $this->shop  = rtrim($target?->shopify_domain ?? config('services.shopify.domain', ''), '/');
+        $this->token = $target?->shopify_access_token ?? config('services.shopify.access_token', '');
 
         $this->http = new Client([
             'timeout'  => 30,
