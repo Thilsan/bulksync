@@ -140,27 +140,41 @@ class OneDriveService
 
     private function getAccessToken(): string
     {
-        // Refresh 60 seconds before actual expiry
+        // Return cached token if still valid
         if ($this->accessToken && microtime(true) < ($this->tokenExpiry - 60)) {
             return $this->accessToken;
         }
 
-        $tenantId     = Setting::get('onedrive_tenant_id',     config('services.onedrive.tenant_id', ''));
-        $clientId     = Setting::get('onedrive_client_id',     config('services.onedrive.client_id', ''));
-        $clientSecret = Setting::get('onedrive_client_secret', config('services.onedrive.client_secret', ''));
+        $storedExpiry = (int) Setting::get('onedrive_token_expiry', '0');
 
-        if (!$tenantId || !$clientId || !$clientSecret) {
-            throw new \RuntimeException('OneDrive credentials are not configured. Go to Settings.');
+        // Use stored access token if still valid
+        if ($storedExpiry > time() + 60) {
+            $token = Setting::get('onedrive_access_token');
+            if ($token) {
+                $this->accessToken = $token;
+                $this->tokenExpiry = (float) $storedExpiry;
+                return $this->accessToken;
+            }
+        }
+
+        // Refresh using refresh token
+        $refreshToken = Setting::get('onedrive_refresh_token');
+        $clientId     = Setting::get('onedrive_client_id');
+        $clientSecret = Setting::get('onedrive_client_secret');
+
+        if (!$refreshToken || !$clientId || !$clientSecret) {
+            throw new \RuntimeException('OneDrive is not connected. Go to Settings and click "Connect OneDrive".');
         }
 
         $response = $this->http->post(
-            "https://login.microsoftonline.com/{$tenantId}/oauth2/v2.0/token",
+            'https://login.microsoftonline.com/common/oauth2/v2.0/token',
             [
                 'form_params' => [
-                    'grant_type'    => 'client_credentials',
+                    'grant_type'    => 'refresh_token',
                     'client_id'     => $clientId,
                     'client_secret' => $clientSecret,
-                    'scope'         => 'https://graph.microsoft.com/.default',
+                    'refresh_token' => $refreshToken,
+                    'scope'         => 'Files.Read offline_access User.Read',
                 ],
             ]
         );
@@ -168,11 +182,15 @@ class OneDriveService
         $data = json_decode((string) $response->getBody(), true);
 
         if (empty($data['access_token'])) {
-            throw new \RuntimeException('Failed to obtain OneDrive access token: ' . json_encode($data));
+            throw new \RuntimeException('Failed to refresh OneDrive token. Please reconnect in Settings.');
         }
 
+        Setting::set('onedrive_access_token',  $data['access_token']);
+        Setting::set('onedrive_refresh_token', $data['refresh_token'] ?? $refreshToken);
+        Setting::set('onedrive_token_expiry',  (string) (time() + ($data['expires_in'] ?? 3600)));
+
         $this->accessToken = $data['access_token'];
-        $this->tokenExpiry = microtime(true) + ($data['expires_in'] ?? 3600);
+        $this->tokenExpiry = (float) (time() + ($data['expires_in'] ?? 3600));
 
         return $this->accessToken;
     }

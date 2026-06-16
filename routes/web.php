@@ -4,6 +4,7 @@ use App\Http\Controllers\Auth\LoginController;
 use App\Http\Controllers\BulkUploadController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\SettingsController;
+use App\Http\Controllers\OneDriveAuthController;
 use App\Http\Controllers\ShopifyAuthController;
 use App\Http\Controllers\StoreController;
 use App\Http\Controllers\SuperAdminController;
@@ -53,6 +54,10 @@ Route::middleware('auth')->group(function () {
     });
 
     // Shopify OAuth
-    Route::get('/auth/shopify/redirect',  [ShopifyAuthController::class, 'redirect'])->name('shopify.auth.redirect');
-    Route::get('/auth/shopify/callback',  [ShopifyAuthController::class, 'callback'])->name('shopify.auth.callback');
+    Route::get('/auth/shopify/redirect',   [ShopifyAuthController::class,  'redirect'])->name('shopify.auth.redirect');
+    Route::get('/auth/shopify/callback',   [ShopifyAuthController::class,  'callback'])->name('shopify.auth.callback');
+
+    // OneDrive OAuth
+    Route::get('/auth/onedrive/redirect',  [OneDriveAuthController::class, 'redirect'])->name('onedrive.auth.redirect');
+    Route::get('/auth/onedrive/callback',  [OneDriveAuthController::class, 'callback'])->name('onedrive.auth.callback');
 });
