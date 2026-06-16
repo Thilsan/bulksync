@@ -13,6 +13,7 @@ class SettingsController extends Controller
     public function index(): View
     {
         $settings = [
+            'onedrive_tenant_id'     => Setting::get('onedrive_tenant_id'),
             'onedrive_client_id'     => Setting::get('onedrive_client_id'),
             'onedrive_client_secret' => Setting::get('onedrive_client_secret'),
             'onedrive_connected'     => (bool) Setting::get('onedrive_access_token'),
@@ -24,6 +25,7 @@ class SettingsController extends Controller
     public function update(Request $request): RedirectResponse
     {
         $validated = $request->validate([
+            'onedrive_tenant_id'     => ['nullable', 'string', 'max:255'],
             'onedrive_client_id'     => ['nullable', 'string', 'max:255'],
             'onedrive_client_secret' => ['nullable', 'string', 'max:500'],
         ]);

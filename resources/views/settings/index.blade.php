@@ -74,6 +74,14 @@
                 @method('PUT')
 
                 <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1.5">Tenant ID</label>
+                    <input type="text" name="onedrive_tenant_id" value="{{ $settings['onedrive_tenant_id'] }}"
+                        placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                        class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent">
+                    <p class="text-xs text-gray-400 mt-1">From Azure Portal → App registrations → your app → Overview (Directory tenant ID)</p>
+                </div>
+
+                <div>
                     <label class="block text-sm font-medium text-gray-700 mb-1.5">Client ID</label>
                     <input type="text" name="onedrive_client_id" value="{{ $settings['onedrive_client_id'] }}"
                         placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"

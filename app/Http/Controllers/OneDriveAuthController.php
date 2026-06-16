@@ -23,7 +23,8 @@ class OneDriveAuthController extends Controller
         $state = Str::random(40);
         Setting::set('onedrive_oauth_state', $state);
 
-        $authUrl = 'https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize?' . http_build_query([
+        $tenantId = Setting::get('onedrive_tenant_id') ?: 'common';
+        $authUrl = "https://login.microsoftonline.com/{$tenantId}/oauth2/v2.0/authorize?" . http_build_query([
             'client_id'     => $clientId,
             'response_type' => 'code',
             'redirect_uri'  => str_replace('http://127.0.0.1', 'http://localhost', route('onedrive.auth.callback')),
@@ -47,8 +48,9 @@ class OneDriveAuthController extends Controller
                 ->withErrors(['OneDrive login failed: ' . $request->error_description]);
         }
 
+        $tenantId = Setting::get('onedrive_tenant_id') ?: 'common';
         $response = Http::asForm()->post(
-            'https://login.microsoftonline.com/consumers/oauth2/v2.0/token',
+            "https://login.microsoftonline.com/{$tenantId}/oauth2/v2.0/token",
             [
                 'client_id'     => Setting::get('onedrive_client_id'),
                 'client_secret' => Setting::get('onedrive_client_secret'),
@@ -59,8 +61,9 @@ class OneDriveAuthController extends Controller
         );
 
         if (!$response->successful() || !$response->json('access_token')) {
+            $error = $response->json('error_description') ?? $response->json('error') ?? 'Unknown error';
             return redirect()->route('settings.index')
-                ->withErrors(['Failed to get OneDrive access token. Check your Client Secret.']);
+                ->withErrors(["OneDrive token error: {$error}"]);
         }
 
         $data = $response->json();
