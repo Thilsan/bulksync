@@ -170,7 +170,7 @@ class BulkUploadController extends Controller
      * Status endpoint — called every few seconds by the progress page.
      * Returns JSON progress without driving any processing.
      */
-    public function status(UploadSession $session): JsonResponse
+    public function status(Request $request, UploadSession $session): JsonResponse
     {
         // Efficient single-query count breakdown
         $counts = UploadItem::where('upload_session_id', $session->id)
@@ -189,24 +189,26 @@ class BulkUploadController extends Controller
         $total    = max($session->total_files, $counts->total ?? 0);
         $progress = $total > 0 ? (int) min(100, round(($done / $total) * 100)) : 0;
 
-        // Latest 100 items for the live table
-        $items = UploadItem::where('upload_session_id', $session->id)
+        $perPage   = 50;
+        $page      = max(1, (int) $request->get('page', 1));
+
+        $paginator = UploadItem::where('upload_session_id', $session->id)
             ->orderByRaw("CASE status WHEN 'processing' THEN 1 WHEN 'uploaded' THEN 2 WHEN 'failed' THEN 3 WHEN 'skipped' THEN 4 WHEN 'matched' THEN 5 ELSE 6 END")
             ->orderByDesc('updated_at')
-            ->limit(100)
-            ->get()
-            ->map(fn (UploadItem $i) => [
-                'id'            => $i->id,
-                'filename'      => $i->filename,
-                'sku'           => $i->sku_detected,
-                'product_title' => $i->product_title,
-                'status'        => $i->status,
-                'status_label'  => $i->statusLabel(),
-                'status_color'  => $i->statusColor(),
-                'original_kb'   => $i->original_size_kb,
-                'processed_kb'  => $i->processed_size_kb,
-                'error'         => $i->error_message,
-            ]);
+            ->paginate($perPage, ['*'], 'page', $page);
+
+        $items = $paginator->getCollection()->map(fn (UploadItem $i) => [
+            'id'            => $i->id,
+            'filename'      => $i->filename,
+            'sku'           => $i->sku_detected,
+            'product_title' => $i->product_title,
+            'status'        => $i->status,
+            'status_label'  => $i->statusLabel(),
+            'status_color'  => $i->statusColor(),
+            'original_kb'   => $i->original_size_kb,
+            'processed_kb'  => $i->processed_size_kb,
+            'error'         => $i->error_message,
+        ]);
 
         return response()->json([
             'session' => [
@@ -223,7 +225,13 @@ class BulkUploadController extends Controller
                 'processing'   => (int) ($counts->processing ?? 0),
                 'pending'      => (int) ($counts->pending    ?? 0),
             ],
-            'items' => $items,
+            'items'      => $items,
+            'pagination' => [
+                'current_page' => $paginator->currentPage(),
+                'last_page'    => $paginator->lastPage(),
+                'per_page'     => $paginator->perPage(),
+                'total'        => $paginator->total(),
+            ],
         ]);
     }
 

@@ -107,18 +107,22 @@
         </div>
     </div>
 
-    {{-- Live items table (shows latest 100) --}}
+    {{-- Items table --}}
     <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
         <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
             <h3 class="font-semibold text-gray-700">
-                Recent items
-                <span class="text-xs font-normal text-gray-400 ml-1">(latest 100 shown — full data in DB)</span>
+                Items
+                <span x-show="!isFinished" class="text-xs font-normal text-gray-400 ml-1">(live — latest activity first)</span>
+                <span x-show="isFinished" class="text-xs font-normal text-gray-400 ml-1"
+                      x-text="'(' + pagination.total.toLocaleString() + ' total)'"></span>
             </h3>
-            <span class="text-xs text-gray-400">
+            <span class="text-xs text-gray-400" x-show="!isFinished">
                 <span x-text="stats.processing"></span> processing
                 &nbsp;·&nbsp;
                 <span x-text="stats.pending?.toLocaleString()"></span> queued
             </span>
+            <span class="text-xs text-gray-400" x-show="isFinished && pagination.last_page > 1"
+                  x-text="'Page ' + pagination.current_page + ' of ' + pagination.last_page"></span>
         </div>
 
         <div class="overflow-x-auto">
@@ -170,6 +174,35 @@
                 </tbody>
             </table>
         </div>
+
+        {{-- Pagination controls (only when finished and more than 1 page) --}}
+        <div x-show="isFinished && pagination.last_page > 1"
+             class="px-5 py-3 border-t border-gray-100 flex items-center justify-between">
+            <span class="text-xs text-gray-500"
+                  x-text="'Showing ' + (((pagination.current_page - 1) * pagination.per_page) + 1).toLocaleString()
+                          + '–' + Math.min(pagination.current_page * pagination.per_page, pagination.total).toLocaleString()
+                          + ' of ' + pagination.total.toLocaleString() + ' items'"></span>
+            <div class="flex items-center gap-1">
+                <button @click="goToPage(1)" :disabled="pagination.current_page <= 1"
+                    class="px-2.5 py-1.5 rounded border border-gray-200 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+                    «
+                </button>
+                <button @click="goToPage(pagination.current_page - 1)" :disabled="pagination.current_page <= 1"
+                    class="px-3 py-1.5 rounded border border-gray-200 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+                    ← Prev
+                </button>
+                <span class="px-3 py-1.5 text-xs text-gray-600 font-medium"
+                      x-text="pagination.current_page + ' / ' + pagination.last_page"></span>
+                <button @click="goToPage(pagination.current_page + 1)" :disabled="pagination.current_page >= pagination.last_page"
+                    class="px-3 py-1.5 rounded border border-gray-200 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+                    Next →
+                </button>
+                <button @click="goToPage(pagination.last_page)" :disabled="pagination.current_page >= pagination.last_page"
+                    class="px-2.5 py-1.5 rounded border border-gray-200 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+                    »
+                </button>
+            </div>
+        </div>
     </div>
 
     {{-- Actions --}}
@@ -190,9 +223,14 @@
                         method: 'POST',
                         headers: { 'X-CSRF-TOKEN': '{{ csrf_token() }}', 'Accept': 'application/json' }
                     })
-                    .then(r => r.json())
+                    .then(r => {
+                        if (r.status === 419) throw new Error('Session expired — please refresh the page and try again.');
+                        if (r.status === 401 || r.status === 403) throw new Error('Not authenticated — please refresh and log in again.');
+                        if (!r.headers.get('content-type')?.includes('application/json')) throw new Error('Server error — please refresh the page and try again.');
+                        return r.json();
+                    })
                     .then(d => { syncData = d; })
-                    .catch(e => { syncData = { error: e.toString() }; })
+                    .catch(e => { syncData = { error: e.message || e.toString() }; })
                     .finally(() => { syncing = false; })"
                 :disabled="syncing"
                 class="border border-blue-300 text-blue-700 hover:bg-blue-50 disabled:opacity-50 px-5 py-2.5 rounded-lg text-sm font-medium transition-colors">
@@ -256,9 +294,10 @@ function uploadProgress(sessionId) {
             processing: 0,
             pending:    0,
         },
-        uploaded: 0,
-        items:    [],
-        timer:    null,
+        uploaded:   0,
+        items:      [],
+        timer:      null,
+        pagination: { current_page: 1, last_page: 1, per_page: 50, total: 0 },
 
         statCards: [
             ['total',      'Total',       'gray'],
@@ -280,7 +319,8 @@ function uploadProgress(sessionId) {
 
         async pollStatus() {
             try {
-                const res  = await fetch(`/upload/${sessionId}/status`, {
+                const page = this.isFinished ? this.pagination.current_page : 1;
+                const res  = await fetch(`/upload/${sessionId}/status?page=${page}`, {
                     headers: { 'Accept': 'application/json' }
                 });
                 const data = await res.json();
@@ -302,8 +342,8 @@ function uploadProgress(sessionId) {
                     pending:    s.pending,
                 };
 
-                // Replace entire items list (latest 100)
-                this.items = data.items;
+                this.items      = data.items;
+                this.pagination = data.pagination ?? this.pagination;
 
                 if (s.is_finished) {
                     clearInterval(this.timer);
@@ -311,6 +351,12 @@ function uploadProgress(sessionId) {
             } catch (e) {
                 console.error('Poll error', e);
             }
+        },
+
+        async goToPage(p) {
+            const clamped = Math.max(1, Math.min(p, this.pagination.last_page));
+            this.pagination = { ...this.pagination, current_page: clamped };
+            await this.pollStatus();
         },
     };
 }
