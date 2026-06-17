@@ -49,26 +49,55 @@ class OneDriveService
     }
 
     /**
-     * Download a file directly by drive + item ID.
-     * This never expires — it uses the authenticated Graph API endpoint.
+     * Download a file by drive + item ID.
+     * Strategy (in order):
+     *   1. Stored pre-auth URL from scan (fast, no token needed)
+     *   2. Fresh pre-auth URL fetched from item metadata (handles expired stored URL)
+     *   3. Direct /content endpoint (last resort — may fail for SharePoint files)
      */
     public function downloadFileById(string $driveId, string $itemId, string $downloadUrl = ''): string
     {
-        // Prefer the pre-authenticated download URL captured during scan (most reliable for SharePoint)
+        // 1. Try the pre-auth URL captured during scan
         if ($downloadUrl) {
-            $response = $this->http->get($downloadUrl, ['allow_redirects' => true]);
-            $content  = (string) $response->getBody();
-            if (!empty($content)) {
+            $content = $this->tryDownloadUrl($downloadUrl);
+            if ($content !== null) {
                 return $content;
             }
+            Log::warning("OneDrive: stored pre-auth URL returned non-image for {$itemId}, fetching fresh URL");
         }
 
         if (!$driveId || !$itemId) {
             throw new \RuntimeException("Missing OneDrive drive ID or item ID — cannot download file.");
         }
 
-        $token = $this->getAccessToken();
+        // 2. Fetch item metadata for a fresh @microsoft.graph.downloadUrl
+        try {
+            $token    = $this->getAccessToken();
+            $response = $this->http->get(
+                "https://graph.microsoft.com/v1.0/drives/{$driveId}/items/{$itemId}",
+                [
+                    'headers' => [
+                        'Authorization' => "Bearer {$token}",
+                        'Accept'        => 'application/json',
+                    ],
+                ]
+            );
+            $meta     = json_decode((string) $response->getBody(), true);
+            $freshUrl = $meta['@microsoft.graph.downloadUrl'] ?? '';
 
+            if ($freshUrl) {
+                $content = $this->tryDownloadUrl($freshUrl);
+                if ($content !== null) {
+                    return $content;
+                }
+                Log::warning("OneDrive: fresh pre-auth URL also returned non-image for {$itemId}");
+            }
+        } catch (\Throwable $e) {
+            Log::warning("OneDrive: failed to fetch fresh download URL for {$itemId}: " . $e->getMessage());
+        }
+
+        // 3. Last resort: direct /content endpoint (follows redirect to CDN)
+        $token    = $this->getAccessToken();
         $response = $this->http->get(
             "https://graph.microsoft.com/v1.0/drives/{$driveId}/items/{$itemId}/content",
             [
@@ -83,18 +112,34 @@ class OneDriveService
             throw new \RuntimeException("OneDrive returned empty content for item {$itemId}.");
         }
 
-        // Detect common image magic bytes — if none match, the API returned an error response
-        $isImage = str_starts_with($content, "\xFF\xD8")       // JPEG
-                || str_starts_with($content, "\x89PNG")        // PNG
-                || str_starts_with($content, "GIF")            // GIF
-                || str_contains(substr($content, 0, 16), "WEBP"); // WebP
-
-        if (!$isImage) {
-            Log::error("OneDrive download returned non-image for {$itemId}: " . substr($content, 0, 300));
-            throw new \RuntimeException("OneDrive returned non-image data — check logs. First bytes: " . bin2hex(substr($content, 0, 20)));
+        if (!$this->isImageBytes($content)) {
+            Log::error("OneDrive /content endpoint returned non-image for {$itemId}: " . substr($content, 0, 300));
+            throw new \RuntimeException("OneDrive returned non-image data. First bytes: " . bin2hex(substr($content, 0, 20)));
         }
 
         return $content;
+    }
+
+    private function tryDownloadUrl(string $url): ?string
+    {
+        try {
+            $response = $this->http->get($url, ['allow_redirects' => true, 'timeout' => 60]);
+            $content  = (string) $response->getBody();
+            if (!empty($content) && $this->isImageBytes($content)) {
+                return $content;
+            }
+        } catch (\Throwable $e) {
+            Log::warning("OneDrive: download URL request failed: " . $e->getMessage());
+        }
+        return null;
+    }
+
+    private function isImageBytes(string $content): bool
+    {
+        return str_starts_with($content, "\xFF\xD8")          // JPEG
+            || str_starts_with($content, "\x89PNG")           // PNG
+            || str_starts_with($content, "GIF")               // GIF
+            || str_contains(substr($content, 0, 16), "WEBP"); // WebP
     }
 
     /**
