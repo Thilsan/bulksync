@@ -54,9 +54,12 @@ class OneDriveService
      */
     public function downloadFileById(string $driveId, string $itemId): string
     {
+        if (!$driveId || !$itemId) {
+            throw new \RuntimeException("Missing OneDrive drive ID or item ID — cannot download file.");
+        }
+
         $token = $this->getAccessToken();
 
-        // The /content endpoint returns a redirect to the actual download URL
         $response = $this->http->get(
             "https://graph.microsoft.com/v1.0/drives/{$driveId}/items/{$itemId}/content",
             [
@@ -65,7 +68,24 @@ class OneDriveService
             ]
         );
 
-        return (string) $response->getBody();
+        $content = (string) $response->getBody();
+
+        if (empty($content)) {
+            throw new \RuntimeException("OneDrive returned empty content for item {$itemId}.");
+        }
+
+        // Detect common image magic bytes — if none match, the API returned an error response
+        $isImage = str_starts_with($content, "\xFF\xD8")       // JPEG
+                || str_starts_with($content, "\x89PNG")        // PNG
+                || str_starts_with($content, "GIF")            // GIF
+                || str_contains(substr($content, 0, 16), "WEBP"); // WebP
+
+        if (!$isImage) {
+            Log::error("OneDrive download returned non-image for {$itemId}: " . substr($content, 0, 300));
+            throw new \RuntimeException("OneDrive returned non-image data — check logs. First bytes: " . bin2hex(substr($content, 0, 20)));
+        }
+
+        return $content;
     }
 
     /**
