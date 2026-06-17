@@ -2,13 +2,14 @@
 
 namespace App\Services;
 
+use Intervention\Image\Encoders\JpegEncoder;
 use Intervention\Image\ImageManager;
 use Intervention\Image\Drivers\Gd\Driver;
 
 class ImageProcessingService
 {
-    private const START_QUALITY = 100; // always attempt maximum quality first
-    private const MIN_QUALITY   = 30;  // never go below this
+    private const START_QUALITY = 100;
+    private const MIN_QUALITY   = 30;
 
     private ImageManager $manager;
 
@@ -17,29 +18,11 @@ class ImageProcessingService
         $this->manager = new ImageManager(new Driver());
     }
 
-    /**
-     * Resize image to exact $width × $height, then find the highest JPEG quality
-     * that keeps the file under $maxBytes.
-     *
-     * Key point: quality is ONLY reduced when the resized image is still larger
-     * than $maxBytes at 100%. If resizing alone brings the file under the limit,
-     * the image is returned at 100% quality — no degradation at all.
-     *
-     * Strategy:
-     *   1. Resize to exact dimensions (cover + centre-crop).
-     *   2. Try 100% quality — if ≤ $maxBytes, return immediately (no degradation).
-     *   3. Binary-search for the highest quality that fits (maximises quality).
-     *   4. Last resort: scale dimensions further until it fits at MIN_QUALITY.
-     *
-     * @param  int  $maxBytes  e.g. 1_000_000 (1MB), 2_000_000 (2MB), 4_000_000 (4MB)
-     */
-    /**
-     * Compress image to fit under $maxBytes without resizing (original dimensions kept).
-     */
     public function compressOnly(string $imageContent, int $maxBytes = 1_000_000): string
     {
-        $img    = $this->manager->read($imageContent);
-        $result = $img->toJpeg(self::START_QUALITY)->toString();
+        $result = $this->manager->decode($imageContent)
+            ->encode(new JpegEncoder(quality: self::START_QUALITY))
+            ->toString();
 
         if (strlen($result) <= $maxBytes) {
             return $result;
@@ -50,54 +33,50 @@ class ImageProcessingService
 
         while ($lo < $hi) {
             $mid  = (int) ceil(($lo + $hi) / 2);
-            $size = strlen($this->manager->read($imageContent)->toJpeg($mid)->toString());
+            $size = strlen(
+                $this->manager->decode($imageContent)
+                    ->encode(new JpegEncoder(quality: $mid))
+                    ->toString()
+            );
             if ($size <= $maxBytes) { $lo = $mid; } else { $hi = $mid - 1; }
         }
 
-        return $this->manager->read($imageContent)->toJpeg($lo)->toString();
+        return $this->manager->decode($imageContent)
+            ->encode(new JpegEncoder(quality: $lo))
+            ->toString();
     }
 
     public function process(string $imageContent, int $width, int $height, int $maxBytes = 1_000_000): string
     {
-        // Step 1 — resize to target dimensions only (never upscale)
-        $resized = $this->manager->read($imageContent);
-        $resized->cover($width, $height);
-
-        // Step 2 — try 100% quality
-        $result = $resized->toJpeg(self::START_QUALITY)->toString();
+        $img = $this->manager->decode($imageContent);
+        $img->cover($width, $height);
+        $result = $img->encode(new JpegEncoder(quality: self::START_QUALITY))->toString();
 
         if (strlen($result) <= $maxBytes) {
-            return $result; // full quality — no degradation
+            return $result;
         }
 
-        // Step 3 — binary-search for the highest quality that fits
         $lo = self::MIN_QUALITY;
         $hi = self::START_QUALITY - 1;
 
         while ($lo < $hi) {
             $mid  = (int) ceil(($lo + $hi) / 2);
-            $img  = $this->manager->read($imageContent);
+            $img  = $this->manager->decode($imageContent);
             $img->cover($width, $height);
-            $size = strlen($img->toJpeg($mid)->toString());
+            $size = strlen($img->encode(new JpegEncoder(quality: $mid))->toString());
 
-            if ($size <= $maxBytes) {
-                $lo = $mid;      // fits — try higher
-            } else {
-                $hi = $mid - 1;  // too big — try lower
-            }
+            if ($size <= $maxBytes) { $lo = $mid; } else { $hi = $mid - 1; }
         }
 
-        // Encode at the best quality found
-        $final = $this->manager->read($imageContent);
+        $final = $this->manager->decode($imageContent);
         $final->cover($width, $height);
-        $result = $final->toJpeg($lo)->toString();
+        $result = $final->encode(new JpegEncoder(quality: $lo))->toString();
 
-        // Step 4 — last resort: shrink dimensions further (extremely rare)
         $scale = 0.9;
         while (strlen($result) > $maxBytes && $scale > 0.3) {
-            $img    = $this->manager->read($imageContent);
+            $img    = $this->manager->decode($imageContent);
             $img->cover((int) ($width * $scale), (int) ($height * $scale));
-            $result = $img->toJpeg(self::MIN_QUALITY)->toString();
+            $result = $img->encode(new JpegEncoder(quality: self::MIN_QUALITY))->toString();
             $scale -= 0.1;
         }
 
@@ -120,7 +99,6 @@ class ImageProcessingService
         ];
     }
 
-    /** Size limit presets shown in the upload form */
     public function sizeLimitOptions(): array
     {
         return [
