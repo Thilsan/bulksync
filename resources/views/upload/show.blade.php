@@ -85,7 +85,12 @@
         </div>
         <div x-show="isFinished && mainStatus === 'failed'" x-cloak
              class="mt-4 bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-red-800 text-sm">
-            Session failed. Check the items table below for details.
+            Session failed.
+            @if($session->error_message)
+            <div class="mt-1 font-mono text-xs break-all">{{ $session->error_message }}</div>
+            @else
+            Check the items table below for details.
+            @endif
         </div>
 
         {{-- Queue worker reminder (shown while processing) --}}
