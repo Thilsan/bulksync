@@ -25,9 +25,14 @@ class AppServiceProvider extends ServiceProvider
 
         View::composer('layouts.app', function ($view) {
             try {
+                $user = auth()->user();
+                $storeQuery = \App\Models\Store::orderBy('name');
+                if ($user && !$user->is_super_admin) {
+                    $storeQuery->where('user_id', $user->id);
+                }
                 $view->with([
                     'activeStore' => \App\Models\Store::getActive(),
-                    'allStores'   => \App\Models\Store::orderBy('name')->get(),
+                    'allStores'   => $storeQuery->get(),
                 ]);
             } catch (\Throwable) {
                 $view->with(['activeStore' => null, 'allStores' => collect()]);

@@ -17,11 +17,6 @@
     </div>
     @endif
 
-    <div class="bg-blue-50 border border-blue-200 rounded-xl px-5 py-4 text-sm text-blue-700">
-        Shopify store credentials have moved to
-        <a href="{{ route('stores.index') }}" class="font-semibold underline">Stores</a>.
-    </div>
-
     {{-- OneDrive Settings --}}
     <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
         <div class="px-6 py-5 border-b border-gray-100 flex items-center justify-between">
@@ -34,7 +29,7 @@
                 </div>
                 <div>
                     <h2 class="font-semibold text-gray-800">Microsoft OneDrive</h2>
-                    <p class="text-xs text-gray-500">Connect with your Microsoft account</p>
+                    <p class="text-xs text-gray-500">Connect your Microsoft account to access your files</p>
                 </div>
             </div>
             @if($settings['onedrive_connected'])
@@ -56,19 +51,51 @@
                 <span class="text-sm text-green-700 font-medium">OneDrive connected</span>
             </div>
             @else
-            <div class="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 text-sm text-blue-800">
-                <p class="font-semibold mb-1">How to connect</p>
-                <ol class="list-decimal list-inside space-y-0.5 text-xs text-blue-700">
-                    <li>In Azure Portal → your app registration → <strong>Authentication</strong> → add redirect URI:<br>
-                        <code class="bg-blue-100 px-1 rounded">{{ route('onedrive.auth.callback') }}</code>
-                    </li>
-                    <li>Go to <strong>Certificates & secrets</strong> → New client secret → copy the Value</li>
-                    <li>Enter your Client ID and Client Secret below → Save → Connect</li>
-                </ol>
+            <div class="flex items-center gap-2 bg-yellow-50 border border-yellow-200 rounded-lg px-4 py-3">
+                <svg class="w-4 h-4 text-yellow-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+                </svg>
+                <span class="text-sm text-yellow-700 font-medium">OneDrive not connected — click the button below to connect</span>
             </div>
             @endif
 
-            {{-- Credentials form --}}
+            {{-- Test result --}}
+            <div x-show="onedriveResult" x-cloak
+                 :class="onedriveOk ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'"
+                 class="border rounded-lg px-3 py-2 text-sm" x-text="onedriveResult">
+            </div>
+
+            <div class="pt-1">
+                <a href="{{ route('onedrive.auth.redirect') }}"
+                   class="inline-block bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg text-sm font-semibold transition-colors">
+                    {{ $settings['onedrive_connected'] ? 'Reconnect OneDrive' : 'Connect OneDrive' }}
+                </a>
+            </div>
+        </div>
+    </div>
+
+    {{-- Azure App Credentials — super admin only --}}
+    @if(auth()->user()->is_super_admin)
+    <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div class="px-6 py-5 border-b border-gray-100 flex items-center gap-3">
+            <div class="w-9 h-9 rounded-lg bg-gray-100 flex items-center justify-center">
+                <svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                </svg>
+            </div>
+            <div>
+                <h2 class="font-semibold text-gray-800">Azure App Credentials</h2>
+                <p class="text-xs text-gray-500">Shared Microsoft Azure app registration — super admin only</p>
+            </div>
+        </div>
+
+        <div class="px-6 py-5 space-y-4">
+            <div class="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-xs text-amber-700">
+                These credentials are shared across all users. Changes affect everyone's OneDrive connection.
+            </div>
+
             <form method="POST" action="{{ route('settings.update') }}" class="space-y-4">
                 @csrf
                 @method('PUT')
@@ -78,7 +105,7 @@
                     <input type="text" name="onedrive_tenant_id" value="{{ $settings['onedrive_tenant_id'] }}"
                         placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
                         class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent">
-                    <p class="text-xs text-gray-400 mt-1">From Azure Portal → App registrations → your app → Overview (Directory tenant ID)</p>
+                    <p class="text-xs text-gray-400 mt-1">Azure Portal → App registrations → your app → Overview (Directory tenant ID)</p>
                 </div>
 
                 <div>
@@ -86,7 +113,7 @@
                     <input type="text" name="onedrive_client_id" value="{{ $settings['onedrive_client_id'] }}"
                         placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
                         class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent">
-                    <p class="text-xs text-gray-400 mt-1">From Azure Portal → App registrations → your app → Overview</p>
+                    <p class="text-xs text-gray-400 mt-1">Azure Portal → App registrations → your app → Overview</p>
                 </div>
 
                 <div x-data="{ show: false }">
@@ -104,28 +131,19 @@
                             </svg>
                         </button>
                     </div>
-                    <p class="text-xs text-gray-400 mt-1">From Azure Portal → your app → Certificates & secrets</p>
+                    <p class="text-xs text-gray-400 mt-1">Azure Portal → your app → Certificates & secrets</p>
                 </div>
 
-                {{-- Test result --}}
-                <div x-show="onedriveResult" x-cloak
-                     :class="onedriveOk ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'"
-                     class="border rounded-lg px-3 py-2 text-sm" x-text="onedriveResult">
-                </div>
-
-                <div class="flex items-center gap-3 pt-1">
+                <div class="pt-1">
                     <button type="submit"
                         class="bg-brand-600 hover:bg-brand-700 text-white px-5 py-2.5 rounded-lg text-sm font-semibold transition-colors">
-                        Save
+                        Save Credentials
                     </button>
-                    <a href="{{ route('onedrive.auth.redirect') }}"
-                       class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg text-sm font-semibold transition-colors">
-                        {{ $settings['onedrive_connected'] ? 'Reconnect OneDrive' : 'Connect OneDrive' }}
-                    </a>
                 </div>
             </form>
         </div>
     </div>
+    @endif
 
 </div>
 

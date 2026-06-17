@@ -6,17 +6,20 @@ use App\Models\Setting;
 use App\Services\OneDriveService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\View\View;
 
 class SettingsController extends Controller
 {
     public function index(): View
     {
+        $user = Auth::user();
+
         $settings = [
             'onedrive_tenant_id'     => Setting::get('onedrive_tenant_id'),
             'onedrive_client_id'     => Setting::get('onedrive_client_id'),
             'onedrive_client_secret' => Setting::get('onedrive_client_secret'),
-            'onedrive_connected'     => !empty(auth()->user()->onedrive_access_token),
+            'onedrive_connected'     => !empty($user->onedrive_access_token),
         ];
 
         return view('settings.index', compact('settings'));
@@ -24,6 +27,10 @@ class SettingsController extends Controller
 
     public function update(Request $request): RedirectResponse
     {
+        if (!Auth::user()->is_super_admin) {
+            abort(403);
+        }
+
         $validated = $request->validate([
             'onedrive_tenant_id'     => ['nullable', 'string', 'max:255'],
             'onedrive_client_id'     => ['nullable', 'string', 'max:255'],
