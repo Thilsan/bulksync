@@ -199,9 +199,41 @@
                 <span x-show="!syncing">Sync Variant Images</span>
                 <span x-show="syncing">Syncing&hellip;</span>
             </button>
-            {{-- Show the full JSON response on the page so we can debug without the browser console --}}
-            <pre x-show="syncData" class="mt-2 text-xs bg-gray-50 border border-gray-200 rounded p-3 max-w-2xl overflow-auto whitespace-pre-wrap"
-                 x-text="syncData ? JSON.stringify(syncData, null, 2) : ''"></pre>
+
+            {{-- Result card --}}
+            <div x-show="syncData" class="mt-3 rounded-lg border p-4 max-w-sm text-sm"
+                 :class="syncData && !syncData.error && syncData.errors === 0
+                     ? 'bg-green-50 border-green-200'
+                     : 'bg-red-50 border-red-200'">
+
+                {{-- Request-level error --}}
+                <template x-if="syncData && syncData.error">
+                    <p class="text-red-700 font-medium" x-text="syncData.error"></p>
+                </template>
+
+                {{-- Normal response --}}
+                <template x-if="syncData && !syncData.error">
+                    <div>
+                        <p class="font-semibold mb-2"
+                           :class="syncData.errors > 0 ? 'text-red-700' : 'text-green-700'"
+                           x-text="syncData.errors > 0
+                               ? syncData.synced + ' synced, ' + syncData.errors + ' failed'
+                               : syncData.synced + ' variant' + (syncData.synced === 1 ? '' : 's') + ' linked successfully'">
+                        </p>
+                        <ul class="space-y-1">
+                            <template x-for="r in syncData.results" :key="r.variant_id">
+                                <li class="flex items-center gap-2">
+                                    <span x-text="r.status === 'ok' ? '✓' : r.status === 'skip' ? '–' : '✗'"
+                                          :class="r.status === 'ok' ? 'text-green-600' : r.status === 'skip' ? 'text-gray-400' : 'text-red-600'"
+                                          class="font-bold w-4 shrink-0"></span>
+                                    <span class="text-gray-700 font-mono text-xs" x-text="r.sku"></span>
+                                    <span x-show="r.error" class="text-red-500 text-xs truncate" x-text="r.error"></span>
+                                </li>
+                            </template>
+                        </ul>
+                    </div>
+                </template>
+            </div>
         </div>
     </div>
 

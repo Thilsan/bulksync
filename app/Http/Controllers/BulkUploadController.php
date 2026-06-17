@@ -57,13 +57,6 @@ class BulkUploadController extends Controller
         $shopify = new ShopifyService();
         $results = [];
 
-        // Debug: raw counts so we can see what's in the DB
-        $allUploaded   = UploadItem::where('upload_session_id', $session->id)->where('status', 'uploaded')->count();
-        $withVariant   = UploadItem::where('upload_session_id', $session->id)->where('status', 'uploaded')->whereNotNull('variant_id')->count();
-        $withProduct   = UploadItem::where('upload_session_id', $session->id)->where('status', 'uploaded')->whereNotNull('product_id')->count();
-        $uniqueVids    = UploadItem::where('upload_session_id', $session->id)->where('status', 'uploaded')->whereNotNull('variant_id')->distinct()->pluck('variant_id');
-        $uniqueSkus    = UploadItem::where('upload_session_id', $session->id)->where('status', 'uploaded')->distinct()->pluck('sku_detected');
-
         // One representative item per variant using groupBy (more reliable than unique()).
         $firstPerVariant = UploadItem::where('upload_session_id', $session->id)
             ->where('status', 'uploaded')
