@@ -174,26 +174,21 @@ class ShopifyService
         string $imageContent,
         string $filename,
         string $altText = '',
-        ?string $variantId = null,
     ): ?string {
         $this->throttle();
-
-        $imageData = [
-            'attachment' => base64_encode($imageContent),
-            'filename'   => $filename,
-            'alt'        => $altText ?: pathinfo($filename, PATHINFO_FILENAME),
-        ];
-
-        // Linking to a variant makes this image the variant's featured image
-        // (shown in the product page when that variant is selected).
-        if ($variantId) {
-            $imageData['variant_ids'] = [(int) $variantId];
-        }
 
         try {
             $response = $this->http->post(
                 "admin/api/{$this->apiVersion}/products/{$productId}/images.json",
-                ['json' => ['image' => $imageData]]
+                [
+                    'json' => [
+                        'image' => [
+                            'attachment' => base64_encode($imageContent),
+                            'filename'   => $filename,
+                            'alt'        => $altText ?: pathinfo($filename, PATHINFO_FILENAME),
+                        ],
+                    ],
+                ]
             );
 
             $data = json_decode((string) $response->getBody(), true);
@@ -203,6 +198,31 @@ class ShopifyService
         } catch (ClientException $e) {
             $this->handleClientException($e, "uploadImageToProduct({$productId})");
             throw new \RuntimeException('Shopify image upload failed: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Set a variant's featured image by updating its image_id directly.
+     * This is the only reliable way to make an image appear in the variant picker.
+     */
+    public function setVariantImage(string $variantId, string $imageId): void
+    {
+        $this->throttle();
+
+        try {
+            $this->http->put(
+                "admin/api/{$this->apiVersion}/variants/{$variantId}.json",
+                [
+                    'json' => [
+                        'variant' => [
+                            'id'       => (int) $variantId,
+                            'image_id' => (int) $imageId,
+                        ],
+                    ],
+                ]
+            );
+        } catch (ClientException $e) {
+            $this->handleClientException($e, "setVariantImage({$variantId})");
         }
     }
 
