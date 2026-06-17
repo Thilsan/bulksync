@@ -84,12 +84,12 @@ class BulkUploadController extends Controller
         $counts = UploadItem::where('upload_session_id', $session->id)
             ->selectRaw("
                 COUNT(*) as total,
-                SUM(status = 'uploaded')   as uploaded,
-                SUM(status = 'failed')     as failed,
-                SUM(status = 'skipped')    as skipped,
-                SUM(status = 'processing') as processing,
-                SUM(status = 'matched')    as matched,
-                SUM(status = 'pending')    as pending
+                SUM(CASE WHEN status = 'uploaded'   THEN 1 ELSE 0 END) as uploaded,
+                SUM(CASE WHEN status = 'failed'     THEN 1 ELSE 0 END) as failed,
+                SUM(CASE WHEN status = 'skipped'    THEN 1 ELSE 0 END) as skipped,
+                SUM(CASE WHEN status = 'processing' THEN 1 ELSE 0 END) as processing,
+                SUM(CASE WHEN status = 'matched'    THEN 1 ELSE 0 END) as matched,
+                SUM(CASE WHEN status = 'pending'    THEN 1 ELSE 0 END) as pending
             ")
             ->first();
 
@@ -99,7 +99,7 @@ class BulkUploadController extends Controller
 
         // Latest 100 items for the live table
         $items = UploadItem::where('upload_session_id', $session->id)
-            ->orderByRaw("FIELD(status, 'processing', 'uploaded', 'failed', 'skipped', 'matched', 'pending')")
+            ->orderByRaw("CASE status WHEN 'processing' THEN 1 WHEN 'uploaded' THEN 2 WHEN 'failed' THEN 3 WHEN 'skipped' THEN 4 WHEN 'matched' THEN 5 ELSE 6 END")
             ->orderByDesc('updated_at')
             ->limit(100)
             ->get()

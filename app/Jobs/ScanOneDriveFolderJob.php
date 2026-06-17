@@ -101,11 +101,10 @@ class ScanOneDriveFolderJob implements ShouldQueue
         } catch (\Throwable $e) {
             Log::error("ScanOneDriveFolderJob failed for session {$this->sessionId}: " . $e->getMessage());
             $session->update([
-                'scan_status'  => 'failed',
-                'status'       => 'failed',
+                'scan_status'   => 'failed',
+                'status'        => 'failed',
                 'error_message' => $e->getMessage(),
             ]);
-            throw $e;
         }
     }
 
