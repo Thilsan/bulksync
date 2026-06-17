@@ -168,8 +168,10 @@ class OneDriveService
             throw new \RuntimeException('OneDrive is not connected. Go to Settings and click "Connect OneDrive".');
         }
 
+        $tenantId = Setting::get('onedrive_tenant_id') ?: 'common';
+
         $response = $this->http->post(
-            'https://login.microsoftonline.com/common/oauth2/v2.0/token',
+            "https://login.microsoftonline.com/{$tenantId}/oauth2/v2.0/token",
             [
                 'form_params' => [
                     'grant_type'    => 'refresh_token',
