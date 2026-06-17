@@ -57,9 +57,11 @@ class StoreController extends Controller
         }
 
         $validated = $request->validate([
-            'name'                 => ['required', 'string', 'max:255'],
-            'shopify_domain'       => ['required', 'string', 'max:255'],
-            'shopify_access_token' => ['nullable', 'string', 'max:500'],
+            'name'                  => ['required', 'string', 'max:255'],
+            'shopify_domain'        => ['required', 'string', 'max:255'],
+            'shopify_client_id'     => ['nullable', 'string', 'max:255'],
+            'shopify_client_secret' => ['nullable', 'string', 'max:500'],
+            'shopify_access_token'  => ['nullable', 'string', 'max:500'],
         ]);
 
         $store->update($validated);
