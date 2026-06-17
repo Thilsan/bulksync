@@ -191,7 +191,7 @@
                         headers: { 'X-CSRF-TOKEN': '{{ csrf_token() }}', 'Accept': 'application/json' }
                     })
                     .then(r => r.json())
-                    .then(d => { syncMsg = d.synced + ' variant(s) synced'; console.log(d); })
+                    .then(d => { syncMsg = d.synced + ' synced' + (d.errors ? ', ' + d.errors + ' failed' : '') + (d.skipped ? ', ' + d.skipped + ' skipped' : ''); console.table(d.results); })
                     .catch(() => { syncMsg = 'Request failed — check console'; })
                     .finally(() => { syncing = false; })"
                 :disabled="syncing"

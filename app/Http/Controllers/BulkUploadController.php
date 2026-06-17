@@ -54,41 +54,76 @@ class BulkUploadController extends Controller
 
     public function syncVariantImages(UploadSession $session): JsonResponse
     {
-        $shopify  = new ShopifyService();
-        $results  = [];
+        $shopify = new ShopifyService();
+        $results = [];
 
-        // For each variant, find the first uploaded image and link it.
-        // Group by variant_id, take the lowest-ID item per group.
+        // One representative item per variant (first by id = first uploaded image).
         $firstPerVariant = UploadItem::where('upload_session_id', $session->id)
             ->where('status', 'uploaded')
             ->whereNotNull('variant_id')
-            ->whereNotNull('shopify_image_id')
+            ->whereNotNull('product_id')
             ->orderBy('id')
             ->get()
             ->unique('variant_id');
 
+        // Cache product images so we only call Shopify once per product.
+        $productImages = [];
+
         foreach ($firstPerVariant as $item) {
-            try {
-                $shopify->setVariantImage($item->variant_id, $item->shopify_image_id);
+            // Prefer the image_id we stored at upload time.
+            $imageId = $item->shopify_image_id ?: null;
+
+            // If it's missing (upload succeeded but id wasn't saved), look up by
+            // alt text — we always upload images with alt = SKU string.
+            if (!$imageId) {
+                if (!isset($productImages[$item->product_id])) {
+                    $productImages[$item->product_id] = $shopify->getProductImages($item->product_id);
+                }
+                foreach ($productImages[$item->product_id] as $img) {
+                    if (($img['alt'] ?? '') === $item->sku_detected) {
+                        $imageId = (string) $img['id'];
+                        break;
+                    }
+                }
+            }
+
+            if (!$imageId) {
                 $results[] = [
                     'sku'        => $item->sku_detected,
                     'variant_id' => $item->variant_id,
-                    'image_id'   => $item->shopify_image_id,
+                    'status'     => 'skip',
+                    'error'      => 'no image found in Shopify for SKU ' . $item->sku_detected,
+                ];
+                continue;
+            }
+
+            try {
+                $shopify->setVariantImage($item->variant_id, $imageId);
+                $results[] = [
+                    'sku'        => $item->sku_detected,
+                    'variant_id' => $item->variant_id,
+                    'image_id'   => $imageId,
                     'status'     => 'ok',
                 ];
             } catch (\Throwable $e) {
                 $results[] = [
                     'sku'        => $item->sku_detected,
                     'variant_id' => $item->variant_id,
-                    'image_id'   => $item->shopify_image_id,
+                    'image_id'   => $imageId,
                     'status'     => 'error',
                     'error'      => $e->getMessage(),
                 ];
             }
         }
 
+        $okCount   = count(array_filter($results, fn ($r) => $r['status'] === 'ok'));
+        $errCount  = count(array_filter($results, fn ($r) => $r['status'] === 'error'));
+        $skipCount = count(array_filter($results, fn ($r) => $r['status'] === 'skip'));
+
         return response()->json([
-            'synced'  => count($results),
+            'synced'  => $okCount,
+            'errors'  => $errCount,
+            'skipped' => $skipCount,
             'results' => $results,
         ]);
     }

@@ -206,6 +206,27 @@ class ShopifyService
     }
 
     /**
+     * Return all images for a product, fields: id, alt, position.
+     * Results are sorted by position (Shopify's natural order).
+     */
+    public function getProductImages(string $productId): array
+    {
+        $this->throttle();
+        try {
+            $response = $this->http->get(
+                "admin/api/{$this->apiVersion}/products/{$productId}/images.json",
+                ['query' => ['fields' => 'id,alt,position', 'limit' => 250]]
+            );
+            $images = json_decode((string) $response->getBody(), true)['images'] ?? [];
+            usort($images, fn ($a, $b) => ($a['position'] ?? 0) <=> ($b['position'] ?? 0));
+            return $images;
+        } catch (\Throwable $e) {
+            Log::warning("Shopify getProductImages({$productId}): " . $e->getMessage());
+            return [];
+        }
+    }
+
+    /**
      * Explicitly set a variant's image_id via the Variants API.
      * Used as a second pass after uploadImageToProduct to guarantee the
      * variant picker shows the correct image.
