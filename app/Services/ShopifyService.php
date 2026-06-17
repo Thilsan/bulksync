@@ -46,21 +46,25 @@ class ShopifyService
      * On first call, pre-warms from Laravel Cache (populated by warmSkuCache()).
      * Falls back to live API if cache is empty.
      */
-    public function findVariantBySkuCached(string $sku): ?array
+    /**
+     * Returns ALL variants matching the SKU across all products.
+     * One SKU can exist on multiple products — this returns every match.
+     */
+    public function findVariantsBySkuCached(string $sku): array
     {
         if (!$sku) {
-            return null;
+            return [];
         }
 
         $cacheKey = $this->skuCacheKey();
-        $map      = Cache::get($cacheKey); // ['SKU' => ['product_id' => ..., ...]]
+        $map      = Cache::get($cacheKey); // ['SKU' => [['product_id' => ...], ...]]
 
         if ($map !== null) {
-            return $map[$sku] ?? null;
+            return $map[$sku] ?? [];
         }
 
         // Cache not warmed — fall back to live lookup
-        return $this->findVariantBySku($sku);
+        return $this->findVariantsBySku($sku);
     }
 
     /**
@@ -101,7 +105,7 @@ class ShopifyService
 
             foreach ($variants as $v) {
                 if (!empty($v['sku'])) {
-                    $map[$v['sku']] = [
+                    $map[$v['sku']][] = [
                         'product_id'    => (string) $v['product_id'],
                         'product_title' => '',   // filled in the next step if needed
                         'variant_id'    => (string) $v['id'],
@@ -138,10 +142,10 @@ class ShopifyService
      * The REST GET /variants.json?sku= endpoint silently ignores the sku
      * filter and returns unrelated variants, so GraphQL is the reliable path.
      */
-    public function findVariantBySku(string $sku): ?array
+    public function findVariantsBySku(string $sku): array
     {
         if (!$sku) {
-            return null;
+            return [];
         }
 
         $this->throttle();
@@ -151,7 +155,7 @@ class ShopifyService
                 "admin/api/{$this->apiVersion}/graphql.json",
                 [
                     'json' => [
-                        'query'     => 'query($q:String!){productVariants(first:1,query:$q){edges{node{id sku product{id title}}}}}',
+                        'query'     => 'query($q:String!){productVariants(first:250,query:$q){edges{node{id sku product{id title}}}}}',
                         'variables' => ['q' => "sku:'{$sku}'"],
                     ],
                 ]
@@ -160,24 +164,21 @@ class ShopifyService
             $data  = json_decode((string) $response->getBody(), true);
             $edges = $data['data']['productVariants']['edges'] ?? [];
 
-            if (empty($edges)) {
-                return null;
-            }
-
-            $node      = $edges[0]['node'];
-            $variantId = ltrim(str_replace('gid://shopify/ProductVariant/', '', $node['id']), '/');
-            $productId = ltrim(str_replace('gid://shopify/Product/', '', $node['product']['id']), '/');
-
-            return [
-                'product_id'    => $productId,
-                'product_title' => $node['product']['title'],
-                'variant_id'    => $variantId,
-                'variant_sku'   => $node['sku'],
-            ];
+            return array_map(function ($edge) {
+                $node      = $edge['node'];
+                $variantId = ltrim(str_replace('gid://shopify/ProductVariant/', '', $node['id']), '/');
+                $productId = ltrim(str_replace('gid://shopify/Product/', '', $node['product']['id']), '/');
+                return [
+                    'product_id'    => $productId,
+                    'product_title' => $node['product']['title'],
+                    'variant_id'    => $variantId,
+                    'variant_sku'   => $node['sku'],
+                ];
+            }, $edges);
 
         } catch (\Throwable $e) {
-            Log::error("Shopify findVariantBySku({$sku}) GraphQL failed: " . $e->getMessage());
-            return null;
+            Log::error("Shopify findVariantsBySku({$sku}) GraphQL failed: " . $e->getMessage());
+            return [];
         }
     }
 
@@ -364,8 +365,9 @@ class ShopifyService
 
     private function backfillProductTitles(array $map): array
     {
-        // Collect unique product IDs and fetch their titles in batches of 250
-        $productIds = array_unique(array_column($map, 'product_id'));
+        // Flatten all entries to collect unique product IDs (each SKU now maps to an array of variants)
+        $allEntries = array_merge(...array_values($map));
+        $productIds = array_unique(array_column($allEntries, 'product_id'));
         $titles     = [];
 
         foreach (array_chunk($productIds, 250) as $chunk) {
@@ -383,8 +385,10 @@ class ShopifyService
             }
         }
 
-        foreach ($map as $sku => &$entry) {
-            $entry['product_title'] = $titles[$entry['product_id']] ?? 'Unknown';
+        foreach ($map as $sku => &$entries) {
+            foreach ($entries as &$entry) {
+                $entry['product_title'] = $titles[$entry['product_id']] ?? 'Unknown';
+            }
         }
 
         return $map;

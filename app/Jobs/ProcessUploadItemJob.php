@@ -41,10 +41,10 @@ class ProcessUploadItemJob implements ShouldQueue
         $item->update(['status' => 'processing']);
 
         try {
-            // ── 1. Look up Shopify SKU (uses cache — avoids extra API call per image) ──
-            $variant = $shopify->findVariantBySkuCached($item->sku_detected);
+            // ── 1. Look up Shopify SKU — may match multiple products ──
+            $variants = $shopify->findVariantsBySkuCached($item->sku_detected);
 
-            if (!$variant) {
+            if (empty($variants)) {
                 $item->update([
                     'status'        => 'skipped',
                     'error_message' => "No Shopify variant found for SKU: {$item->sku_detected}",
@@ -53,12 +53,13 @@ class ProcessUploadItemJob implements ShouldQueue
                 return;
             }
 
+            // Record the first match on the item (for display purposes)
             $item->update([
                 'status'        => 'matched',
-                'product_id'    => $variant['product_id'],
-                'product_title' => $variant['product_title'],
-                'variant_id'    => $variant['variant_id'],
-                'variant_sku'   => $variant['variant_sku'],
+                'product_id'    => $variants[0]['product_id'],
+                'product_title' => $variants[0]['product_title'],
+                'variant_id'    => $variants[0]['variant_id'],
+                'variant_sku'   => $variants[0]['variant_sku'],
             ]);
 
             // ── 2. Download from OneDrive using item ID (fresh — never expires) ──
@@ -75,21 +76,56 @@ class ProcessUploadItemJob implements ShouldQueue
                 : $imageService->compressOnly($rawContent);
             $outputName = $imageService->outputFilename($item->filename);
 
-            // Explicitly free the raw content from memory
             unset($rawContent);
 
-            // ── 4. Upload to Shopify ──
-            $processedSizeKb     = (int) round(strlen($processed) / 1024);
-            $duplicateHandling   = $session->duplicate_handling ?? 'skip';
+            // ── 4. Upload to every product that shares this SKU ──
+            $processedSizeKb   = (int) round(strlen($processed) / 1024);
+            $duplicateHandling = $session->duplicate_handling ?? 'skip';
+            $firstImageId      = null;
+            $allSkipped        = true;
 
-            // Check for existing images on this product with alt = SKU
-            $existingImages = $shopify->getProductImages($variant['product_id']);
-            $matchingImages = array_values(array_filter(
-                $existingImages,
-                fn ($img) => ($img['alt'] ?? '') === $item->sku_detected
-            ));
+            foreach ($variants as $variant) {
+                $existingImages = $shopify->getProductImages($variant['product_id']);
+                $matchingImages = array_values(array_filter(
+                    $existingImages,
+                    fn ($img) => ($img['alt'] ?? '') === $item->sku_detected
+                ));
 
-            if ($matchingImages && $duplicateHandling === 'skip') {
+                if ($matchingImages && $duplicateHandling === 'skip') {
+                    continue; // skip this product, try next
+                }
+
+                if ($matchingImages && $duplicateHandling === 'replace') {
+                    foreach ($matchingImages as $img) {
+                        $shopify->deleteProductImage($variant['product_id'], (string) $img['id']);
+                    }
+                }
+
+                $isFirstForVariant = !UploadItem::where('upload_session_id', $item->upload_session_id)
+                    ->where('variant_id', $variant['variant_id'])
+                    ->where('status', 'uploaded')
+                    ->exists();
+
+                $shopifyImageId = $shopify->uploadImageToProduct(
+                    $variant['product_id'],
+                    $processed,
+                    $outputName,
+                    $item->sku_detected,
+                    $isFirstForVariant ? $variant['variant_id'] : null,
+                );
+
+                if ($isFirstForVariant && $shopifyImageId) {
+                    $shopify->setVariantImage($variant['variant_id'], $shopifyImageId);
+                }
+
+                if (!$firstImageId) {
+                    $firstImageId = $shopifyImageId;
+                }
+                $allSkipped = false;
+            }
+
+            // Every product was skipped due to duplicate handling
+            if ($allSkipped) {
                 $item->update([
                     'status'        => 'skipped',
                     'error_message' => 'Image already exists in Shopify (duplicate handling: skip)',
@@ -98,38 +134,11 @@ class ProcessUploadItemJob implements ShouldQueue
                 return;
             }
 
-            if ($matchingImages && $duplicateHandling === 'replace') {
-                foreach ($matchingImages as $img) {
-                    $shopify->deleteProductImage($variant['product_id'], (string) $img['id']);
-                }
-            }
-
-            // Is this the first image uploaded for this variant in this session?
-            $isFirstForVariant = !UploadItem::where('upload_session_id', $item->upload_session_id)
-                ->where('variant_id', $item->variant_id)
-                ->where('status', 'uploaded')
-                ->exists();
-
-            $shopifyImageId = $shopify->uploadImageToProduct(
-                $variant['product_id'],
-                $processed,
-                $outputName,
-                $item->sku_detected,
-                $isFirstForVariant ? $item->variant_id : null,
-            );
-
-            // Belt-and-suspenders: also explicitly PUT variant.image_id so the
-            // variant picker image is guaranteed to be set regardless of whether
-            // the variant_ids payload approach took effect.
-            if ($isFirstForVariant && $shopifyImageId) {
-                $shopify->setVariantImage($item->variant_id, $shopifyImageId);
-            }
-
             unset($processed);
 
             $item->update([
                 'status'            => 'uploaded',
-                'shopify_image_id'  => $shopifyImageId,
+                'shopify_image_id'  => $firstImageId,
                 'processed_size_kb' => $processedSizeKb,
             ]);
 
