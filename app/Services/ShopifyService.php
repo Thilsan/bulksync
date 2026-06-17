@@ -214,23 +214,18 @@ class ShopifyService
     {
         $this->throttle();
 
-        try {
-            $this->http->put(
-                "admin/api/{$this->apiVersion}/variants/{$variantId}.json",
-                [
-                    'json' => [
-                        'variant' => [
-                            'id'       => (int) $variantId,
-                            'image_id' => (int) $imageId,
-                        ],
+        $this->http->put(
+            "admin/api/{$this->apiVersion}/variants/{$variantId}.json",
+            [
+                'json' => [
+                    'variant' => [
+                        'id'       => (int) $variantId,
+                        'image_id' => (int) $imageId,
                     ],
-                ]
-            );
-            Log::info("Shopify: set variant {$variantId} image to {$imageId}");
-        } catch (ClientException $e) {
-            $body = (string) $e->getResponse()->getBody();
-            Log::error("Shopify setVariantImage failed for variant {$variantId}: " . $body);
-        }
+                ],
+            ]
+        );
+        Log::info("Shopify: variant {$variantId} image_id set to {$imageId}");
     }
 
     // ── Connection test ────────────────────────────────────────────────────

@@ -52,6 +52,47 @@ class BulkUploadController extends Controller
             ->with('success', 'Session "' . $session->name . '" deleted.');
     }
 
+    public function syncVariantImages(UploadSession $session): JsonResponse
+    {
+        $shopify  = new ShopifyService();
+        $results  = [];
+
+        // For each variant, find the first uploaded image and link it.
+        // Group by variant_id, take the lowest-ID item per group.
+        $firstPerVariant = UploadItem::where('upload_session_id', $session->id)
+            ->where('status', 'uploaded')
+            ->whereNotNull('variant_id')
+            ->whereNotNull('shopify_image_id')
+            ->orderBy('id')
+            ->get()
+            ->unique('variant_id');
+
+        foreach ($firstPerVariant as $item) {
+            try {
+                $shopify->setVariantImage($item->variant_id, $item->shopify_image_id);
+                $results[] = [
+                    'sku'        => $item->sku_detected,
+                    'variant_id' => $item->variant_id,
+                    'image_id'   => $item->shopify_image_id,
+                    'status'     => 'ok',
+                ];
+            } catch (\Throwable $e) {
+                $results[] = [
+                    'sku'        => $item->sku_detected,
+                    'variant_id' => $item->variant_id,
+                    'image_id'   => $item->shopify_image_id,
+                    'status'     => 'error',
+                    'error'      => $e->getMessage(),
+                ];
+            }
+        }
+
+        return response()->json([
+            'synced'  => count($results),
+            'results' => $results,
+        ]);
+    }
+
     // ── Actions ────────────────────────────────────────────────────────────
 
     public function store(Request $request): RedirectResponse

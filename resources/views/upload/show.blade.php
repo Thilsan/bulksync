@@ -173,7 +173,7 @@
     </div>
 
     {{-- Actions --}}
-    <div class="flex gap-3" x-show="isFinished" x-cloak>
+    <div class="flex flex-wrap gap-3 items-center" x-show="isFinished" x-cloak>
         <a href="{{ route('upload.create') }}"
             class="bg-brand-600 hover:bg-brand-700 text-white px-5 py-2.5 rounded-lg text-sm font-semibold transition-colors">
             New Upload
@@ -182,6 +182,25 @@
             class="border border-gray-300 text-gray-700 hover:bg-gray-50 px-5 py-2.5 rounded-lg text-sm font-medium transition-colors">
             View History
         </a>
+        {{-- Re-run variant image linking in case Shopify didn't honour variant_ids on first upload --}}
+        <div x-data="{ syncing: false, syncMsg: '' }">
+            <button type="button"
+                @click="syncing = true; syncMsg = '';
+                    fetch('{{ route('upload.sync-variant-images', $session) }}', {
+                        method: 'POST',
+                        headers: { 'X-CSRF-TOKEN': '{{ csrf_token() }}', 'Accept': 'application/json' }
+                    })
+                    .then(r => r.json())
+                    .then(d => { syncMsg = d.synced + ' variant(s) synced'; console.log(d); })
+                    .catch(() => { syncMsg = 'Request failed — check console'; })
+                    .finally(() => { syncing = false; })"
+                :disabled="syncing"
+                class="border border-blue-300 text-blue-700 hover:bg-blue-50 disabled:opacity-50 px-5 py-2.5 rounded-lg text-sm font-medium transition-colors">
+                <span x-show="!syncing">Sync Variant Images</span>
+                <span x-show="syncing">Syncing…</span>
+            </button>
+            <p x-show="syncMsg" x-text="syncMsg" class="text-xs text-gray-500 mt-1"></p>
+        </div>
     </div>
 
 </div>
