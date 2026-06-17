@@ -81,23 +81,24 @@ class ProcessUploadItemJob implements ShouldQueue
             // ── 4. Upload to Shopify ──
             $processedSizeKb = (int) round(strlen($processed) / 1024);
 
+            // Is this the first image uploaded for this variant in this session?
+            $isFirstForVariant = !UploadItem::where('upload_session_id', $item->upload_session_id)
+                ->where('variant_id', $item->variant_id)
+                ->where('status', 'uploaded')
+                ->exists();
+
             $shopifyImageId = $shopify->uploadImageToProduct(
                 $variant['product_id'],
                 $processed,
                 $outputName,
                 $item->sku_detected,
+                $isFirstForVariant ? $item->variant_id : null,
             );
 
-            // For the FIRST image of each variant, explicitly set variant.image_id so it
-            // appears in the variant picker. The variant_ids param on image creation is
-            // unreliable; a direct PUT to the variant is the only guaranteed approach.
-            $isFirstForVariant = $shopifyImageId &&
-                !UploadItem::where('upload_session_id', $item->upload_session_id)
-                    ->where('variant_id', $item->variant_id)
-                    ->where('status', 'uploaded')
-                    ->exists();
-
-            if ($isFirstForVariant) {
+            // Belt-and-suspenders: also explicitly PUT variant.image_id so the
+            // variant picker image is guaranteed to be set regardless of whether
+            // the variant_ids payload approach took effect.
+            if ($isFirstForVariant && $shopifyImageId) {
                 $shopify->setVariantImage($item->variant_id, $shopifyImageId);
             }
 

@@ -174,21 +174,25 @@ class ShopifyService
         string $imageContent,
         string $filename,
         string $altText = '',
+        ?string $variantId = null,
     ): ?string {
         $this->throttle();
+
+        $imageData = [
+            'attachment' => base64_encode($imageContent),
+            'filename'   => $filename,
+            'alt'        => $altText ?: pathinfo($filename, PATHINFO_FILENAME),
+        ];
+
+        // Including variant_ids in the payload is the first attempt to link the image.
+        if ($variantId) {
+            $imageData['variant_ids'] = [(int) $variantId];
+        }
 
         try {
             $response = $this->http->post(
                 "admin/api/{$this->apiVersion}/products/{$productId}/images.json",
-                [
-                    'json' => [
-                        'image' => [
-                            'attachment' => base64_encode($imageContent),
-                            'filename'   => $filename,
-                            'alt'        => $altText ?: pathinfo($filename, PATHINFO_FILENAME),
-                        ],
-                    ],
-                ]
+                ['json' => ['image' => $imageData]]
             );
 
             $data = json_decode((string) $response->getBody(), true);
@@ -202,8 +206,9 @@ class ShopifyService
     }
 
     /**
-     * Set a variant's featured image by updating its image_id directly.
-     * This is the only reliable way to make an image appear in the variant picker.
+     * Explicitly set a variant's image_id via the Variants API.
+     * Used as a second pass after uploadImageToProduct to guarantee the
+     * variant picker shows the correct image.
      */
     public function setVariantImage(string $variantId, string $imageId): void
     {
@@ -221,8 +226,10 @@ class ShopifyService
                     ],
                 ]
             );
+            Log::info("Shopify: set variant {$variantId} image to {$imageId}");
         } catch (ClientException $e) {
-            $this->handleClientException($e, "setVariantImage({$variantId})");
+            $body = (string) $e->getResponse()->getBody();
+            Log::error("Shopify setVariantImage failed for variant {$variantId}: " . $body);
         }
     }
 
