@@ -16,7 +16,7 @@ class SettingsController extends Controller
             'onedrive_tenant_id'     => Setting::get('onedrive_tenant_id'),
             'onedrive_client_id'     => Setting::get('onedrive_client_id'),
             'onedrive_client_secret' => Setting::get('onedrive_client_secret'),
-            'onedrive_connected'     => (bool) Setting::get('onedrive_access_token'),
+            'onedrive_connected'     => !empty(auth()->user()->onedrive_access_token),
         ];
 
         return view('settings.index', compact('settings'));

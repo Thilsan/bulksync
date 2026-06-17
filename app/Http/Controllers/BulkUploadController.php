@@ -3,7 +3,6 @@
 namespace App\Http\Controllers;
 
 use App\Jobs\ScanOneDriveFolderJob;
-use App\Models\Setting;
 use App\Models\UploadItem;
 use App\Models\UploadSession;
 use App\Services\ImageProcessingService;
@@ -25,7 +24,7 @@ class BulkUploadController extends Controller
     {
         $activeStore        = \App\Models\Store::getActive();
         $shopifyConfigured  = $activeStore && $activeStore->shopify_access_token;
-        $onedriveConfigured = (bool) Setting::get('onedrive_access_token');
+        $onedriveConfigured = !empty(auth()->user()->onedrive_access_token);
         $dimensionPresets   = $this->imageService->dimensionPresets();
 
         return view('upload.create', compact('shopifyConfigured', 'onedriveConfigured', 'dimensionPresets'));
@@ -33,18 +32,36 @@ class BulkUploadController extends Controller
 
     public function history(): View
     {
-        $sessions = UploadSession::latest()->paginate(20);
+        $user = auth()->user();
+
+        if ($user->is_super_admin) {
+            $sessions = UploadSession::latest()->paginate(20);
+        } else {
+            $sessions = UploadSession::where('user_id', $user->id)->latest()->paginate(20);
+        }
 
         return view('upload.history', compact('sessions'));
     }
 
     public function show(UploadSession $session): View
     {
+        $user = auth()->user();
+
+        if (!$user->is_super_admin && $session->user_id !== $user->id) {
+            abort(403);
+        }
+
         return view('upload.show', compact('session'));
     }
 
     public function destroy(UploadSession $session): RedirectResponse
     {
+        $user = auth()->user();
+
+        if (!$user->is_super_admin && $session->user_id !== $user->id) {
+            abort(403);
+        }
+
         $session->items()->delete();
         $session->delete();
 
@@ -54,6 +71,12 @@ class BulkUploadController extends Controller
 
     public function syncVariantImages(UploadSession $session): JsonResponse
     {
+        $user = auth()->user();
+
+        if (!$user->is_super_admin && $session->user_id !== $user->id) {
+            abort(403);
+        }
+
         $shopify = new ShopifyService();
         $results = [];
 
@@ -124,13 +147,6 @@ class BulkUploadController extends Controller
             'errors'  => $errCount,
             'skipped' => $skipCount,
             'results' => $results,
-            'debug'   => [
-                'all_uploaded'      => $allUploaded,
-                'with_variant_id'   => $withVariant,
-                'with_product_id'   => $withProduct,
-                'unique_variant_ids' => $uniqueVids->values(),
-                'unique_skus'       => $uniqueSkus->values(),
-            ],
         ]);
     }
 
@@ -148,6 +164,7 @@ class BulkUploadController extends Controller
         $hasSize = filled($validated['image_width']) && filled($validated['image_height']);
 
         $session = UploadSession::create([
+            'user_id'       => auth()->id(),
             'name'          => $validated['name'] ?: 'Upload ' . now()->format('Y-m-d H:i'),
             'onedrive_link' => $validated['onedrive_link'],
             'image_width'   => $hasSize ? (int) $validated['image_width']  : null,
@@ -172,6 +189,12 @@ class BulkUploadController extends Controller
      */
     public function status(Request $request, UploadSession $session): JsonResponse
     {
+        $user = auth()->user();
+
+        if (!$user->is_super_admin && $session->user_id !== $user->id) {
+            abort(403);
+        }
+
         // Efficient single-query count breakdown
         $counts = UploadItem::where('upload_session_id', $session->id)
             ->selectRaw("

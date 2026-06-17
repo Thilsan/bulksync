@@ -245,11 +245,12 @@ class OneDriveService
             return $this->accessToken;
         }
 
-        $storedExpiry = (int) Setting::get('onedrive_token_expiry', '0');
+        $user         = auth()->user();
+        $storedExpiry = (int) ($user?->onedrive_token_expiry ?? 0);
 
         // Use stored access token if still valid
         if ($storedExpiry > time() + 60) {
-            $token = Setting::get('onedrive_access_token');
+            $token = $user?->onedrive_access_token;
             if ($token) {
                 $this->accessToken = $token;
                 $this->tokenExpiry = (float) $storedExpiry;
@@ -258,7 +259,7 @@ class OneDriveService
         }
 
         // Refresh using refresh token
-        $refreshToken = Setting::get('onedrive_refresh_token');
+        $refreshToken = $user?->onedrive_refresh_token;
         $clientId     = Setting::get('onedrive_client_id');
         $clientSecret = Setting::get('onedrive_client_secret');
 
@@ -287,12 +288,16 @@ class OneDriveService
             throw new \RuntimeException('Failed to refresh OneDrive token. Please reconnect in Settings.');
         }
 
-        Setting::set('onedrive_access_token',  $data['access_token']);
-        Setting::set('onedrive_refresh_token', $data['refresh_token'] ?? $refreshToken);
-        Setting::set('onedrive_token_expiry',  (string) (time() + ($data['expires_in'] ?? 3600)));
+        $newExpiry = (string) (time() + ($data['expires_in'] ?? 3600));
+
+        $user?->update([
+            'onedrive_access_token'  => $data['access_token'],
+            'onedrive_refresh_token' => $data['refresh_token'] ?? $refreshToken,
+            'onedrive_token_expiry'  => $newExpiry,
+        ]);
 
         $this->accessToken = $data['access_token'];
-        $this->tokenExpiry = (float) (time() + ($data['expires_in'] ?? 3600));
+        $this->tokenExpiry = (float) $newExpiry;
 
         return $this->accessToken;
     }

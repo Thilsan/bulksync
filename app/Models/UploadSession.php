@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class UploadSession extends Model
 {
     protected $fillable = [
+        'user_id',
         'name',
         'onedrive_link',
         'image_size',

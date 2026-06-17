@@ -68,9 +68,11 @@ class OneDriveAuthController extends Controller
 
         $data = $response->json();
 
-        Setting::set('onedrive_access_token',  $data['access_token']);
-        Setting::set('onedrive_refresh_token', $data['refresh_token'] ?? '');
-        Setting::set('onedrive_token_expiry',  (string) (time() + ($data['expires_in'] ?? 3600)));
+        auth()->user()->update([
+            'onedrive_access_token'  => $data['access_token'],
+            'onedrive_refresh_token' => $data['refresh_token'] ?? '',
+            'onedrive_token_expiry'  => (string) (time() + ($data['expires_in'] ?? 3600)),
+        ]);
 
         Setting::set('onedrive_oauth_state', null);
 
