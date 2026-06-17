@@ -88,14 +88,20 @@ class ScanOneDriveFolderJob implements ShouldQueue
             Log::info("ScanOneDriveFolderJob: scan complete — {$totalScanned} files. Dispatching process jobs.");
 
             // Dispatch a ProcessUploadItemJob for every pending item in chunks
-            // to avoid loading all 30k models at once
+            // to avoid loading all 30k models at once.
+            // Wrap each dispatch so a single failing item doesn't abort the rest
+            // (sync queue re-throws on failure, which would bubble up otherwise).
             UploadItem::where('upload_session_id', $session->id)
                 ->where('status', 'pending')
                 ->select('id')
                 ->chunkById(1000, function ($items) {
                     foreach ($items as $item) {
-                        ProcessUploadItemJob::dispatch($item->id)
-                            ->onQueue('bulk-upload');
+                        try {
+                            ProcessUploadItemJob::dispatch($item->id)
+                                ->onQueue('bulk-upload');
+                        } catch (\Throwable $e) {
+                            Log::error("ScanOneDriveFolderJob: dispatch failed for item {$item->id}: " . $e->getMessage());
+                        }
                     }
                 });
 
