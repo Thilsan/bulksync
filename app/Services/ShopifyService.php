@@ -133,37 +133,51 @@ class ShopifyService
 
     // ── Standard SKU lookup (used when cache is not warmed) ────────────────
 
+    /**
+     * Find a variant by exact SKU using the GraphQL Admin API.
+     * The REST GET /variants.json?sku= endpoint silently ignores the sku
+     * filter and returns unrelated variants, so GraphQL is the reliable path.
+     */
     public function findVariantBySku(string $sku): ?array
     {
         if (!$sku) {
             return null;
         }
 
+        $this->throttle();
+
         try {
-            $this->throttle();
+            $response = $this->http->post(
+                "admin/api/{$this->apiVersion}/graphql.json",
+                [
+                    'json' => [
+                        'query'     => 'query($q:String!){productVariants(first:1,query:$q){edges{node{id sku product{id title}}}}}',
+                        'variables' => ['q' => "sku:'{$sku}'"],
+                    ],
+                ]
+            );
 
-            $response = $this->http->get("admin/api/{$this->apiVersion}/variants.json", [
-                'query' => ['sku' => $sku, 'fields' => 'id,product_id,sku', 'limit' => 5],
-            ]);
+            $data  = json_decode((string) $response->getBody(), true);
+            $edges = $data['data']['productVariants']['edges'] ?? [];
 
-            $variants = json_decode((string) $response->getBody(), true)['variants'] ?? [];
-
-            if (empty($variants)) {
+            if (empty($edges)) {
                 return null;
             }
 
-            $v     = $variants[0];
-            $title = $this->getProductTitle($v['product_id']);
+            $node      = $edges[0]['node'];
+            $variantId = ltrim(str_replace('gid://shopify/ProductVariant/', '', $node['id']), '/');
+            $productId = ltrim(str_replace('gid://shopify/Product/', '', $node['product']['id']), '/');
 
             return [
-                'product_id'    => (string) $v['product_id'],
-                'product_title' => $title,
-                'variant_id'    => (string) $v['id'],
-                'variant_sku'   => $v['sku'],
+                'product_id'    => $productId,
+                'product_title' => $node['product']['title'],
+                'variant_id'    => $variantId,
+                'variant_sku'   => $node['sku'],
             ];
 
-        } catch (ClientException $e) {
-            return $this->handleClientException($e, "findVariantBySku({$sku})");
+        } catch (\Throwable $e) {
+            Log::error("Shopify findVariantBySku({$sku}) GraphQL failed: " . $e->getMessage());
+            return null;
         }
     }
 

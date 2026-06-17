@@ -5,6 +5,7 @@ namespace App\Jobs;
 use App\Models\UploadItem;
 use App\Models\UploadSession;
 use App\Services\OneDriveService;
+use App\Services\ShopifyService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -25,7 +26,7 @@ class ScanOneDriveFolderJob implements ShouldQueue
         public readonly int $sessionId,
     ) {}
 
-    public function handle(OneDriveService $oneDrive): void
+    public function handle(OneDriveService $oneDrive, ShopifyService $shopify): void
     {
         $session = UploadSession::findOrFail($this->sessionId);
 
@@ -85,7 +86,18 @@ class ScanOneDriveFolderJob implements ShouldQueue
                 'total_files' => $totalScanned,
             ]);
 
-            Log::info("ScanOneDriveFolderJob: scan complete — {$totalScanned} files. Dispatching process jobs.");
+            Log::info("ScanOneDriveFolderJob: scan complete — {$totalScanned} files. Warming SKU cache…");
+
+            // Build the SKU → variant map once before processing any images.
+            // Without this, findVariantBySkuCached falls back to a live
+            // GET /variants.json?sku=… call which Shopify silently ignores,
+            // returning the first variant for every SKU query.
+            try {
+                $count = $shopify->warmSkuCache();
+                Log::info("ScanOneDriveFolderJob: SKU cache ready — {$count} SKUs mapped.");
+            } catch (\Throwable $e) {
+                Log::warning("ScanOneDriveFolderJob: SKU cache warm failed (jobs will use live lookup): " . $e->getMessage());
+            }
 
             // Dispatch a ProcessUploadItemJob for every pending item in chunks
             // to avoid loading all 30k models at once.
