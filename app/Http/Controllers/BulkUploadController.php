@@ -43,6 +43,15 @@ class BulkUploadController extends Controller
         return view('upload.show', compact('session'));
     }
 
+    public function destroy(UploadSession $session): RedirectResponse
+    {
+        $session->items()->delete();
+        $session->delete();
+
+        return redirect()->route('upload.history')
+            ->with('success', 'Session "' . $session->name . '" deleted.');
+    }
+
     // ── Actions ────────────────────────────────────────────────────────────
 
     public function store(Request $request): RedirectResponse

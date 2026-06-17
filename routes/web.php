@@ -24,7 +24,8 @@ Route::middleware('auth')->group(function () {
     Route::get('/upload/history',   [BulkUploadController::class, 'history'])->name('upload.history');
     Route::get('/upload/new',       [BulkUploadController::class, 'create'])->name('upload.create');
     Route::post('/upload',          [BulkUploadController::class, 'store'])->name('upload.store');
-    Route::get('/upload/{session}', [BulkUploadController::class, 'show'])->name('upload.show');
+    Route::get('/upload/{session}',    [BulkUploadController::class, 'show'])->name('upload.show');
+    Route::delete('/upload/{session}', [BulkUploadController::class, 'destroy'])->name('upload.destroy');
 
     // Status polling endpoint — no CSRF needed (GET)
     Route::get('/upload/{session}/status', [BulkUploadController::class, 'status'])->name('upload.status');

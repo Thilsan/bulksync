@@ -5,6 +5,12 @@
 @section('content')
 <div class="space-y-5">
 
+    @if (session('success'))
+    <div class="bg-green-50 border border-green-200 text-green-800 text-sm rounded-lg px-4 py-3">
+        {{ session('success') }}
+    </div>
+    @endif
+
     <div class="flex items-center justify-between">
         <p class="text-sm text-gray-500">{{ $sessions->total() }} upload session{{ $sessions->total() !== 1 ? 's' : '' }}</p>
         <a href="{{ route('upload.create') }}"
@@ -57,7 +63,18 @@
                     </td>
                     <td class="px-6 py-3 text-gray-500 whitespace-nowrap">{{ $session->created_at->format('d M Y H:i') }}</td>
                     <td class="px-6 py-3">
-                        <a href="{{ route('upload.show', $session) }}" class="text-brand-600 hover:underline text-xs font-medium">View →</a>
+                        <div class="flex items-center gap-3">
+                            <a href="{{ route('upload.show', $session) }}" class="text-brand-600 hover:underline text-xs font-medium">View →</a>
+                            <form method="POST" action="{{ route('upload.destroy', $session) }}"
+                                  onsubmit="return confirm('Delete session \'{{ addslashes($session->name) }}\' and all its items?')">
+                                @csrf
+                                @method('DELETE')
+                                <button type="submit"
+                                    class="text-red-500 hover:text-red-700 text-xs font-medium transition-colors">
+                                    Delete
+                                </button>
+                            </form>
+                        </div>
                     </td>
                 </tr>
                 @endforeach
