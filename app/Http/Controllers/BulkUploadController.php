@@ -155,23 +155,25 @@ class BulkUploadController extends Controller
     public function store(Request $request): RedirectResponse
     {
         $validated = $request->validate([
-            'name'          => ['nullable', 'string', 'max:255'],
-            'onedrive_link' => ['required', 'url'],
-            'image_width'   => ['nullable', 'integer', 'min:100', 'max:5000'],
-            'image_height'  => ['nullable', 'integer', 'min:100', 'max:5000'],
+            'name'               => ['nullable', 'string', 'max:255'],
+            'onedrive_link'      => ['required', 'url'],
+            'image_width'        => ['nullable', 'integer', 'min:100', 'max:5000'],
+            'image_height'       => ['nullable', 'integer', 'min:100', 'max:5000'],
+            'duplicate_handling' => ['required', 'in:skip,replace,add'],
         ]);
 
         $hasSize = filled($validated['image_width']) && filled($validated['image_height']);
 
         $session = UploadSession::create([
-            'user_id'       => auth()->id(),
-            'name'          => $validated['name'] ?: 'Upload ' . now()->format('Y-m-d H:i'),
-            'onedrive_link' => $validated['onedrive_link'],
-            'image_width'   => $hasSize ? (int) $validated['image_width']  : null,
-            'image_height'  => $hasSize ? (int) $validated['image_height'] : null,
-            'image_size'    => $hasSize ? $validated['image_width'] . 'x' . $validated['image_height'] : 'original',
-            'status'        => 'processing',
-            'scan_status'   => 'pending',
+            'user_id'            => auth()->id(),
+            'name'               => $validated['name'] ?: 'Upload ' . now()->format('Y-m-d H:i'),
+            'onedrive_link'      => $validated['onedrive_link'],
+            'image_width'        => $hasSize ? (int) $validated['image_width']  : null,
+            'image_height'       => $hasSize ? (int) $validated['image_height'] : null,
+            'image_size'         => $hasSize ? $validated['image_width'] . 'x' . $validated['image_height'] : 'original',
+            'duplicate_handling' => $validated['duplicate_handling'],
+            'status'             => 'processing',
+            'scan_status'        => 'pending',
         ]);
 
         // Pre-warm Shopify SKU cache (synchronous here — takes ~60s for large stores)

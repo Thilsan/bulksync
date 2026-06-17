@@ -241,6 +241,22 @@ class ShopifyService
     }
 
     /**
+     * Delete a single product image by image ID.
+     */
+    public function deleteProductImage(string $productId, string $imageId): void
+    {
+        $this->throttle();
+        try {
+            $this->http->delete(
+                "admin/api/{$this->apiVersion}/products/{$productId}/images/{$imageId}.json"
+            );
+            Log::info("Shopify: deleted image {$imageId} from product {$productId}");
+        } catch (\Throwable $e) {
+            Log::warning("Shopify deleteProductImage({$productId}, {$imageId}): " . $e->getMessage());
+        }
+    }
+
+    /**
      * Explicitly set a variant's image_id via the Variants API.
      * Used as a second pass after uploadImageToProduct to guarantee the
      * variant picker shows the correct image.

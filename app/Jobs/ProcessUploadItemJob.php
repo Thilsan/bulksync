@@ -79,7 +79,30 @@ class ProcessUploadItemJob implements ShouldQueue
             unset($rawContent);
 
             // ── 4. Upload to Shopify ──
-            $processedSizeKb = (int) round(strlen($processed) / 1024);
+            $processedSizeKb     = (int) round(strlen($processed) / 1024);
+            $duplicateHandling   = $session->duplicate_handling ?? 'skip';
+
+            // Check for existing images on this product with alt = SKU
+            $existingImages = $shopify->getProductImages($variant['product_id']);
+            $matchingImages = array_values(array_filter(
+                $existingImages,
+                fn ($img) => ($img['alt'] ?? '') === $item->sku_detected
+            ));
+
+            if ($matchingImages && $duplicateHandling === 'skip') {
+                $item->update([
+                    'status'        => 'skipped',
+                    'error_message' => 'Image already exists in Shopify (duplicate handling: skip)',
+                ]);
+                $this->syncSessionCounts($item->upload_session_id);
+                return;
+            }
+
+            if ($matchingImages && $duplicateHandling === 'replace') {
+                foreach ($matchingImages as $img) {
+                    $shopify->deleteProductImage($variant['product_id'], (string) $img['id']);
+                }
+            }
 
             // Is this the first image uploaded for this variant in this session?
             $isFirstForVariant = !UploadItem::where('upload_session_id', $item->upload_session_id)
