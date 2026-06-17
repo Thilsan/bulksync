@@ -23,8 +23,9 @@ class BulkUploadController extends Controller
 
     public function create(): View
     {
-        $shopifyConfigured  = (bool) Setting::get('shopify_domain') && (bool) Setting::get('shopify_access_token');
-        $onedriveConfigured = (bool) Setting::get('onedrive_tenant_id');
+        $activeStore        = \App\Models\Store::getActive();
+        $shopifyConfigured  = $activeStore && $activeStore->shopify_access_token;
+        $onedriveConfigured = (bool) Setting::get('onedrive_access_token');
         $dimensionPresets   = $this->imageService->dimensionPresets();
 
         return view('upload.create', compact('shopifyConfigured', 'onedriveConfigured', 'dimensionPresets'));
