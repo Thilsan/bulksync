@@ -5,6 +5,27 @@
 @section('content')
 <div class="max-w-2xl mx-auto space-y-6" x-data="uploadForm()">
 
+    {{-- Full-page loading overlay — shown while the server scans OneDrive + processes all images --}}
+    <div x-show="loading" x-cloak
+         class="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/60 backdrop-blur-sm">
+        <div class="bg-white rounded-2xl shadow-2xl px-10 py-8 max-w-sm w-full mx-4 text-center space-y-5">
+            <div class="flex justify-center">
+                <svg class="animate-spin h-12 w-12 text-brand-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-20" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                    <path class="opacity-80" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 22 6.477 22 12h-4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
+                </svg>
+            </div>
+            <div>
+                <p class="text-gray-900 font-semibold text-lg">Uploading to Shopify</p>
+                <p class="text-gray-500 text-sm mt-1">Scanning OneDrive folders and processing images…</p>
+            </div>
+            <div class="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
+                <p class="text-amber-700 text-xs font-medium">Please keep this tab open.</p>
+                <p class="text-amber-600 text-xs mt-0.5">This can take a few minutes depending on the number of images.</p>
+            </div>
+        </div>
+    </div>
+
     {{-- Config warnings --}}
     @if (!$shopifyConfigured || !$onedriveConfigured)
     <div class="bg-amber-50 border border-amber-300 rounded-xl px-5 py-4 flex gap-3">
@@ -32,7 +53,8 @@
             </p>
         </div>
 
-        <form method="POST" action="{{ route('upload.store') }}" class="px-6 py-5 space-y-6">
+        <form method="POST" action="{{ route('upload.store') }}" class="px-6 py-5 space-y-6"
+              @submit="loading = true">
             @csrf
 
             {{-- Session name --}}
@@ -144,11 +166,15 @@
 
             {{-- Submit --}}
             <div class="pt-1 flex items-center gap-3">
-                <button type="submit"
-                    class="bg-brand-600 hover:bg-brand-700 text-white px-6 py-2.5 rounded-lg text-sm font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2">
-                    Start Upload
+                <button type="submit" :disabled="loading"
+                    class="bg-brand-600 hover:bg-brand-700 disabled:opacity-60 disabled:cursor-not-allowed text-white px-6 py-2.5 rounded-lg text-sm font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 flex items-center gap-2">
+                    <svg x-show="loading" class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 22 6.477 22 12h-4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
+                    </svg>
+                    <span x-text="loading ? 'Starting…' : 'Start Upload'"></span>
                 </button>
-                <a href="{{ route('dashboard') }}" class="text-sm text-gray-500 hover:text-gray-700">Cancel</a>
+                <a href="{{ route('dashboard') }}" x-show="!loading" class="text-sm text-gray-500 hover:text-gray-700">Cancel</a>
             </div>
         </form>
     </div>
@@ -181,6 +207,7 @@ function uploadForm() {
         width:      {{ old('image_width', 'null') }},
         height:     {{ old('image_height', 'null') }},
         customMode: false,
+        loading:    false,
 
         setDimensions(w, h) {
             this.width      = w;
