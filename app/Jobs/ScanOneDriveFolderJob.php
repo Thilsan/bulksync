@@ -48,15 +48,16 @@ class ScanOneDriveFolderJob implements ShouldQueue
                         : pathinfo($file['filename'], PATHINFO_FILENAME);
 
                     $buffer[] = [
-                        'upload_session_id'  => $session->id,
-                        'filename'           => $file['filename'],
-                        'sku_detected'       => $sku,
-                        'onedrive_drive_id'  => $file['drive_id'],
-                        'onedrive_item_id'   => $file['item_id'],
-                        'original_size_kb'   => (int) round(($file['size_bytes'] ?? 0) / 1024),
-                        'status'             => 'pending',
-                        'created_at'         => now(),
-                        'updated_at'         => now(),
+                        'upload_session_id'    => $session->id,
+                        'filename'             => $file['filename'],
+                        'sku_detected'         => $sku,
+                        'onedrive_drive_id'    => $file['drive_id'],
+                        'onedrive_item_id'     => $file['item_id'],
+                        'onedrive_download_url'=> $file['download_url'] ?? '',
+                        'original_size_kb'     => (int) round(($file['size_bytes'] ?? 0) / 1024),
+                        'status'               => 'pending',
+                        'created_at'           => now(),
+                        'updated_at'           => now(),
                     ];
 
                     $totalScanned++;

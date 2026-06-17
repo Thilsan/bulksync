@@ -64,7 +64,8 @@ class ProcessUploadItemJob implements ShouldQueue
             // ── 2. Download from OneDrive using item ID (fresh — never expires) ──
             $rawContent = $oneDrive->downloadFileById(
                 $item->onedrive_drive_id,
-                $item->onedrive_item_id
+                $item->onedrive_item_id,
+                $item->onedrive_download_url ?? ''
             );
 
             // ── 3. Resize + compress (or compress-only if no dimensions chosen) ──

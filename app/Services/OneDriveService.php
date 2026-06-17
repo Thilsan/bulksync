@@ -52,8 +52,17 @@ class OneDriveService
      * Download a file directly by drive + item ID.
      * This never expires — it uses the authenticated Graph API endpoint.
      */
-    public function downloadFileById(string $driveId, string $itemId): string
+    public function downloadFileById(string $driveId, string $itemId, string $downloadUrl = ''): string
     {
+        // Prefer the pre-authenticated download URL captured during scan (most reliable for SharePoint)
+        if ($downloadUrl) {
+            $response = $this->http->get($downloadUrl, ['allow_redirects' => true]);
+            $content  = (string) $response->getBody();
+            if (!empty($content)) {
+                return $content;
+            }
+        }
+
         if (!$driveId || !$itemId) {
             throw new \RuntimeException("Missing OneDrive drive ID or item ID — cannot download file.");
         }
@@ -145,11 +154,12 @@ class OneDriveService
                 ?? '';
 
             $callback([
-                'filename'    => $name,
-                'folder_name' => $folderName, // parent folder name = item code/SKU
-                'drive_id'    => $driveId,
-                'item_id'     => $item['id'] ?? '',
-                'size_bytes'  => $item['size'] ?? 0,
+                'filename'     => $name,
+                'folder_name'  => $folderName,
+                'drive_id'     => $driveId,
+                'item_id'      => $item['id'] ?? '',
+                'size_bytes'   => $item['size'] ?? 0,
+                'download_url' => $item['@microsoft.graph.downloadUrl'] ?? '',
             ]);
         }
 
