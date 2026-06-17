@@ -174,21 +174,26 @@ class ShopifyService
         string $imageContent,
         string $filename,
         string $altText = '',
+        ?string $variantId = null,
     ): ?string {
         $this->throttle();
+
+        $imageData = [
+            'attachment' => base64_encode($imageContent),
+            'filename'   => $filename,
+            'alt'        => $altText ?: pathinfo($filename, PATHINFO_FILENAME),
+        ];
+
+        // Linking to a variant makes this image the variant's featured image
+        // (shown in the product page when that variant is selected).
+        if ($variantId) {
+            $imageData['variant_ids'] = [(int) $variantId];
+        }
 
         try {
             $response = $this->http->post(
                 "admin/api/{$this->apiVersion}/products/{$productId}/images.json",
-                [
-                    'json' => [
-                        'image' => [
-                            'attachment' => base64_encode($imageContent),
-                            'filename'   => $filename,
-                            'alt'        => $altText ?: pathinfo($filename, PATHINFO_FILENAME),
-                        ],
-                    ],
-                ]
+                ['json' => ['image' => $imageData]]
             );
 
             $data = json_decode((string) $response->getBody(), true);

@@ -81,11 +81,20 @@ class ProcessUploadItemJob implements ShouldQueue
             // ── 4. Upload to Shopify ──
             $processedSizeKb = (int) round(strlen($processed) / 1024);
 
+            // Only link the variant on the FIRST image for this SKU so that image
+            // becomes the variant's featured image (the one shown in the variant picker).
+            // Subsequent images are added to the product gallery without overwriting it.
+            $isFirstForVariant = !UploadItem::where('upload_session_id', $item->upload_session_id)
+                ->where('variant_id', $item->variant_id)
+                ->where('status', 'uploaded')
+                ->exists();
+
             $shopifyImageId = $shopify->uploadImageToProduct(
                 $variant['product_id'],
                 $processed,
                 $outputName,
                 $item->sku_detected,
+                $isFirstForVariant ? $item->variant_id : null,
             );
 
             unset($processed);

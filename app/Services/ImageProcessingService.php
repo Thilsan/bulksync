@@ -24,6 +24,12 @@ class ImageProcessingService
 
     public function compressOnly(string $imageContent, int $maxBytes = 1_000_000): string
     {
+        // Already within the size limit — return original bytes untouched.
+        // Re-encoding at quality 100 would only make the file larger.
+        if (strlen($imageContent) <= $maxBytes) {
+            return $imageContent;
+        }
+
         $result = $this->manager->decode($imageContent)
             ->encode(new JpegEncoder(quality: self::START_QUALITY))
             ->toString();
