@@ -57,14 +57,21 @@ class BulkUploadController extends Controller
         $shopify = new ShopifyService();
         $results = [];
 
-        // One representative item per variant (first by id = first uploaded image).
+        // Debug: raw counts so we can see what's in the DB
+        $allUploaded   = UploadItem::where('upload_session_id', $session->id)->where('status', 'uploaded')->count();
+        $withVariant   = UploadItem::where('upload_session_id', $session->id)->where('status', 'uploaded')->whereNotNull('variant_id')->count();
+        $withProduct   = UploadItem::where('upload_session_id', $session->id)->where('status', 'uploaded')->whereNotNull('product_id')->count();
+        $uniqueVids    = UploadItem::where('upload_session_id', $session->id)->where('status', 'uploaded')->whereNotNull('variant_id')->distinct()->pluck('variant_id');
+        $uniqueSkus    = UploadItem::where('upload_session_id', $session->id)->where('status', 'uploaded')->distinct()->pluck('sku_detected');
+
+        // One representative item per variant using groupBy (more reliable than unique()).
         $firstPerVariant = UploadItem::where('upload_session_id', $session->id)
             ->where('status', 'uploaded')
-            ->whereNotNull('variant_id')
-            ->whereNotNull('product_id')
             ->orderBy('id')
             ->get()
-            ->unique('variant_id');
+            ->groupBy('variant_id')
+            ->map(fn ($group) => $group->first())
+            ->filter(fn ($item) => $item->variant_id && $item->product_id);
 
         // Cache product images so we only call Shopify once per product.
         $productImages = [];
@@ -73,8 +80,7 @@ class BulkUploadController extends Controller
             // Prefer the image_id we stored at upload time.
             $imageId = $item->shopify_image_id ?: null;
 
-            // If it's missing (upload succeeded but id wasn't saved), look up by
-            // alt text — we always upload images with alt = SKU string.
+            // If it's missing, look up by alt text — we upload every image with alt = SKU.
             if (!$imageId) {
                 if (!isset($productImages[$item->product_id])) {
                     $productImages[$item->product_id] = $shopify->getProductImages($item->product_id);
@@ -125,6 +131,13 @@ class BulkUploadController extends Controller
             'errors'  => $errCount,
             'skipped' => $skipCount,
             'results' => $results,
+            'debug'   => [
+                'all_uploaded'      => $allUploaded,
+                'with_variant_id'   => $withVariant,
+                'with_product_id'   => $withProduct,
+                'unique_variant_ids' => $uniqueVids->values(),
+                'unique_skus'       => $uniqueSkus->values(),
+            ],
         ]);
     }
 
