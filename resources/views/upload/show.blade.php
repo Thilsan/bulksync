@@ -183,23 +183,25 @@
             View History
         </a>
         {{-- Re-run variant image linking in case Shopify didn't honour variant_ids on first upload --}}
-        <div x-data="{ syncing: false, syncMsg: '' }">
+        <div x-data="{ syncing: false, syncData: null }">
             <button type="button"
-                @click="syncing = true; syncMsg = '';
+                @click="syncing = true; syncData = null;
                     fetch('{{ route('upload.sync-variant-images', $session) }}', {
                         method: 'POST',
                         headers: { 'X-CSRF-TOKEN': '{{ csrf_token() }}', 'Accept': 'application/json' }
                     })
                     .then(r => r.json())
-                    .then(d => { syncMsg = d.synced + ' synced' + (d.errors ? ', ' + d.errors + ' failed' : '') + (d.skipped ? ', ' + d.skipped + ' skipped' : ''); console.table(d.results); })
-                    .catch(() => { syncMsg = 'Request failed — check console'; })
+                    .then(d => { syncData = d; })
+                    .catch(e => { syncData = { error: e.toString() }; })
                     .finally(() => { syncing = false; })"
                 :disabled="syncing"
                 class="border border-blue-300 text-blue-700 hover:bg-blue-50 disabled:opacity-50 px-5 py-2.5 rounded-lg text-sm font-medium transition-colors">
                 <span x-show="!syncing">Sync Variant Images</span>
-                <span x-show="syncing">Syncing…</span>
+                <span x-show="syncing">Syncing&hellip;</span>
             </button>
-            <p x-show="syncMsg" x-text="syncMsg" class="text-xs text-gray-500 mt-1"></p>
+            {{-- Show the full JSON response on the page so we can debug without the browser console --}}
+            <pre x-show="syncData" class="mt-2 text-xs bg-gray-50 border border-gray-200 rounded p-3 max-w-2xl overflow-auto whitespace-pre-wrap"
+                 x-text="syncData ? JSON.stringify(syncData, null, 2) : ''"></pre>
         </div>
     </div>
 
