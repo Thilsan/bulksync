@@ -1,13 +1,18 @@
 FROM php:8.4-cli
 
-# Install system dependencies
+# Install system dependencies (including JPEG, WebP, and ImageMagick libs)
 RUN apt-get update && apt-get install -y \
     git curl zip unzip \
     libpq-dev libpng-dev libonig-dev libxml2-dev libzip-dev \
+    libjpeg62-turbo-dev libwebp-dev \
+    libmagickwand-dev \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Install PHP extensions
-RUN docker-php-ext-install pdo pdo_pgsql pdo_mysql mbstring exif pcntl bcmath gd zip
+# Configure GD with JPEG + WebP support, then install all extensions
+RUN docker-php-ext-configure gd --with-jpeg --with-webp \
+    && docker-php-ext-install pdo pdo_pgsql pdo_mysql mbstring exif pcntl bcmath gd zip \
+    && pecl install imagick \
+    && docker-php-ext-enable imagick
 
 # Install Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer

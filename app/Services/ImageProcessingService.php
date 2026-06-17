@@ -4,7 +4,8 @@ namespace App\Services;
 
 use Intervention\Image\Encoders\JpegEncoder;
 use Intervention\Image\ImageManager;
-use Intervention\Image\Drivers\Gd\Driver;
+use Intervention\Image\Drivers\Gd\Driver as GdDriver;
+use Intervention\Image\Drivers\Imagick\Driver as ImagickDriver;
 
 class ImageProcessingService
 {
@@ -15,7 +16,10 @@ class ImageProcessingService
 
     public function __construct()
     {
-        $this->manager = new ImageManager(new Driver());
+        // Imagick handles CMYK, TIFF, WebP and all edge cases GD cannot.
+        // Fall back to GD if the extension is absent.
+        $driver = extension_loaded('imagick') ? new ImagickDriver() : new GdDriver();
+        $this->manager = new ImageManager($driver);
     }
 
     public function compressOnly(string $imageContent, int $maxBytes = 1_000_000): string
