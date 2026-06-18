@@ -93,18 +93,6 @@
             @endif
         </div>
 
-        {{-- Queue worker reminder (shown while processing) --}}
-        <div x-show="!isFinished && mainStatus === 'processing'" x-cloak
-             class="mt-4 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 flex items-center gap-3 text-sm">
-            <svg class="w-4 h-4 text-amber-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"/>
-            </svg>
-            <span class="text-amber-800">
-                Queue workers must be running. Run:
-                <code class="bg-amber-100 px-1.5 py-0.5 rounded text-xs font-mono">php artisan queue:work --queue=bulkupload --sleep=1</code>
-                (add <code class="bg-amber-100 px-1.5 py-0.5 rounded text-xs font-mono">--concurrency=8</code> for parallel processing)
-            </span>
-        </div>
     </div>
 
     {{-- Items table --}}
