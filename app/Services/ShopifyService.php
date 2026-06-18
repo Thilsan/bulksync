@@ -135,6 +135,17 @@ class ShopifyService
         Cache::forget($this->skuCacheKey());
     }
 
+    public function getProductCount(): int
+    {
+        try {
+            $response = $this->http->get("admin/api/{$this->apiVersion}/products/count.json");
+            $data     = json_decode((string) $response->getBody(), true);
+            return (int) ($data['count'] ?? 0);
+        } catch (\Throwable $e) {
+            return 0;
+        }
+    }
+
     // ── Standard SKU lookup (used when cache is not warmed) ────────────────
 
     /**

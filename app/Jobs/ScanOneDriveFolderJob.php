@@ -95,13 +95,16 @@ class ScanOneDriveFolderJob implements ShouldQueue
 
             Log::info("ScanOneDriveFolderJob: scan complete — {$totalScanned} files. Warming SKU cache…");
 
-            // Build the SKU → variant map once before processing any images.
-            // Without this, findVariantBySkuCached falls back to a live
-            // GET /variants.json?sku=… call which Shopify silently ignores,
-            // returning the first variant for every SKU query.
+            // Only warm SKU cache for small stores — large stores (150k+ products)
+            // take too long to cache and will timeout. Use live GraphQL lookup instead.
             try {
-                $count = $shopify->warmSkuCache();
-                Log::info("ScanOneDriveFolderJob: SKU cache ready — {$count} SKUs mapped.");
+                $productCount = $shopify->getProductCount();
+                if ($productCount < 10000) {
+                    $count = $shopify->warmSkuCache();
+                    Log::info("ScanOneDriveFolderJob: SKU cache ready — {$count} SKUs mapped.");
+                } else {
+                    Log::info("ScanOneDriveFolderJob: large store ({$productCount} products) — skipping cache warm, using live GraphQL lookup.");
+                }
             } catch (\Throwable $e) {
                 Log::warning("ScanOneDriveFolderJob: SKU cache warm failed (jobs will use live lookup): " . $e->getMessage());
             }
