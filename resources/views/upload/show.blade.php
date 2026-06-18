@@ -101,7 +101,7 @@
             </svg>
             <span class="text-amber-800">
                 Queue workers must be running. Run:
-                <code class="bg-amber-100 px-1.5 py-0.5 rounded text-xs font-mono">php artisan queue:work --queue=bulk-upload --sleep=1</code>
+                <code class="bg-amber-100 px-1.5 py-0.5 rounded text-xs font-mono">php artisan queue:work --queue=bulkupload --sleep=1</code>
                 (add <code class="bg-amber-100 px-1.5 py-0.5 rounded text-xs font-mono">--concurrency=8</code> for parallel processing)
             </span>
         </div>
