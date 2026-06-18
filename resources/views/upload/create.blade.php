@@ -171,13 +171,12 @@
                 </label>
                 <div class="space-y-2">
                     @foreach ([
-                        'skip'    => ['label' => 'Skip — don\'t upload, keep existing images', 'color' => 'amber'],
-                        'replace' => ['label' => 'Replace — delete existing images, upload new ones', 'color' => 'red'],
                         'add'     => ['label' => 'Add — upload alongside existing images', 'color' => 'green'],
+                        'replace' => ['label' => 'Replace — delete existing images, upload new ones', 'color' => 'red'],
                     ] as $value => $opt)
                     <label class="flex items-start gap-3 cursor-pointer group">
                         <input type="radio" name="duplicate_handling" value="{{ $value }}"
-                            {{ old('duplicate_handling', 'skip') === $value ? 'checked' : '' }}
+                            {{ old('duplicate_handling', 'add') === $value ? 'checked' : '' }}
                             class="mt-0.5 text-brand-600 focus:ring-brand-500">
                         <span class="text-sm text-gray-700 group-hover:text-gray-900">{{ $opt['label'] }}</span>
                     </label>
