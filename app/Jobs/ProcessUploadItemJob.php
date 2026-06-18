@@ -27,8 +27,7 @@ class ProcessUploadItemJob implements ShouldQueue
     ) {}
 
     public function handle(
-        OneDriveService     $oneDrive,
-        ShopifyService      $shopify,
+        OneDriveService        $oneDrive,
         ImageProcessingService $imageService,
     ): void {
         $item = UploadItem::find($this->itemId);
@@ -39,6 +38,17 @@ class ProcessUploadItemJob implements ShouldQueue
         }
 
         $item->update(['status' => 'processing']);
+
+        $session = UploadSession::find($item->upload_session_id);
+        $store   = ($session?->store_id) ? \App\Models\Store::find($session->store_id) : \App\Models\Store::getActive($session?->user_id);
+        $shopify = new ShopifyService($store);
+
+        if ($session?->user_id) {
+            $user = \App\Models\User::find($session->user_id);
+            if ($user) {
+                $oneDrive->setUser($user);
+            }
+        }
 
         try {
             // ── 1. Look up Shopify SKU — may match multiple products ──
@@ -70,7 +80,6 @@ class ProcessUploadItemJob implements ShouldQueue
             );
 
             // ── 3. Resize + compress (or compress-only if no dimensions chosen) ──
-            $session   = UploadSession::find($item->upload_session_id);
             $processed = ($session->image_width && $session->image_height)
                 ? $imageService->process($rawContent, (int) $session->image_width, (int) $session->image_height)
                 : $imageService->compressOnly($rawContent);

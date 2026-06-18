@@ -9,6 +9,7 @@ class UploadSession extends Model
 {
     protected $fillable = [
         'user_id',
+        'store_id',
         'name',
         'onedrive_link',
         'image_size',

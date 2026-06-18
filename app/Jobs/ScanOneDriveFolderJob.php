@@ -26,7 +26,7 @@ class ScanOneDriveFolderJob implements ShouldQueue
         public readonly int $sessionId,
     ) {}
 
-    public function handle(OneDriveService $oneDrive, ShopifyService $shopify): void
+    public function handle(OneDriveService $oneDrive): void
     {
         $session = UploadSession::findOrFail($this->sessionId);
 
@@ -40,6 +40,9 @@ class ScanOneDriveFolderJob implements ShouldQueue
                 $oneDrive->setUser($user);
             }
         }
+
+        $store   = $session->store_id ? \App\Models\Store::find($session->store_id) : \App\Models\Store::getActive($session->user_id);
+        $shopify = new ShopifyService($store);
 
         try {
             $totalScanned = 0;

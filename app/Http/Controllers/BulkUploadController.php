@@ -77,7 +77,8 @@ class BulkUploadController extends Controller
             abort(403);
         }
 
-        $shopify = new ShopifyService();
+        $store   = $session->store_id ? \App\Models\Store::find($session->store_id) : \App\Models\Store::getActive();
+        $shopify = new ShopifyService($store);
         $results = [];
 
         // One representative item per variant using groupBy (more reliable than unique()).
@@ -164,8 +165,11 @@ class BulkUploadController extends Controller
 
         $hasSize = filled($validated['image_width']) && filled($validated['image_height']);
 
+        $activeStore = \App\Models\Store::getActive();
+
         $session = UploadSession::create([
             'user_id'            => auth()->id(),
+            'store_id'           => $activeStore?->id,
             'name'               => $validated['name'] ?: 'Upload ' . now()->format('Y-m-d H:i'),
             'onedrive_link'      => $validated['onedrive_link'],
             'image_width'        => $hasSize ? (int) $validated['image_width']  : null,
