@@ -50,4 +50,15 @@ class SettingsController extends Controller
 
         return response()->json(['ok' => $ok, 'message' => $ok ? 'OneDrive connected!' : 'Connection failed. Check Azure credentials.']);
     }
+
+    public function clearCache(): RedirectResponse
+    {
+        if (!Auth::user()->is_super_admin) {
+            abort(403);
+        }
+
+        \Illuminate\Support\Facades\Artisan::call('optimize:clear');
+
+        return back()->with('success', 'Cache cleared successfully.');
+    }
 }

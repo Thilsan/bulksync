@@ -63,6 +63,17 @@ class ProcessUploadItemJob implements ShouldQueue
                 return;
             }
 
+            // If the same SKU exists on multiple different products — skip and warn
+            $uniqueProductIds = array_unique(array_column($variants, 'product_id'));
+            if (count($uniqueProductIds) > 1) {
+                $item->update([
+                    'status'        => 'skipped',
+                    'error_message' => "Duplicate SKU: found in " . count($uniqueProductIds) . " products in Shopify — upload skipped",
+                ]);
+                $this->syncSessionCounts($item->upload_session_id);
+                return;
+            }
+
             // Record the first match on the item (for display purposes)
             $item->update([
                 'status'        => 'matched',

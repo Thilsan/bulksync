@@ -38,6 +38,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/settings',                [SettingsController::class, 'index'])->name('settings.index');
     Route::put('/settings',                [SettingsController::class, 'update'])->name('settings.update');
     Route::get('/settings/test-onedrive',  [SettingsController::class, 'testOnedrive'])->name('settings.test-onedrive');
+    Route::post('/settings/clear-cache',   [SettingsController::class, 'clearCache'])->name('settings.clear-cache');
 
     // Stores
     Route::get('/stores',                     [StoreController::class, 'index'])->name('stores.index');

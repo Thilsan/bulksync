@@ -145,6 +145,31 @@
     </div>
     @endif
 
+    {{-- Clear Cache (super admin only) --}}
+    @if(auth()->user()->is_super_admin)
+    <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div class="px-6 py-5 border-b border-gray-100">
+            <h2 class="font-semibold text-gray-800">System</h2>
+            <p class="text-xs text-gray-500 mt-0.5">Server maintenance tools</p>
+        </div>
+        <div class="px-6 py-5">
+            <form method="POST" action="{{ route('settings.clear-cache') }}">
+                @csrf
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm font-medium text-gray-700">Clear Application Cache</p>
+                        <p class="text-xs text-gray-500 mt-0.5">Runs <code class="bg-gray-100 px-1 rounded">php artisan optimize:clear</code> — use if queue workers stop processing.</p>
+                    </div>
+                    <button type="submit"
+                        class="bg-gray-800 hover:bg-gray-900 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
+                        Clear Cache
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+    @endif
+
 </div>
 
 <script>
