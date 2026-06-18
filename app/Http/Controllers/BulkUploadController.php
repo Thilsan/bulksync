@@ -179,7 +179,7 @@ class BulkUploadController extends Controller
         // Pre-warm Shopify SKU cache (synchronous here — takes ~60s for large stores)
         // Dispatched as part of the scan job chain
         ScanOneDriveFolderJob::dispatch($session->id)
-            ->onQueue('bulk-upload');
+            ->onQueue('bulkupload');
 
         return redirect()->route('upload.show', $session)
             ->with('info', 'Scan started! Watching for images in your OneDrive folder…');

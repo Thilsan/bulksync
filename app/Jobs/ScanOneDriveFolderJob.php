@@ -110,7 +110,7 @@ class ScanOneDriveFolderJob implements ShouldQueue
                     foreach ($items as $item) {
                         try {
                             ProcessUploadItemJob::dispatch($item->id)
-                                ->onQueue('bulk-upload');
+                                ->onQueue('bulkupload');
                         } catch (\Throwable $e) {
                             Log::error("ScanOneDriveFolderJob: dispatch failed for item {$item->id}: " . $e->getMessage());
                         }
