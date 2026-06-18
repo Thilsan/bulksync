@@ -34,6 +34,13 @@ class ScanOneDriveFolderJob implements ShouldQueue
 
         Log::info("ScanOneDriveFolderJob: starting scan for session {$this->sessionId}");
 
+        if ($session->user_id) {
+            $user = \App\Models\User::find($session->user_id);
+            if ($user) {
+                $oneDrive->setUser($user);
+            }
+        }
+
         try {
             $totalScanned = 0;
             $buffer       = [];

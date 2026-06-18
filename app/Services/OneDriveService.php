@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Setting;
+use App\Models\User;
 use GuzzleHttp\Client;
 use GuzzleHttp\Exception\GuzzleException;
 use Illuminate\Support\Facades\Log;
@@ -12,12 +13,19 @@ class OneDriveService
     private Client $http;
     private ?string $accessToken   = null;
     private float   $tokenExpiry   = 0.0;
+    private ?User   $user          = null;
 
     private array $imageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'tiff', 'avif'];
 
     public function __construct()
     {
         $this->http = new Client(['timeout' => 60]);
+    }
+
+    public function setUser(User $user): static
+    {
+        $this->user = $user;
+        return $this;
     }
 
     /**
@@ -245,7 +253,7 @@ class OneDriveService
             return $this->accessToken;
         }
 
-        $user         = auth()->user();
+        $user         = $this->user ?? auth()->user();
         $storedExpiry = (int) ($user?->onedrive_token_expiry ?? 0);
 
         // Use stored access token if still valid
