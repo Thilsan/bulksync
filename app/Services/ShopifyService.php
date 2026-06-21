@@ -59,11 +59,11 @@ class ShopifyService
         $cacheKey = $this->skuCacheKey();
         $map      = Cache::get($cacheKey); // ['SKU' => [['product_id' => ...], ...]]
 
-        if ($map !== null) {
-            return $map[$sku] ?? [];
+        if ($map !== null && isset($map[$sku])) {
+            return $map[$sku];
         }
 
-        // Cache not warmed — fall back to live lookup
+        // SKU not in cache (or cache not warmed) — fall back to live lookup
         return $this->findVariantsBySku($sku);
     }
 
