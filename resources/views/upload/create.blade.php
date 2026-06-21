@@ -165,24 +165,7 @@
             </div>
 
             {{-- Duplicate handling --}}
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-2">
-                    If the SKU already has images in Shopify
-                </label>
-                <div class="space-y-2">
-                    @foreach ([
-                        'add'     => ['label' => 'Add — upload alongside existing images', 'color' => 'green'],
-                        'replace' => ['label' => 'Replace — delete existing images, upload new ones', 'color' => 'red'],
-                    ] as $value => $opt)
-                    <label class="flex items-start gap-3 cursor-pointer group">
-                        <input type="radio" name="duplicate_handling" value="{{ $value }}"
-                            {{ old('duplicate_handling', 'add') === $value ? 'checked' : '' }}
-                            class="mt-0.5 text-brand-600 focus:ring-brand-500">
-                        <span class="text-sm text-gray-700 group-hover:text-gray-900">{{ $opt['label'] }}</span>
-                    </label>
-                    @endforeach
-                </div>
-            </div>
+            <input type="hidden" name="duplicate_handling" value="add">
 
             {{-- Submit --}}
             <div class="pt-1 flex items-center gap-3">
