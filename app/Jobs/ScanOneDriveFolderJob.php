@@ -103,8 +103,12 @@ class ScanOneDriveFolderJob implements ShouldQueue
             try {
                 $productCount = $shopify->getProductCount();
                 if ($productCount < 10000) {
-                    $count = $shopify->warmSkuCache();
-                    Log::info("ScanOneDriveFolderJob: SKU cache ready — {$count} SKUs mapped.");
+                    if ($shopify->isSkuCacheWarmed()) {
+                        Log::info("ScanOneDriveFolderJob: SKU cache already warm — skipping re-warm.");
+                    } else {
+                        $count = $shopify->warmSkuCache();
+                        Log::info("ScanOneDriveFolderJob: SKU cache ready — {$count} SKUs mapped.");
+                    }
                 } else {
                     Log::info("ScanOneDriveFolderJob: large store ({$productCount} products) — skipping cache warm, using live GraphQL lookup.");
                 }

@@ -130,6 +130,11 @@ class ShopifyService
         return $count;
     }
 
+    public function isSkuCacheWarmed(): bool
+    {
+        return Cache::has($this->skuCacheKey());
+    }
+
     public function clearSkuCache(): void
     {
         Cache::forget($this->skuCacheKey());
