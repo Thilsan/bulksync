@@ -87,7 +87,7 @@
         </div>
 
         <p class="text-center text-xs text-white/70 mt-6">
-            BulkSync v1.0 — Internal admin tool
+            Bulk Image Uploader v1.0 — Internal admin tool
         </p>
     </div>
 
