@@ -230,6 +230,11 @@
             @yield('content')
         </main>
 
+        {{-- Footer --}}
+        <footer class="shrink-0 border-t border-gray-200 bg-white px-8 py-3 text-center text-xs text-gray-900">
+            Powered by the Abuissa Holding E-Commerce Department
+        </footer>
+
     </div>
 
 </body>

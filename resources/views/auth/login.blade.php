@@ -87,7 +87,7 @@
         </div>
 
         <p class="text-center text-xs text-white/70 mt-6">
-            Bulk Image Uploader v1.0 — Internal admin tool
+            Powered by the Abuissa Holding E-Commerce Department
         </p>
     </div>
 
