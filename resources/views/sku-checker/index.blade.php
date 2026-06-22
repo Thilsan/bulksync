@@ -3,7 +3,35 @@
 @section('page-title', 'SKU Checker')
 
 @section('content')
-<div class="max-w-4xl mx-auto space-y-6">
+<div class="max-w-4xl mx-auto space-y-6" x-data="{ loading: false }">
+
+    {{-- Full-page loading overlay --}}
+    <div x-show="loading" x-cloak
+         class="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/60 backdrop-blur-sm">
+        <div class="bg-white rounded-2xl shadow-2xl px-10 py-8 max-w-sm w-full mx-4 text-center space-y-5">
+            <div class="flex justify-center">
+                <svg class="animate-spin h-12 w-12 text-brand-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-20" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                    <path class="opacity-80" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 22 6.477 22 12h-4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
+                </svg>
+            </div>
+            <div>
+                <p class="text-gray-900 font-semibold text-lg">Checking SKUs</p>
+                <p class="text-gray-500 text-sm mt-1">Looking up each SKU in your Shopify store…</p>
+            </div>
+            <div class="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
+                <p class="text-amber-700 text-xs font-medium">Please keep this tab open.</p>
+                <p class="text-amber-600 text-xs mt-0.5">This may take a moment depending on the number of SKUs.</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="flex justify-end">
+        <a href="{{ route('sku-checker.history') }}"
+           class="text-sm text-brand-600 hover:text-brand-800 font-medium flex items-center gap-1">
+            View History →
+        </a>
+    </div>
 
     {{-- Input card --}}
     <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
@@ -13,7 +41,7 @@
         </div>
 
         <form method="POST" action="{{ route('sku-checker.check') }}" enctype="multipart/form-data"
-              class="px-6 py-5 space-y-5" x-data="{ mode: 'text' }">
+              class="px-6 py-5 space-y-5" x-data="{ mode: 'text' }" @submit="loading = true">
             @csrf
 
             {{-- Toggle --}}
@@ -78,7 +106,7 @@
                 </div>
             </div>
             @if(count($results))
-            <a href="{{ route('sku-checker.download') }}"
+            <a href="{{ route('sku-checker.download', $session) }}"
                class="flex items-center gap-2 bg-gray-800 hover:bg-gray-900 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"

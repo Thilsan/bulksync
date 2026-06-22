@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\SkuCheckItem;
+use App\Models\SkuCheckSession;
 use App\Models\Store;
 use App\Services\ShopifyService;
 use Illuminate\Http\Request;
@@ -11,6 +13,25 @@ class SkuCheckerController extends Controller
     public function index()
     {
         return view('sku-checker.index');
+    }
+
+    public function history()
+    {
+        $sessions = SkuCheckSession::where('user_id', auth()->id())
+            ->with('store')
+            ->latest()
+            ->paginate(20);
+
+        return view('sku-checker.history', compact('sessions'));
+    }
+
+    public function show(SkuCheckSession $skuCheckSession)
+    {
+        abort_if($skuCheckSession->user_id !== auth()->id(), 403);
+
+        $items = $skuCheckSession->items()->orderBy('available')->orderBy('sku')->get();
+
+        return view('sku-checker.show', compact('skuCheckSession', 'items'));
     }
 
     public function check(Request $request)
@@ -42,38 +63,68 @@ class SkuCheckerController extends Controller
             ];
         }
 
-        session(['sku_check_results' => $results]);
-
         $available    = count(array_filter($results, fn ($r) => $r['available']));
         $notAvailable = count($results) - $available;
 
-        return view('sku-checker.index', compact('results', 'available', 'notAvailable'));
+        // Save to history
+        $session = SkuCheckSession::create([
+            'user_id'             => auth()->id(),
+            'store_id'            => $store?->id,
+            'total_skus'          => count($results),
+            'available_count'     => $available,
+            'not_available_count' => $notAvailable,
+        ]);
+
+        $chunks = array_chunk($results, 500);
+        foreach ($chunks as $chunk) {
+            $rows = array_map(fn ($r) => [
+                'sku_check_session_id' => $session->id,
+                'sku'                  => $r['sku'],
+                'available'            => $r['available'],
+                'product_title'        => $r['product_title'],
+                'product_id'           => $r['product_id'],
+                'created_at'           => now(),
+                'updated_at'           => now(),
+            ], $chunk);
+            SkuCheckItem::insert($rows);
+        }
+
+        return view('sku-checker.index', compact('results', 'available', 'notAvailable', 'session'));
     }
 
-    public function download()
+    public function download(SkuCheckSession $skuCheckSession)
     {
-        $results = session('sku_check_results', []);
+        abort_if($skuCheckSession->user_id !== auth()->id(), 403);
+
+        $items = $skuCheckSession->items()->orderBy('available')->orderBy('sku')->get();
 
         $headers = [
             'Content-Type'        => 'text/csv',
-            'Content-Disposition' => 'attachment; filename="sku-check-results.csv"',
+            'Content-Disposition' => 'attachment; filename="sku-check-' . $skuCheckSession->id . '.csv"',
         ];
 
-        $callback = function () use ($results) {
+        $callback = function () use ($items) {
             $handle = fopen('php://output', 'w');
             fputcsv($handle, ['SKU', 'Status', 'Product Title', 'Product ID']);
-            foreach ($results as $row) {
+            foreach ($items as $item) {
                 fputcsv($handle, [
-                    $row['sku'],
-                    $row['available'] ? 'Available' : 'Not Available',
-                    $row['product_title'],
-                    $row['product_id'],
+                    $item->sku,
+                    $item->available ? 'Available' : 'Not Available',
+                    $item->product_title,
+                    $item->product_id,
                 ]);
             }
             fclose($handle);
         };
 
         return response()->stream($callback, 200, $headers);
+    }
+
+    public function destroy(SkuCheckSession $skuCheckSession)
+    {
+        abort_if($skuCheckSession->user_id !== auth()->id(), 403);
+        $skuCheckSession->delete();
+        return back()->with('success', 'Check session deleted.');
     }
 
     private function parseSkus(Request $request): array

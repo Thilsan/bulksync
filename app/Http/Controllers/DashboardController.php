@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\SkuCheckSession;
 use App\Models\UploadSession;
 use Illuminate\View\View;
 
@@ -29,6 +30,20 @@ class DashboardController extends Controller
 
         $recentSessions = (clone $query)->latest()->limit(10)->get();
 
-        return view('dashboard', compact('stats', 'recentSessions'));
+        $skuQuery = SkuCheckSession::query();
+        if (!$user->is_super_admin) {
+            $skuQuery->where('user_id', $user->id);
+        }
+
+        $skuStats = [
+            'total_checks'    => (clone $skuQuery)->count(),
+            'total_skus'      => (clone $skuQuery)->sum('total_skus'),
+            'total_available' => (clone $skuQuery)->sum('available_count'),
+            'total_not_found' => (clone $skuQuery)->sum('not_available_count'),
+        ];
+
+        $recentSkuChecks = (clone $skuQuery)->with('store')->latest()->limit(5)->get();
+
+        return view('dashboard', compact('stats', 'recentSessions', 'skuStats', 'recentSkuChecks'));
     }
 }

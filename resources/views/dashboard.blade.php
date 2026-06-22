@@ -43,6 +43,61 @@
         </a>
     </div>
 
+    {{-- SKU Checker section --}}
+    <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <h2 class="font-semibold text-gray-800">SKU Checker</h2>
+                <div class="flex items-center gap-3 text-xs">
+                    <span class="text-gray-400">Total Checks: <strong class="text-gray-700">{{ $skuStats['total_checks'] }}</strong></span>
+                    <span class="text-gray-400">SKUs Checked: <strong class="text-gray-700">{{ number_format($skuStats['total_skus']) }}</strong></span>
+                    <span class="text-green-600 font-medium">✓ {{ number_format($skuStats['total_available']) }} Available</span>
+                    <span class="text-red-500 font-medium">✗ {{ number_format($skuStats['total_not_found']) }} Not Found</span>
+                </div>
+            </div>
+            <div class="flex items-center gap-3">
+                <a href="{{ route('sku-checker.history') }}" class="text-sm text-brand-600 hover:underline">View all</a>
+                <a href="{{ route('sku-checker.index') }}"
+                   class="bg-brand-600 hover:bg-brand-700 text-white px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors">
+                    + New Check
+                </a>
+            </div>
+        </div>
+
+        @if($recentSkuChecks->isEmpty())
+        <div class="px-6 py-8 text-center text-gray-400 text-sm">
+            No SKU checks yet. <a href="{{ route('sku-checker.index') }}" class="text-brand-600 hover:underline">Run your first check</a>
+        </div>
+        @else
+        <table class="w-full text-sm">
+            <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wide">
+                <tr>
+                    <th class="px-6 py-3 text-left">Date</th>
+                    <th class="px-6 py-3 text-left">Store</th>
+                    <th class="px-6 py-3 text-center">Total SKUs</th>
+                    <th class="px-6 py-3 text-center">Available</th>
+                    <th class="px-6 py-3 text-center">Not Found</th>
+                    <th class="px-6 py-3"></th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100">
+                @foreach($recentSkuChecks as $check)
+                <tr class="hover:bg-gray-50 transition-colors">
+                    <td class="px-6 py-3 text-gray-600">{{ $check->created_at->format('d M Y, h:i A') }}</td>
+                    <td class="px-6 py-3 text-gray-600">{{ $check->store?->name ?? '—' }}</td>
+                    <td class="px-6 py-3 text-center font-semibold text-gray-800">{{ $check->total_skus }}</td>
+                    <td class="px-6 py-3 text-center text-green-600 font-medium">{{ $check->available_count }}</td>
+                    <td class="px-6 py-3 text-center text-red-500 font-medium">{{ $check->not_available_count }}</td>
+                    <td class="px-6 py-3 text-right">
+                        <a href="{{ route('sku-checker.show', $check) }}" class="text-brand-600 hover:underline text-xs">View</a>
+                    </td>
+                </tr>
+                @endforeach
+            </tbody>
+        </table>
+        @endif
+    </div>
+
     {{-- Recent sessions --}}
     <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
         <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
