@@ -8,6 +8,7 @@ use App\Http\Controllers\OneDriveAuthController;
 use App\Http\Controllers\ShopifyAuthController;
 use App\Http\Controllers\StoreController;
 use App\Http\Controllers\SuperAdminController;
+use App\Http\Controllers\SkuCheckerController;
 use Illuminate\Support\Facades\Route;
 
 // Auth
@@ -22,6 +23,10 @@ Route::middleware('auth')->group(function () {
 
     // Bulk upload
     Route::get('/upload/history',   [BulkUploadController::class, 'history'])->name('upload.history');
+
+    Route::get('/sku-checker',          [SkuCheckerController::class, 'index'])->name('sku-checker.index');
+    Route::post('/sku-checker',         [SkuCheckerController::class, 'check'])->name('sku-checker.check');
+    Route::get('/sku-checker/download', [SkuCheckerController::class, 'download'])->name('sku-checker.download');
     Route::get('/upload/new',       [BulkUploadController::class, 'create'])->name('upload.create');
     Route::post('/upload',          [BulkUploadController::class, 'store'])->name('upload.store');
     Route::get('/upload/{session}',                       [BulkUploadController::class, 'show'])->name('upload.show');
