@@ -120,9 +120,6 @@ class ShopifyService
 
         } while ($cursor);
 
-        // Fetch product titles in a separate pass (optional — batch request)
-        $map = $this->backfillProductTitles($map);
-
         Cache::put($this->skuCacheKey(), $map, now()->addHours(4));
 
         Log::info("ShopifyService: SKU cache warmed — {$count} SKUs cached.");
