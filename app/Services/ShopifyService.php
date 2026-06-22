@@ -42,13 +42,9 @@ class ShopifyService
     // ── SKU Cache ─────────────────────────────────────────────────────────
 
     /**
-     * Look up a variant by SKU using a process-local in-memory cache.
-     * On first call, pre-warms from Laravel Cache (populated by warmSkuCache()).
-     * Falls back to live API if cache is empty.
-     */
-    /**
      * Returns ALL variants matching the SKU across all products.
-     * One SKU can exist on multiple products — this returns every match.
+     * Each SKU is stored as its own small Redis key (not one giant blob)
+     * to avoid PHP memory exhaustion during cache warming.
      */
     public function findVariantsBySkuCached(string $sku): array
     {
@@ -56,37 +52,39 @@ class ShopifyService
             return [];
         }
 
-        $cacheKey = $this->skuCacheKey();
-        $map      = Cache::get($cacheKey); // ['SKU' => [['product_id' => ...], ...]]
+        $gen = Cache::get($this->skuWarmSentinel());
 
-        if ($map !== null && isset($map[$sku])) {
-            return $map[$sku];
+        if ($gen === null) {
+            // Cache not warmed — fall back to live lookup
+            return $this->findVariantsBySku($sku);
         }
 
-        // SKU not in cache (or cache not warmed) — fall back to live lookup
-        return $this->findVariantsBySku($sku);
+        $cached = Cache::get($this->skuEntryKey($sku, $gen));
+
+        // null here means cache is warmed but SKU not in Shopify
+        return $cached ?? [];
     }
 
     /**
-     * Fetch every product variant from Shopify and build a SKU → product map.
-     * Stores in Laravel Cache for 4 hours.
-     * Call this once before dispatching ProcessUploadItemJob.
-     *
-     * A store with 10,000 products × 3 variants = 30,000 variants.
-     * At 250/page → 120 API calls → ~60 s at 2 calls/s.
+     * Fetch every variant from Shopify and store each SKU as its own Redis key.
+     * Processes and stores 250 variants at a time so the PHP process never
+     * holds a large array in memory — avoids OOM crashes on large stores.
      */
     public function warmSkuCache(): int
     {
         Log::info('ShopifyService: warming SKU cache…');
 
-        $map    = [];
+        // New generation timestamp makes stale keys from prior warmings unreachable
+        $gen    = time();
+        $ttl    = now()->addHours(4);
         $cursor = null;
         $count  = 0;
+        $page   = 0;
 
         do {
             $this->throttle();
 
-            $query  = ['limit' => 250, 'fields' => 'id,product_id,sku,title'];
+            $query = ['limit' => 250, 'fields' => 'id,product_id,sku'];
             if ($cursor) {
                 $query['page_info'] = $cursor;
             }
@@ -100,14 +98,15 @@ class ShopifyService
                 break;
             }
 
-            $data     = json_decode((string) $response->getBody(), true);
-            $variants = $data['variants'] ?? [];
+            $variants = json_decode((string) $response->getBody(), true)['variants'] ?? [];
 
+            // Accumulate only this page (≤250 entries) — freed at end of iteration
+            $pageMap = [];
             foreach ($variants as $v) {
                 if (!empty($v['sku'])) {
-                    $map[$v['sku']][] = [
+                    $pageMap[$v['sku']][] = [
                         'product_id'    => (string) $v['product_id'],
-                        'product_title' => '',   // filled in the next step if needed
+                        'product_title' => '',
                         'variant_id'    => (string) $v['id'],
                         'variant_sku'   => $v['sku'],
                     ];
@@ -115,26 +114,41 @@ class ShopifyService
                 }
             }
 
-            // Parse Link header for cursor-based pagination
+            // Store per-SKU — get+merge handles same SKU across multiple pages
+            foreach ($pageMap as $sku => $newEntries) {
+                $key      = $this->skuEntryKey($sku, $gen);
+                $existing = Cache::get($key, []);
+                Cache::put($key, array_merge($existing, $newEntries), $ttl);
+            }
+            unset($pageMap); // free page memory immediately
+
+            $page++;
+            if ($page % 20 === 0) {
+                Log::info("ShopifyService: warming SKU cache — {$count} variants processed…");
+            }
+
             $cursor = $this->parseLinkCursor($response->getHeader('Link')[0] ?? '');
 
         } while ($cursor);
 
-        Cache::put($this->skuCacheKey(), $map, now()->addHours(4));
+        // Sentinel stores the generation so findVariantsBySkuCached uses the right keys
+        Cache::put($this->skuWarmSentinel(), $gen, $ttl);
 
-        Log::info("ShopifyService: SKU cache warmed — {$count} SKUs cached.");
+        Log::info("ShopifyService: SKU cache warmed — {$count} variants, generation {$gen}.");
 
         return $count;
     }
 
     public function isSkuCacheWarmed(): bool
     {
-        return Cache::has($this->skuCacheKey());
+        return Cache::has($this->skuWarmSentinel());
     }
 
     public function clearSkuCache(): void
     {
-        Cache::forget($this->skuCacheKey());
+        // Forgetting the sentinel makes all per-SKU keys unreachable immediately.
+        // The old per-SKU keys (from the previous generation) expire naturally after 4 hours.
+        Cache::forget($this->skuWarmSentinel());
     }
 
     public function getProductCount(): int
@@ -465,8 +479,13 @@ class ShopifyService
         return null;
     }
 
-    private function skuCacheKey(): string
+    private function skuWarmSentinel(): string
     {
-        return 'shopify_sku_map_' . md5($this->shop);
+        return 'shopify_sku_warmed_' . md5($this->shop);
+    }
+
+    private function skuEntryKey(string $sku, int $gen): string
+    {
+        return 'shopify_sku_' . md5($this->shop) . '_v' . $gen . '_' . md5($sku);
     }
 }
