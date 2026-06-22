@@ -3,31 +3,12 @@
 @section('page-title', 'SKU Check Results')
 
 @section('content')
-<div class="space-y-6"
+<div class="max-w-3xl mx-auto space-y-6"
      x-data="skuCheckPage({{ $skuCheckSession->id }}, '{{ $skuCheckSession->status }}')"
      x-init="init()">
 
-    {{-- Back + Downloads --}}
-    <div class="flex items-center justify-between">
-        <a href="{{ route('sku-checker.history') }}" class="text-sm text-gray-500 hover:text-gray-700">← Back to History</a>
-        <div class="flex items-center gap-2" x-show="status === 'completed'">
-            <a :href="'{{ route('sku-checker.download', $skuCheckSession) }}?filter=not_available'"
-               class="bg-red-50 hover:bg-red-100 text-red-700 px-3 py-1.5 rounded-lg text-xs font-medium border border-red-200 transition-colors">
-                Download Not Available
-            </a>
-            <a :href="'{{ route('sku-checker.download', $skuCheckSession) }}?filter=available'"
-               class="bg-green-50 hover:bg-green-100 text-green-700 px-3 py-1.5 rounded-lg text-xs font-medium border border-green-200 transition-colors">
-                Download Available
-            </a>
-            <a :href="'{{ route('sku-checker.download', $skuCheckSession) }}'"
-               class="bg-gray-800 hover:bg-gray-900 text-white px-4 py-1.5 rounded-lg text-xs font-medium transition-colors flex items-center gap-1">
-                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
-                </svg>
-                Download All
-            </a>
-        </div>
-    </div>
+    {{-- Back --}}
+    <a href="{{ route('sku-checker.history') }}" class="text-sm text-gray-500 hover:text-gray-700">← Back to History</a>
 
     {{-- Stats --}}
     <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -70,81 +51,31 @@
     </div>
     @endif
 
-    {{-- Results table --}}
-    <div x-show="status === 'completed'" class="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        <div class="px-6 py-4 border-b border-gray-100 flex flex-wrap items-center gap-4">
-            <div class="flex gap-2">
-                <button @click="setFilter('all')"
-                    :class="filter==='all' ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'"
-                    class="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors">
-                    All (<span x-text="totalSkus.toLocaleString()"></span>)
-                </button>
-                <button @click="setFilter('not_available')"
-                    :class="filter==='not_available' ? 'bg-red-600 text-white' : 'bg-red-50 text-red-600 hover:bg-red-100'"
-                    class="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors">
-                    Not Available (<span x-text="notAvailable.toLocaleString()"></span>)
-                </button>
-                <button @click="setFilter('available')"
-                    :class="filter==='available' ? 'bg-green-600 text-white' : 'bg-green-50 text-green-600 hover:bg-green-100'"
-                    class="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors">
-                    Available (<span x-text="available.toLocaleString()"></span>)
-                </button>
-            </div>
-            <div class="flex-1 max-w-xs">
-                <input type="text" x-model.debounce.400ms="search" @input="loadItems(1)"
-                    placeholder="Search SKU or product…"
-                    class="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
-            </div>
-            <p class="text-xs text-gray-400 ml-auto"><span x-text="itemTotal.toLocaleString()"></span> results</p>
-        </div>
-
-        <div class="overflow-x-auto">
-            <table class="w-full text-sm">
-                <thead class="bg-gray-50 border-b border-gray-100">
-                    <tr>
-                        <th class="text-left px-6 py-3 font-medium text-gray-600">#</th>
-                        <th class="text-left px-6 py-3 font-medium text-gray-600">SKU</th>
-                        <th class="text-left px-6 py-3 font-medium text-gray-600">Product Title</th>
-                        <th class="text-left px-6 py-3 font-medium text-gray-600">Status</th>
-                    </tr>
-                </thead>
-                <tbody class="divide-y divide-gray-100">
-                    <template x-for="(item, i) in items" :key="item.id">
-                        <tr class="hover:bg-gray-50 transition-colors">
-                            <td class="px-6 py-3 text-gray-400 text-xs" x-text="(currentPage - 1) * 100 + i + 1"></td>
-                            <td class="px-6 py-3 font-mono font-medium text-gray-800" x-text="item.sku"></td>
-                            <td class="px-6 py-3 text-gray-600" x-text="item.product_title || '—'"></td>
-                            <td class="px-6 py-3">
-                                <template x-if="item.available">
-                                    <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-green-50 text-green-700">
-                                        <span class="w-1.5 h-1.5 rounded-full bg-green-500"></span>Available
-                                    </span>
-                                </template>
-                                <template x-if="!item.available">
-                                    <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-red-50 text-red-600">
-                                        <span class="w-1.5 h-1.5 rounded-full bg-red-400"></span>Not Available
-                                    </span>
-                                </template>
-                            </td>
-                        </tr>
-                    </template>
-                    <tr x-show="items.length === 0 && status === 'completed'">
-                        <td colspan="4" class="px-6 py-8 text-center text-gray-400 text-sm">No results found.</td>
-                    </tr>
-                </tbody>
-            </table>
-        </div>
-
-        <div x-show="lastPage > 1" class="px-6 py-4 border-t border-gray-100 flex items-center justify-between">
-            <button @click="loadItems(currentPage - 1)" :disabled="currentPage === 1"
-                class="px-3 py-1.5 rounded-lg border text-xs font-medium disabled:opacity-40 hover:bg-gray-50 transition-colors">
-                ← Previous
-            </button>
-            <p class="text-xs text-gray-500">Page <span x-text="currentPage"></span> of <span x-text="lastPage"></span></p>
-            <button @click="loadItems(currentPage + 1)" :disabled="currentPage === lastPage"
-                class="px-3 py-1.5 rounded-lg border text-xs font-medium disabled:opacity-40 hover:bg-gray-50 transition-colors">
-                Next →
-            </button>
+    {{-- Download buttons --}}
+    <div x-show="status === 'completed'" class="bg-white rounded-xl border border-gray-200 p-6 space-y-4">
+        <p class="text-sm font-semibold text-gray-700">Download Results</p>
+        <div class="flex flex-wrap gap-3">
+            <a href="{{ route('sku-checker.download', $skuCheckSession) }}?filter=not_available"
+               class="bg-red-50 hover:bg-red-100 text-red-700 px-4 py-2 rounded-lg text-sm font-medium border border-red-200 transition-colors flex items-center gap-2">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                </svg>
+                Not Available (<span x-text="notAvailable.toLocaleString()"></span>)
+            </a>
+            <a href="{{ route('sku-checker.download', $skuCheckSession) }}?filter=available"
+               class="bg-green-50 hover:bg-green-100 text-green-700 px-4 py-2 rounded-lg text-sm font-medium border border-green-200 transition-colors flex items-center gap-2">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                </svg>
+                Available (<span x-text="available.toLocaleString()"></span>)
+            </a>
+            <a href="{{ route('sku-checker.download', $skuCheckSession) }}"
+               class="bg-gray-800 hover:bg-gray-900 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                </svg>
+                Download All
+            </a>
         </div>
     </div>
 
@@ -159,18 +90,10 @@ function skuCheckPage(sessionId, initialStatus) {
         available:   {{ $skuCheckSession->available_count }},
         notAvailable:{{ $skuCheckSession->not_available_count }},
         progress:    {{ $skuCheckSession->progressPercent() }},
-        filter:      'all',
-        search:      '',
-        items:       [],
-        itemTotal:   0,
-        currentPage: 1,
-        lastPage:    1,
         pollTimer:   null,
 
         init() {
-            if (this.status === 'completed') {
-                this.loadItems(1);
-            } else if (this.status !== 'failed') {
+            if (this.status !== 'completed' && this.status !== 'failed') {
                 this.startPolling();
             }
         },
@@ -190,24 +113,7 @@ function skuCheckPage(sessionId, initialStatus) {
             this.progress     = data.progress;
             if (data.status === 'completed' || data.status === 'failed') {
                 clearInterval(this.pollTimer);
-                if (data.status === 'completed') this.loadItems(1);
             }
-        },
-
-        setFilter(f) {
-            this.filter = f;
-            this.loadItems(1);
-        },
-
-        async loadItems(page) {
-            this.currentPage = page;
-            const url  = `/sku-checker/${sessionId}/items?filter=${this.filter}&search=${encodeURIComponent(this.search)}&page=${page}`;
-            const res  = await fetch(url);
-            const data = await res.json();
-            this.items       = data.items;
-            this.itemTotal   = data.total;
-            this.lastPage    = data.last_page;
-            this.currentPage = data.current_page;
         },
     };
 }

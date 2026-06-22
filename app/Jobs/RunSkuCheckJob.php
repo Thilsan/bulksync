@@ -2,7 +2,6 @@
 
 namespace App\Jobs;
 
-use App\Models\SkuCheckItem;
 use App\Models\SkuCheckSession;
 use App\Services\ShopifyService;
 use Illuminate\Bus\Queueable;
@@ -43,16 +42,11 @@ class RunSkuCheckJob implements ShouldQueue
         try {
             $skuCount = count($skus);
 
-            // Only warm cache for large batches — small batches are faster with live lookups
             if ($skuCount > 500) {
                 if (!$shopify->isSkuCacheWarmed()) {
-                    try {
-                        Log::info("RunSkuCheckJob: large batch ({$skuCount} SKUs) — warming SKU cache first…");
-                        $shopify->warmSkuCache();
-                        Log::info("RunSkuCheckJob: SKU cache ready.");
-                    } catch (\Throwable $e) {
-                        Log::warning("RunSkuCheckJob: cache warm failed, using live lookups: " . $e->getMessage());
-                    }
+                    Log::info("RunSkuCheckJob: large batch ({$skuCount} SKUs) — warming SKU cache first…");
+                    $shopify->warmSkuCache();
+                    Log::info("RunSkuCheckJob: SKU cache ready.");
                 } else {
                     Log::info("RunSkuCheckJob: SKU cache already warm — skipping.");
                 }
@@ -60,45 +54,47 @@ class RunSkuCheckJob implements ShouldQueue
                 Log::info("RunSkuCheckJob: small batch ({$skuCount} SKUs) — using live lookups directly.");
             }
 
-            $buffer        = [];
-            $scanned       = 0;
-            $available     = 0;
-            $notAvailable  = 0;
+            // Write results directly to CSV — no DB rows
+            $dir = storage_path('app/sku-checks');
+            if (!is_dir($dir)) {
+                mkdir($dir, 0755, true);
+            }
+            $filePath = "{$dir}/{$this->sessionId}.csv";
+            $handle   = fopen($filePath, 'w');
+            fputcsv($handle, ['SKU', 'Status', 'Product ID']);
+
+            $scanned      = 0;
+            $available    = 0;
+            $notAvailable = 0;
 
             foreach ($skus as $sku) {
-                $variants = $shopify->findVariantsBySkuCached($sku);
+                $variants  = $shopify->findVariantsBySkuCached($sku);
+                $isAvail   = !empty($variants);
+                $productId = $isAvail ? $variants[0]['product_id'] : '';
 
-                $buffer[] = [
-                    'sku_check_session_id' => $session->id,
-                    'sku'                  => $sku,
-                    'available'            => !empty($variants),
-                    'product_title'        => !empty($variants) ? $variants[0]['product_title'] : '',
-                    'product_id'           => !empty($variants) ? $variants[0]['product_id'] : '',
-                    'created_at'           => now(),
-                    'updated_at'           => now(),
-                ];
+                fputcsv($handle, [
+                    $sku,
+                    $isAvail ? 'Available' : 'Not Available',
+                    $productId,
+                ]);
 
-                !empty($variants) ? $available++ : $notAvailable++;
+                $isAvail ? $available++ : $notAvailable++;
                 $scanned++;
 
-                if (count($buffer) >= 500) {
-                    SkuCheckItem::insert($buffer);
-                    $buffer = [];
+                if ($scanned % 500 === 0) {
                     $session->update(['scanned_skus' => $scanned]);
                 }
             }
 
-            if (!empty($buffer)) {
-                SkuCheckItem::insert($buffer);
-            }
+            fclose($handle);
 
             $session->update([
-                'status'             => 'completed',
-                'scanned_skus'       => $scanned,
-                'total_skus'         => $scanned,
-                'available_count'    => $available,
-                'not_available_count'=> $notAvailable,
-                'raw_skus'           => null, // free up space
+                'status'              => 'completed',
+                'scanned_skus'        => $scanned,
+                'total_skus'          => $scanned,
+                'available_count'     => $available,
+                'not_available_count' => $notAvailable,
+                'raw_skus'            => null,
             ]);
 
             Log::info("RunSkuCheckJob: done — {$available} available, {$notAvailable} not found.");

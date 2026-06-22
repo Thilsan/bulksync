@@ -45,34 +45,6 @@ class SkuCheckerController extends Controller
         ]);
     }
 
-    public function items(SkuCheckSession $skuCheckSession, Request $request)
-    {
-        abort_if($skuCheckSession->user_id !== auth()->id(), 403);
-
-        $filter = $request->get('filter', 'all');
-        $search = $request->get('search', '');
-
-        $query = $skuCheckSession->items();
-
-        if ($filter === 'available')     $query->where('available', true);
-        if ($filter === 'not_available') $query->where('available', false);
-
-        if ($search) {
-            $query->where(function ($q) use ($search) {
-                $q->where('sku', 'like', "%{$search}%")
-                  ->orWhere('product_title', 'like', "%{$search}%");
-            });
-        }
-
-        $items = $query->orderBy('available')->orderBy('sku')->paginate(100)->withQueryString();
-
-        return response()->json([
-            'items'        => $items->items(),
-            'total'        => $items->total(),
-            'current_page' => $items->currentPage(),
-            'last_page'    => $items->lastPage(),
-        ]);
-    }
 
     public function check(Request $request)
     {
@@ -105,30 +77,35 @@ class SkuCheckerController extends Controller
     {
         abort_if($skuCheckSession->user_id !== auth()->id(), 403);
 
-        $filter = $request->get('filter', 'all');
-        $query  = $skuCheckSession->items();
-        if ($filter === 'available')     $query->where('available', true);
-        if ($filter === 'not_available') $query->where('available', false);
-        $items = $query->orderBy('available')->orderBy('sku')->get();
+        $filePath = storage_path("app/sku-checks/{$skuCheckSession->id}.csv");
+        abort_unless(file_exists($filePath), 404, 'Result file not found.');
 
+        $filter   = $request->get('filter', 'all');
         $filename = "sku-check-{$skuCheckSession->id}-{$filter}.csv";
-        $headers  = [
+
+        if ($filter === 'all') {
+            return response()->download($filePath, $filename, ['Content-Type' => 'text/csv']);
+        }
+
+        $headers = [
             'Content-Type'        => 'text/csv',
             'Content-Disposition' => "attachment; filename=\"{$filename}\"",
         ];
 
-        $callback = function () use ($items) {
-            $handle = fopen('php://output', 'w');
-            fputcsv($handle, ['SKU', 'Status', 'Product Title', 'Product ID']);
-            foreach ($items as $item) {
-                fputcsv($handle, [
-                    $item->sku,
-                    $item->available ? 'Available' : 'Not Available',
-                    $item->product_title,
-                    $item->product_id,
-                ]);
+        $callback = function () use ($filePath, $filter) {
+            $out = fopen('php://output', 'w');
+            $in  = fopen($filePath, 'r');
+            fputcsv($out, fgetcsv($in)); // header row
+            while (($row = fgetcsv($in)) !== false) {
+                $status = strtolower($row[1] ?? '');
+                if ($filter === 'available' && $status === 'available') {
+                    fputcsv($out, $row);
+                } elseif ($filter === 'not_available' && $status === 'not available') {
+                    fputcsv($out, $row);
+                }
             }
-            fclose($handle);
+            fclose($in);
+            fclose($out);
         };
 
         return response()->stream($callback, 200, $headers);
@@ -137,6 +114,10 @@ class SkuCheckerController extends Controller
     public function destroy(SkuCheckSession $skuCheckSession)
     {
         abort_if($skuCheckSession->user_id !== auth()->id(), 403);
+        $filePath = storage_path("app/sku-checks/{$skuCheckSession->id}.csv");
+        if (file_exists($filePath)) {
+            unlink($filePath);
+        }
         $skuCheckSession->delete();
         return back()->with('success', 'Check session deleted.');
     }

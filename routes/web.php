@@ -38,7 +38,6 @@ Route::middleware('auth')->group(function () {
     Route::get('/sku-checker/history',                      [SkuCheckerController::class, 'history'])->name('sku-checker.history');
     Route::get('/sku-checker/{skuCheckSession}',            [SkuCheckerController::class, 'show'])->name('sku-checker.show');
     Route::get('/sku-checker/{skuCheckSession}/status',     [SkuCheckerController::class, 'status'])->name('sku-checker.status');
-    Route::get('/sku-checker/{skuCheckSession}/items',      [SkuCheckerController::class, 'items'])->name('sku-checker.items');
     Route::get('/sku-checker/{skuCheckSession}/download',   [SkuCheckerController::class, 'download'])->name('sku-checker.download');
     Route::delete('/sku-checker/{skuCheckSession}',         [SkuCheckerController::class, 'destroy'])->name('sku-checker.destroy');
     Route::get('/upload/new',       [BulkUploadController::class, 'create'])->name('upload.create');
