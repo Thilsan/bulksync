@@ -41,13 +41,23 @@ class RunSkuCheckJob implements ShouldQueue
         Log::info("RunSkuCheckJob: checking " . count($skus) . " SKUs for session {$this->sessionId}");
 
         try {
-            // Always warm cache first — bulk API call is much faster than per-SKU live lookups
-            if (!$shopify->isSkuCacheWarmed()) {
-                Log::info("RunSkuCheckJob: warming SKU cache first…");
-                $shopify->warmSkuCache();
-                Log::info("RunSkuCheckJob: SKU cache ready.");
+            $skuCount = count($skus);
+
+            // Only warm cache for large batches — small batches are faster with live lookups
+            if ($skuCount > 500) {
+                if (!$shopify->isSkuCacheWarmed()) {
+                    try {
+                        Log::info("RunSkuCheckJob: large batch ({$skuCount} SKUs) — warming SKU cache first…");
+                        $shopify->warmSkuCache();
+                        Log::info("RunSkuCheckJob: SKU cache ready.");
+                    } catch (\Throwable $e) {
+                        Log::warning("RunSkuCheckJob: cache warm failed, using live lookups: " . $e->getMessage());
+                    }
+                } else {
+                    Log::info("RunSkuCheckJob: SKU cache already warm — skipping.");
+                }
             } else {
-                Log::info("RunSkuCheckJob: SKU cache already warm — skipping.");
+                Log::info("RunSkuCheckJob: small batch ({$skuCount} SKUs) — using live lookups directly.");
             }
 
             $buffer        = [];
