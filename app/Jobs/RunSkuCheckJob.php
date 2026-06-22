@@ -41,13 +41,13 @@ class RunSkuCheckJob implements ShouldQueue
         Log::info("RunSkuCheckJob: checking " . count($skus) . " SKUs for session {$this->sessionId}");
 
         try {
-            // Warm cache if not already warm (fast lookup for all SKUs)
+            // Always warm cache first — bulk API call is much faster than per-SKU live lookups
             if (!$shopify->isSkuCacheWarmed()) {
-                $productCount = $shopify->getProductCount();
-                if ($productCount < 10000) {
-                    Log::info("RunSkuCheckJob: warming SKU cache first…");
-                    $shopify->warmSkuCache();
-                }
+                Log::info("RunSkuCheckJob: warming SKU cache first…");
+                $shopify->warmSkuCache();
+                Log::info("RunSkuCheckJob: SKU cache ready.");
+            } else {
+                Log::info("RunSkuCheckJob: SKU cache already warm — skipping.");
             }
 
             $buffer        = [];
