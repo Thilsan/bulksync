@@ -2,10 +2,10 @@
 
 namespace App\Http\Controllers;
 
+use App\Jobs\RunSkuCheckJob;
 use App\Models\SkuCheckItem;
 use App\Models\SkuCheckSession;
 use App\Models\Store;
-use App\Services\ShopifyService;
 use Illuminate\Http\Request;
 
 class SkuCheckerController extends Controller
@@ -28,17 +28,57 @@ class SkuCheckerController extends Controller
     public function show(SkuCheckSession $skuCheckSession)
     {
         abort_if($skuCheckSession->user_id !== auth()->id(), 403);
+        return view('sku-checker.show', compact('skuCheckSession'));
+    }
 
-        $items = $skuCheckSession->items()->orderBy('available')->orderBy('sku')->get();
+    public function status(SkuCheckSession $skuCheckSession)
+    {
+        abort_if($skuCheckSession->user_id !== auth()->id(), 403);
 
-        return view('sku-checker.show', compact('skuCheckSession', 'items'));
+        return response()->json([
+            'status'        => $skuCheckSession->status,
+            'total_skus'    => $skuCheckSession->total_skus,
+            'scanned_skus'  => $skuCheckSession->scanned_skus,
+            'progress'      => $skuCheckSession->progressPercent(),
+            'available'     => $skuCheckSession->available_count,
+            'not_available' => $skuCheckSession->not_available_count,
+        ]);
+    }
+
+    public function items(SkuCheckSession $skuCheckSession, Request $request)
+    {
+        abort_if($skuCheckSession->user_id !== auth()->id(), 403);
+
+        $filter = $request->get('filter', 'all');
+        $search = $request->get('search', '');
+
+        $query = $skuCheckSession->items();
+
+        if ($filter === 'available')     $query->where('available', true);
+        if ($filter === 'not_available') $query->where('available', false);
+
+        if ($search) {
+            $query->where(function ($q) use ($search) {
+                $q->where('sku', 'like', "%{$search}%")
+                  ->orWhere('product_title', 'like', "%{$search}%");
+            });
+        }
+
+        $items = $query->orderBy('available')->orderBy('sku')->paginate(100)->withQueryString();
+
+        return response()->json([
+            'items'        => $items->items(),
+            'total'        => $items->total(),
+            'current_page' => $items->currentPage(),
+            'last_page'    => $items->lastPage(),
+        ]);
     }
 
     public function check(Request $request)
     {
         $request->validate([
-            'skus'     => 'nullable|string|max:50000',
-            'csv_file' => 'nullable|file|mimes:csv,txt|max:2048',
+            'skus'     => 'nullable|string',
+            'csv_file' => 'nullable|file|mimes:csv,txt|max:20480', // 20MB
         ]);
 
         $skus = $this->parseSkus($request);
@@ -47,60 +87,34 @@ class SkuCheckerController extends Controller
             return back()->withErrors(['skus' => 'Please enter at least one SKU or upload a CSV.']);
         }
 
-        set_time_limit(300);
-
         $store   = Store::getActive();
-        $shopify = new ShopifyService($store);
-
-        $results = [];
-        foreach ($skus as $sku) {
-            $variants  = $shopify->findVariantsBySkuCached($sku);
-            $results[] = [
-                'sku'           => $sku,
-                'available'     => !empty($variants),
-                'product_title' => !empty($variants) ? $variants[0]['product_title'] : '',
-                'product_id'    => !empty($variants) ? $variants[0]['product_id'] : '',
-            ];
-        }
-
-        $available    = count(array_filter($results, fn ($r) => $r['available']));
-        $notAvailable = count($results) - $available;
-
-        // Save to history
         $session = SkuCheckSession::create([
-            'user_id'             => auth()->id(),
-            'store_id'            => $store?->id,
-            'total_skus'          => count($results),
-            'available_count'     => $available,
-            'not_available_count' => $notAvailable,
+            'user_id'    => auth()->id(),
+            'store_id'   => $store?->id,
+            'status'     => 'pending',
+            'total_skus' => count($skus),
+            'raw_skus'   => implode("\n", $skus),
         ]);
 
-        $chunks = array_chunk($results, 500);
-        foreach ($chunks as $chunk) {
-            $rows = array_map(fn ($r) => [
-                'sku_check_session_id' => $session->id,
-                'sku'                  => $r['sku'],
-                'available'            => $r['available'],
-                'product_title'        => $r['product_title'],
-                'product_id'           => $r['product_id'],
-                'created_at'           => now(),
-                'updated_at'           => now(),
-            ], $chunk);
-            SkuCheckItem::insert($rows);
-        }
+        RunSkuCheckJob::dispatch($session->id)->onQueue('bulkupload');
 
-        return view('sku-checker.index', compact('results', 'available', 'notAvailable', 'session'));
+        return redirect()->route('sku-checker.show', $session);
     }
 
-    public function download(SkuCheckSession $skuCheckSession)
+    public function download(SkuCheckSession $skuCheckSession, Request $request)
     {
         abort_if($skuCheckSession->user_id !== auth()->id(), 403);
 
-        $items = $skuCheckSession->items()->orderBy('available')->orderBy('sku')->get();
+        $filter = $request->get('filter', 'all');
+        $query  = $skuCheckSession->items();
+        if ($filter === 'available')     $query->where('available', true);
+        if ($filter === 'not_available') $query->where('available', false);
+        $items = $query->orderBy('available')->orderBy('sku')->get();
 
-        $headers = [
+        $filename = "sku-check-{$skuCheckSession->id}-{$filter}.csv";
+        $headers  = [
             'Content-Type'        => 'text/csv',
-            'Content-Disposition' => 'attachment; filename="sku-check-' . $skuCheckSession->id . '.csv"',
+            'Content-Disposition' => "attachment; filename=\"{$filename}\"",
         ];
 
         $callback = function () use ($items) {
@@ -147,9 +161,7 @@ class SkuCheckerController extends Controller
             $lines = preg_split('/[\r\n,]+/', $request->input('skus'));
             foreach ($lines as $line) {
                 $sku = trim($line);
-                if ($sku) {
-                    $skus[] = $sku;
-                }
+                if ($sku) $skus[] = $sku;
             }
         }
 

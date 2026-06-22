@@ -8,6 +8,7 @@ use App\Http\Controllers\OneDriveAuthController;
 use App\Http\Controllers\ShopifyAuthController;
 use App\Http\Controllers\StoreController;
 use App\Http\Controllers\SuperAdminController;
+use App\Http\Controllers\ImageAuditController;
 use App\Http\Controllers\SkuCheckerController;
 use Illuminate\Support\Facades\Route;
 
@@ -24,12 +25,22 @@ Route::middleware('auth')->group(function () {
     // Bulk upload
     Route::get('/upload/history',   [BulkUploadController::class, 'history'])->name('upload.history');
 
-    Route::get('/sku-checker',                          [SkuCheckerController::class, 'index'])->name('sku-checker.index');
-    Route::post('/sku-checker',                         [SkuCheckerController::class, 'check'])->name('sku-checker.check');
-    Route::get('/sku-checker/history',                  [SkuCheckerController::class, 'history'])->name('sku-checker.history');
-    Route::get('/sku-checker/{skuCheckSession}',        [SkuCheckerController::class, 'show'])->name('sku-checker.show');
-    Route::get('/sku-checker/{skuCheckSession}/download', [SkuCheckerController::class, 'download'])->name('sku-checker.download');
-    Route::delete('/sku-checker/{skuCheckSession}',     [SkuCheckerController::class, 'destroy'])->name('sku-checker.destroy');
+    Route::post('/image-audit/start',                          [ImageAuditController::class, 'start'])->name('image-audit.start');
+    Route::get('/image-audit',                                 [ImageAuditController::class, 'index'])->name('image-audit.index');
+    Route::get('/image-audit/{imageAuditSession}',             [ImageAuditController::class, 'show'])->name('image-audit.show');
+    Route::get('/image-audit/{imageAuditSession}/status',      [ImageAuditController::class, 'status'])->name('image-audit.status');
+    Route::get('/image-audit/{imageAuditSession}/items',       [ImageAuditController::class, 'items'])->name('image-audit.items');
+    Route::get('/image-audit/{imageAuditSession}/download',    [ImageAuditController::class, 'download'])->name('image-audit.download');
+    Route::delete('/image-audit/{imageAuditSession}',          [ImageAuditController::class, 'destroy'])->name('image-audit.destroy');
+
+    Route::get('/sku-checker',                              [SkuCheckerController::class, 'index'])->name('sku-checker.index');
+    Route::post('/sku-checker',                             [SkuCheckerController::class, 'check'])->name('sku-checker.check');
+    Route::get('/sku-checker/history',                      [SkuCheckerController::class, 'history'])->name('sku-checker.history');
+    Route::get('/sku-checker/{skuCheckSession}',            [SkuCheckerController::class, 'show'])->name('sku-checker.show');
+    Route::get('/sku-checker/{skuCheckSession}/status',     [SkuCheckerController::class, 'status'])->name('sku-checker.status');
+    Route::get('/sku-checker/{skuCheckSession}/items',      [SkuCheckerController::class, 'items'])->name('sku-checker.items');
+    Route::get('/sku-checker/{skuCheckSession}/download',   [SkuCheckerController::class, 'download'])->name('sku-checker.download');
+    Route::delete('/sku-checker/{skuCheckSession}',         [SkuCheckerController::class, 'destroy'])->name('sku-checker.destroy');
     Route::get('/upload/new',       [BulkUploadController::class, 'create'])->name('upload.create');
     Route::post('/upload',          [BulkUploadController::class, 'store'])->name('upload.store');
     Route::get('/upload/{session}',                       [BulkUploadController::class, 'show'])->name('upload.show');

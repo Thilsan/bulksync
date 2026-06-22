@@ -16,12 +16,8 @@
                 </svg>
             </div>
             <div>
-                <p class="text-gray-900 font-semibold text-lg">Checking SKUs</p>
-                <p class="text-gray-500 text-sm mt-1">Looking up each SKU in your Shopify store…</p>
-            </div>
-            <div class="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
-                <p class="text-amber-700 text-xs font-medium">Please keep this tab open.</p>
-                <p class="text-amber-600 text-xs mt-0.5">This may take a moment depending on the number of SKUs.</p>
+                <p class="text-gray-900 font-semibold text-lg">Submitting SKUs…</p>
+                <p class="text-gray-500 text-sm mt-1">Processing will continue in the background.</p>
             </div>
         </div>
     </div>
@@ -37,7 +33,7 @@
     <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
         <div class="px-6 py-5 border-b border-gray-100">
             <h2 class="font-semibold text-gray-800 text-lg">Check SKU Availability</h2>
-            <p class="text-sm text-gray-500 mt-1">Enter SKUs manually or upload a CSV to check if they exist in your Shopify store.</p>
+            <p class="text-sm text-gray-500 mt-1">Enter SKUs manually or upload a CSV. Large batches (10,000+ SKUs) run in the background.</p>
         </div>
 
         <form method="POST" action="{{ route('sku-checker.check') }}" enctype="multipart/form-data"
@@ -73,11 +69,11 @@
             {{-- CSV upload --}}
             <div x-show="mode === 'csv'" x-cloak>
                 <label class="block text-sm font-medium text-gray-700 mb-1.5">
-                    CSV File <span class="text-gray-400 font-normal">(first column should be SKU)</span>
+                    CSV File <span class="text-gray-400 font-normal">(first column = SKU, up to 20MB)</span>
                 </label>
                 <input type="file" name="csv_file" accept=".csv,.txt"
                     class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
-                <p class="text-xs text-gray-400 mt-1.5">CSV format: SKU in the first column. Header row is automatically skipped.</p>
+                <p class="text-xs text-gray-400 mt-1.5">Header row (SKU) is automatically skipped. No limit on number of SKUs.</p>
             </div>
 
             @error('skus')
@@ -92,67 +88,6 @@
             </div>
         </form>
     </div>
-
-    {{-- Results --}}
-    @isset($results)
-    <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        <div class="px-6 py-5 border-b border-gray-100 flex items-center justify-between">
-            <div>
-                <h2 class="font-semibold text-gray-800 text-lg">Results</h2>
-                <div class="flex items-center gap-4 mt-1">
-                    <span class="text-xs text-gray-500">Total: <strong>{{ count($results) }}</strong></span>
-                    <span class="text-xs text-green-600 font-medium">✓ Available: {{ $available }}</span>
-                    <span class="text-xs text-red-500 font-medium">✗ Not Available: {{ $notAvailable }}</span>
-                </div>
-            </div>
-            @if(count($results))
-            <a href="{{ route('sku-checker.download', $session) }}"
-               class="flex items-center gap-2 bg-gray-800 hover:bg-gray-900 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
-                </svg>
-                Download CSV
-            </a>
-            @endif
-        </div>
-
-        <div class="overflow-x-auto">
-            <table class="w-full text-sm">
-                <thead>
-                    <tr class="bg-gray-50 border-b border-gray-100">
-                        <th class="text-left px-6 py-3 font-medium text-gray-600">#</th>
-                        <th class="text-left px-6 py-3 font-medium text-gray-600">SKU</th>
-                        <th class="text-left px-6 py-3 font-medium text-gray-600">Status</th>
-                        <th class="text-left px-6 py-3 font-medium text-gray-600">Product Title</th>
-                    </tr>
-                </thead>
-                <tbody class="divide-y divide-gray-100">
-                    @foreach($results as $i => $row)
-                    <tr class="hover:bg-gray-50 transition-colors">
-                        <td class="px-6 py-3 text-gray-400 text-xs">{{ $i + 1 }}</td>
-                        <td class="px-6 py-3 font-mono text-gray-800 font-medium">{{ $row['sku'] }}</td>
-                        <td class="px-6 py-3">
-                            @if($row['available'])
-                                <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-green-50 text-green-700">
-                                    <span class="w-1.5 h-1.5 rounded-full bg-green-500"></span>
-                                    Available
-                                </span>
-                            @else
-                                <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-red-50 text-red-600">
-                                    <span class="w-1.5 h-1.5 rounded-full bg-red-400"></span>
-                                    Not Available
-                                </span>
-                            @endif
-                        </td>
-                        <td class="px-6 py-3 text-gray-600">{{ $row['product_title'] ?: '—' }}</td>
-                    </tr>
-                    @endforeach
-                </tbody>
-            </table>
-        </div>
-    </div>
-    @endisset
 
 </div>
 @endsection

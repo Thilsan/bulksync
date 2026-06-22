@@ -12,10 +12,20 @@ class SkuCheckSession extends Model
         'user_id',
         'store_id',
         'name',
+        'status',
         'total_skus',
+        'scanned_skus',
         'available_count',
         'not_available_count',
+        'raw_skus',
+        'error_message',
     ];
+
+    public function progressPercent(): int
+    {
+        if ($this->total_skus === 0) return 0;
+        return (int) min(100, round($this->scanned_skus / $this->total_skus * 100));
+    }
 
     public function user(): BelongsTo
     {

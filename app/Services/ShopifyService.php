@@ -296,6 +296,41 @@ class ShopifyService
         Log::info("Shopify: variant {$variantId} image_id set to {$imageId}");
     }
 
+    // ── Image Audit ────────────────────────────────────────────────────────
+
+    /**
+     * Stream all products (id, title, variants, images) page by page.
+     * Calls $callback with each page array of products.
+     */
+    public function streamProductsForAudit(callable $callback): void
+    {
+        $cursor = null;
+
+        do {
+            $this->throttle();
+
+            $query = ['limit' => 250, 'fields' => 'id,title,variants,images'];
+            if ($cursor) {
+                $query['page_info'] = $cursor;
+                unset($query['fields']); // fields not allowed with page_info
+            }
+
+            try {
+                $response = $this->http->get("admin/api/{$this->apiVersion}/products.json", ['query' => $query]);
+            } catch (ClientException $e) {
+                $this->handleClientException($e, 'streamProductsForAudit');
+                break;
+            }
+
+            $products = json_decode((string) $response->getBody(), true)['products'] ?? [];
+            if (!empty($products)) {
+                $callback($products);
+            }
+
+            $cursor = $this->parseLinkCursor($response->getHeader('Link')[0] ?? '');
+        } while ($cursor);
+    }
+
     // ── Connection test ────────────────────────────────────────────────────
 
     public function testConnection(): bool

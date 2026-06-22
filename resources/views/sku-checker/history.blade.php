@@ -29,6 +29,7 @@
                     <tr class="bg-gray-50 border-b border-gray-100">
                         <th class="text-left px-6 py-3 font-medium text-gray-600">Date</th>
                         <th class="text-left px-6 py-3 font-medium text-gray-600">Store</th>
+                        <th class="text-left px-6 py-3 font-medium text-gray-600">Status</th>
                         <th class="text-left px-6 py-3 font-medium text-gray-600">Total SKUs</th>
                         <th class="text-left px-6 py-3 font-medium text-gray-600">Available</th>
                         <th class="text-left px-6 py-3 font-medium text-gray-600">Not Available</th>
@@ -40,6 +41,10 @@
                     <tr class="hover:bg-gray-50 transition-colors">
                         <td class="px-6 py-3 text-gray-600">{{ $session->created_at->format('d M Y, h:i A') }}</td>
                         <td class="px-6 py-3 text-gray-600">{{ $session->store?->name ?? '—' }}</td>
+                        <td class="px-6 py-3">
+                            @php $colors = ['pending'=>'gray','running'=>'brand','completed'=>'green','failed'=>'red']; $c = $colors[$session->status ?? 'completed'] ?? 'gray'; @endphp
+                            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-{{ $c }}-100 text-{{ $c }}-700">{{ ucfirst($session->status ?? 'completed') }}</span>
+                        </td>
                         <td class="px-6 py-3 font-semibold text-gray-800">{{ $session->total_skus }}</td>
                         <td class="px-6 py-3">
                             <span class="inline-flex items-center gap-1 text-green-600 font-medium">
