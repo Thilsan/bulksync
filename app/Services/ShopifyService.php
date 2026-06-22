@@ -416,9 +416,14 @@ class ShopifyService
 
     private function backfillProductTitles(array $map): array
     {
-        // Flatten all entries to collect unique product IDs (each SKU now maps to an array of variants)
-        $allEntries = array_merge(...array_values($map));
-        $productIds = array_unique(array_column($allEntries, 'product_id'));
+        // Flatten all entries to collect unique product IDs
+        $productIds = [];
+        foreach ($map as $entries) {
+            foreach ($entries as $entry) {
+                $productIds[$entry['product_id']] = true;
+            }
+        }
+        $productIds = array_keys($productIds);
         $titles     = [];
 
         foreach (array_chunk($productIds, 250) as $chunk) {
