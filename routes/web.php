@@ -80,6 +80,8 @@ Route::middleware('auth')->group(function () {
         Route::post('/users',                        [SuperAdminController::class, 'storeUser'])->name('users.store');
         Route::post('/users/{user}/toggle',          [SuperAdminController::class, 'toggleUser'])->name('users.toggle');
         Route::post('/users/{user}/toggle-admin',    [SuperAdminController::class, 'toggleSuperAdmin'])->name('users.toggle-admin');
+        Route::post('/users/{user}/permissions',     [SuperAdminController::class, 'updatePermissions'])->name('users.permissions');
+        Route::post('/users/{user}/stores',          [SuperAdminController::class, 'updateStores'])->name('users.stores');
     });
 
     // Shopify OAuth

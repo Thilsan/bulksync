@@ -61,6 +61,7 @@
                 <span>Dashboard</span>
             </a>
 
+            @if(auth()->user()->hasFeature('bulk_upload'))
             <a href="{{ route('upload.create') }}"
                class="flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors
                       {{ request()->routeIs('upload.create') ? 'bg-white/20 text-white' : 'text-white/70 hover:bg-white/10 hover:text-white' }}">
@@ -80,7 +81,9 @@
                 </svg>
                 <span>Upload History</span>
             </a>
+            @endif
 
+            @if(auth()->user()->hasFeature('sku_checker'))
             <a href="{{ route('sku-checker.index') }}"
                class="flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors
                       {{ request()->routeIs('sku-checker.*') ? 'bg-white/20 text-white' : 'text-white/70 hover:bg-white/10 hover:text-white' }}">
@@ -90,7 +93,9 @@
                 </svg>
                 <span>SKU Checker</span>
             </a>
+            @endif
 
+            @if(auth()->user()->hasFeature('image_audit'))
             <a href="{{ route('image-audit.index') }}"
                class="flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors
                       {{ request()->routeIs('image-audit.*') ? 'bg-white/20 text-white' : 'text-white/70 hover:bg-white/10 hover:text-white' }}">
@@ -100,7 +105,9 @@
                 </svg>
                 <span>Image Audit</span>
             </a>
+            @endif
 
+            @if(auth()->user()->hasFeature('store_sync'))
             <a href="{{ route('store-image-sync.index') }}"
                class="flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors
                       {{ request()->routeIs('store-image-sync.*') ? 'bg-white/20 text-white' : 'text-white/70 hover:bg-white/10 hover:text-white' }}">
@@ -110,6 +117,7 @@
                 </svg>
                 <span>Store Image Sync</span>
             </a>
+            @endif
 
             <a href="{{ route('stores.index') }}"
                class="flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors

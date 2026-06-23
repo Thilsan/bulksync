@@ -64,4 +64,24 @@ class SuperAdminController extends Controller
 
         return back()->with('success', "\"{$user->name}\" has been {$status}.");
     }
+
+    public function updatePermissions(User $user, Request $request): RedirectResponse
+    {
+        $user->update([
+            'perm_bulk_upload' => $request->boolean('perm_bulk_upload'),
+            'perm_sku_checker' => $request->boolean('perm_sku_checker'),
+            'perm_image_audit' => $request->boolean('perm_image_audit'),
+            'perm_store_sync'  => $request->boolean('perm_store_sync'),
+        ]);
+
+        return back()->with('success', "Permissions updated for \"{$user->name}\".");
+    }
+
+    public function updateStores(User $user, Request $request): RedirectResponse
+    {
+        $storeIds = $request->input('store_ids', []);
+        $user->stores()->sync($storeIds);
+
+        return back()->with('success', "Store access updated for \"{$user->name}\".");
+    }
 }

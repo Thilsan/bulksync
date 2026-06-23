@@ -15,7 +15,10 @@ class StoreController extends Controller
     {
         $user = auth()->user();
 
-        $stores = Store::orderByDesc('is_active')->orderBy('name')->get();
+        $user   = auth()->user();
+        $stores = $user->is_super_admin
+            ? Store::orderByDesc('is_active')->orderBy('name')->get()
+            : $user->stores()->orderByDesc('is_active')->orderBy('name')->get();
 
         return view('stores.index', compact('stores'));
     }
