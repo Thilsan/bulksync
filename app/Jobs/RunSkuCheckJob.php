@@ -42,13 +42,16 @@ class RunSkuCheckJob implements ShouldQueue
         try {
             $skuCount = count($skus);
 
-            if ($skuCount > 100) {
-                // Always warm fresh — ensures SKUs added after last run are included
-                Log::info("RunSkuCheckJob: warming fresh SKU cache for {$skuCount} SKUs…");
-                $shopify->warmSkuCache();
-                Log::info("RunSkuCheckJob: SKU cache ready.");
+            if ($skuCount > 500) {
+                if (!$shopify->isSkuCacheWarmed()) {
+                    Log::info("RunSkuCheckJob: large batch ({$skuCount} SKUs) — warming SKU cache first…");
+                    $shopify->warmSkuCache();
+                    Log::info("RunSkuCheckJob: SKU cache ready.");
+                } else {
+                    Log::info("RunSkuCheckJob: SKU cache already warm — skipping.");
+                }
             } else {
-                Log::info("RunSkuCheckJob: small batch ({$skuCount} SKUs) — using live lookups.");
+                Log::info("RunSkuCheckJob: small batch ({$skuCount} SKUs) — using live lookups directly.");
             }
 
             // Write results directly to CSV — no DB rows
