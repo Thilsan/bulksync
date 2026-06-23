@@ -151,6 +151,54 @@ class ShopifyService
         Cache::forget($this->skuWarmSentinel());
     }
 
+    /**
+     * Fetch every SKU in the store and return as a hash-set (sku => true) for O(1) lookup.
+     * Only retrieves the `sku` field per variant — the lightest possible bulk fetch.
+     * Used by RunCsvCompareJob to compare an uploaded SKU list against the full catalogue.
+     */
+    public function getAllShopifySkuSet(): array
+    {
+        Log::info('ShopifyService: fetching all Shopify SKUs for CSV compare…');
+
+        $skuSet = [];
+        $cursor = null;
+        $count  = 0;
+
+        do {
+            $this->throttle();
+
+            $query = ['limit' => 250, 'fields' => 'sku'];
+            if ($cursor) {
+                $query['page_info'] = $cursor;
+            }
+
+            try {
+                $response = $this->http->get("admin/api/{$this->apiVersion}/variants.json", [
+                    'query' => $query,
+                ]);
+            } catch (ClientException $e) {
+                $this->handleClientException($e, 'getAllShopifySkuSet');
+                break;
+            }
+
+            $variants = json_decode((string) $response->getBody(), true)['variants'] ?? [];
+
+            foreach ($variants as $v) {
+                if (!empty($v['sku'])) {
+                    $skuSet[$v['sku']] = true;
+                    $count++;
+                }
+            }
+
+            $cursor = $this->parseLinkCursor($response->getHeader('Link')[0] ?? '');
+
+        } while ($cursor);
+
+        Log::info("ShopifyService: fetched {$count} Shopify SKUs for CSV compare.");
+
+        return $skuSet;
+    }
+
     public function getProductCount(): int
     {
         try {

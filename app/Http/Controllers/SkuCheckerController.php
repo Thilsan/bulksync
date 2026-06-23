@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Jobs\RunCsvCompareJob;
 use App\Jobs\RunSkuCheckJob;
 use App\Models\SkuCheckItem;
 use App\Models\SkuCheckSession;
@@ -111,6 +112,32 @@ class SkuCheckerController extends Controller
         return response()->stream($callback, 200, $headers);
     }
 
+    public function csvCompare(Request $request)
+    {
+        $request->validate([
+            'my_csv' => 'required|file|mimes:csv,txt|max:20480',
+        ]);
+
+        $skus = $this->parseCsvFile($request->file('my_csv'));
+
+        if (empty($skus)) {
+            return back()->withErrors(['my_csv' => 'No valid SKUs found in the uploaded CSV.']);
+        }
+
+        $store   = Store::getActive();
+        $session = SkuCheckSession::create([
+            'user_id'    => auth()->id(),
+            'store_id'   => $store?->id,
+            'status'     => 'pending',
+            'total_skus' => count($skus),
+            'raw_skus'   => implode("\n", $skus),
+        ]);
+
+        RunCsvCompareJob::dispatch($session->id)->onQueue('bulkupload');
+
+        return redirect()->route('sku-checker.show', $session);
+    }
+
     public function destroy(SkuCheckSession $skuCheckSession)
     {
         abort_if($skuCheckSession->user_id !== auth()->id(), 403);
@@ -146,6 +173,21 @@ class SkuCheckerController extends Controller
             }
         }
 
+        return array_values(array_unique(array_filter($skus)));
+    }
+
+    private function parseCsvFile($file): array
+    {
+        $skus    = [];
+        $content = file_get_contents($file->getRealPath());
+        $lines   = preg_split('/\r\n|\r|\n/', $content);
+        foreach ($lines as $line) {
+            $parts = str_getcsv($line);
+            $sku   = trim($parts[0] ?? '');
+            if ($sku && strtolower($sku) !== 'sku') {
+                $skus[] = $sku;
+            }
+        }
         return array_values(array_unique(array_filter($skus)));
     }
 }

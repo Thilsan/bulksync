@@ -35,6 +35,7 @@ Route::middleware('auth')->group(function () {
 
     Route::get('/sku-checker',                              [SkuCheckerController::class, 'index'])->name('sku-checker.index');
     Route::post('/sku-checker',                             [SkuCheckerController::class, 'check'])->name('sku-checker.check');
+    Route::post('/sku-checker/csv-compare',                 [SkuCheckerController::class, 'csvCompare'])->name('sku-checker.csv-compare');
     Route::get('/sku-checker/history',                      [SkuCheckerController::class, 'history'])->name('sku-checker.history');
     Route::get('/sku-checker/{skuCheckSession}',            [SkuCheckerController::class, 'show'])->name('sku-checker.show');
     Route::get('/sku-checker/{skuCheckSession}/status',     [SkuCheckerController::class, 'status'])->name('sku-checker.status');
