@@ -84,13 +84,13 @@ class ShopifyService
         do {
             $this->throttle();
 
-            $query = ['limit' => 250, 'fields' => 'id,product_id,sku'];
+            $query = ['limit' => 250, 'fields' => 'id,title,published_at,variants'];
             if ($cursor) {
                 $query['page_info'] = $cursor;
             }
 
             try {
-                $response = $this->http->get("admin/api/{$this->apiVersion}/variants.json", [
+                $response = $this->http->get("admin/api/{$this->apiVersion}/products.json", [
                     'query' => $query,
                 ]);
             } catch (ClientException $e) {
@@ -98,19 +98,23 @@ class ShopifyService
                 break;
             }
 
-            $variants = json_decode((string) $response->getBody(), true)['variants'] ?? [];
+            $products = json_decode((string) $response->getBody(), true)['products'] ?? [];
 
-            // Accumulate only this page (≤250 entries) — freed at end of iteration
+            // Accumulate only this page — freed at end of iteration
             $pageMap = [];
-            foreach ($variants as $v) {
-                if (!empty($v['sku'])) {
-                    $pageMap[$v['sku']][] = [
-                        'product_id'    => (string) $v['product_id'],
-                        'product_title' => '',
-                        'variant_id'    => (string) $v['id'],
-                        'variant_sku'   => $v['sku'],
-                    ];
-                    $count++;
+            foreach ($products as $product) {
+                $published = !empty($product['published_at']);
+                foreach ($product['variants'] ?? [] as $v) {
+                    if (!empty($v['sku'])) {
+                        $pageMap[$v['sku']][] = [
+                            'product_id'    => (string) $product['id'],
+                            'product_title' => $product['title'] ?? '',
+                            'variant_id'    => (string) $v['id'],
+                            'variant_sku'   => $v['sku'],
+                            'published'     => $published,
+                        ];
+                        $count++;
+                    }
                 }
             }
 
@@ -230,7 +234,7 @@ class ShopifyService
                 "admin/api/{$this->apiVersion}/graphql.json",
                 [
                     'json' => [
-                        'query'     => 'query($q:String!){productVariants(first:250,query:$q){edges{node{id sku product{id title}}}}}',
+                        'query'     => 'query($q:String!){productVariants(first:250,query:$q){edges{node{id sku product{id title status}}}}}',
                         'variables' => ['q' => "sku:'{$sku}'"],
                     ],
                 ]
@@ -245,9 +249,10 @@ class ShopifyService
                 $productId = ltrim(str_replace('gid://shopify/Product/', '', $node['product']['id']), '/');
                 return [
                     'product_id'    => $productId,
-                    'product_title' => $node['product']['title'],
+                    'product_title' => $node['product']['title'] ?? '',
                     'variant_id'    => $variantId,
                     'variant_sku'   => $node['sku'],
+                    'published'     => ($node['product']['status'] ?? '') === 'ACTIVE',
                 ];
             }, $edges);
 

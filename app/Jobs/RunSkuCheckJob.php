@@ -61,21 +61,25 @@ class RunSkuCheckJob implements ShouldQueue
             }
             $filePath = "{$dir}/{$this->sessionId}.csv";
             $handle   = fopen($filePath, 'w');
-            fputcsv($handle, ['SKU', 'Status', 'Product ID']);
+            fputcsv($handle, ['SKU', 'Status', 'Product ID', 'Product Name', 'Published']);
 
             $scanned      = 0;
             $available    = 0;
             $notAvailable = 0;
 
             foreach ($skus as $sku) {
-                $variants  = $shopify->findVariantsBySkuCached($sku);
-                $isAvail   = !empty($variants);
-                $productId = $isAvail ? $variants[0]['product_id'] : '';
+                $variants     = $shopify->findVariantsBySkuCached($sku);
+                $isAvail      = !empty($variants);
+                $productId    = $isAvail ? ($variants[0]['product_id'] ?? '') : '';
+                $productTitle = $isAvail ? ($variants[0]['product_title'] ?? '') : '';
+                $published    = $isAvail ? (($variants[0]['published'] ?? false) ? 'TRUE' : 'FALSE') : '';
 
                 fputcsv($handle, [
                     $sku,
                     $isAvail ? 'Available' : 'Not Available',
                     $productId,
+                    $productTitle,
+                    $published,
                 ]);
 
                 $isAvail ? $available++ : $notAvailable++;
