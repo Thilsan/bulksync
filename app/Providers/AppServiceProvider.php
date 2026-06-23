@@ -28,7 +28,7 @@ class AppServiceProvider extends ServiceProvider
                 $user = auth()->user();
                 $storeQuery = \App\Models\Store::orderBy('name');
                 if ($user && !$user->is_super_admin) {
-                    $storeQuery->where('user_id', $user->id);
+                    $storeQuery->whereHas('users', fn ($q) => $q->where('user_id', $user->id));
                 }
                 $view->with([
                     'activeStore' => \App\Models\Store::getActive(),
