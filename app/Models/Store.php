@@ -14,25 +14,14 @@ class Store extends Model
     {
         $user = $userId ? \App\Models\User::find($userId) : auth()->user();
 
-        $query = static::where('is_active', true);
-
-        if ($user && !$user->is_super_admin) {
-            $query->where('user_id', $user->id);
-        }
-
-        return $query->first();
+        return static::where('is_active', true)->first();
     }
 
     public static function switchTo(int $id): void
     {
         $user = auth()->user();
 
-        if ($user && !$user->is_super_admin) {
-            // Only deactivate stores belonging to this user
-            static::where('user_id', $user->id)->update(['is_active' => false]);
-        } else {
-            static::query()->update(['is_active' => false]);
-        }
+        static::query()->update(['is_active' => false]);
 
         static::where('id', $id)->update(['is_active' => true]);
     }

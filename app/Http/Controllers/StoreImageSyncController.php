@@ -12,7 +12,7 @@ class StoreImageSyncController extends Controller
 {
     public function index()
     {
-        $stores = Store::where('user_id', auth()->id())->get();
+        $stores = Store::orderBy('name')->get();
         return view('store-image-sync.index', compact('stores'));
     }
 
@@ -26,10 +26,8 @@ class StoreImageSyncController extends Controller
         ]);
 
         // Ensure both stores belong to the authenticated user
-        $fromStore = Store::where('id', $request->from_store)
-            ->where('user_id', auth()->id())->firstOrFail();
-        $toStore   = Store::where('id', $request->to_store)
-            ->where('user_id', auth()->id())->firstOrFail();
+        $fromStore = Store::findOrFail($request->from_store);
+        $toStore   = Store::findOrFail($request->to_store);
 
         $skus = $this->parseSkus($request);
 
