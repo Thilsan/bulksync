@@ -115,7 +115,8 @@ class SkuCheckerController extends Controller
     public function csvCompare(Request $request)
     {
         $request->validate([
-            'my_csv' => 'required|file|mimes:csv,txt|max:20480',
+            'my_csv'      => 'required|file|mimes:csv,txt|max:20480',
+            'shopify_csv' => 'required|file|mimes:csv,txt|max:102400',
         ]);
 
         $skus = $this->parseCsvFile($request->file('my_csv'));
@@ -132,6 +133,12 @@ class SkuCheckerController extends Controller
             'total_skus' => count($skus),
             'raw_skus'   => implode("\n", $skus),
         ]);
+
+        $dir = storage_path('app/sku-checks');
+        if (!is_dir($dir)) {
+            mkdir($dir, 0755, true);
+        }
+        $request->file('shopify_csv')->move($dir, "shopify_{$session->id}.csv");
 
         RunCsvCompareJob::dispatch($session->id)->onQueue('bulkupload');
 

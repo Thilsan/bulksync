@@ -36,7 +36,7 @@
             @click="mainTab = 'api'"
             :class="mainTab === 'api' ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-700'"
             class="px-5 py-2 rounded-lg text-sm font-medium transition-all">
-            SKU API Check
+            SKU Check
         </button>
         <button type="button"
             @click="mainTab = 'compare'"
@@ -108,12 +108,12 @@
         </div>
     </div>
 
-    {{-- ── Tab 2: Compare with Shopify (new) ────────────────────────────── --}}
+    {{-- ── Tab 2: Compare CSV ──────────────────────────────────────────── --}}
     <div x-show="mainTab === 'compare'" x-cloak>
         <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
             <div class="px-6 py-5 border-b border-gray-100">
-                <h2 class="font-semibold text-gray-800 text-lg">Compare with Shopify</h2>
-                <p class="text-sm text-gray-500 mt-1">Upload your SKU list. The system will automatically fetch all SKUs from Shopify, compare them in memory, and generate a result CSV — no manual Shopify export needed.</p>
+                <h2 class="font-semibold text-gray-800 text-lg">Compare with Shopify Export</h2>
+                <p class="text-sm text-gray-500 mt-1">Upload your SKU list and your Shopify export CSV. The system compares them in memory — no API calls, results in seconds.</p>
             </div>
 
             {{-- How it works --}}
@@ -123,7 +123,7 @@
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
                     </svg>
                     <div>
-                        <strong class="font-semibold">How it works:</strong> Upload your CSV → system fetches all Shopify SKUs in bulk → compares in memory → generates result CSV with Available / Not Available for each of your SKUs.
+                        <strong class="font-semibold">How it works:</strong> Upload your SKU list + Shopify export CSV → compare in memory → result CSV with Available / Not Available. No API calls, no waiting.
                     </div>
                 </div>
             </div>
@@ -134,12 +134,12 @@
 
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-1.5">
-                        Your SKU List (CSV)
-                        <span class="text-gray-400 font-normal">— first column must be the SKU, up to 20MB</span>
+                        Your SKU List
+                        <span class="text-gray-400 font-normal">— first column must be SKU, up to 20MB</span>
                     </label>
                     <input type="file" name="my_csv" accept=".csv,.txt" required
                         class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
-                    <p class="text-xs text-gray-400 mt-1.5">Header row is automatically skipped. Supports 20,000+ SKUs.</p>
+                    <p class="text-xs text-gray-400 mt-1.5">Header row is automatically skipped.</p>
                 </div>
 
                 @error('my_csv')
@@ -147,9 +147,23 @@
                 @enderror
 
                 <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1.5">
+                        Shopify Export CSV
+                        <span class="text-gray-400 font-normal">— download from Shopify Admin → Products → Export, up to 100MB</span>
+                    </label>
+                    <input type="file" name="shopify_csv" accept=".csv,.txt" required
+                        class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
+                    <p class="text-xs text-gray-400 mt-1.5">Supports standard Shopify export format — "Variant SKU" column is detected automatically.</p>
+                </div>
+
+                @error('shopify_csv')
+                    <p class="text-red-600 text-xs">{{ $message }}</p>
+                @enderror
+
+                <div>
                     <button type="submit"
                         class="bg-brand-600 hover:bg-brand-700 text-white px-6 py-2.5 rounded-lg text-sm font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2">
-                        Compare with Shopify
+                        Compare CSVs
                     </button>
                 </div>
             </form>
@@ -157,23 +171,19 @@
 
         {{-- Steps info card --}}
         <div class="bg-white rounded-xl border border-gray-200 p-5 mt-4">
-            <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">What happens after you click Compare</p>
+            <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">How to get the Shopify Export CSV</p>
             <div class="space-y-3">
                 <div class="flex items-start gap-3">
                     <span class="shrink-0 w-6 h-6 rounded-full bg-brand-100 text-brand-700 text-xs font-bold flex items-center justify-center">1</span>
-                    <p class="text-sm text-gray-600">Your CSV is uploaded and the job is queued in the background.</p>
+                    <p class="text-sm text-gray-600">Go to Shopify Admin → <strong>Products</strong></p>
                 </div>
                 <div class="flex items-start gap-3">
                     <span class="shrink-0 w-6 h-6 rounded-full bg-brand-100 text-brand-700 text-xs font-bold flex items-center justify-center">2</span>
-                    <p class="text-sm text-gray-600">The system fetches <strong>all SKUs</strong> from your Shopify store in a single bulk sweep.</p>
+                    <p class="text-sm text-gray-600">Click <strong>Export</strong> → Export all products as CSV</p>
                 </div>
                 <div class="flex items-start gap-3">
                     <span class="shrink-0 w-6 h-6 rounded-full bg-brand-100 text-brand-700 text-xs font-bold flex items-center justify-center">3</span>
-                    <p class="text-sm text-gray-600">Your SKUs are compared against the Shopify set in memory — <strong>no individual API calls</strong> per SKU.</p>
-                </div>
-                <div class="flex items-start gap-3">
-                    <span class="shrink-0 w-6 h-6 rounded-full bg-brand-100 text-brand-700 text-xs font-bold flex items-center justify-center">4</span>
-                    <p class="text-sm text-gray-600">Download the result CSV showing <strong>Available</strong> or <strong>Not Available</strong> for each SKU.</p>
+                    <p class="text-sm text-gray-600">Upload that file here alongside your SKU list — comparison is instant.</p>
                 </div>
             </div>
         </div>
