@@ -310,7 +310,7 @@ class ShopifyService
         try {
             $response = $this->http->get(
                 "admin/api/{$this->apiVersion}/products/{$productId}/images.json",
-                ['query' => ['fields' => 'id,alt,position', 'limit' => 250]]
+                ['query' => ['fields' => 'id,src,alt,position', 'limit' => 250]]
             );
             $images = json_decode((string) $response->getBody(), true)['images'] ?? [];
             usort($images, fn ($a, $b) => ($a['position'] ?? 0) <=> ($b['position'] ?? 0));

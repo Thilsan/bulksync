@@ -10,6 +10,7 @@ use App\Http\Controllers\StoreController;
 use App\Http\Controllers\SuperAdminController;
 use App\Http\Controllers\ImageAuditController;
 use App\Http\Controllers\SkuCheckerController;
+use App\Http\Controllers\StoreImageSyncController;
 use Illuminate\Support\Facades\Route;
 
 // Auth
@@ -32,6 +33,12 @@ Route::middleware('auth')->group(function () {
     Route::get('/image-audit/{imageAuditSession}/items',       [ImageAuditController::class, 'items'])->name('image-audit.items');
     Route::get('/image-audit/{imageAuditSession}/download',    [ImageAuditController::class, 'download'])->name('image-audit.download');
     Route::delete('/image-audit/{imageAuditSession}',          [ImageAuditController::class, 'destroy'])->name('image-audit.destroy');
+
+    Route::get('/store-image-sync',                          [StoreImageSyncController::class, 'index'])->name('store-image-sync.index');
+    Route::post('/store-image-sync',                         [StoreImageSyncController::class, 'start'])->name('store-image-sync.start');
+    Route::get('/store-image-sync/{token}/status',           [StoreImageSyncController::class, 'status'])->name('store-image-sync.status');
+    Route::get('/store-image-sync/{token}/download',         [StoreImageSyncController::class, 'download'])->name('store-image-sync.download');
+    Route::get('/store-image-sync/{token}',                  [StoreImageSyncController::class, 'show'])->name('store-image-sync.show');
 
     Route::get('/sku-checker',                              [SkuCheckerController::class, 'index'])->name('sku-checker.index');
     Route::post('/sku-checker',                             [SkuCheckerController::class, 'check'])->name('sku-checker.check');
