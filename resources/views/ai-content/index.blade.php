@@ -121,8 +121,15 @@
                         </span>
                     </td>
                     <td class="px-6 py-3 text-right">
-                        <a href="{{ route('ai-content.show', $session) }}"
-                           class="text-brand-600 hover:text-brand-800 font-medium text-xs">View →</a>
+                        <div class="flex items-center justify-end gap-3">
+                            <a href="{{ route('ai-content.show', $session) }}"
+                               class="text-brand-600 hover:text-brand-800 font-medium text-xs">View →</a>
+                            <form method="POST" action="{{ route('ai-content.destroy', $session) }}"
+                                  onsubmit="return confirm('Delete this session?')">
+                                @csrf @method('DELETE')
+                                <button type="submit" class="text-xs text-red-400 hover:text-red-600 font-medium">Delete</button>
+                            </form>
+                        </div>
                     </td>
                 </tr>
                 @endforeach
