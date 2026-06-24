@@ -395,6 +395,49 @@ class ShopifyService
         } while ($cursor);
     }
 
+    // ── Metafield update ───────────────────────────────────────────────────
+
+    public function updateProductMetafields(string $productId, string $material, string $features): void
+    {
+        $metafields = [];
+
+        if ($material !== '') {
+            $metafields[] = [
+                'namespace' => 'custom',
+                'key'       => 'material',
+                'value'     => $material,
+                'type'      => 'single_line_text_field',
+            ];
+        }
+
+        if ($features !== '') {
+            // Features is a list type — encode as JSON array
+            $items = array_filter(array_map('trim', explode(',', $features)));
+            $metafields[] = [
+                'namespace' => 'custom',
+                'key'       => 'features',
+                'value'     => json_encode(array_values($items)),
+                'type'      => 'list.single_line_text_field',
+            ];
+        }
+
+        if (empty($metafields)) return;
+
+        $gid = "gid://shopify/Product/{$productId}";
+
+        $this->http->post("admin/api/{$this->apiVersion}/graphql.json", [
+            'json' => [
+                'query' => 'mutation($input:ProductInput!){productUpdate(input:$input){product{id}userErrors{field message}}}',
+                'variables' => [
+                    'input' => [
+                        'id'         => $gid,
+                        'metafields' => $metafields,
+                    ],
+                ],
+            ],
+        ]);
+    }
+
     // ── AI Content update ──────────────────────────────────────────────────
 
     public function updateProductContent(string $productId, string $description, string $metaTitle, string $metaDescription): void
