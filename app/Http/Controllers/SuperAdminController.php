@@ -72,7 +72,8 @@ class SuperAdminController extends Controller
             'perm_sku_checker' => $request->boolean('perm_sku_checker'),
             'perm_image_audit' => $request->boolean('perm_image_audit'),
             'perm_store_sync'  => $request->boolean('perm_store_sync'),
-            'perm_ai_content'  => $request->boolean('perm_ai_content'),
+            'perm_ai_content'       => $request->boolean('perm_ai_content'),
+            'perm_metafield_update' => $request->boolean('perm_metafield_update'),
         ]);
 
         return back()->with('success', "Permissions updated for \"{$user->name}\".");

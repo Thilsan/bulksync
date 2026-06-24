@@ -148,7 +148,8 @@
                                     'sku_checker' => 'SKU Checker',
                                     'image_audit' => 'Image Audit',
                                     'store_sync'  => 'Store Image Sync',
-                                    'ai_content'  => 'AI Content',
+                                    'ai_content'       => 'AI Content',
+                                    'metafield_update' => 'Metafield Update',
                                 ];
                             @endphp
                             @foreach($features as $key => $label)
