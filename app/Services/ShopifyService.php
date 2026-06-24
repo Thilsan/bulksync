@@ -395,6 +395,27 @@ class ShopifyService
         } while ($cursor);
     }
 
+    // ── AI Content update ──────────────────────────────────────────────────
+
+    public function updateProductContent(string $productId, string $description, string $metaTitle, string $metaDescription): void
+    {
+        $this->http->put("admin/api/{$this->apiVersion}/products/{$productId}.json", [
+            'json' => ['product' => ['id' => (int) $productId, 'body_html' => $description]],
+        ]);
+
+        if ($metaTitle) {
+            $this->http->post("admin/api/{$this->apiVersion}/products/{$productId}/metafields.json", [
+                'json' => ['metafield' => ['namespace' => 'global', 'key' => 'title_tag', 'value' => $metaTitle, 'type' => 'single_line_text_field']],
+            ]);
+        }
+
+        if ($metaDescription) {
+            $this->http->post("admin/api/{$this->apiVersion}/products/{$productId}/metafields.json", [
+                'json' => ['metafield' => ['namespace' => 'global', 'key' => 'description_tag', 'value' => $metaDescription, 'type' => 'single_line_text_field']],
+            ]);
+        }
+    }
+
     // ── Connection test ────────────────────────────────────────────────────
 
     public function testConnection(): bool

@@ -11,6 +11,7 @@ use App\Http\Controllers\SuperAdminController;
 use App\Http\Controllers\ImageAuditController;
 use App\Http\Controllers\SkuCheckerController;
 use App\Http\Controllers\StoreImageSyncController;
+use App\Http\Controllers\AiContentController;
 use Illuminate\Support\Facades\Route;
 
 // Auth
@@ -83,6 +84,15 @@ Route::middleware('auth')->group(function () {
         Route::post('/users/{user}/permissions',     [SuperAdminController::class, 'updatePermissions'])->name('users.permissions');
         Route::post('/users/{user}/stores',          [SuperAdminController::class, 'updateStores'])->name('users.stores');
     });
+
+    // AI Content
+    Route::get('/ai-content',                          [AiContentController::class, 'index'])->name('ai-content.index');
+    Route::post('/ai-content',                         [AiContentController::class, 'store'])->name('ai-content.store');
+    Route::get('/ai-content/{aiContentSession}',       [AiContentController::class, 'show'])->name('ai-content.show');
+    Route::get('/ai-content/{aiContentSession}/status',[AiContentController::class, 'status'])->name('ai-content.status');
+    Route::get('/ai-content/{aiContentSession}/items', [AiContentController::class, 'items'])->name('ai-content.items');
+    Route::post('/ai-content/{aiContentSession}/push', [AiContentController::class, 'push'])->name('ai-content.push');
+    Route::delete('/ai-content/{aiContentSession}',    [AiContentController::class, 'destroy'])->name('ai-content.destroy');
 
     // Shopify OAuth
     Route::get('/auth/shopify/redirect',   [ShopifyAuthController::class,  'redirect'])->name('shopify.auth.redirect');

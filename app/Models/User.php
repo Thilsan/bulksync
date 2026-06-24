@@ -10,7 +10,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 
-#[Fillable(['name', 'email', 'password', 'is_super_admin', 'is_active', 'perm_bulk_upload', 'perm_sku_checker', 'perm_image_audit', 'perm_store_sync', 'onedrive_access_token', 'onedrive_refresh_token', 'onedrive_token_expiry'])]
+#[Fillable(['name', 'email', 'password', 'is_super_admin', 'is_active', 'perm_bulk_upload', 'perm_sku_checker', 'perm_image_audit', 'perm_store_sync', 'perm_ai_content', 'onedrive_access_token', 'onedrive_refresh_token', 'onedrive_token_expiry'])]
 #[Hidden(['password', 'remember_token', 'onedrive_access_token', 'onedrive_refresh_token', 'onedrive_token_expiry'])]
 class User extends Authenticatable
 {
@@ -28,6 +28,7 @@ class User extends Authenticatable
             'perm_sku_checker'  => 'boolean',
             'perm_image_audit'  => 'boolean',
             'perm_store_sync'   => 'boolean',
+            'perm_ai_content'   => 'boolean',
         ];
     }
 

@@ -46,4 +46,8 @@ return [
         'client_secret' => env('ONEDRIVE_CLIENT_SECRET'),
     ],
 
+    'gemini' => [
+        'api_key' => env('GEMINI_API_KEY'),
+    ],
+
 ];

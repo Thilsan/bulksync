@@ -148,6 +148,7 @@
                                     'sku_checker' => 'SKU Checker',
                                     'image_audit' => 'Image Audit',
                                     'store_sync'  => 'Store Image Sync',
+                                    'ai_content'  => 'AI Content',
                                 ];
                             @endphp
                             @foreach($features as $key => $label)
