@@ -9,8 +9,8 @@ class AiContentItem extends Model
 {
     protected $fillable = [
         'session_id', 'sku', 'shopify_product_id', 'product_title',
-        'image_url', 'ai_description', 'ai_meta_title', 'ai_meta_description',
-        'status', 'is_confirmed', 'error_message',
+        'image_url', 'shopify_image_id', 'ai_description', 'ai_meta_title', 'ai_meta_description',
+        'ai_alt_text', 'status', 'is_confirmed', 'error_message',
     ];
 
     protected function casts(): array

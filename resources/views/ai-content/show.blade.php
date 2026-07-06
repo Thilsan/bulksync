@@ -166,6 +166,14 @@
                                                         class="w-full rounded-md border border-gray-200 px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-400 focus:border-transparent">
                                                 </div>
                                             </div>
+                                            <div>
+                                                <label class="block text-xs font-medium text-gray-500 mb-1">
+                                                    Image Alt Text <span class="text-gray-400" x-text="`(${(item.ai_alt_text || '').length}/125)`"></span>
+                                                </label>
+                                                <input type="text" :name="`alt_text[${item.id}]`" maxlength="125"
+                                                    x-model="item.ai_alt_text"
+                                                    class="w-full rounded-md border border-gray-200 px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-400 focus:border-transparent">
+                                            </div>
                                         </div>
                                     </template>
                                 </div>

@@ -234,7 +234,7 @@ class ShopifyService
                 "admin/api/{$this->apiVersion}/graphql.json",
                 [
                     'json' => [
-                        'query'     => 'query($q:String!){productVariants(first:250,query:$q){edges{node{id sku product{id title status}}}}}',
+                        'query'     => 'query($q:String!){productVariants(first:250,query:$q){edges{node{id sku product{id title status vendor productType tags collections(first:20){edges{node{title}}}}}}}}',
                         'variables' => ['q' => "sku:'{$sku}'"],
                     ],
                 ]
@@ -244,15 +244,21 @@ class ShopifyService
             $edges = $data['data']['productVariants']['edges'] ?? [];
 
             return array_map(function ($edge) {
-                $node      = $edge['node'];
-                $variantId = ltrim(str_replace('gid://shopify/ProductVariant/', '', $node['id']), '/');
-                $productId = ltrim(str_replace('gid://shopify/Product/', '', $node['product']['id']), '/');
+                $node        = $edge['node'];
+                $variantId   = ltrim(str_replace('gid://shopify/ProductVariant/', '', $node['id']), '/');
+                $productId   = ltrim(str_replace('gid://shopify/Product/', '', $node['product']['id']), '/');
+                $collections = array_map(fn ($c) => $c['node']['title'] ?? '', $node['product']['collections']['edges'] ?? []);
+
                 return [
                     'product_id'    => $productId,
                     'product_title' => $node['product']['title'] ?? '',
                     'variant_id'    => $variantId,
                     'variant_sku'   => $node['sku'],
                     'published'     => ($node['product']['status'] ?? '') === 'ACTIVE',
+                    'vendor'        => $node['product']['vendor'] ?? '',
+                    'product_type'  => $node['product']['productType'] ?? '',
+                    'tags'          => $node['product']['tags'] ?? [],
+                    'collections'   => array_filter($collections),
                 ];
             }, $edges);
 
@@ -457,6 +463,13 @@ class ShopifyService
                 'json' => ['metafield' => ['namespace' => 'global', 'key' => 'description_tag', 'value' => $metaDescription, 'type' => 'single_line_text_field']],
             ]);
         }
+    }
+
+    public function updateImageAlt(string $productId, string $imageId, string $altText): void
+    {
+        $this->http->put("admin/api/{$this->apiVersion}/products/{$productId}/images/{$imageId}.json", [
+            'json' => ['image' => ['id' => (int) $imageId, 'alt' => $altText]],
+        ]);
     }
 
     // ── Connection test ────────────────────────────────────────────────────

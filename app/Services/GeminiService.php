@@ -18,15 +18,15 @@ class GeminiService
     /**
      * Download image from URL and generate product content using Gemini Vision.
      *
-     * @return array{description: string, meta_title: string, meta_description: string}|null
+     * @return array{description: string, meta_title: string, meta_description: string, alt_text: string}|null
      */
-    public function generateFromImageUrl(string $imageUrl, string $productTitle = ''): ?array
+    public function generateFromImageUrl(string $imageUrl, string $productTitle = '', string $vendor = '', string $productType = '', array $tags = [], array $collections = [], string $sku = ''): ?array
     {
         try {
             $imageContent = $this->downloadImage($imageUrl);
             if (!$imageContent) return null;
 
-            return $this->generateFromImageBytes($imageContent, $productTitle);
+            return $this->generateFromImageBytes($imageContent, $productTitle, $vendor, $productType, $tags, $collections, $sku);
         } catch (\Throwable $e) {
             Log::error('GeminiService::generateFromImageUrl failed', ['url' => $imageUrl, 'error' => $e->getMessage()]);
             return null;
@@ -36,20 +36,45 @@ class GeminiService
     /**
      * Generate product content from raw image bytes.
      *
-     * @return array{description: string, meta_title: string, meta_description: string}|null
+     * @return array{description: string, meta_title: string, meta_description: string, alt_text: string}|null
      */
-    public function generateFromImageBytes(string $imageBytes, string $productTitle = ''): ?array
+    public function generateFromImageBytes(string $imageBytes, string $productTitle = '', string $vendor = '', string $productType = '', array $tags = [], array $collections = [], string $sku = ''): ?array
     {
         $mimeType = $this->detectMimeType($imageBytes);
         $base64   = base64_encode($imageBytes);
 
-        $titleHint = $productTitle ? " The product is called \"{$productTitle}\"." : '';
+        $context = [];
+        if ($productTitle)   $context[] = "Product title: \"{$productTitle}\"";
+        if ($sku)            $context[] = "SKU: \"{$sku}\"";
+        if ($vendor)         $context[] = "Brand/vendor: \"{$vendor}\"";
+        if ($productType)    $context[] = "Product type/category: \"{$productType}\"";
+        if (!empty($tags))        $context[] = "Store tags on this product: " . implode(', ', $tags);
+        if (!empty($collections)) $context[] = "Collections this product belongs to: " . implode(', ', $collections);
+        $contextBlock = $context ? implode("\n", $context) . "\n\n" : '';
 
-        $prompt = "Analyze this product image and generate e-commerce content.{$titleHint}
+        $prompt = "Look carefully at this product image and describe ONLY what you can actually see.
+
+{$contextBlock}Strict accuracy rules:
+- Base every statement strictly on visible evidence in the image: color, shape, visible material/texture, visible parts (e.g. wheels, straps, zippers, handles, buttons, stitching, pockets, logos, patterns).
+- Do NOT invent specifications, materials, capacity, technology, or features that cannot be visually confirmed (e.g. don't say \"waterproof\" or \"lightweight\" unless it's visibly obvious).
+- The Brand/vendor, Product title, tags, and collections above (if given) are confirmed real data from the store — use them to determine facts like Gender or Category, but do not invent a brand, gender, or category that isn't supported by that context or clearly visible.
+- If unsure about a detail, omit it rather than guessing.
+- Do not repeat the same claim in different words to pad length.
+
 Return a JSON object with exactly these fields:
-- \"description\": A detailed product description (2-3 paragraphs, 100-200 words, HTML allowed)
-- \"meta_title\": An SEO page title (max 60 characters, no brand name needed)
-- \"meta_description\": An SEO meta description (max 160 characters)
+
+- \"description\": HTML content structured EXACTLY like this:
+  1. One or more narrative paragraphs (<p> tags) describing the product's visible style, form, and craftsmanship in flowing marketing prose — but every claim must stay grounded in what's visible or in the confirmed context above.
+  2. A heading: <p><strong>SPECIFICATIONS</strong></p>
+  3. A bullet list <ul><li>...</li></ul> containing:
+     - \"Brand: {{vendor}}\" as the first bullet, only if brand/vendor was given above.
+     - \"SKU: {{sku}}\" as the next bullet, only if a SKU was given above — use it exactly as given, do not modify it.
+     - \"Gender: {{Women/Men/Unisex/Kids}}\" as the next bullet, only if clearly indicated by the product title, type, tags, or collections above (e.g. a tag or collection name containing \"Women\", \"Men\", \"Kids\") — omit entirely if not determinable.
+     - 3-6 more bullets, each a short factual highlight restating a visible detail or craftsmanship point already covered in the paragraphs above (color, material, construction technique, notable visible feature). Do not introduce new unverified facts in the bullets.
+  Length is flexible — write as much accurate detail as the image and context support, but never pad with repeated or invented claims.
+- \"meta_title\": An SEO page title (max 60 characters) that accurately reflects the visible product type and its main visible attribute (e.g. color or style).
+- \"meta_description\": An SEO meta description (max 160 characters) summarizing only the visible/confirmed attributes.
+- \"alt_text\": A concise, literal description of exactly what is shown in the image for accessibility (max 125 characters) — e.g. \"Navy blue hardshell suitcase with beige trim and spinner wheels\".
 
 Return only valid JSON. No markdown, no code blocks, no extra text.";
 
@@ -62,7 +87,7 @@ Return only valid JSON. No markdown, no code blocks, no extra text.";
             ]],
             'generationConfig' => [
                 'responseMimeType' => 'application/json',
-                'temperature'      => 0.4,
+                'temperature'      => 0.15,
             ],
         ];
 
@@ -84,6 +109,7 @@ Return only valid JSON. No markdown, no code blocks, no extra text.";
             'description'      => trim($data['description'] ?? ''),
             'meta_title'       => mb_substr(trim($data['meta_title'] ?? ''), 0, 60),
             'meta_description' => mb_substr(trim($data['meta_description'] ?? ''), 0, 160),
+            'alt_text'         => mb_substr(trim($data['alt_text'] ?? ''), 0, 125),
         ];
     }
 

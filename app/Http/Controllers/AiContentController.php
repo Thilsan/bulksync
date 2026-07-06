@@ -25,20 +25,9 @@ class AiContentController extends Controller
     public function store(Request $request)
     {
         $request->validate([
-            'input_type'   => 'required|in:sku_list,onedrive',
-            'sku_raw'      => 'required_if:input_type,sku_list|nullable|string',
-            'onedrive_link' => 'required_if:input_type,onedrive|nullable|url',
-        ]);
-
-        $store = Store::getActive();
-
-        $session = AiContentSession::create([
-            'user_id'       => auth()->id(),
-            'store_id'      => $store?->id,
-            'input_type'    => $request->input_type,
-            'onedrive_link' => $request->onedrive_link,
-            'sku_raw'       => $request->sku_raw,
-            'status'        => 'pending',
+            'input_type' => 'required|in:sku_list,csv_upload',
+            'sku_raw'    => 'required_if:input_type,sku_list|nullable|string',
+            'csv_file'   => 'required_if:input_type,csv_upload|nullable|file|mimes:csv,txt|max:10240',
         ]);
 
         if ($request->input_type === 'sku_list') {
@@ -47,22 +36,66 @@ class AiContentController extends Controller
                 ->filter()
                 ->unique()
                 ->values();
-
-            foreach ($skus as $sku) {
-                AiContentItem::create([
-                    'session_id' => $session->id,
-                    'sku'        => $sku,
-                    'status'     => 'pending',
-                ]);
-            }
-
-            $session->update(['total_items' => $skus->count()]);
+        } else {
+            $skus = $this->parseSkuCsv($request->file('csv_file')->getRealPath());
         }
+
+        if ($skus->isEmpty()) {
+            return back()->with('warning', 'No valid SKUs found.');
+        }
+
+        $store = Store::getActive();
+
+        $session = AiContentSession::create([
+            'user_id'    => auth()->id(),
+            'store_id'   => $store?->id,
+            'input_type' => $request->input_type,
+            'sku_raw'    => $request->input_type === 'sku_list' ? $request->sku_raw : null,
+            'status'     => 'pending',
+        ]);
+
+        foreach ($skus as $sku) {
+            AiContentItem::create([
+                'session_id' => $session->id,
+                'sku'        => $sku,
+                'status'     => 'pending',
+            ]);
+        }
+
+        $session->update(['total_items' => $skus->count()]);
 
         GenerateAiContentJob::dispatch($session->id)->onQueue('bulkupload');
 
         return redirect()->route('ai-content.show', $session)
             ->with('success', 'AI content generation started.');
+    }
+
+    private function parseSkuCsv(string $path): \Illuminate\Support\Collection
+    {
+        $skus   = collect();
+        $handle = fopen($path, 'r');
+        if (!$handle) return $skus;
+
+        $isFirstRow = true;
+
+        while (($line = fgetcsv($handle)) !== false) {
+            $value = strtoupper(trim($line[0] ?? ''));
+
+            if ($isFirstRow) {
+                $isFirstRow = false;
+                if (in_array($value, ['SKU', 'VARIANT SKU', 'VARIANT_SKU'])) {
+                    continue;
+                }
+            }
+
+            if ($value !== '') {
+                $skus->push($value);
+            }
+        }
+
+        fclose($handle);
+
+        return $skus->unique()->values();
     }
 
     public function show(AiContentSession $aiContentSession)
@@ -120,6 +153,7 @@ class AiContentController extends Controller
                 'ai_description'      => $request->input("description.{$itemId}", $item->ai_description),
                 'ai_meta_title'       => $request->input("meta_title.{$itemId}", $item->ai_meta_title),
                 'ai_meta_description' => $request->input("meta_description.{$itemId}", $item->ai_meta_description),
+                'ai_alt_text'         => $request->input("alt_text.{$itemId}", $item->ai_alt_text),
                 'is_confirmed'        => true,
             ]);
 
@@ -130,6 +164,11 @@ class AiContentController extends Controller
                     $item->ai_meta_title,
                     $item->ai_meta_description,
                 );
+
+                if ($item->shopify_image_id && $item->ai_alt_text) {
+                    $shopify->updateImageAlt($item->shopify_product_id, $item->shopify_image_id, $item->ai_alt_text);
+                }
+
                 $item->update(['status' => 'pushed']);
                 $pushed++;
             } catch (\Throwable $e) {

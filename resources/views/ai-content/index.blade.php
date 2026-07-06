@@ -13,7 +13,7 @@
             <p class="text-sm text-gray-500 mt-0.5">AI will analyze product images and generate descriptions, meta titles and meta descriptions.</p>
         </div>
 
-        <form method="POST" action="{{ route('ai-content.store') }}" x-data="{ inputType: 'sku_list' }">
+        <form method="POST" action="{{ route('ai-content.store') }}" enctype="multipart/form-data" x-data="{ inputType: 'sku_list' }">
             @csrf
             <div class="px-6 py-5 space-y-5">
 
@@ -27,9 +27,9 @@
                             <span class="text-sm text-gray-700">SKU List</span>
                         </label>
                         <label class="flex items-center gap-2 cursor-pointer">
-                            <input type="radio" name="input_type" value="onedrive" x-model="inputType"
+                            <input type="radio" name="input_type" value="csv_upload" x-model="inputType"
                                 class="text-brand-600 focus:ring-brand-500">
-                            <span class="text-sm text-gray-700">OneDrive Folder</span>
+                            <span class="text-sm text-gray-700">CSV Upload</span>
                         </label>
                     </div>
                 </div>
@@ -45,25 +45,14 @@
                     <p class="text-xs text-gray-400 mt-1">System will fetch product images from Shopify for each SKU.</p>
                 </div>
 
-                {{-- OneDrive input --}}
-                <div x-show="inputType === 'onedrive'" x-cloak>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">OneDrive Folder Link</label>
-                    <input type="url" name="onedrive_link" value="{{ old('onedrive_link') }}"
-                        placeholder="https://1drv.ms/f/..."
-                        class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent">
+                {{-- CSV Upload input --}}
+                <div x-show="inputType === 'csv_upload'" x-cloak>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">CSV File</label>
+                    <input type="file" name="csv_file" accept=".csv,.txt"
+                        class="w-full text-sm text-gray-600 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-brand-50 file:text-brand-700 hover:file:bg-brand-100 cursor-pointer">
                     <p class="text-xs text-gray-400 mt-1">
-                        Images should be named by SKU (e.g. <code class="bg-gray-100 px-1 rounded">SKU001.jpg</code>).
-                        System will match each image to its Shopify product.
+                        First column should contain SKUs (header row optional, e.g. <code class="bg-gray-100 px-1 rounded">SKU</code> or <code class="bg-gray-100 px-1 rounded">Variant SKU</code>).
                     </p>
-
-                    @if(!auth()->user()->has_onedrive)
-                    <div class="mt-3 flex items-center gap-2 bg-yellow-50 border border-yellow-200 rounded-lg px-4 py-3 text-sm text-yellow-800">
-                        <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
-                        </svg>
-                        OneDrive is not connected. <a href="{{ route('settings.index') }}" class="underline font-medium">Connect in Settings</a>
-                    </div>
-                    @endif
                 </div>
 
             </div>

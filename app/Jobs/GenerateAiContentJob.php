@@ -6,7 +6,6 @@ use App\Models\AiContentItem;
 use App\Models\AiContentSession;
 use App\Models\Store;
 use App\Services\GeminiService;
-use App\Services\OneDriveService;
 use App\Services\ShopifyService;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -34,11 +33,7 @@ class GenerateAiContentJob implements ShouldQueue
         $session->update(['status' => 'processing']);
 
         try {
-            if ($session->input_type === 'sku_list') {
-                $this->processSkuList($session, $shopify, $gemini);
-            } else {
-                $this->processOneDrive($session, $gemini, $shopify);
-            }
+            $this->processSkuList($session, $shopify, $gemini);
 
             $session->update(['status' => 'ready']);
         } catch (\Throwable $e) {
@@ -70,9 +65,14 @@ class GenerateAiContentJob implements ShouldQueue
                 $variant      = $variants[0];
                 $productId    = $variant['product_id'];
                 $productTitle = $variant['product_title'] ?? '';
+                $vendor       = $variant['vendor'] ?? '';
+                $productType  = $variant['product_type'] ?? '';
+                $tags         = $variant['tags'] ?? [];
+                $collections  = $variant['collections'] ?? [];
 
-                $images = $shopify->getProductImages($productId);
+                $images  = $shopify->getProductImages($productId);
                 $imageUrl = $images[0]['src'] ?? null;
+                $imageId  = $images[0]['id'] ?? null;
 
                 if (!$imageUrl) {
                     $item->update([
@@ -85,7 +85,7 @@ class GenerateAiContentJob implements ShouldQueue
                     continue;
                 }
 
-                $content = $gemini->generateFromImageUrl($imageUrl, $productTitle);
+                $content = $gemini->generateFromImageUrl($imageUrl, $productTitle, $vendor, $productType, $tags, $collections, $item->sku);
 
                 if (!$content) {
                     $item->update([
@@ -100,13 +100,15 @@ class GenerateAiContentJob implements ShouldQueue
                 }
 
                 $item->update([
-                    'status'             => 'done',
-                    'shopify_product_id' => $productId,
-                    'product_title'      => $productTitle,
-                    'image_url'          => $imageUrl,
-                    'ai_description'     => $content['description'],
-                    'ai_meta_title'      => $content['meta_title'],
+                    'status'              => 'done',
+                    'shopify_product_id'  => $productId,
+                    'product_title'       => $productTitle,
+                    'image_url'           => $imageUrl,
+                    'shopify_image_id'    => $imageId,
+                    'ai_description'      => $content['description'],
+                    'ai_meta_title'       => $content['meta_title'],
                     'ai_meta_description' => $content['meta_description'],
+                    'ai_alt_text'         => $content['alt_text'],
                 ]);
             } catch (\Throwable $e) {
                 Log::warning('AiContent item failed', ['item' => $item->id, 'sku' => $item->sku, 'error' => $e->getMessage()]);
@@ -118,67 +120,5 @@ class GenerateAiContentJob implements ShouldQueue
             // Respect Gemini free tier: 15 req/min → wait 4 seconds between requests
             sleep(4);
         }
-    }
-
-    private function processOneDrive(AiContentSession $session, GeminiService $gemini, ShopifyService $shopify): void
-    {
-        $user     = $session->user;
-        $onedrive = new OneDriveService();
-        $onedrive->setUser($user);
-
-        $count = 0;
-
-        $onedrive->streamFolderImages($session->onedrive_link, function (array $file) use ($session, $gemini, $shopify, &$count) {
-            $filename = pathinfo($file['name'] ?? '', PATHINFO_FILENAME);
-            $sku      = strtoupper(trim($filename));
-
-            if (!$sku) return;
-
-            $item = AiContentItem::create([
-                'session_id' => $session->id,
-                'sku'        => $sku,
-                'status'     => 'processing',
-            ]);
-
-            $count++;
-            $session->update(['total_items' => $count]);
-
-            try {
-                $imageBytes = app(OneDriveService::class)
-                    ->setUser($session->user)
-                    ->downloadFileById($file['drive_id'] ?? '', $file['item_id'] ?? '', $file['download_url'] ?? '');
-
-                // Try to find matching Shopify product
-                $productId    = null;
-                $productTitle = null;
-                try {
-                    $variants = $shopify->findVariantsBySku($sku);
-                    if (!empty($variants)) {
-                        $productId    = $variants[0]['product_id'];
-                        $productTitle = $variants[0]['product_title'] ?? null;
-                    }
-                } catch (\Throwable) {}
-
-                $content = $gemini->generateFromImageBytes($imageBytes, $productTitle ?? $sku);
-
-                if (!$content) {
-                    $item->update(['status' => 'failed', 'error_message' => 'Gemini API failed']);
-                } else {
-                    $item->update([
-                        'status'              => 'done',
-                        'shopify_product_id'  => $productId,
-                        'product_title'       => $productTitle,
-                        'ai_description'      => $content['description'],
-                        'ai_meta_title'       => $content['meta_title'],
-                        'ai_meta_description' => $content['meta_description'],
-                    ]);
-                }
-            } catch (\Throwable $e) {
-                $item->update(['status' => 'failed', 'error_message' => $e->getMessage()]);
-            }
-
-            $session->increment('processed_items');
-            sleep(4);
-        });
     }
 }
