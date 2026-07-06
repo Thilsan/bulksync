@@ -118,6 +118,64 @@ Return only valid JSON. No markdown, no code blocks, no extra text.";
         ];
     }
 
+    /**
+     * Lightweight alt-text-only generation for additional gallery images
+     * (used when a product has more than one image — the hero image's alt
+     * text already comes from generateFromImageBytes/Url).
+     */
+    public function generateAltTextFromUrl(string $imageUrl, string $productTitle = ''): ?string
+    {
+        try {
+            $imageContent = $this->downloadImage($imageUrl);
+            if (!$imageContent) return null;
+
+            return $this->generateAltTextFromBytes($imageContent, $productTitle);
+        } catch (\Throwable $e) {
+            Log::error('GeminiService::generateAltTextFromUrl failed', ['url' => $imageUrl, 'error' => $e->getMessage()]);
+            return null;
+        }
+    }
+
+    public function generateAltTextFromBytes(string $imageBytes, string $productTitle = ''): ?string
+    {
+        $mimeType = $this->detectMimeType($imageBytes);
+        $base64   = base64_encode($imageBytes);
+
+        $titleHint = $productTitle ? " Product title for context: \"{$productTitle}\"." : '';
+
+        $prompt = "Look at this image and write a concise, literal accessibility alt text describing exactly what is visible (max 125 characters).{$titleHint} Do not invent details that aren't visible.
+Return a JSON object: {\"alt_text\": \"...\"}. No markdown, no code blocks, no extra text.";
+
+        $payload = [
+            'contents' => [[
+                'parts' => [
+                    ['text' => $prompt],
+                    ['inline_data' => ['mime_type' => $mimeType, 'data' => $base64]],
+                ],
+            ]],
+            'generationConfig' => [
+                'responseMimeType' => 'application/json',
+                'temperature'      => 0.15,
+            ],
+        ];
+
+        $response = Http::timeout(30)
+            ->post("{$this->endpoint}?key={$this->apiKey}", $payload);
+
+        if (!$response->successful()) {
+            Log::error('Gemini API error (alt text)', ['status' => $response->status(), 'body' => $response->body()]);
+            return null;
+        }
+
+        $text = $response->json('candidates.0.content.parts.0.text') ?? '';
+        if (!$text) return null;
+
+        $data = json_decode($text, true);
+        if (!is_array($data)) return null;
+
+        return mb_substr(trim($data['alt_text'] ?? ''), 0, 125);
+    }
+
     private function downloadImage(string $url): ?string
     {
         try {

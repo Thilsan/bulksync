@@ -119,7 +119,7 @@
                                 {{-- Content --}}
                                 <div class="flex-1 min-w-0 space-y-3">
                                     <div class="flex items-center gap-3 flex-wrap">
-                                        <span class="font-mono text-sm font-semibold text-gray-800" x-text="item.sku"></span>
+                                        <span class="font-mono text-sm font-semibold text-gray-800" x-text="item.all_skus || item.sku"></span>
                                         <span class="text-sm text-gray-500" x-text="item.product_title"></span>
                                         {{-- Status badge --}}
                                         <span x-text="ucfirst(item.status)"
@@ -174,13 +174,25 @@
                                                         class="w-full rounded-md border border-gray-200 px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-400 focus:border-transparent">
                                                 </div>
                                             </div>
-                                            <div>
+                                            <div x-show="item.images && item.images.length > 0">
                                                 <label class="block text-xs font-medium text-gray-500 mb-1">
-                                                    Image Alt Text <span class="text-gray-400" x-text="`(${(item.ai_alt_text || '').length}/125)`"></span>
+                                                    Images &amp; Alt Text <span class="text-gray-400" x-text="`(${(item.images || []).length} image${(item.images || []).length === 1 ? '' : 's'})`"></span>
                                                 </label>
-                                                <input type="text" :name="`alt_text[${item.id}]`" maxlength="125"
-                                                    x-model="item.ai_alt_text"
-                                                    class="w-full rounded-md border border-gray-200 px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-400 focus:border-transparent">
+                                                <div class="space-y-2">
+                                                    <template x-for="image in item.images" :key="image.id">
+                                                        <div class="flex items-center gap-3">
+                                                            <img :src="image.image_url" class="w-12 h-12 object-cover rounded-md border border-gray-200 shrink-0">
+                                                            <div class="flex-1 min-w-0">
+                                                                <input type="text" :name="`image_alt[${image.id}]`" maxlength="125"
+                                                                    x-model="image.ai_alt_text"
+                                                                    :disabled="image.status === 'failed' && !image.ai_alt_text"
+                                                                    class="w-full rounded-md border border-gray-200 px-3 py-1.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-400 focus:border-transparent">
+                                                            </div>
+                                                            <span x-show="image.status === 'failed'"
+                                                                class="text-xs text-red-500 shrink-0">Failed</span>
+                                                        </div>
+                                                    </template>
+                                                </div>
                                             </div>
                                         </div>
                                     </template>

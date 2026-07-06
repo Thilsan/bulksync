@@ -51,18 +51,10 @@ class AiContentController extends Controller
             'store_id'   => $store?->id,
             'input_type' => $request->input_type,
             'sku_raw'    => $request->input_type === 'sku_list' ? $request->sku_raw : null,
+            'skus_json'  => json_encode($skus->values()->all()),
             'status'     => 'pending',
+            'total_items' => $skus->count(),
         ]);
-
-        foreach ($skus as $sku) {
-            AiContentItem::create([
-                'session_id' => $session->id,
-                'sku'        => $sku,
-                'status'     => 'pending',
-            ]);
-        }
-
-        $session->update(['total_items' => $skus->count()]);
 
         GenerateAiContentJob::dispatch($session->id)->onQueue('bulkupload');
 
@@ -122,7 +114,7 @@ class AiContentController extends Controller
     {
         abort_if($aiContentSession->user_id !== auth()->id(), 403);
 
-        $items = $aiContentSession->items()->orderBy('id')->get();
+        $items = $aiContentSession->items()->with('images')->orderBy('id')->get();
 
         return response()->json($items);
     }
@@ -144,6 +136,7 @@ class AiContentController extends Controller
         foreach ($confirmed as $itemId) {
             $item = AiContentItem::where('id', $itemId)
                 ->where('session_id', $aiContentSession->id)
+                ->with('images')
                 ->first();
 
             if (!$item || !$item->shopify_product_id) continue;
@@ -153,7 +146,6 @@ class AiContentController extends Controller
                 'ai_description'      => $request->input("description.{$itemId}", $item->ai_description),
                 'ai_meta_title'       => $request->input("meta_title.{$itemId}", $item->ai_meta_title),
                 'ai_meta_description' => $request->input("meta_description.{$itemId}", $item->ai_meta_description),
-                'ai_alt_text'         => $request->input("alt_text.{$itemId}", $item->ai_alt_text),
                 'is_confirmed'        => true,
             ]);
 
@@ -165,8 +157,19 @@ class AiContentController extends Controller
                     $item->ai_meta_description,
                 );
 
-                if ($item->shopify_image_id && $item->ai_alt_text) {
-                    $shopify->updateImageAlt($item->shopify_product_id, $item->shopify_image_id, $item->ai_alt_text);
+                foreach ($item->images as $image) {
+                    $altText = $request->input("image_alt.{$image->id}", $image->ai_alt_text);
+                    $image->update(['ai_alt_text' => $altText]);
+
+                    if ($image->shopify_image_id && $altText) {
+                        try {
+                            $shopify->updateImageAlt($item->shopify_product_id, $image->shopify_image_id, $altText);
+                            $image->update(['status' => 'pushed']);
+                        } catch (\Throwable $e) {
+                            Log::error('AiContent image alt push failed', ['image' => $image->id, 'error' => $e->getMessage()]);
+                            $image->update(['status' => 'failed', 'error_message' => 'Push failed: ' . $e->getMessage()]);
+                        }
+                    }
                 }
 
                 $item->update(['status' => 'pushed']);

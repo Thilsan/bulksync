@@ -10,7 +10,7 @@ class AiContentSession extends Model
 {
     protected $fillable = [
         'user_id', 'store_id', 'input_type', 'onedrive_link',
-        'sku_raw', 'status', 'total_items', 'processed_items', 'error_message',
+        'sku_raw', 'skus_json', 'status', 'total_items', 'processed_items', 'error_message',
     ];
 
     public function user(): BelongsTo  { return $this->belongsTo(User::class); }
