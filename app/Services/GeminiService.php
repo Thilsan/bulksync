@@ -64,14 +64,19 @@ class GeminiService
 Return a JSON object with exactly these fields:
 
 - \"description\": HTML content structured EXACTLY like this:
-  1. One or more narrative paragraphs (<p> tags) describing the product's visible style, form, and craftsmanship in flowing marketing prose — but every claim must stay grounded in what's visible or in the confirmed context above.
+  1. 3-4 rich narrative paragraphs (<p> tags) in flowing marketing prose, each focused on a different visual aspect so the description is thorough and detailed:
+     - Paragraph 1: overall silhouette, shape, and first impression of style.
+     - Paragraph 2: color, finish, and visible material/texture in detail (e.g. gradient tones, sheen, grain, weave).
+     - Paragraph 3: distinctive visible design details — hardware, stitching, embellishments, patterns, closures, trims, logos, or construction techniques you can actually see.
+     - Paragraph 4 (if there is enough visible detail to justify it): how the visible design elements come together / suggested styling or use, staying grounded in what's shown.
+     Every claim must stay strictly grounded in what's visible or in the confirmed context above — describe thoroughly and vividly, but never invent a detail you cannot see.
   2. A heading: <p><strong>SPECIFICATIONS</strong></p>
   3. A bullet list <ul><li>...</li></ul> containing:
      - \"Brand: {{vendor}}\" as the first bullet, only if brand/vendor was given above.
      - \"SKU: {{sku}}\" as the next bullet, only if a SKU was given above — use it exactly as given, do not modify it.
      - \"Gender: {{Women/Men/Unisex/Kids}}\" as the next bullet, only if clearly indicated by the product title, type, tags, or collections above (e.g. a tag or collection name containing \"Women\", \"Men\", \"Kids\") — omit entirely if not determinable.
-     - 3-6 more bullets, each a short factual highlight restating a visible detail or craftsmanship point already covered in the paragraphs above (color, material, construction technique, notable visible feature). Do not introduce new unverified facts in the bullets.
-  Length is flexible — write as much accurate detail as the image and context support, but never pad with repeated or invented claims.
+     - 4-7 more bullets, each a short factual highlight restating a visible detail or craftsmanship point already covered in the paragraphs above (color, material, construction technique, notable visible feature). Do not introduce new unverified facts in the bullets.
+  Be as thorough and detailed as the image genuinely supports — but never pad with repeated, vague, or invented claims.
 - \"meta_title\": An SEO page title (max 60 characters) that accurately reflects the visible product type and its main visible attribute (e.g. color or style).
 - \"meta_description\": An SEO meta description (max 160 characters) summarizing only the visible/confirmed attributes.
 - \"alt_text\": A concise, literal description of exactly what is shown in the image for accessibility (max 125 characters) — e.g. \"Navy blue hardshell suitcase with beige trim and spinner wheels\".

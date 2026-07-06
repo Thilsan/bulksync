@@ -141,12 +141,20 @@
 
                                     {{-- Editable fields --}}
                                     <template x-if="item.status === 'done' || item.status === 'pushed'">
-                                        <div class="space-y-2">
+                                        <div class="space-y-2" x-data="{ editMode: false }">
                                             <div>
-                                                <label class="block text-xs font-medium text-gray-500 mb-1">Description</label>
-                                                <textarea :name="`description[${item.id}]`" rows="3"
+                                                <div class="flex items-center justify-between mb-1">
+                                                    <label class="block text-xs font-medium text-gray-500">Description</label>
+                                                    <button type="button" @click="editMode = !editMode"
+                                                        class="text-xs text-brand-600 hover:text-brand-800 font-medium"
+                                                        x-text="editMode ? 'Preview' : 'Edit HTML'"></button>
+                                                </div>
+                                                <div x-show="!editMode"
+                                                    class="text-sm text-gray-700 leading-relaxed border border-gray-200 rounded-md px-3 py-2 bg-gray-50 max-h-64 overflow-y-auto [&_p]:mb-2 [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:space-y-1 [&_strong]:font-semibold"
+                                                    x-html="item.ai_description"></div>
+                                                <textarea x-show="editMode" :name="`description[${item.id}]`" rows="10"
                                                     x-model="item.ai_description"
-                                                    class="w-full rounded-md border border-gray-200 px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-400 focus:border-transparent resize-y"></textarea>
+                                                    class="w-full rounded-md border border-gray-200 px-3 py-2 text-sm text-gray-700 font-mono focus:outline-none focus:ring-2 focus:ring-brand-400 focus:border-transparent resize-y"></textarea>
                                             </div>
                                             <div class="grid grid-cols-2 gap-3">
                                                 <div>
