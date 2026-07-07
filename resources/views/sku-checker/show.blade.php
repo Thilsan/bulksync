@@ -23,11 +23,11 @@
             <p class="text-2xl font-bold text-gray-800" x-text="totalSkus.toLocaleString()">{{ $skuCheckSession->total_skus }}</p>
         </div>
         <div class="bg-white rounded-xl border border-green-100 p-5">
-            <p class="text-xs text-gray-500 mb-1">Available</p>
+            <p class="text-xs text-gray-500 mb-1">Mapped</p>
             <p class="text-2xl font-bold text-green-600" x-text="available.toLocaleString()">{{ $skuCheckSession->available_count }}</p>
         </div>
         <div class="bg-white rounded-xl border border-red-100 p-5">
-            <p class="text-xs text-gray-500 mb-1">Not Available</p>
+            <p class="text-xs text-gray-500 mb-1">Not Mapped</p>
             <p class="text-2xl font-bold text-red-500" x-text="notAvailable.toLocaleString()">{{ $skuCheckSession->not_available_count }}</p>
         </div>
     </div>
@@ -60,14 +60,14 @@
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
                 </svg>
-                Not Available (<span x-text="notAvailable.toLocaleString()"></span>)
+                Not Mapped (<span x-text="notAvailable.toLocaleString()"></span>)
             </a>
             <a href="{{ route('sku-checker.download', $skuCheckSession) }}?filter=available"
                class="bg-green-50 hover:bg-green-100 text-green-700 px-4 py-2 rounded-lg text-sm font-medium border border-green-200 transition-colors flex items-center gap-2">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
                 </svg>
-                Available (<span x-text="available.toLocaleString()"></span>)
+                Mapped (<span x-text="available.toLocaleString()"></span>)
             </a>
             <a href="{{ route('sku-checker.download', $skuCheckSession) }}"
                class="bg-gray-800 hover:bg-gray-900 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2">
