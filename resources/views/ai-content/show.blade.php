@@ -141,7 +141,19 @@
 
                                     {{-- Editable fields --}}
                                     <template x-if="item.status === 'done' || item.status === 'pushed'">
-                                        <div class="space-y-2" x-data="{ editMode: false }">
+                                        <div class="space-y-2" x-data="{ editMode: false, lang: 'en' }">
+
+                                            {{-- Language toggle --}}
+                                            <div class="flex items-center gap-2">
+                                                <button type="button" @click="lang = 'en'"
+                                                    :class="lang === 'en' ? 'bg-brand-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'"
+                                                    class="text-xs font-medium px-3 py-1 rounded-full">English</button>
+                                                <button type="button" @click="lang = 'ar'"
+                                                    :class="lang === 'ar' ? 'bg-brand-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'"
+                                                    class="text-xs font-medium px-3 py-1 rounded-full">العربية (Arabic)</button>
+                                                <span class="text-xs text-gray-400">Arabic is saved but not yet pushed to Shopify — English only for now.</span>
+                                            </div>
+
                                             <div>
                                                 <div class="flex items-center justify-between mb-1">
                                                     <label class="block text-xs font-medium text-gray-500">Description</label>
@@ -149,31 +161,82 @@
                                                         class="text-xs text-brand-600 hover:text-brand-800 font-medium"
                                                         x-text="editMode ? 'Preview' : 'Edit HTML'"></button>
                                                 </div>
-                                                <div x-show="!editMode"
-                                                    class="text-sm text-gray-700 leading-relaxed border border-gray-200 rounded-md px-3 py-2 bg-gray-50 max-h-64 overflow-y-auto [&_p]:mb-2 [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:space-y-1 [&_strong]:font-semibold"
-                                                    x-html="item.ai_description"></div>
-                                                <textarea x-show="editMode" :name="`description[${item.id}]`" rows="10"
-                                                    x-model="item.ai_description"
-                                                    class="w-full rounded-md border border-gray-200 px-3 py-2 text-sm text-gray-700 font-mono focus:outline-none focus:ring-2 focus:ring-brand-400 focus:border-transparent resize-y"></textarea>
+
+                                                {{-- English --}}
+                                                <template x-if="lang === 'en'">
+                                                    <div>
+                                                        <div x-show="!editMode"
+                                                            class="text-sm text-gray-700 leading-relaxed border border-gray-200 rounded-md px-3 py-2 bg-gray-50 max-h-64 overflow-y-auto [&_p]:mb-2 [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:space-y-1 [&_strong]:font-semibold"
+                                                            x-html="item.ai_description"></div>
+                                                        <textarea x-show="editMode" rows="10"
+                                                            x-model="item.ai_description"
+                                                            class="w-full rounded-md border border-gray-200 px-3 py-2 text-sm text-gray-700 font-mono focus:outline-none focus:ring-2 focus:ring-brand-400 focus:border-transparent resize-y"></textarea>
+                                                    </div>
+                                                </template>
+
+                                                {{-- Arabic --}}
+                                                <template x-if="lang === 'ar'">
+                                                    <div>
+                                                        <div x-show="!editMode" dir="rtl"
+                                                            class="text-sm text-gray-700 leading-relaxed border border-gray-200 rounded-md px-3 py-2 bg-gray-50 max-h-64 overflow-y-auto text-right [&_p]:mb-2 [&_ul]:list-disc [&_ul]:pr-5 [&_ul]:space-y-1 [&_strong]:font-semibold"
+                                                            x-html="item.ai_description_ar || '<span class=&quot;text-gray-400&quot;>No Arabic translation</span>'"></div>
+                                                        <textarea x-show="editMode" rows="10" dir="rtl"
+                                                            x-model="item.ai_description_ar"
+                                                            class="w-full rounded-md border border-gray-200 px-3 py-2 text-sm text-gray-700 font-mono text-right focus:outline-none focus:ring-2 focus:ring-brand-400 focus:border-transparent resize-y"></textarea>
+                                                    </div>
+                                                </template>
+
+                                                {{-- Hidden inputs always submit both languages regardless of active tab --}}
+                                                <input type="hidden" :name="`description[${item.id}]`" :value="item.ai_description">
+                                                <input type="hidden" :name="`description_ar[${item.id}]`" :value="item.ai_description_ar">
                                             </div>
+
                                             <div class="grid grid-cols-2 gap-3">
-                                                <div>
-                                                    <label class="block text-xs font-medium text-gray-500 mb-1">
-                                                        Meta Title <span class="text-gray-400" x-text="`(${(item.ai_meta_title || '').length}/60)`"></span>
-                                                    </label>
-                                                    <input type="text" :name="`meta_title[${item.id}]`" maxlength="60"
-                                                        x-model="item.ai_meta_title"
-                                                        class="w-full rounded-md border border-gray-200 px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-400 focus:border-transparent">
-                                                </div>
-                                                <div>
-                                                    <label class="block text-xs font-medium text-gray-500 mb-1">
-                                                        Meta Description <span class="text-gray-400" x-text="`(${(item.ai_meta_description || '').length}/160)`"></span>
-                                                    </label>
-                                                    <input type="text" :name="`meta_description[${item.id}]`" maxlength="160"
-                                                        x-model="item.ai_meta_description"
-                                                        class="w-full rounded-md border border-gray-200 px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-400 focus:border-transparent">
-                                                </div>
+                                                <template x-if="lang === 'en'">
+                                                    <div>
+                                                        <label class="block text-xs font-medium text-gray-500 mb-1">
+                                                            Meta Title <span class="text-gray-400" x-text="`(${(item.ai_meta_title || '').length}/60)`"></span>
+                                                        </label>
+                                                        <input type="text" maxlength="60"
+                                                            x-model="item.ai_meta_title"
+                                                            class="w-full rounded-md border border-gray-200 px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-400 focus:border-transparent">
+                                                    </div>
+                                                </template>
+                                                <template x-if="lang === 'ar'">
+                                                    <div>
+                                                        <label class="block text-xs font-medium text-gray-500 mb-1">Meta Title (Arabic)</label>
+                                                        <input type="text" dir="rtl"
+                                                            x-model="item.ai_meta_title_ar"
+                                                            class="w-full rounded-md border border-gray-200 px-3 py-2 text-sm text-gray-700 text-right focus:outline-none focus:ring-2 focus:ring-brand-400 focus:border-transparent">
+                                                    </div>
+                                                </template>
+
+                                                <template x-if="lang === 'en'">
+                                                    <div>
+                                                        <label class="block text-xs font-medium text-gray-500 mb-1">
+                                                            Meta Description <span class="text-gray-400" x-text="`(${(item.ai_meta_description || '').length}/160)`"></span>
+                                                        </label>
+                                                        <input type="text" maxlength="160"
+                                                            x-model="item.ai_meta_description"
+                                                            class="w-full rounded-md border border-gray-200 px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-400 focus:border-transparent">
+                                                    </div>
+                                                </template>
+                                                <template x-if="lang === 'ar'">
+                                                    <div>
+                                                        <label class="block text-xs font-medium text-gray-500 mb-1">Meta Description (Arabic)</label>
+                                                        <input type="text" dir="rtl"
+                                                            x-model="item.ai_meta_description_ar"
+                                                            class="w-full rounded-md border border-gray-200 px-3 py-2 text-sm text-gray-700 text-right focus:outline-none focus:ring-2 focus:ring-brand-400 focus:border-transparent">
+                                                    </div>
+                                                </template>
+
+                                                {{-- These always submit the current value regardless of which language tab is active --}}
+                                                <input type="hidden" :name="`meta_title[${item.id}]`" :value="item.ai_meta_title">
+                                                <input type="hidden" :name="`meta_title_ar[${item.id}]`" :value="item.ai_meta_title_ar">
+                                                <input type="hidden" :name="`meta_description[${item.id}]`" :value="item.ai_meta_description">
+                                                <input type="hidden" :name="`meta_description_ar[${item.id}]`" :value="item.ai_meta_description_ar">
                                             </div>
+
                                             <div x-show="item.images && item.images.length > 0">
                                                 <label class="block text-xs font-medium text-gray-500 mb-1">
                                                     Images &amp; Alt Text <span class="text-gray-400" x-text="`(${(item.images || []).length} image${(item.images || []).length === 1 ? '' : 's'})`"></span>
@@ -183,10 +246,13 @@
                                                         <div class="flex items-center gap-3">
                                                             <img :src="image.image_url" class="w-12 h-12 object-cover rounded-md border border-gray-200 shrink-0">
                                                             <div class="flex-1 min-w-0">
-                                                                <input type="text" :name="`image_alt[${image.id}]`" maxlength="125"
+                                                                <input x-show="lang === 'en'" type="text" :name="`image_alt[${image.id}]`" maxlength="125"
                                                                     x-model="image.ai_alt_text"
                                                                     :disabled="image.status === 'failed' && !image.ai_alt_text"
                                                                     class="w-full rounded-md border border-gray-200 px-3 py-1.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-400 focus:border-transparent">
+                                                                <input x-show="lang === 'ar'" type="text" dir="rtl" :name="`image_alt_ar[${image.id}]`"
+                                                                    x-model="image.ai_alt_text_ar"
+                                                                    class="w-full rounded-md border border-gray-200 px-3 py-1.5 text-sm text-gray-700 text-right focus:outline-none focus:ring-2 focus:ring-brand-400 focus:border-transparent">
                                                             </div>
                                                             <span x-show="image.status === 'failed'"
                                                                 class="text-xs text-red-500 shrink-0">Failed</span>

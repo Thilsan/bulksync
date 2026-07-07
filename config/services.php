@@ -50,4 +50,8 @@ return [
         'api_key' => env('GEMINI_API_KEY'),
     ],
 
+    'fanar' => [
+        'api_key' => env('FANAR_API_KEY'),
+    ],
+
 ];

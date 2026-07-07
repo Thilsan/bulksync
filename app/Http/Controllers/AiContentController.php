@@ -141,12 +141,15 @@ class AiContentController extends Controller
 
             if (!$item || !$item->shopify_product_id) continue;
 
-            // Save user-edited content
+            // Save user-edited content (English pushes to Shopify now; Arabic is saved for a future translation push)
             $item->update([
-                'ai_description'      => $request->input("description.{$itemId}", $item->ai_description),
-                'ai_meta_title'       => $request->input("meta_title.{$itemId}", $item->ai_meta_title),
-                'ai_meta_description' => $request->input("meta_description.{$itemId}", $item->ai_meta_description),
-                'is_confirmed'        => true,
+                'ai_description'         => $request->input("description.{$itemId}", $item->ai_description),
+                'ai_meta_title'          => $request->input("meta_title.{$itemId}", $item->ai_meta_title),
+                'ai_meta_description'    => $request->input("meta_description.{$itemId}", $item->ai_meta_description),
+                'ai_description_ar'      => $request->input("description_ar.{$itemId}", $item->ai_description_ar),
+                'ai_meta_title_ar'       => $request->input("meta_title_ar.{$itemId}", $item->ai_meta_title_ar),
+                'ai_meta_description_ar' => $request->input("meta_description_ar.{$itemId}", $item->ai_meta_description_ar),
+                'is_confirmed'           => true,
             ]);
 
             try {
@@ -158,8 +161,9 @@ class AiContentController extends Controller
                 );
 
                 foreach ($item->images as $image) {
-                    $altText = $request->input("image_alt.{$image->id}", $image->ai_alt_text);
-                    $image->update(['ai_alt_text' => $altText]);
+                    $altText   = $request->input("image_alt.{$image->id}", $image->ai_alt_text);
+                    $altTextAr = $request->input("image_alt_ar.{$image->id}", $image->ai_alt_text_ar);
+                    $image->update(['ai_alt_text' => $altText, 'ai_alt_text_ar' => $altTextAr]);
 
                     if ($image->shopify_image_id && $altText) {
                         try {

@@ -9,7 +9,7 @@ class AiContentImage extends Model
 {
     protected $fillable = [
         'item_id', 'shopify_image_id', 'image_url', 'position',
-        'ai_alt_text', 'status', 'error_message',
+        'ai_alt_text', 'ai_alt_text_ar', 'status', 'error_message',
     ];
 
     public function item(): BelongsTo
