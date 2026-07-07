@@ -1,4 +1,4 @@
-# BulkSync — Shopify Bulk Image Uploader
+# BulkSync — AI Ecommerce Studio
 
 Upload bulk product images from OneDrive to Shopify by matching filenames to product SKUs.
 
