@@ -31,10 +31,12 @@ class GenerateAiContentJob implements ShouldQueue
             $shopify = new ShopifyService($store);
         }
 
+        $storeName = $store->name ?? '';
+
         $session->update(['status' => 'processing']);
 
         try {
-            $this->processSkus($session, $shopify, $gemini);
+            $this->processSkus($session, $shopify, $gemini, $storeName);
 
             $session->update(['status' => 'ready']);
         } catch (\Throwable $e) {
@@ -48,7 +50,7 @@ class GenerateAiContentJob implements ShouldQueue
      * with multiple variant SKUs only gets ONE description/meta title/meta
      * description, while every image in its gallery gets its own alt text.
      */
-    private function processSkus(AiContentSession $session, ShopifyService $shopify, GeminiService $gemini): void
+    private function processSkus(AiContentSession $session, ShopifyService $shopify, GeminiService $gemini, string $storeName): void
     {
         $skus = json_decode($session->skus_json ?? '[]', true) ?: [];
 
@@ -83,7 +85,7 @@ class GenerateAiContentJob implements ShouldQueue
                     continue;
                 }
 
-                $item = $this->generateForProduct($session, $shopify, $gemini, $sku, $variant, $productId);
+                $item = $this->generateForProduct($session, $shopify, $gemini, $sku, $variant, $productId, $storeName);
                 $itemsByProductId[$productId] = $item;
             } catch (\Throwable $e) {
                 Log::warning('AiContent SKU failed', ['sku' => $sku, 'error' => $e->getMessage()]);
@@ -107,6 +109,7 @@ class GenerateAiContentJob implements ShouldQueue
         string $sku,
         array $variant,
         string $productId,
+        string $storeName,
     ): AiContentItem {
         $productTitle = $variant['product_title'] ?? '';
         $vendor       = $variant['vendor'] ?? '';
@@ -132,7 +135,7 @@ class GenerateAiContentJob implements ShouldQueue
 
         $hero = $images[0];
 
-        $content = $gemini->generateFromImageUrl($hero['src'], $productTitle, $vendor, $productType, $tags, $collections, $sku);
+        $content = $gemini->generateFromImageUrl($hero['src'], $productTitle, $vendor, $productType, $tags, $collections, $sku, $storeName);
         sleep(4); // respect Gemini free tier: 15 req/min
 
         if (!$content) {
