@@ -80,7 +80,7 @@
             </svg>
             <p class="text-green-800 text-sm font-medium">
                 All done! <span x-text="uploaded.toLocaleString()"></span> images uploaded to Shopify.
-                <span x-show="stats.skipped > 0"> <span x-text="stats.skipped.toLocaleString()"></span> skipped (no SKU match).</span>
+                <span x-show="stats.skipped > 0"> <span x-text="stats.skipped.toLocaleString()"></span> skipped (no match or already had an image).</span>
             </p>
         </div>
         <div x-show="isFinished && mainStatus === 'failed'" x-cloak
@@ -141,7 +141,7 @@
                                     'bg-green-100  text-green-700' : item.status === 'uploaded',
                                     'bg-blue-100   text-blue-700'  : item.status === 'matched',
                                     'bg-red-100    text-red-700'   : item.status === 'failed',
-                                    'bg-yellow-100 text-yellow-700': item.status === 'skipped',
+                                    'bg-yellow-100 text-yellow-700': item.status === 'skipped' || item.status === 'exists',
                                     'bg-brand-100 text-brand-700': item.status === 'processing',
                                     'bg-gray-100   text-gray-500'  : item.status === 'pending',
                                 }" class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap">
@@ -290,7 +290,7 @@ function uploadProgress(sessionId) {
         statCards: [
             ['total',      'Total',       'gray'],
             ['uploaded',   'Uploaded',    'green'],
-            ['skipped',    'No Match',    'yellow'],
+            ['skipped',    'Skipped',     'yellow'],
             ['failed',     'Failed',      'red'],
             ['processing', 'Processing',  'brand'],
             ['pending',    'Queued',      'slate'],

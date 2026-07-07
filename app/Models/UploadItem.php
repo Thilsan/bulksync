@@ -37,6 +37,7 @@ class UploadItem extends Model
             'matched'    => 'blue',
             'failed'     => 'red',
             'skipped'    => 'yellow',
+            'exists'     => 'yellow',
             'processing' => 'indigo',
             default      => 'gray',
         };
@@ -49,6 +50,7 @@ class UploadItem extends Model
             'matched'    => 'Matched',
             'failed'     => 'Failed',
             'skipped'    => 'No Match',
+            'exists'     => 'Already Has Image',
             'processing' => 'Processing',
             default      => 'Pending',
         };

@@ -165,8 +165,8 @@
                 </div>
             </div>
 
-            {{-- Duplicate handling --}}
-            <input type="hidden" name="duplicate_handling" value="add">
+            {{-- Duplicate handling: don't re-upload if the SKU/barcode already has an image on Shopify --}}
+            <input type="hidden" name="duplicate_handling" value="skip">
 
             {{-- Submit --}}
             <div class="pt-1 flex items-center gap-3">

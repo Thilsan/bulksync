@@ -146,11 +146,11 @@ class ProcessUploadItemJob implements ShouldQueue
                 $allSkipped = false;
             }
 
-            // Every product was skipped due to duplicate handling
+            // Every product already has an image for this SKU/barcode — nothing to upload
             if ($allSkipped) {
                 $item->update([
-                    'status'        => 'skipped',
-                    'error_message' => 'Image already exists in Shopify (duplicate handling: skip)',
+                    'status'        => 'exists',
+                    'error_message' => 'Already has image on Shopify — upload skipped',
                 ]);
                 $this->syncSessionCounts($item->upload_session_id);
                 return;
@@ -206,7 +206,7 @@ class ProcessUploadItemJob implements ShouldQueue
         UploadSession::where('id', $sessionId)->update([
             'uploaded_files' => UploadItem::where('upload_session_id', $sessionId)->where('status', 'uploaded')->count(),
             'failed_files'   => UploadItem::where('upload_session_id', $sessionId)->where('status', 'failed')->count(),
-            'skipped_files'  => UploadItem::where('upload_session_id', $sessionId)->where('status', 'skipped')->count(),
+            'skipped_files'  => UploadItem::where('upload_session_id', $sessionId)->whereIn('status', ['skipped', 'exists'])->count(),
             'matched_files'  => UploadItem::where('upload_session_id', $sessionId)->whereIn('status', ['matched', 'uploaded'])->count(),
             'status'         => $pending ? 'processing' : 'completed',
         ]);

@@ -207,7 +207,7 @@ class BulkUploadController extends Controller
                 COUNT(*) as total,
                 SUM(CASE WHEN status = 'uploaded'   THEN 1 ELSE 0 END) as uploaded,
                 SUM(CASE WHEN status = 'failed'     THEN 1 ELSE 0 END) as failed,
-                SUM(CASE WHEN status = 'skipped'    THEN 1 ELSE 0 END) as skipped,
+                SUM(CASE WHEN status IN ('skipped', 'exists') THEN 1 ELSE 0 END) as skipped,
                 SUM(CASE WHEN status = 'processing' THEN 1 ELSE 0 END) as processing,
                 SUM(CASE WHEN status = 'matched'    THEN 1 ELSE 0 END) as matched,
                 SUM(CASE WHEN status = 'pending'    THEN 1 ELSE 0 END) as pending
@@ -222,7 +222,7 @@ class BulkUploadController extends Controller
         $page      = max(1, (int) $request->get('page', 1));
 
         $paginator = UploadItem::where('upload_session_id', $session->id)
-            ->orderByRaw("CASE status WHEN 'processing' THEN 1 WHEN 'uploaded' THEN 2 WHEN 'failed' THEN 3 WHEN 'skipped' THEN 4 WHEN 'matched' THEN 5 ELSE 6 END")
+            ->orderByRaw("CASE status WHEN 'processing' THEN 1 WHEN 'uploaded' THEN 2 WHEN 'failed' THEN 3 WHEN 'skipped' THEN 4 WHEN 'exists' THEN 4 WHEN 'matched' THEN 5 ELSE 6 END")
             ->orderByDesc('updated_at')
             ->paginate($perPage, ['*'], 'page', $page);
 
