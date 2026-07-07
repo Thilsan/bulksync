@@ -12,7 +12,7 @@ class FanarService
 
     public function __construct()
     {
-        $this->apiKey = config('services.fanar.api_key', '');
+        $this->apiKey = config('services.fanar.api_key') ?? '';
     }
 
     /**
