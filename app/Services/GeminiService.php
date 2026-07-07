@@ -65,6 +65,7 @@ Writing style rules (apply to every field below):
 - Use British English spelling throughout (e.g. colour, favourite, personalise, grey, fibre, moisturiser) — never American spelling.
 - Do NOT use generic marketing clichés or vague filler phrases such as \"a true embodiment of\", \"timeless sophistication\", \"perfect for every occasion\", \"elevate your style\", \"must-have\", \"effortlessly chic\", \"the epitome of\", or similar stock phrases. Every sentence must state a specific, concrete visual fact about the product instead of a vague compliment.
 - Vary how paragraphs open — do not default to \"This product...\" or \"These [item]...\" every time. Use different natural sentence structures.
+- NEVER reference the image, photo, or picture itself (e.g. never write \"as shown in the image\", \"this photo displays\", \"pictured here\"). Write as a direct product description, not as a description of a photograph.
 
 Strict accuracy rules:
 - Base every statement strictly on visible evidence of the product: color, shape, visible material/texture, visible parts (e.g. wheels, straps, zippers, handles, buttons, stitching, pockets, logos, patterns).
@@ -156,7 +157,7 @@ Return only valid JSON. No markdown, no code blocks, no extra text.";
         $titleHint = $productTitle ? " Product title for context: \"{$productTitle}\"." : '';
 
         $prompt = "Look at this image and write a concise, literal accessibility alt text describing ONLY the product itself (max 125 characters).{$titleHint}
-This image may show the product on a model, mannequin, or lifestyle setting — describe ONLY the product/garment (its color, style, visible material, and design details). Do NOT mention the model/person, their pose, face, body, or the background/setting. Do not invent details that aren't visible on the product.
+This image may show the product on a model, mannequin, or lifestyle setting — describe ONLY the product/garment (its color, style, visible material, and design details). Do NOT mention the model/person, their pose, face, body, or the background/setting. Do not invent details that aren't visible on the product. Never reference the image/photo itself (e.g. never write \"shown in the image\" or \"pictured\") — describe the product directly.
 Return a JSON object: {\"alt_text\": \"...\"}. No markdown, no code blocks, no extra text.";
 
         $payload = [
