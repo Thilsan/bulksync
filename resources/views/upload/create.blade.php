@@ -49,7 +49,8 @@
             <h2 class="font-semibold text-gray-800 text-lg">Upload Configuration</h2>
             <p class="text-sm text-gray-500 mt-1">
                 Organise your OneDrive folder with <strong class="text-gray-700">subfolders named by item code</strong>
-                — each subfolder name is matched to the Shopify product SKU.
+                — each subfolder name is matched to the Shopify product SKU, falling back to the barcode if no SKU matches.
+                Filenames like "_var1", "_var2" are ignored when matching.
             </p>
         </div>
 

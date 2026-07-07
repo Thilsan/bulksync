@@ -66,6 +66,46 @@ class ShopifyService
     }
 
     /**
+     * Returns ALL variants matching the barcode across all products.
+     * Mirrors findVariantsBySkuCached but keyed by barcode instead of SKU.
+     */
+    public function findVariantsByBarcodeCached(string $barcode): array
+    {
+        if (!$barcode) {
+            return [];
+        }
+
+        $gen = Cache::get($this->skuWarmSentinel());
+
+        if ($gen === null) {
+            return $this->findVariantsByBarcode($barcode);
+        }
+
+        $cached = Cache::get($this->barcodeEntryKey($barcode, $gen));
+
+        return $cached ?? [];
+    }
+
+    /**
+     * Look up by SKU first; if nothing matches, fall back to barcode.
+     * Used by the bulk image upload flow, where OneDrive folders/filenames
+     * are sometimes named after the item's barcode rather than its SKU.
+     */
+    public function findVariantsBySkuOrBarcodeCached(string $identifier): array
+    {
+        $variants = $this->findVariantsBySkuCached($identifier);
+
+        if ($variants) {
+            return $variants;
+        }
+
+        $variants = $this->findVariantsByBarcodeCached($identifier);
+
+        // Tag the fallback path so callers can report accurately (e.g. "Duplicate barcode" vs "Duplicate SKU")
+        return array_map(fn ($v) => $v + ['matched_via' => 'barcode'], $variants);
+    }
+
+    /**
      * Fetch every variant from Shopify and store each SKU as its own Redis key.
      * Processes and stores 250 variants at a time so the PHP process never
      * holds a large array in memory — avoids OOM crashes on large stores.
@@ -101,19 +141,25 @@ class ShopifyService
             $products = json_decode((string) $response->getBody(), true)['products'] ?? [];
 
             // Accumulate only this page — freed at end of iteration
-            $pageMap = [];
+            $pageMap     = [];
+            $barcodeMap  = [];
             foreach ($products as $product) {
                 $published = !empty($product['published_at']);
                 foreach ($product['variants'] ?? [] as $v) {
+                    $entry = [
+                        'product_id'    => (string) $product['id'],
+                        'product_title' => $product['title'] ?? '',
+                        'variant_id'    => (string) $v['id'],
+                        'variant_sku'   => $v['sku'] ?? '',
+                        'published'     => $published,
+                    ];
+
                     if (!empty($v['sku'])) {
-                        $pageMap[$v['sku']][] = [
-                            'product_id'    => (string) $product['id'],
-                            'product_title' => $product['title'] ?? '',
-                            'variant_id'    => (string) $v['id'],
-                            'variant_sku'   => $v['sku'],
-                            'published'     => $published,
-                        ];
+                        $pageMap[$v['sku']][] = $entry;
                         $count++;
+                    }
+                    if (!empty($v['barcode'])) {
+                        $barcodeMap[$v['barcode']][] = $entry;
                     }
                 }
             }
@@ -125,6 +171,14 @@ class ShopifyService
                 Cache::put($key, array_merge($existing, $newEntries), $ttl);
             }
             unset($pageMap); // free page memory immediately
+
+            // Store per-barcode — fallback lookup for identifiers that aren't SKUs
+            foreach ($barcodeMap as $barcode => $newEntries) {
+                $key      = $this->barcodeEntryKey($barcode, $gen);
+                $existing = Cache::get($key, []);
+                Cache::put($key, array_merge($existing, $newEntries), $ttl);
+            }
+            unset($barcodeMap);
 
             $page++;
             if ($page % 20 === 0) {
@@ -264,6 +318,58 @@ class ShopifyService
 
         } catch (\Throwable $e) {
             Log::error("Shopify findVariantsBySku({$sku}) GraphQL failed: " . $e->getMessage());
+            return [];
+        }
+    }
+
+    /**
+     * Find a variant by exact barcode using the GraphQL Admin API.
+     * Fallback for when the OneDrive folder/filename identifier doesn't
+     * match any SKU — some catalogues are organised by barcode instead.
+     */
+    public function findVariantsByBarcode(string $barcode): array
+    {
+        if (!$barcode) {
+            return [];
+        }
+
+        $this->throttle();
+
+        try {
+            $response = $this->http->post(
+                "admin/api/{$this->apiVersion}/graphql.json",
+                [
+                    'json' => [
+                        'query'     => 'query($q:String!){productVariants(first:250,query:$q){edges{node{id sku barcode product{id title status vendor productType tags collections(first:20){edges{node{title}}}}}}}}',
+                        'variables' => ['q' => "barcode:'{$barcode}'"],
+                    ],
+                ]
+            );
+
+            $data  = json_decode((string) $response->getBody(), true);
+            $edges = $data['data']['productVariants']['edges'] ?? [];
+
+            return array_map(function ($edge) {
+                $node        = $edge['node'];
+                $variantId   = ltrim(str_replace('gid://shopify/ProductVariant/', '', $node['id']), '/');
+                $productId   = ltrim(str_replace('gid://shopify/Product/', '', $node['product']['id']), '/');
+                $collections = array_map(fn ($c) => $c['node']['title'] ?? '', $node['product']['collections']['edges'] ?? []);
+
+                return [
+                    'product_id'    => $productId,
+                    'product_title' => $node['product']['title'] ?? '',
+                    'variant_id'    => $variantId,
+                    'variant_sku'   => $node['sku'],
+                    'published'     => ($node['product']['status'] ?? '') === 'ACTIVE',
+                    'vendor'        => $node['product']['vendor'] ?? '',
+                    'product_type'  => $node['product']['productType'] ?? '',
+                    'tags'          => $node['product']['tags'] ?? [],
+                    'collections'   => array_filter($collections),
+                ];
+            }, $edges);
+
+        } catch (\Throwable $e) {
+            Log::error("Shopify findVariantsByBarcode({$barcode}) GraphQL failed: " . $e->getMessage());
             return [];
         }
     }
@@ -617,5 +723,10 @@ class ShopifyService
     private function skuEntryKey(string $sku, int $gen): string
     {
         return 'shopify_sku_' . md5($this->shop) . '_v' . $gen . '_' . md5($sku);
+    }
+
+    private function barcodeEntryKey(string $barcode, int $gen): string
+    {
+        return 'shopify_barcode_' . md5($this->shop) . '_v' . $gen . '_' . md5($barcode);
     }
 }

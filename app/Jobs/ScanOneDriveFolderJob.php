@@ -54,9 +54,11 @@ class ScanOneDriveFolderJob implements ShouldQueue
                 function (array $file) use ($session, &$buffer, &$totalScanned) {
                     // Use folder name as SKU if images are organised in item-code folders,
                     // otherwise fall back to the filename (without extension)
-                    $sku = !empty($file['folder_name'])
+                    $identifier = !empty($file['folder_name'])
                         ? $file['folder_name']
                         : pathinfo($file['filename'], PATHINFO_FILENAME);
+
+                    $sku = $this->normalizeIdentifier($identifier);
 
                     $buffer[] = [
                         'upload_session_id'    => $session->id,
@@ -149,6 +151,29 @@ class ScanOneDriveFolderJob implements ShouldQueue
     private function flushBuffer(UploadSession $session, array $buffer): void
     {
         UploadItem::insert($buffer);
+    }
+
+    /**
+     * Strip trailing markers OneDrive folders/filenames sometimes carry
+     * (e.g. "_var1", "-var2", "_jpg") so multiple photos of the same item
+     * — "0000066897644_var1", "0000066897644_var2" — resolve to the same
+     * SKU/barcode instead of being treated as separate, unmatched items.
+     */
+    private function normalizeIdentifier(string $raw): string
+    {
+        $name = trim($raw);
+
+        do {
+            $stripped = preg_replace(
+                '/[\s_-]+(?:var(?:iant)?\.?\s*\d*|jpe?g|png|gif|webp|bmp|tiff?|avif)$/i',
+                '',
+                $name
+            );
+            $changed = $stripped !== $name;
+            $name    = $stripped;
+        } while ($changed && $name !== '');
+
+        return $name !== '' ? $name : trim($raw);
     }
 
     public function failed(\Throwable $e): void

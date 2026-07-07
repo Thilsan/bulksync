@@ -51,24 +51,26 @@ class ProcessUploadItemJob implements ShouldQueue
         }
 
         try {
-            // ── 1. Look up Shopify SKU — may match multiple products ──
-            $variants = $shopify->findVariantsBySkuCached($item->sku_detected);
+            // ── 1. Look up Shopify SKU, falling back to barcode — may match multiple products ──
+            $variants = $shopify->findVariantsBySkuOrBarcodeCached($item->sku_detected);
 
             if (empty($variants)) {
                 $item->update([
                     'status'        => 'skipped',
-                    'error_message' => "No Shopify variant found for SKU: {$item->sku_detected}",
+                    'error_message' => "No Shopify variant found for SKU or barcode: {$item->sku_detected}",
                 ]);
                 $this->syncSessionCounts($item->upload_session_id);
                 return;
             }
 
-            // If the same SKU exists on multiple different products — skip and warn
+            $matchLabel = ($variants[0]['matched_via'] ?? 'sku') === 'barcode' ? 'barcode' : 'SKU';
+
+            // If the same SKU/barcode exists on multiple different products — skip and warn
             $uniqueProductIds = array_unique(array_column($variants, 'product_id'));
             if (count($uniqueProductIds) > 1) {
                 $item->update([
                     'status'        => 'skipped',
-                    'error_message' => "Duplicate SKU: found in " . count($uniqueProductIds) . " products in Shopify — upload skipped",
+                    'error_message' => "Duplicate {$matchLabel}: found in " . count($uniqueProductIds) . " products in Shopify — upload skipped",
                 ]);
                 $this->syncSessionCounts($item->upload_session_id);
                 return;
