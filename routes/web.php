@@ -99,6 +99,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/ai-content/{aiContentSession}/status',[AiContentController::class, 'status'])->name('ai-content.status');
     Route::get('/ai-content/{aiContentSession}/items', [AiContentController::class, 'items'])->name('ai-content.items');
     Route::post('/ai-content/{aiContentSession}/push', [AiContentController::class, 'push'])->name('ai-content.push');
+    Route::post('/ai-content/{aiContentSession}/translate', [AiContentController::class, 'translate'])->name('ai-content.translate');
     Route::delete('/ai-content/{aiContentSession}',    [AiContentController::class, 'destroy'])->name('ai-content.destroy');
 
     // Shopify OAuth

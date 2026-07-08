@@ -31,11 +31,13 @@
     </div>
 
     {{-- Processing indicator --}}
-    <div x-show="status === 'pending' || status === 'processing'" x-cloak
+    <div x-show="status === 'pending' || status === 'processing' || status === 'translating'" x-cloak
          class="bg-white rounded-xl border border-gray-200 shadow-sm p-8 text-center">
         <div class="w-12 h-12 rounded-full border-4 border-brand-200 border-t-brand-600 animate-spin mx-auto mb-4"></div>
-        <p class="text-gray-700 font-medium mb-1">Generating AI content…</p>
-        <p class="text-sm text-gray-400 mb-4">Analyzing product images and generating descriptions. This may take a few minutes.</p>
+        <p class="text-gray-700 font-medium mb-1"
+           x-text="status === 'translating' ? 'Translating to Arabic…' : 'Generating AI content…'"></p>
+        <p class="text-sm text-gray-400 mb-4"
+           x-text="status === 'translating' ? 'Translating descriptions, meta content and alt text with Fanar AI. This may take a few minutes.' : 'Analyzing product images and generating descriptions. This may take a few minutes.'"></p>
 
         <div class="max-w-xs mx-auto">
             <div class="flex justify-between text-xs text-gray-500 mb-1">
@@ -73,6 +75,14 @@
                                 class="w-4 h-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500">
                             Select All
                         </label>
+                        <button type="submit" formaction="{{ route('ai-content.translate', $aiContentSession) }}"
+                            class="inline-flex items-center gap-2 bg-white border border-brand-600 text-brand-700 hover:bg-brand-50 text-sm font-medium px-5 py-2 rounded-lg transition-colors">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129"/>
+                            </svg>
+                            Generate Arabic
+                        </button>
                         <button type="submit"
                             class="inline-flex items-center gap-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-5 py-2 rounded-lg transition-colors">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -151,7 +161,8 @@
                                                 <button type="button" @click="lang = 'ar'"
                                                     :class="lang === 'ar' ? 'bg-brand-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'"
                                                     class="text-xs font-medium px-3 py-1 rounded-full">العربية (Arabic)</button>
-                                                <span class="text-xs text-gray-400">Arabic is saved but not yet pushed to Shopify — English only for now.</span>
+                                                <span class="text-xs text-gray-400"
+                                                    x-text="item.ai_description_ar ? 'Arabic is saved but not yet pushed to Shopify — English only for now.' : 'No Arabic yet — review the English, then click Generate Arabic above.'"></span>
                                             </div>
 
                                             <div>
@@ -297,7 +308,7 @@ function aiContentShow(sessionId, initialStatus) {
         pollTimer: null,
 
         init() {
-            if (this.status === 'pending' || this.status === 'processing') {
+            if (this.status === 'pending' || this.status === 'processing' || this.status === 'translating') {
                 this.poll();
             } else if (this.status === 'ready' || this.status === 'done') {
                 this.loadItems();

@@ -6,7 +6,6 @@ use App\Models\AiContentImage;
 use App\Models\AiContentItem;
 use App\Models\AiContentSession;
 use App\Models\Store;
-use App\Services\FanarService;
 use App\Services\GeminiService;
 use App\Services\ShopifyService;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -22,7 +21,7 @@ class GenerateAiContentJob implements ShouldQueue
 
     public function __construct(public readonly int $sessionId) {}
 
-    public function handle(GeminiService $gemini, ShopifyService $shopify, FanarService $fanar): void
+    public function handle(GeminiService $gemini, ShopifyService $shopify): void
     {
         $session = AiContentSession::find($this->sessionId);
         if (!$session) return;
@@ -37,7 +36,7 @@ class GenerateAiContentJob implements ShouldQueue
         $session->update(['status' => 'processing']);
 
         try {
-            $this->processSkus($session, $shopify, $gemini, $fanar, $storeName);
+            $this->processSkus($session, $shopify, $gemini, $storeName);
 
             $session->update(['status' => 'ready']);
         } catch (\Throwable $e) {
@@ -51,7 +50,7 @@ class GenerateAiContentJob implements ShouldQueue
      * with multiple variant SKUs only gets ONE description/meta title/meta
      * description, while every image in its gallery gets its own alt text.
      */
-    private function processSkus(AiContentSession $session, ShopifyService $shopify, GeminiService $gemini, FanarService $fanar, string $storeName): void
+    private function processSkus(AiContentSession $session, ShopifyService $shopify, GeminiService $gemini, string $storeName): void
     {
         $skus = json_decode($session->skus_json ?? '[]', true) ?: [];
 
@@ -86,7 +85,7 @@ class GenerateAiContentJob implements ShouldQueue
                     continue;
                 }
 
-                $item = $this->generateForProduct($session, $shopify, $gemini, $fanar, $sku, $variant, $productId, $storeName);
+                $item = $this->generateForProduct($session, $shopify, $gemini, $sku, $variant, $productId, $storeName);
                 $itemsByProductId[$productId] = $item;
             } catch (\Throwable $e) {
                 Log::warning('AiContent SKU failed', ['sku' => $sku, 'error' => $e->getMessage()]);
@@ -107,7 +106,6 @@ class GenerateAiContentJob implements ShouldQueue
         AiContentSession $session,
         ShopifyService $shopify,
         GeminiService $gemini,
-        FanarService $fanar,
         string $sku,
         array $variant,
         string $productId,
@@ -150,25 +148,13 @@ class GenerateAiContentJob implements ShouldQueue
         $content['meta_description'] = $this->sanitizeText($content['meta_description']);
         $content['alt_text']         = $this->sanitizeText($content['alt_text']);
 
-        $descriptionAr = $fanar->translateToArabic($content['description'], 'preserve_html');
-        sleep(1);
-        $metaTitleAr = $fanar->translateToArabic($content['meta_title'], 'default');
-        sleep(1);
-        $metaDescriptionAr = $fanar->translateToArabic($content['meta_description'], 'default');
-        sleep(1);
-        $altTextAr = $fanar->translateToArabic($content['alt_text'], 'default');
-        sleep(1);
-
         $item->update([
-            'status'                  => 'done',
-            'image_url'               => $hero['src'],
-            'shopify_image_id'        => $hero['id'] ?? null,
-            'ai_description'          => $content['description'],
-            'ai_meta_title'           => $content['meta_title'],
-            'ai_meta_description'     => $content['meta_description'],
-            'ai_description_ar'       => $descriptionAr,
-            'ai_meta_title_ar'        => $metaTitleAr,
-            'ai_meta_description_ar'  => $metaDescriptionAr,
+            'status'              => 'done',
+            'image_url'           => $hero['src'],
+            'shopify_image_id'    => $hero['id'] ?? null,
+            'ai_description'      => $content['description'],
+            'ai_meta_title'       => $content['meta_title'],
+            'ai_meta_description' => $content['meta_description'],
         ]);
 
         AiContentImage::create([
@@ -177,7 +163,6 @@ class GenerateAiContentJob implements ShouldQueue
             'image_url'        => $hero['src'],
             'position'         => 0,
             'ai_alt_text'      => $content['alt_text'],
-            'ai_alt_text_ar'   => $altTextAr,
             'status'           => 'done',
         ]);
 
@@ -186,16 +171,12 @@ class GenerateAiContentJob implements ShouldQueue
                 $altText = $this->sanitizeText($gemini->generateAltTextFromUrl($image['src'], $productTitle) ?? '') ?: null;
                 sleep(4);
 
-                $altTextArForImage = $altText ? $fanar->translateToArabic($altText, 'default') : null;
-                sleep(1);
-
                 AiContentImage::create([
                     'item_id'          => $item->id,
                     'shopify_image_id' => $image['id'] ?? null,
                     'image_url'        => $image['src'],
                     'position'         => $index + 1,
                     'ai_alt_text'      => $altText,
-                    'ai_alt_text_ar'   => $altTextArForImage,
                     'status'           => $altText ? 'done' : 'failed',
                     'error_message'    => $altText ? null : 'Gemini API failed to generate alt text',
                 ]);

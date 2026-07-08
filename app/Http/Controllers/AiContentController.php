@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Jobs\GenerateAiContentJob;
+use App\Jobs\TranslateAiContentJob;
 use App\Models\AiContentItem;
 use App\Models\AiContentSession;
 use App\Models\Store;
@@ -117,6 +118,38 @@ class AiContentController extends Controller
         $items = $aiContentSession->items()->with('images')->orderBy('id')->get();
 
         return response()->json($items);
+    }
+
+    public function translate(Request $request, AiContentSession $aiContentSession)
+    {
+        abort_if($aiContentSession->user_id !== auth()->id(), 403);
+
+        if ($aiContentSession->status === 'translating') {
+            return back()->with('warning', 'Translation is already in progress.');
+        }
+
+        // Save any English edits from the review form first, so Arabic is
+        // translated from the final approved English text
+        $items = $aiContentSession->items()->with('images')->get();
+        foreach ($items as $item) {
+            $item->update([
+                'ai_description'      => $request->input("description.{$item->id}", $item->ai_description),
+                'ai_meta_title'       => $request->input("meta_title.{$item->id}", $item->ai_meta_title),
+                'ai_meta_description' => $request->input("meta_description.{$item->id}", $item->ai_meta_description),
+            ]);
+
+            foreach ($item->images as $image) {
+                $image->update([
+                    'ai_alt_text' => $request->input("image_alt.{$image->id}", $image->ai_alt_text),
+                ]);
+            }
+        }
+
+        $aiContentSession->update(['status' => 'translating']);
+        TranslateAiContentJob::dispatch($aiContentSession->id)->onQueue('bulkupload');
+
+        return redirect()->route('ai-content.show', $aiContentSession)
+            ->with('success', 'Arabic translation started.');
     }
 
     public function push(Request $request, AiContentSession $aiContentSession)

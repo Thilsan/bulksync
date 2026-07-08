@@ -64,15 +64,18 @@ English text:
     }
 
     /**
-     * POST to Fanar with one automatic retry on failure (network error, 429,
-     * or 5xx) — a single transient hiccup shouldn't permanently fail a field.
+     * POST to Fanar with automatic retries. Network errors and 5xx retry
+     * after a short delay; 429 rate limits wait much longer before retrying,
+     * since retrying a rate limit within seconds just burns the attempt.
      */
-    private function postWithRetry(array $payload, int $retries = 1, int $retryDelaySeconds = 3)
+    private function postWithRetry(array $payload, int $retries = 2, int $retryDelaySeconds = 3)
     {
         $attempt = 0;
 
         do {
             $attempt++;
+            $isRateLimited = false;
+
             try {
                 $response = Http::withHeaders([
                     'Authorization' => "Bearer {$this->apiKey}",
@@ -83,13 +86,14 @@ English text:
                     return $response;
                 }
 
+                $isRateLimited = $response->status() === 429;
                 Log::warning('Fanar API error', ['attempt' => $attempt, 'status' => $response->status(), 'body' => $response->body()]);
             } catch (\Throwable $e) {
                 Log::warning('Fanar API exception', ['attempt' => $attempt, 'error' => $e->getMessage()]);
             }
 
             if ($attempt <= $retries) {
-                sleep($retryDelaySeconds);
+                sleep($isRateLimited ? 65 : $retryDelaySeconds); // 65s clears a full per-minute rate window
             }
         } while ($attempt <= $retries);
 
