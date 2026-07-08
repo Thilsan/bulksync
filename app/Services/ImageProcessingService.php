@@ -22,6 +22,25 @@ class ImageProcessingService
         $this->manager = new ImageManager($driver);
     }
 
+    /**
+     * Shrink an image for sending to a vision AI API — vision models don't need
+     * full resolution to identify colors/textures/details, and smaller images
+     * mean fewer tokens and faster uploads. Never upscales. Does not touch the
+     * original file — caller must have their own copy of $imageContent.
+     */
+    public function scaleDownForAnalysis(string $imageContent, int $maxDimension = 1024, int $maxBytes = 1_500_000): string
+    {
+        $img = $this->manager->decode($imageContent);
+        $img->scaleDown($maxDimension, $maxDimension);
+        $result = $img->encode(new JpegEncoder(quality: 85))->toString();
+
+        if (strlen($result) <= $maxBytes) {
+            return $result;
+        }
+
+        return $this->compressOnly($result, $maxBytes);
+    }
+
     public function compressOnly(string $imageContent, int $maxBytes = 1_000_000): string
     {
         // Already within the size limit — return original bytes untouched.

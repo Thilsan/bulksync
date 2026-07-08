@@ -8,7 +8,7 @@ use Illuminate\Support\Facades\Log;
 class FanarService
 {
     private string $apiKey = '';
-    private string $endpoint = 'https://api.fanar.qa/v1/translations';
+    private string $endpoint = 'https://api.fanar.qa/v1/chat/completions';
 
     public function __construct()
     {
@@ -16,34 +16,83 @@ class FanarService
     }
 
     /**
-     * Translate English text to Arabic.
+     * Translate English e-commerce content to natural Arabic using Fanar's
+     * chat model (Fanar-C-2-27B) rather than the literal MT model
+     * (Fanar-Shaheen-MT-1) — the MT model translates word-for-word and
+     * mangles fashion/marketing terms; the chat LLM produces natural
+     * marketing Arabic.
      *
-     * @param string $preprocessing "default" for plain text, "preserve_html" for HTML content (keeps tags intact)
+     * @param string $preprocessing "default" for plain text, "preserve_html" when the text contains HTML tags
      */
     public function translateToArabic(string $text, string $preprocessing = 'default'): ?string
     {
         if (!$text) return null;
 
-        try {
-            $response = Http::withHeaders([
-                'Authorization' => "Bearer {$this->apiKey}",
-                'Content-Type'  => 'application/json',
-            ])->timeout(30)->post($this->endpoint, [
-                'model'         => 'Fanar-Shaheen-MT-1',
-                'text'          => $text,
-                'langpair'      => 'en-ar',
-                'preprocessing' => $preprocessing,
-            ]);
+        $htmlRule = $preprocessing === 'preserve_html'
+            ? "\n- The text contains HTML tags (<p>, <strong>, <ul>, <li>). Keep every tag exactly as it is, in the same positions — translate only the text between the tags."
+            : '';
 
-            if (!$response->successful()) {
-                Log::error('Fanar API error', ['status' => $response->status(), 'body' => $response->body()]);
-                return null;
+        $prompt = "Translate the following English e-commerce product content into natural, fluent Modern Standard Arabic for a Qatar-based online store.
+
+Rules:
+- Write as a native Arabic marketing copywriter would — natural and idiomatic, never a literal word-for-word translation.
+- Use the correct established Arabic terminology for fashion, jewellery, and retail terms (e.g. \"cushion-cut\" is a gem cut style, \"silhouette\" refers to the garment's overall shape, \"clear crystal\" means transparent crystal).
+- When English uses two different adjectives, use two distinct Arabic adjectives — never repeat the same word twice.
+- Keep brand names, SKUs, product codes, and technical values (e.g. 18K, 100ml) in Latin script exactly as written.{$htmlRule}
+- Output ONLY the Arabic translation — no explanations, no preamble, no quotation marks around it, no notes.
+
+English text:
+{$text}";
+
+        $response = $this->postWithRetry([
+            'model'       => 'Fanar-C-2-27B',
+            'messages'    => [
+                ['role' => 'user', 'content' => $prompt],
+            ],
+            'temperature' => 0.2,
+        ]);
+
+        if (!$response) return null;
+
+        $translated = trim($response->json('choices.0.message.content') ?? '');
+
+        // Strip markdown code fences or wrapping quotes the model may add despite instructions
+        $translated = preg_replace('/^```[a-z]*\s*|\s*```$/', '', $translated);
+        $translated = trim($translated, "\"'« »\u{201C}\u{201D} \t\n\r");
+
+        return $translated ?: null;
+    }
+
+    /**
+     * POST to Fanar with one automatic retry on failure (network error, 429,
+     * or 5xx) — a single transient hiccup shouldn't permanently fail a field.
+     */
+    private function postWithRetry(array $payload, int $retries = 1, int $retryDelaySeconds = 3)
+    {
+        $attempt = 0;
+
+        do {
+            $attempt++;
+            try {
+                $response = Http::withHeaders([
+                    'Authorization' => "Bearer {$this->apiKey}",
+                    'Content-Type'  => 'application/json',
+                ])->timeout(60)->post($this->endpoint, $payload);
+
+                if ($response->successful()) {
+                    return $response;
+                }
+
+                Log::warning('Fanar API error', ['attempt' => $attempt, 'status' => $response->status(), 'body' => $response->body()]);
+            } catch (\Throwable $e) {
+                Log::warning('Fanar API exception', ['attempt' => $attempt, 'error' => $e->getMessage()]);
             }
 
-            return trim($response->json('text') ?? '') ?: null;
-        } catch (\Throwable $e) {
-            Log::error('FanarService::translateToArabic failed', ['error' => $e->getMessage()]);
-            return null;
-        }
+            if ($attempt <= $retries) {
+                sleep($retryDelaySeconds);
+            }
+        } while ($attempt <= $retries);
+
+        return null;
     }
 }

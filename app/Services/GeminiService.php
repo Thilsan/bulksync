@@ -10,7 +10,7 @@ class GeminiService
     private string $apiKey = '';
     private string $endpoint = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
 
-    public function __construct()
+    public function __construct(private readonly ImageProcessingService $imageProcessor)
     {
         $this->apiKey = config('services.gemini.api_key') ?? '';
     }
@@ -40,8 +40,9 @@ class GeminiService
      */
     public function generateFromImageBytes(string $imageBytes, string $productTitle = '', string $vendor = '', string $productType = '', array $tags = [], array $collections = [], string $sku = '', string $storeName = ''): ?array
     {
-        $mimeType = $this->detectMimeType($imageBytes);
-        $base64   = base64_encode($imageBytes);
+        $imageBytes = $this->shrinkForApi($imageBytes);
+        $mimeType   = $this->detectMimeType($imageBytes);
+        $base64     = base64_encode($imageBytes);
 
         $context = [];
         if ($productTitle)   $context[] = "Product title: \"{$productTitle}\"";
@@ -66,6 +67,7 @@ Writing style rules (apply to every field below):
 - Do NOT use generic marketing clichés or vague filler phrases such as \"a true embodiment of\", \"timeless sophistication\", \"perfect for every occasion\", \"elevate your style\", \"must-have\", \"effortlessly chic\", \"the epitome of\", or similar stock phrases. Every sentence must state a specific, concrete visual fact about the product instead of a vague compliment.
 - Vary how paragraphs open — do not default to \"This product...\" or \"These [item]...\" every time. Use different natural sentence structures.
 - NEVER reference the image, photo, or picture itself (e.g. never write \"as shown in the image\", \"this photo displays\", \"pictured here\"). Write as a direct product description, not as a description of a photograph.
+- NEVER use HTML entities (e.g. \"&nbsp;\", \"&amp;\", \"&#39;\"). Use plain characters only (a normal space, the word \"and\", a normal apostrophe). Only HTML tags allowed are <p>, <strong>, <ul>, <li>.
 
 Strict accuracy rules:
 - Base every statement strictly on visible evidence of the product: color, shape, visible material/texture, visible parts (e.g. wheels, straps, zippers, handles, buttons, stitching, pockets, logos, patterns).
@@ -109,13 +111,8 @@ Return only valid JSON. No markdown, no code blocks, no extra text.";
             ],
         ];
 
-        $response = Http::timeout(30)
-            ->post("{$this->endpoint}?key={$this->apiKey}", $payload);
-
-        if (!$response->successful()) {
-            Log::error('Gemini API error', ['status' => $response->status(), 'body' => $response->body()]);
-            return null;
-        }
+        $response = $this->postWithRetry($payload);
+        if (!$response) return null;
 
         $text = $response->json('candidates.0.content.parts.0.text') ?? '';
         if (!$text) return null;
@@ -151,8 +148,9 @@ Return only valid JSON. No markdown, no code blocks, no extra text.";
 
     public function generateAltTextFromBytes(string $imageBytes, string $productTitle = ''): ?string
     {
-        $mimeType = $this->detectMimeType($imageBytes);
-        $base64   = base64_encode($imageBytes);
+        $imageBytes = $this->shrinkForApi($imageBytes);
+        $mimeType   = $this->detectMimeType($imageBytes);
+        $base64     = base64_encode($imageBytes);
 
         $titleHint = $productTitle ? " Product title for context: \"{$productTitle}\"." : '';
 
@@ -173,13 +171,8 @@ Return a JSON object: {\"alt_text\": \"...\"}. No markdown, no code blocks, no e
             ],
         ];
 
-        $response = Http::timeout(30)
-            ->post("{$this->endpoint}?key={$this->apiKey}", $payload);
-
-        if (!$response->successful()) {
-            Log::error('Gemini API error (alt text)', ['status' => $response->status(), 'body' => $response->body()]);
-            return null;
-        }
+        $response = $this->postWithRetry($payload);
+        if (!$response) return null;
 
         $text = $response->json('candidates.0.content.parts.0.text') ?? '';
         if (!$text) return null;
@@ -211,5 +204,51 @@ Return a JSON object: {\"alt_text\": \"...\"}. No markdown, no code blocks, no e
         if (str_starts_with($header, 'GIF8'))     return 'image/gif';
         if (str_starts_with($header, 'RIFF'))     return 'image/webp';
         return 'image/jpeg';
+    }
+
+    /**
+     * Shrink the image before sending to Gemini — vision models don't need full
+     * resolution to identify colors/textures/details, and a smaller image means
+     * fewer tokens and a faster upload. Only affects the copy sent to the API;
+     * never touches the original Shopify image.
+     */
+    private function shrinkForApi(string $imageBytes): string
+    {
+        try {
+            return $this->imageProcessor->scaleDownForAnalysis($imageBytes);
+        } catch (\Throwable $e) {
+            Log::warning('GeminiService: image resize failed, sending original', ['error' => $e->getMessage()]);
+            return $imageBytes;
+        }
+    }
+
+    /**
+     * POST to Gemini with one automatic retry on failure (network error, 429,
+     * or 5xx) — a single transient hiccup shouldn't permanently fail an item.
+     */
+    private function postWithRetry(array $payload, int $retries = 1, int $retryDelaySeconds = 3)
+    {
+        $attempt = 0;
+
+        do {
+            $attempt++;
+            try {
+                $response = Http::timeout(30)->post("{$this->endpoint}?key={$this->apiKey}", $payload);
+
+                if ($response->successful()) {
+                    return $response;
+                }
+
+                Log::warning('Gemini API error', ['attempt' => $attempt, 'status' => $response->status(), 'body' => $response->body()]);
+            } catch (\Throwable $e) {
+                Log::warning('Gemini API exception', ['attempt' => $attempt, 'error' => $e->getMessage()]);
+            }
+
+            if ($attempt <= $retries) {
+                sleep($retryDelaySeconds);
+            }
+        } while ($attempt <= $retries);
+
+        return null;
     }
 }

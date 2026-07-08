@@ -145,6 +145,11 @@ class GenerateAiContentJob implements ShouldQueue
             return $item;
         }
 
+        $content['description']      = $this->sanitizeDescriptionHtml($this->sanitizeText($content['description']));
+        $content['meta_title']       = $this->sanitizeText($content['meta_title']);
+        $content['meta_description'] = $this->sanitizeText($content['meta_description']);
+        $content['alt_text']         = $this->sanitizeText($content['alt_text']);
+
         $descriptionAr = $fanar->translateToArabic($content['description'], 'preserve_html');
         sleep(1);
         $metaTitleAr = $fanar->translateToArabic($content['meta_title'], 'default');
@@ -178,7 +183,7 @@ class GenerateAiContentJob implements ShouldQueue
 
         foreach (array_slice($images, 1) as $index => $image) {
             try {
-                $altText = $gemini->generateAltTextFromUrl($image['src'], $productTitle);
+                $altText = $this->sanitizeText($gemini->generateAltTextFromUrl($image['src'], $productTitle) ?? '') ?: null;
                 sleep(4);
 
                 $altTextArForImage = $altText ? $fanar->translateToArabic($altText, 'default') : null;
@@ -208,5 +213,65 @@ class GenerateAiContentJob implements ShouldQueue
         }
 
         return $item;
+    }
+
+    /**
+     * Decode any stray HTML entities (e.g. &nbsp;, &amp;) that Gemini sometimes
+     * slips into its output — left as literal text, the Fanar translator tries
+     * to "translate" them into garbled text instead of treating them as markup.
+     */
+    private function sanitizeText(string $text): string
+    {
+        $decoded = html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        return str_replace("\xC2\xA0", ' ', $decoded); // non-breaking space → normal space
+    }
+
+    /**
+     * Defensive backstop for the description HTML: the prompt already targets
+     * a 1000-character limit and the allowed tag set (<p>, <strong>, <ul>, <li>),
+     * but if Gemini ever produces unbalanced tags or a runaway length, this
+     * catches it before broken HTML reaches the live Shopify product page.
+     */
+    private function sanitizeDescriptionHtml(string $html): string
+    {
+        $allowedTags = ['p', 'strong', 'ul', 'li'];
+
+        foreach ($allowedTags as $tag) {
+            $opens  = preg_match_all("/<{$tag}>/i", $html);
+            $closes = preg_match_all("/<\/{$tag}>/i", $html);
+            if ($opens !== $closes) {
+                Log::warning('AI description had unbalanced HTML tags, falling back to plain text', ['tag' => $tag, 'opens' => $opens, 'closes' => $closes]);
+                return '<p>' . e(trim(strip_tags($html))) . '</p>';
+            }
+        }
+
+        $hardCap = 2000; // generous ceiling well above the prompt's 1000-char target — only catches runaway cases
+        if (mb_strlen($html) <= $hardCap) {
+            return $html;
+        }
+
+        Log::warning('AI description exceeded hard length cap, truncating safely', ['length' => mb_strlen($html)]);
+
+        $window  = mb_substr($html, 0, $hardCap);
+        $safeCut = 0;
+        foreach (['</p>', '</li>', '</ul>'] as $closingTag) {
+            $pos = mb_strrpos($window, $closingTag);
+            if ($pos !== false) {
+                $endPos = $pos + mb_strlen($closingTag);
+                $safeCut = max($safeCut, $endPos);
+            }
+        }
+
+        if ($safeCut === 0) {
+            return '<p>' . e(trim(mb_substr(strip_tags($html), 0, $hardCap))) . '</p>';
+        }
+
+        $truncated = mb_substr($html, 0, $safeCut);
+
+        if (substr_count($truncated, '<ul>') > substr_count($truncated, '</ul>')) {
+            $truncated .= '</ul>';
+        }
+
+        return $truncated;
     }
 }
