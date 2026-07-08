@@ -1,6 +1,6 @@
 @extends('layouts.app')
-@section('title', 'Store Image Sync')
-@section('page-title', 'Store Image Sync')
+@section('title', 'Product Migration - Image')
+@section('page-title', 'Product Migration - Image')
 
 @section('content')
 <div class="max-w-3xl mx-auto space-y-6" x-data="{ loading: false, mode: 'text' }">
