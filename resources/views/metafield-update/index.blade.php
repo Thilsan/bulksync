@@ -1,7 +1,7 @@
 @extends('layouts.app')
 
-@section('title', 'Metafield Update')
-@section('page-title', 'Metafield Update')
+@section('title', 'Product Migration')
+@section('page-title', 'Product Migration')
 
 @section('content')
 <div class="max-w-2xl mx-auto space-y-6">
