@@ -60,7 +60,7 @@ class MetafieldUpdateJob implements ShouldQueue
                 }
             } catch (\Throwable $e) {
                 Log::warning('MetafieldUpdateJob item failed', ['sku' => $sku, 'error' => $e->getMessage()]);
-                $results[] = ['sku' => $sku, 'status' => 'failed', 'message' => $e->getMessage()];
+                $results[] = ['sku' => $sku, 'status' => 'failed', 'message' => $this->safeUtf8($e->getMessage())];
             }
 
             Cache::put($this->cacheKey, [
@@ -77,5 +77,16 @@ class MetafieldUpdateJob implements ShouldQueue
             'processed' => $total,
             'results'   => $results,
         ], 3600);
+    }
+
+    /**
+     * Guzzle exceptions often embed the raw request/response body in their
+     * message — if that body ever contains invalid UTF-8, storing it as-is
+     * would make every later json response for this cache key throw. Strip
+     * anything invalid so the status page never crashes on a bad exception.
+     */
+    private function safeUtf8(string $message): string
+    {
+        return mb_convert_encoding($message, 'UTF-8', 'UTF-8');
     }
 }

@@ -92,13 +92,29 @@ class MetafieldUpdateController extends Controller
             if (!trim($sku)) continue;
 
             $rows[] = [
-                'sku'      => trim($sku),
-                'material' => trim($row['material'] ?? ''),
-                'features' => trim($row['features'] ?? ''),
+                'sku'      => trim($this->normalizeUtf8($sku)),
+                'material' => trim($this->normalizeUtf8($row['material'] ?? '')),
+                'features' => trim($this->normalizeUtf8($row['features'] ?? '')),
             ];
         }
 
         fclose($handle);
         return $rows;
+    }
+
+    /**
+     * Excel commonly saves CSVs in Windows-1252, not UTF-8 — special characters
+     * like ° become invalid UTF-8 bytes that crash json_encode() downstream
+     * (both when building the Shopify request and in Laravel's JSON responses).
+     * Force-correct to valid UTF-8 here, at the point bytes enter the system.
+     */
+    private function normalizeUtf8(string $value): string
+    {
+        if (mb_check_encoding($value, 'UTF-8')) {
+            return $value;
+        }
+
+        $converted = @mb_convert_encoding($value, 'UTF-8', 'Windows-1252');
+        return $converted !== false ? $converted : @mb_convert_encoding($value, 'UTF-8', 'UTF-8');
     }
 }

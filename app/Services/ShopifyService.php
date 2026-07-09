@@ -509,6 +509,35 @@ class ShopifyService
 
     // ── Metafield update ───────────────────────────────────────────────────
 
+    /**
+     * Read the product's current custom.features list so new CSV features
+     * can be merged in (append-if-new) rather than overwriting the whole list.
+     */
+    private function getProductFeatures(string $productId): array
+    {
+        $gid = "gid://shopify/Product/{$productId}";
+
+        try {
+            $response = $this->http->post("admin/api/{$this->apiVersion}/graphql.json", [
+                'json' => [
+                    'query'     => 'query($id:ID!){product(id:$id){metafield(namespace:"custom",key:"features"){value}}}',
+                    'variables' => ['id' => $gid],
+                ],
+            ]);
+
+            $data  = json_decode((string) $response->getBody(), true);
+            $value = $data['data']['product']['metafield']['value'] ?? null;
+
+            if (!$value) return [];
+
+            $decoded = json_decode($value, true);
+            return is_array($decoded) ? $decoded : [];
+        } catch (\Throwable $e) {
+            Log::warning("Shopify getProductFeatures({$productId}): " . $e->getMessage());
+            return [];
+        }
+    }
+
     public function updateProductMetafields(string $productId, string $material, string $features): void
     {
         $metafields = [];
@@ -523,12 +552,21 @@ class ShopifyService
         }
 
         if ($features !== '') {
-            // Features is a list type — encode as JSON array
-            $items = array_filter(array_map('trim', explode(',', $features)));
+            $newItems      = array_filter(array_map('trim', explode(',', $features)));
+            $existingItems = $this->getProductFeatures($productId);
+
+            $merged = $existingItems;
+            foreach ($newItems as $item) {
+                $alreadyPresent = collect($existingItems)->contains(fn ($e) => strcasecmp(trim($e), $item) === 0);
+                if (!$alreadyPresent) {
+                    $merged[] = $item;
+                }
+            }
+
             $metafields[] = [
                 'namespace' => 'custom',
                 'key'       => 'features',
-                'value'     => json_encode(array_values($items)),
+                'value'     => json_encode(array_values($merged)),
                 'type'      => 'list.single_line_text_field',
             ];
         }
