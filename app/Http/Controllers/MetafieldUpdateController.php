@@ -73,32 +73,42 @@ class MetafieldUpdateController extends Controller
 
     private function parseCsv(string $path): array
     {
-        $rows   = [];
-        $handle = fopen($path, 'r');
-        if (!$handle) return [];
+        $content = file_get_contents($path);
+        if ($content === false) return [];
 
+        $content = $this->normalizeUtf8($content);
+
+        // fgetcsv() can only split on \n and doesn't handle old-Mac-style \r-only
+        // line endings (PHP 8 removed the auto_detect_line_endings ini setting
+        // that used to compensate for this) — normalize every style to \n first
+        // so parsing is correct no matter which "Save As" CSV variant was used.
+        $content = str_replace(["\r\n", "\r"], "\n", $content);
+        $lines   = array_filter(explode("\n", $content), fn ($line) => trim($line) !== '');
+
+        $rows    = [];
         $headers = null;
 
-        while (($line = fgetcsv($handle)) !== false) {
+        foreach ($lines as $line) {
+            $fields = str_getcsv($line);
+
             if (!$headers) {
-                // Normalize headers
-                $headers = array_map(fn ($h) => strtolower(trim(str_replace([' ', '-'], '_', $h))), $line);
+                $headers = array_map(fn ($h) => strtolower(trim(str_replace([' ', '-'], '_', $h))), $fields);
                 continue;
             }
 
-            $row = array_combine($headers, array_pad($line, count($headers), ''));
+            $fields = array_slice(array_pad($fields, count($headers), ''), 0, count($headers));
+            $row    = array_combine($headers, $fields);
 
             $sku = $row['variant_sku'] ?? $row['sku'] ?? '';
             if (!trim($sku)) continue;
 
             $rows[] = [
-                'sku'      => trim($this->normalizeUtf8($sku)),
-                'material' => trim($this->normalizeUtf8($row['material'] ?? '')),
-                'features' => trim($this->normalizeUtf8($row['features'] ?? '')),
+                'sku'      => trim($sku),
+                'material' => trim($row['material'] ?? ''),
+                'features' => trim($row['features'] ?? ''),
             ];
         }
 
-        fclose($handle);
         return $rows;
     }
 
