@@ -20,13 +20,13 @@ class GeminiService
      *
      * @return array{description: string, meta_title: string, meta_description: string, alt_text: string}|null
      */
-    public function generateFromImageUrl(string $imageUrl, string $productTitle = '', string $vendor = '', string $productType = '', array $tags = [], array $collections = [], string $sku = '', string $storeName = '', string $existingDescription = ''): ?array
+    public function generateFromImageUrl(string $imageUrl, string $productTitle = '', string $vendor = '', string $productType = '', array $tags = [], array $collections = [], string $sku = '', string $storeName = '', string $existingDescription = '', string $existingMaterial = '', array $existingFeatures = []): ?array
     {
         try {
             $imageContent = $this->downloadImage($imageUrl);
             if (!$imageContent) return null;
 
-            return $this->generateFromImageBytes($imageContent, $productTitle, $vendor, $productType, $tags, $collections, $sku, $storeName, $existingDescription);
+            return $this->generateFromImageBytes($imageContent, $productTitle, $vendor, $productType, $tags, $collections, $sku, $storeName, $existingDescription, $existingMaterial, $existingFeatures);
         } catch (\Throwable $e) {
             Log::error('GeminiService::generateFromImageUrl failed', ['url' => $imageUrl, 'error' => $e->getMessage()]);
             return null;
@@ -38,7 +38,7 @@ class GeminiService
      *
      * @return array{description: string, meta_title: string, meta_description: string, alt_text: string}|null
      */
-    public function generateFromImageBytes(string $imageBytes, string $productTitle = '', string $vendor = '', string $productType = '', array $tags = [], array $collections = [], string $sku = '', string $storeName = '', string $existingDescription = ''): ?array
+    public function generateFromImageBytes(string $imageBytes, string $productTitle = '', string $vendor = '', string $productType = '', array $tags = [], array $collections = [], string $sku = '', string $storeName = '', string $existingDescription = '', string $existingMaterial = '', array $existingFeatures = []): ?array
     {
         $imageBytes = $this->shrinkForApi($imageBytes);
         $mimeType   = $this->detectMimeType($imageBytes);
@@ -52,6 +52,8 @@ class GeminiService
         if ($storeName)      $context[] = "Store name: \"{$storeName}\" (based in Qatar)";
         if (!empty($tags))        $context[] = "Store tags on this product: " . implode(', ', $tags);
         if (!empty($collections)) $context[] = "Collections this product belongs to: " . implode(', ', $collections);
+        if ($existingMaterial)    $context[] = "CONFIRMED material (from store data, not a guess): \"{$existingMaterial}\" — use this exact material, do not visually guess a different one.";
+        if (!empty($existingFeatures)) $context[] = "CONFIRMED features already on file (from store data): " . implode(', ', $existingFeatures);
         if ($existingDescription) {
             $plainExisting = trim(strip_tags($existingDescription));
             if ($plainExisting) $context[] = "Existing product description already on the store (for reference only — may be outdated or inaccurate, do not copy blindly, but stay consistent with any facts here that you can also visually confirm):\n\"{$plainExisting}\"";
@@ -77,6 +79,7 @@ Strict accuracy rules:
 - Base every statement strictly on visible evidence of the product: color, shape, visible material/texture, visible parts (e.g. wheels, straps, zippers, handles, buttons, stitching, pockets, logos, patterns).
 - Do NOT invent specifications, materials, capacity, technology, or features that cannot be visually confirmed (e.g. don't say \"waterproof\" or \"lightweight\" unless it's visibly obvious).
 - The Brand/vendor, Product title, tags, and collections above (if given) are confirmed real data from the store — use them to determine facts like Gender or Category, but do not invent a brand, gender, or category that isn't supported by that context or clearly visible.
+- If a CONFIRMED material is given above, use that exact material in the description and specifications — do NOT visually guess a different material, even if the photo looks like it could be something else. If a CONFIRMED features list is given above, treat those as real facts already established — you can restate them and may add more visible features on top, but never contradict them.
 - If an existing product description was given above, treat it only as a hint, never as ground truth — it may be outdated, generic, or wrong. Write your own fresh description grounded in the image, but don't contradict a fact from it that you can also visually confirm.
 - If unsure about a detail, omit it rather than guessing.
 - Do not repeat the same claim in different words to pad length.
@@ -94,8 +97,9 @@ Return a JSON object with exactly these fields:
   3. A bullet list <ul><li>...</li></ul> containing:
      - \"Brand: {{vendor}}\" as the first bullet, only if brand/vendor was given above.
      - \"SKU: {{sku}}\" as the next bullet, only if a SKU was given above — use it exactly as given, do not modify it.
+     - \"Material: {{material}}\" as the next bullet, only if a CONFIRMED material was given above — use that exact value, never a visually-guessed one.
      - \"Gender: {{Women/Men/Unisex/Kids}}\" as the next bullet, only if clearly indicated by the product title, type, tags, or collections above (e.g. a tag or collection name containing \"Women\", \"Men\", \"Kids\") — omit entirely if not determinable.
-     - 3-5 more bullets, each a short factual highlight restating a visible detail or craftsmanship point already covered in the paragraphs above (color, material, construction technique, notable visible feature). Do not introduce new unverified facts in the bullets.
+     - 3-5 more bullets, each a short factual highlight restating a visible detail or craftsmanship point already covered in the paragraphs above (color, construction technique, notable visible feature — plus any CONFIRMED features given above). Do not introduce new unverified facts in the bullets.
   Stay within the 1000-character total limit — trim paragraph count, sentence length, or bullet count as needed to fit, always keeping valid, complete HTML.
 - \"meta_title\": An SEO page title (max 60 characters) that accurately reflects the product type and its main visible attribute (e.g. color or style) — no mention of model/background.
 - \"meta_description\": An SEO meta description (max 160 characters) summarizing only the product's visible/confirmed attributes — no mention of model/background. If a store name was given above, naturally work the store name and \"Qatar\" into the sentence (e.g. \"...available at {{store name}} in Qatar.\") while staying within 160 characters — shorten the product details if needed to fit both in.
@@ -142,7 +146,7 @@ Return only valid JSON. No markdown, no code blocks, no extra text.";
      *
      * @return array{description: string, meta_title: string, meta_description: string}|null
      */
-    public function generateFromTextOnly(string $productTitle = '', string $vendor = '', string $productType = '', array $tags = [], array $collections = [], string $sku = '', string $storeName = '', string $existingDescription = ''): ?array
+    public function generateFromTextOnly(string $productTitle = '', string $vendor = '', string $productType = '', array $tags = [], array $collections = [], string $sku = '', string $storeName = '', string $existingDescription = '', string $existingMaterial = '', array $existingFeatures = []): ?array
     {
         $context = [];
         if ($productTitle)   $context[] = "Product title: \"{$productTitle}\"";
@@ -152,6 +156,8 @@ Return only valid JSON. No markdown, no code blocks, no extra text.";
         if ($storeName)      $context[] = "Store name: \"{$storeName}\" (based in Qatar)";
         if (!empty($tags))        $context[] = "Store tags on this product: " . implode(', ', $tags);
         if (!empty($collections)) $context[] = "Collections this product belongs to: " . implode(', ', $collections);
+        if ($existingMaterial)    $context[] = "CONFIRMED material (from store data): \"{$existingMaterial}\"";
+        if (!empty($existingFeatures)) $context[] = "CONFIRMED features already on file (from store data): " . implode(', ', $existingFeatures);
         if ($existingDescription) {
             $plainExisting = trim(strip_tags($existingDescription));
             if ($plainExisting) $context[] = "Existing product description already on the store (you may draw on its facts, but rephrase and improve rather than copy verbatim):\n\"{$plainExisting}\"";
@@ -184,8 +190,9 @@ Return a JSON object with exactly these fields:
   3. A bullet list <ul><li>...</li></ul> containing:
      - \"Brand: {{vendor}}\" as the first bullet, only if brand/vendor was given above.
      - \"SKU: {{sku}}\" as the next bullet, only if a SKU was given above — use it exactly as given.
+     - \"Material: {{material}}\" as the next bullet, only if a CONFIRMED material was given above.
      - \"Gender: {{Women/Men/Unisex/Kids}}\" as the next bullet, only if clearly indicated by the product title, type, tags, or collections above — omit entirely if not determinable.
-     - Additional bullets only for facts clearly supported by the confirmed data above (e.g. product type, category) — do not invent visual specifics as bullets.
+     - Additional bullets only for facts clearly supported by the confirmed data above (e.g. product type, category, CONFIRMED features) — do not invent visual specifics as bullets.
   Always keep valid, complete HTML.
 - \"meta_title\": An SEO page title (max 60 characters) based on the confirmed product title/type/brand.
 - \"meta_description\": An SEO meta description (max 160 characters) summarizing only the confirmed attributes. If a store name was given above, naturally work the store name and \"Qatar\" into the sentence while staying within 160 characters.

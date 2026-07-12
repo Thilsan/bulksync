@@ -118,6 +118,10 @@ class GenerateAiContentJob implements ShouldQueue
         $collections         = $variant['collections'] ?? [];
         $existingDescription = $variant['existing_description'] ?? '';
 
+        $materialAndFeatures = $shopify->getProductMaterialAndFeatures($productId);
+        $existingMaterial    = $materialAndFeatures['material'];
+        $existingFeatures    = $materialAndFeatures['features'];
+
         $item = AiContentItem::create([
             'session_id'         => $session->id,
             'sku'                => $sku,
@@ -130,12 +134,12 @@ class GenerateAiContentJob implements ShouldQueue
         $images = $shopify->getProductImages($productId);
 
         if (empty($images)) {
-            return $this->generateForProductWithoutImage($item, $gemini, $productTitle, $vendor, $productType, $tags, $collections, $sku, $storeName, $existingDescription);
+            return $this->generateForProductWithoutImage($item, $gemini, $productTitle, $vendor, $productType, $tags, $collections, $sku, $storeName, $existingDescription, $existingMaterial, $existingFeatures);
         }
 
         $hero = $images[0];
 
-        $content = $gemini->generateFromImageUrl($hero['src'], $productTitle, $vendor, $productType, $tags, $collections, $sku, $storeName, $existingDescription);
+        $content = $gemini->generateFromImageUrl($hero['src'], $productTitle, $vendor, $productType, $tags, $collections, $sku, $storeName, $existingDescription, $existingMaterial, $existingFeatures);
         sleep(4); // respect Gemini free tier: 15 req/min
 
         if (!$content) {
@@ -213,8 +217,10 @@ class GenerateAiContentJob implements ShouldQueue
         string $sku,
         string $storeName,
         string $existingDescription,
+        string $existingMaterial,
+        array $existingFeatures,
     ): AiContentItem {
-        $content = $gemini->generateFromTextOnly($productTitle, $vendor, $productType, $tags, $collections, $sku, $storeName, $existingDescription);
+        $content = $gemini->generateFromTextOnly($productTitle, $vendor, $productType, $tags, $collections, $sku, $storeName, $existingDescription, $existingMaterial, $existingFeatures);
         sleep(4); // respect Gemini free tier: 15 req/min
 
         if (!$content) {

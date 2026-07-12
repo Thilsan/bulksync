@@ -539,6 +539,42 @@ class ShopifyService
         }
     }
 
+    /**
+     * Read the product's existing custom.material and custom.features
+     * metafields (if set) so AI Content generation can use them as confirmed
+     * facts instead of visually guessing material from the photo.
+     *
+     * @return array{material: string, features: array}
+     */
+    public function getProductMaterialAndFeatures(string $productId): array
+    {
+        $gid = "gid://shopify/Product/{$productId}";
+
+        try {
+            $response = $this->http->post("admin/api/{$this->apiVersion}/graphql.json", [
+                'json' => [
+                    'query'     => 'query($id:ID!){product(id:$id){material:metafield(namespace:"custom",key:"material"){value} features:metafield(namespace:"custom",key:"features"){value}}}',
+                    'variables' => ['id' => $gid],
+                ],
+            ]);
+
+            $data    = json_decode((string) $response->getBody(), true);
+            $product = $data['data']['product'] ?? [];
+
+            $material     = $product['material']['value'] ?? '';
+            $featuresJson = $product['features']['value'] ?? null;
+            $features     = $featuresJson ? json_decode($featuresJson, true) : [];
+
+            return [
+                'material'  => is_string($material) ? $material : '',
+                'features'  => is_array($features) ? $features : [],
+            ];
+        } catch (\Throwable $e) {
+            Log::warning("Shopify getProductMaterialAndFeatures({$productId}): " . $e->getMessage());
+            return ['material' => '', 'features' => []];
+        }
+    }
+
     public function updateProductMetafields(string $productId, string $material, string $features): void
     {
         $metafields = [];
