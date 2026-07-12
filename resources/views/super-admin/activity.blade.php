@@ -4,7 +4,7 @@
 @section('page-title', 'Activity Log')
 
 @section('content')
-<div class="max-w-6xl mx-auto space-y-6">
+<div class="w-full space-y-6">
 
     {{-- Filters --}}
     <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
