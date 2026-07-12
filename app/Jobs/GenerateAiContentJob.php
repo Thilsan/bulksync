@@ -130,8 +130,7 @@ class GenerateAiContentJob implements ShouldQueue
         $images = $shopify->getProductImages($productId);
 
         if (empty($images)) {
-            $item->update(['status' => 'failed', 'error_message' => 'No images found for this product']);
-            return $item;
+            return $this->generateForProductWithoutImage($item, $gemini, $productTitle, $vendor, $productType, $tags, $collections, $sku, $storeName, $existingDescription);
         }
 
         $hero = $images[0];
@@ -193,6 +192,42 @@ class GenerateAiContentJob implements ShouldQueue
                 ]);
             }
         }
+
+        return $item;
+    }
+
+    /**
+     * Fallback when the product has no images in Shopify at all: generate
+     * description/meta content from confirmed store data alone (title, vendor,
+     * type, tags, collections, existing description). No alt text or image
+     * rows are created — there's no image to attach alt text to.
+     */
+    private function generateForProductWithoutImage(
+        AiContentItem $item,
+        GeminiService $gemini,
+        string $productTitle,
+        string $vendor,
+        string $productType,
+        array $tags,
+        array $collections,
+        string $sku,
+        string $storeName,
+        string $existingDescription,
+    ): AiContentItem {
+        $content = $gemini->generateFromTextOnly($productTitle, $vendor, $productType, $tags, $collections, $sku, $storeName, $existingDescription);
+        sleep(4); // respect Gemini free tier: 15 req/min
+
+        if (!$content) {
+            $item->update(['status' => 'failed', 'error_message' => 'No images found for this product, and text-only generation failed']);
+            return $item;
+        }
+
+        $item->update([
+            'status'              => 'done',
+            'ai_description'      => $this->sanitizeDescriptionHtml($this->sanitizeText($content['description'])),
+            'ai_meta_title'       => $this->sanitizeText($content['meta_title']),
+            'ai_meta_description' => $this->sanitizeText($content['meta_description']),
+        ]);
 
         return $item;
     }

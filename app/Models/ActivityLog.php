@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Facades\Auth;
 
 #[Fillable(['user_id', 'action', 'description', 'ip_address', 'user_agent', 'created_at'])]
 class ActivityLog extends Model
@@ -28,11 +29,38 @@ class ActivityLog extends Model
         return $this->belongsTo(User::class);
     }
 
+    public function getDeviceAttribute(): ?string
+    {
+        $ua = $this->user_agent;
+        if (!$ua) return null;
+
+        $browser = match (true) {
+            str_contains($ua, 'Edg/')     => 'Edge',
+            str_contains($ua, 'OPR/')     => 'Opera',
+            str_contains($ua, 'Chrome/')  => 'Chrome',
+            str_contains($ua, 'Firefox/') => 'Firefox',
+            str_contains($ua, 'Safari/')  => 'Safari',
+            default                       => 'Unknown browser',
+        };
+
+        $os = match (true) {
+            str_contains($ua, 'Windows')  => 'Windows',
+            str_contains($ua, 'iPhone')   => 'iPhone',
+            str_contains($ua, 'iPad')     => 'iPad',
+            str_contains($ua, 'Android')  => 'Android',
+            str_contains($ua, 'Mac OS X') => 'macOS',
+            str_contains($ua, 'Linux')    => 'Linux',
+            default                       => null,
+        };
+
+        return $os ? "{$browser} · {$os}" : $browser;
+    }
+
     public static function record(string $action, ?string $description = null, ?int $userId = null): void
     {
         try {
             static::create([
-                'user_id'     => $userId ?? auth()->id(),
+                'user_id'     => $userId ?? Auth::id(),
                 'action'      => $action,
                 'description' => $description,
                 'ip_address'  => request()->ip(),

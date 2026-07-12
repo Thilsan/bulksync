@@ -59,7 +59,7 @@
                     <th class="text-left px-6 py-3 font-medium text-gray-600">User</th>
                     <th class="text-left px-6 py-3 font-medium text-gray-600">Action</th>
                     <th class="text-left px-6 py-3 font-medium text-gray-600">Details</th>
-                    <th class="text-left px-6 py-3 font-medium text-gray-600">IP Address</th>
+                    <th class="text-left px-6 py-3 font-medium text-gray-600">Device</th>
                 </tr>
             </thead>
             <tbody class="divide-y divide-gray-50">
@@ -83,7 +83,7 @@
                         @endif
                     </td>
                     <td class="px-6 py-3 text-gray-600">{{ $log->description }}</td>
-                    <td class="px-6 py-3 text-gray-400 font-mono text-xs whitespace-nowrap">{{ $log->ip_address }}</td>
+                    <td class="px-6 py-3 text-gray-500 text-xs whitespace-nowrap">{{ $log->device ?? '—' }}</td>
                 </tr>
                 @empty
                 <tr>

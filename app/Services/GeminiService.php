@@ -134,6 +134,91 @@ Return only valid JSON. No markdown, no code blocks, no extra text.";
     }
 
     /**
+     * Generate description/meta content with NO image at all — used when a
+     * product has zero images in Shopify. Grounded strictly in confirmed store
+     * data (title, vendor, type, tags, collections, existing description);
+     * never invents visual details since there's nothing to look at. No alt
+     * text is produced here — alt text belongs to an image, and there isn't one.
+     *
+     * @return array{description: string, meta_title: string, meta_description: string}|null
+     */
+    public function generateFromTextOnly(string $productTitle = '', string $vendor = '', string $productType = '', array $tags = [], array $collections = [], string $sku = '', string $storeName = '', string $existingDescription = ''): ?array
+    {
+        $context = [];
+        if ($productTitle)   $context[] = "Product title: \"{$productTitle}\"";
+        if ($sku)            $context[] = "SKU: \"{$sku}\"";
+        if ($vendor)         $context[] = "Brand/vendor: \"{$vendor}\"";
+        if ($productType)    $context[] = "Product type/category: \"{$productType}\"";
+        if ($storeName)      $context[] = "Store name: \"{$storeName}\" (based in Qatar)";
+        if (!empty($tags))        $context[] = "Store tags on this product: " . implode(', ', $tags);
+        if (!empty($collections)) $context[] = "Collections this product belongs to: " . implode(', ', $collections);
+        if ($existingDescription) {
+            $plainExisting = trim(strip_tags($existingDescription));
+            if ($plainExisting) $context[] = "Existing product description already on the store (you may draw on its facts, but rephrase and improve rather than copy verbatim):\n\"{$plainExisting}\"";
+        }
+
+        if (empty($context)) return null; // nothing at all to work with
+
+        $contextBlock = implode("\n", $context) . "\n\n";
+
+        $prompt = "No product image is available for this item. Write e-commerce content based ONLY on the confirmed store data below.
+
+{$contextBlock}Writing style rules (apply to every field below):
+- Use British English spelling throughout (e.g. colour, favourite, personalise, grey, fibre, moisturiser) — never American spelling.
+- Do NOT use generic marketing clichés or vague filler phrases such as \"a true embodiment of\", \"timeless sophistication\", \"perfect for every occasion\", \"elevate your style\", \"must-have\", \"effortlessly chic\", \"the epitome of\", or similar stock phrases.
+- Vary how paragraphs open — do not default to \"This product...\" or \"These [item]...\" every time.
+- NEVER reference an image, photo, or picture (there isn't one for this product) — write as a direct product description.
+- NEVER use HTML entities (e.g. \"&nbsp;\", \"&amp;\", \"&#39;\"). Use plain characters only. Only HTML tags allowed are <p>, <strong>, <ul>, <li>.
+
+Strict accuracy rules (critical — there is no image, so extra caution applies):
+- Base every statement ONLY on the confirmed data given above (title, brand, product type, tags, collections, existing description). Do NOT invent colour, material, texture, pattern, shape, or any other visual specific you have no evidence for — you cannot see this product.
+- If the title or existing description implies a fact (e.g. the title says \"Leather Jacket\", so material is leather), you may state it, but do not add further unverified detail on top of it.
+- If there is not enough information to write something concrete, keep that sentence general rather than guessing specifics.
+
+Return a JSON object with exactly these fields:
+
+- \"description\": HTML content structured EXACTLY like this:
+  HARD LIMIT: the entire description, including all HTML tags, must not exceed 1000 characters total.
+  1. 2-3 concise narrative paragraphs (<p> tags) — general, honest copy grounded only in the confirmed data above, never claiming specific visual details you don't have evidence for.
+  2. A heading: <p><strong>SPECIFICATIONS</strong></p>
+  3. A bullet list <ul><li>...</li></ul> containing:
+     - \"Brand: {{vendor}}\" as the first bullet, only if brand/vendor was given above.
+     - \"SKU: {{sku}}\" as the next bullet, only if a SKU was given above — use it exactly as given.
+     - \"Gender: {{Women/Men/Unisex/Kids}}\" as the next bullet, only if clearly indicated by the product title, type, tags, or collections above — omit entirely if not determinable.
+     - Additional bullets only for facts clearly supported by the confirmed data above (e.g. product type, category) — do not invent visual specifics as bullets.
+  Always keep valid, complete HTML.
+- \"meta_title\": An SEO page title (max 60 characters) based on the confirmed product title/type/brand.
+- \"meta_description\": An SEO meta description (max 160 characters) summarizing only the confirmed attributes. If a store name was given above, naturally work the store name and \"Qatar\" into the sentence while staying within 160 characters.
+
+Return only valid JSON. No markdown, no code blocks, no extra text.";
+
+        $payload = [
+            'contents' => [[
+                'parts' => [['text' => $prompt]],
+            ]],
+            'generationConfig' => [
+                'responseMimeType' => 'application/json',
+                'temperature'      => 0.15,
+            ],
+        ];
+
+        $response = $this->postWithRetry($payload);
+        if (!$response) return null;
+
+        $text = $response->json('candidates.0.content.parts.0.text') ?? '';
+        if (!$text) return null;
+
+        $data = json_decode($text, true);
+        if (!is_array($data)) return null;
+
+        return [
+            'description'      => trim($data['description'] ?? ''),
+            'meta_title'       => mb_substr(trim($data['meta_title'] ?? ''), 0, 60),
+            'meta_description' => mb_substr(trim($data['meta_description'] ?? ''), 0, 160),
+        ];
+    }
+
+    /**
      * Lightweight alt-text-only generation for additional gallery images
      * (used when a product has more than one image — the hero image's alt
      * text already comes from generateFromImageBytes/Url).
