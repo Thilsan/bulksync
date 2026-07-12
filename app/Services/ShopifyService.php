@@ -288,7 +288,7 @@ class ShopifyService
                 "admin/api/{$this->apiVersion}/graphql.json",
                 [
                     'json' => [
-                        'query'     => 'query($q:String!){productVariants(first:250,query:$q){edges{node{id sku product{id title status vendor productType tags collections(first:20){edges{node{title}}}}}}}}',
+                        'query'     => 'query($q:String!){productVariants(first:250,query:$q){edges{node{id sku product{id title status vendor productType tags descriptionHtml collections(first:20){edges{node{title}}}}}}}}',
                         'variables' => ['q' => "sku:'{$sku}'"],
                     ],
                 ]
@@ -304,15 +304,16 @@ class ShopifyService
                 $collections = array_map(fn ($c) => $c['node']['title'] ?? '', $node['product']['collections']['edges'] ?? []);
 
                 return [
-                    'product_id'    => $productId,
-                    'product_title' => $node['product']['title'] ?? '',
-                    'variant_id'    => $variantId,
-                    'variant_sku'   => $node['sku'],
-                    'published'     => ($node['product']['status'] ?? '') === 'ACTIVE',
-                    'vendor'        => $node['product']['vendor'] ?? '',
-                    'product_type'  => $node['product']['productType'] ?? '',
-                    'tags'          => $node['product']['tags'] ?? [],
-                    'collections'   => array_filter($collections),
+                    'product_id'           => $productId,
+                    'product_title'        => $node['product']['title'] ?? '',
+                    'variant_id'           => $variantId,
+                    'variant_sku'          => $node['sku'],
+                    'published'            => ($node['product']['status'] ?? '') === 'ACTIVE',
+                    'vendor'               => $node['product']['vendor'] ?? '',
+                    'product_type'         => $node['product']['productType'] ?? '',
+                    'tags'                 => $node['product']['tags'] ?? [],
+                    'collections'          => array_filter($collections),
+                    'existing_description' => $node['product']['descriptionHtml'] ?? '',
                 ];
             }, $edges);
 

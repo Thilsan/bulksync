@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\ActivityLog;
 use App\Models\Store;
 use App\Models\User;
 use Illuminate\Http\RedirectResponse;
@@ -17,6 +18,28 @@ class SuperAdminController extends Controller
         $stores = Store::orderByDesc('is_active')->orderBy('name')->get();
 
         return view('super-admin.index', compact('users', 'stores'));
+    }
+
+    public function activity(Request $request): View
+    {
+        $query = ActivityLog::with('user')->latest('created_at')->latest('id');
+
+        if ($request->filled('user_id')) {
+            $query->where('user_id', $request->integer('user_id'));
+        }
+
+        if ($request->filled('action')) {
+            $query->where('action', $request->input('action'));
+        }
+
+        if ($request->filled('date')) {
+            $query->whereDate('created_at', $request->input('date'));
+        }
+
+        $logs  = $query->paginate(50)->withQueryString();
+        $users = User::orderBy('name')->get(['id', 'name']);
+
+        return view('super-admin.activity', compact('logs', 'users'));
     }
 
     public function storeUser(Request $request): RedirectResponse

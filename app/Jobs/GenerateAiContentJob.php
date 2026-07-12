@@ -111,11 +111,12 @@ class GenerateAiContentJob implements ShouldQueue
         string $productId,
         string $storeName,
     ): AiContentItem {
-        $productTitle = $variant['product_title'] ?? '';
-        $vendor       = $variant['vendor'] ?? '';
-        $productType  = $variant['product_type'] ?? '';
-        $tags         = $variant['tags'] ?? [];
-        $collections  = $variant['collections'] ?? [];
+        $productTitle        = $variant['product_title'] ?? '';
+        $vendor              = $variant['vendor'] ?? '';
+        $productType         = $variant['product_type'] ?? '';
+        $tags                = $variant['tags'] ?? [];
+        $collections         = $variant['collections'] ?? [];
+        $existingDescription = $variant['existing_description'] ?? '';
 
         $item = AiContentItem::create([
             'session_id'         => $session->id,
@@ -135,7 +136,7 @@ class GenerateAiContentJob implements ShouldQueue
 
         $hero = $images[0];
 
-        $content = $gemini->generateFromImageUrl($hero['src'], $productTitle, $vendor, $productType, $tags, $collections, $sku, $storeName);
+        $content = $gemini->generateFromImageUrl($hero['src'], $productTitle, $vendor, $productType, $tags, $collections, $sku, $storeName, $existingDescription);
         sleep(4); // respect Gemini free tier: 15 req/min
 
         if (!$content) {

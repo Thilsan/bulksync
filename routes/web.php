@@ -79,6 +79,7 @@ Route::middleware('auth')->group(function () {
     // Super admin
     Route::middleware('super-admin')->prefix('super-admin')->name('super-admin.')->group(function () {
         Route::get('/',                              [SuperAdminController::class, 'index'])->name('index');
+        Route::get('/activity',                      [SuperAdminController::class, 'activity'])->name('activity');
         Route::post('/users',                        [SuperAdminController::class, 'storeUser'])->name('users.store');
         Route::post('/users/{user}/toggle',          [SuperAdminController::class, 'toggleUser'])->name('users.toggle');
         Route::post('/users/{user}/toggle-admin',    [SuperAdminController::class, 'toggleSuperAdmin'])->name('users.toggle-admin');

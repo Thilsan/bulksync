@@ -14,6 +14,7 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->trustProxies(at: '*');
         $middleware->appendToGroup('web', \App\Http\Middleware\CheckActive::class);
+        $middleware->appendToGroup('web', \App\Http\Middleware\LogUserActivity::class);
         $middleware->alias(['super-admin' => \App\Http\Middleware\SuperAdmin::class]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

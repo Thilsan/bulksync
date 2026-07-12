@@ -20,13 +20,13 @@ class GeminiService
      *
      * @return array{description: string, meta_title: string, meta_description: string, alt_text: string}|null
      */
-    public function generateFromImageUrl(string $imageUrl, string $productTitle = '', string $vendor = '', string $productType = '', array $tags = [], array $collections = [], string $sku = '', string $storeName = ''): ?array
+    public function generateFromImageUrl(string $imageUrl, string $productTitle = '', string $vendor = '', string $productType = '', array $tags = [], array $collections = [], string $sku = '', string $storeName = '', string $existingDescription = ''): ?array
     {
         try {
             $imageContent = $this->downloadImage($imageUrl);
             if (!$imageContent) return null;
 
-            return $this->generateFromImageBytes($imageContent, $productTitle, $vendor, $productType, $tags, $collections, $sku, $storeName);
+            return $this->generateFromImageBytes($imageContent, $productTitle, $vendor, $productType, $tags, $collections, $sku, $storeName, $existingDescription);
         } catch (\Throwable $e) {
             Log::error('GeminiService::generateFromImageUrl failed', ['url' => $imageUrl, 'error' => $e->getMessage()]);
             return null;
@@ -38,7 +38,7 @@ class GeminiService
      *
      * @return array{description: string, meta_title: string, meta_description: string, alt_text: string}|null
      */
-    public function generateFromImageBytes(string $imageBytes, string $productTitle = '', string $vendor = '', string $productType = '', array $tags = [], array $collections = [], string $sku = '', string $storeName = ''): ?array
+    public function generateFromImageBytes(string $imageBytes, string $productTitle = '', string $vendor = '', string $productType = '', array $tags = [], array $collections = [], string $sku = '', string $storeName = '', string $existingDescription = ''): ?array
     {
         $imageBytes = $this->shrinkForApi($imageBytes);
         $mimeType   = $this->detectMimeType($imageBytes);
@@ -52,6 +52,10 @@ class GeminiService
         if ($storeName)      $context[] = "Store name: \"{$storeName}\" (based in Qatar)";
         if (!empty($tags))        $context[] = "Store tags on this product: " . implode(', ', $tags);
         if (!empty($collections)) $context[] = "Collections this product belongs to: " . implode(', ', $collections);
+        if ($existingDescription) {
+            $plainExisting = trim(strip_tags($existingDescription));
+            if ($plainExisting) $context[] = "Existing product description already on the store (for reference only — may be outdated or inaccurate, do not copy blindly, but stay consistent with any facts here that you can also visually confirm):\n\"{$plainExisting}\"";
+        }
         $contextBlock = $context ? implode("\n", $context) . "\n\n" : '';
 
         $prompt = "Look carefully at this image and describe ONLY the product itself — not the photo.
@@ -73,6 +77,7 @@ Strict accuracy rules:
 - Base every statement strictly on visible evidence of the product: color, shape, visible material/texture, visible parts (e.g. wheels, straps, zippers, handles, buttons, stitching, pockets, logos, patterns).
 - Do NOT invent specifications, materials, capacity, technology, or features that cannot be visually confirmed (e.g. don't say \"waterproof\" or \"lightweight\" unless it's visibly obvious).
 - The Brand/vendor, Product title, tags, and collections above (if given) are confirmed real data from the store — use them to determine facts like Gender or Category, but do not invent a brand, gender, or category that isn't supported by that context or clearly visible.
+- If an existing product description was given above, treat it only as a hint, never as ground truth — it may be outdated, generic, or wrong. Write your own fresh description grounded in the image, but don't contradict a fact from it that you can also visually confirm.
 - If unsure about a detail, omit it rather than guessing.
 - Do not repeat the same claim in different words to pad length.
 
