@@ -194,7 +194,7 @@ class RunStoreImageSyncJob implements ShouldQueue
                     continue;
                 }
 
-                // Already exists in target — sync just this variant's own image, not the whole gallery
+                // Already exists in target — sync just this variant's own gallery photos, not the whole product
                 $this->syncSingleVariantImage($source, $target, $sku, $skuToSourceVariant[$sku], $targetVariants[0], $handle, $productTitle);
                 $processed++; $success++;
                 $this->updateProgress('running', $total, $processed, $success, $failed);
@@ -215,9 +215,9 @@ class RunStoreImageSyncJob implements ShouldQueue
     }
 
     /**
-     * For a SKU whose product already exists in the target store: copy only
-     * that variant's own photo (matched via the source variant's image_id),
-     * not every colour/size photo the product has.
+     * For a SKU whose product already exists in the target store: copy every
+     * gallery photo tagged to that variant (a colour/size can have several,
+     * not just one), never the sibling colours/sizes' photos.
      */
     private function syncSingleVariantImage(ShopifyService $source, ShopifyService $target, string $sku, array $sourceVariant, array $targetVariant, $handle, string $productTitle): void
     {
@@ -228,49 +228,54 @@ class RunStoreImageSyncJob implements ShouldQueue
 
         $sourceImages = $source->getProductImages($sourceProductId);
 
-        // Find the specific image linked to this variant; fall back to the
-        // first image if the product has no per-variant image assignment.
-        $variantImage = null;
-        foreach ($sourceImages as $img) {
-            if (($img['variant_ids'] ?? null) && in_array((int) $sourceVariantId, $img['variant_ids'] ?? [], true)) {
-                $variantImage = $img;
-                break;
-            }
+        // Every gallery photo tagged to this variant; fall back to the first
+        // product image if there's no per-variant image assignment at all.
+        $variantImages = array_values(array_filter($sourceImages, fn ($img) =>
+            in_array((int) $sourceVariantId, $img['variant_ids'] ?? [], true)
+        ));
+        if (empty($variantImages) && !empty($sourceImages)) {
+            $variantImages = [$sourceImages[0]];
         }
-        $variantImage ??= $sourceImages[0] ?? null;
 
-        if (!$variantImage) {
+        if (empty($variantImages)) {
             fputcsv($handle, [$sku, $productTitle, 0, 0, 'No image found for this variant in source store']);
             return;
         }
 
-        try {
-            $imgUrl = $variantImage['src'] ?? '';
-            if (!$imgUrl) {
-                fputcsv($handle, [$sku, $productTitle, 1, 0, 'Variant image has no source URL']);
-                return;
+        $total     = count($variantImages);
+        $copied    = 0;
+        $primaryId = null;
+
+        foreach ($variantImages as $variantImage) {
+            try {
+                $imgUrl = $variantImage['src'] ?? '';
+                if (!$imgUrl) continue;
+
+                $cleanUrl = strtok($imgUrl, '?');
+                $filename = basename(parse_url($cleanUrl, PHP_URL_PATH));
+
+                $imageContent = @file_get_contents($imgUrl);
+                if ($imageContent === false || $imageContent === '') continue;
+
+                // uploadImageToProduct() tags the new image with $targetVariantId itself,
+                // so every uploaded photo is already linked to this variant on upload.
+                $newImageId = $target->uploadImageToProduct($targetProductId, $imageContent, $filename, $variantImage['alt'] ?? '', $targetVariantId);
+
+                if ($newImageId) {
+                    $primaryId ??= $newImageId;
+                    $copied++;
+                }
+            } catch (\Throwable $e) {
+                Log::error("RunStoreImageSyncJob: failed to sync variant image for SKU {$sku}: " . $e->getMessage());
             }
-
-            $cleanUrl = strtok($imgUrl, '?');
-            $filename = basename(parse_url($cleanUrl, PHP_URL_PATH));
-
-            $imageContent = @file_get_contents($imgUrl);
-            if ($imageContent === false || $imageContent === '') {
-                fputcsv($handle, [$sku, $productTitle, 1, 0, 'Failed to download variant image']);
-                return;
-            }
-
-            $newImageId = $target->uploadImageToProduct($targetProductId, $imageContent, $filename, $variantImage['alt'] ?? '', $targetVariantId);
-
-            if ($newImageId) {
-                $target->setVariantImage($targetVariantId, $newImageId);
-            }
-
-            fputcsv($handle, [$sku, $productTitle, 1, 1, 'Success (variant image only)']);
-        } catch (\Throwable $e) {
-            Log::error("RunStoreImageSyncJob: failed to sync variant image for SKU {$sku}: " . $e->getMessage());
-            fputcsv($handle, [$sku, $productTitle, 1, 0, 'Failed to copy variant image: ' . $e->getMessage()]);
         }
+
+        if ($primaryId) {
+            $target->setVariantImage($targetVariantId, $primaryId);
+        }
+
+        $statusMsg = $copied === $total ? 'Success (variant images)' : ($copied > 0 ? "Partial ({$copied}/{$total})" : 'Failed to copy variant images');
+        fputcsv($handle, [$sku, $productTitle, $total, $copied, $statusMsg]);
     }
 
     /**
@@ -317,13 +322,15 @@ class RunStoreImageSyncJob implements ShouldQueue
             return [false, null];
         }
 
-        // Keep only images linked to the included variant(s); if none of them
-        // have a specific image assigned, fall back to all product images
-        // (covers simple products with no per-variant photo).
-        $requestedImageIds = array_values(array_filter(array_map(fn ($v) => $v['image_id'] ?? null, $filteredVariants)));
-        $allImages         = $sourceProduct['images'] ?? [];
-        $filteredImages    = !empty($requestedImageIds)
-            ? array_values(array_filter($allImages, fn ($img) => in_array($img['id'] ?? null, $requestedImageIds, true)))
+        // Keep every image tagged to any of the included variant(s) — a color
+        // can have many gallery photos, not just its one "swatch" image. If
+        // none of the source images have variant tagging at all, fall back
+        // to the full gallery (covers simple products with no per-variant photos).
+        $filteredVariantIds = array_map(fn ($v) => (int) ($v['id'] ?? 0), $filteredVariants);
+        $allImages          = $sourceProduct['images'] ?? [];
+        $anyImageTagged     = (bool) array_filter($allImages, fn ($img) => !empty($img['variant_ids']));
+        $filteredImages     = $anyImageTagged
+            ? array_values(array_filter($allImages, fn ($img) => array_intersect($img['variant_ids'] ?? [], $filteredVariantIds)))
             : $allImages;
 
         // Trim each option's value list down to only what the included variants actually use

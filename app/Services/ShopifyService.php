@@ -473,6 +473,29 @@ class ShopifyService
         Log::info("Shopify: variant {$variantId} image_id set to {$imageId}");
     }
 
+    /**
+     * Tag an already-uploaded image with one or more variants, via the
+     * Images API. This is how a color's whole photo gallery (not just its
+     * single swatch image) gets carried over — Shopify lets many images
+     * share the same variant_ids.
+     */
+    public function setImageVariants(string $productId, string $imageId, array $variantIds): void
+    {
+        $this->throttle();
+
+        $this->http->put(
+            "admin/api/{$this->apiVersion}/products/{$productId}/images/{$imageId}.json",
+            [
+                'json' => [
+                    'image' => [
+                        'id'          => (int) $imageId,
+                        'variant_ids' => array_map('intval', $variantIds),
+                    ],
+                ],
+            ]
+        );
+    }
+
     // ── Full product migration ──────────────────────────────────────────────
 
     /**
@@ -570,8 +593,39 @@ class ShopifyService
             }
         }
 
-        // Re-link each new variant to its correct image (source and target images have different IDs)
-        $newVariants = $newProduct['variants'] ?? [];
+        // Map source variant ID → new variant ID (position-based, same order in both arrays)
+        $newVariants  = $newProduct['variants'] ?? [];
+        $variantIdMap = [];
+        foreach ($sourceProduct['variants'] ?? [] as $index => $sourceVariant) {
+            if (isset($newVariants[$index]['id'])) {
+                $variantIdMap[(string) $sourceVariant['id']] = (string) $newVariants[$index]['id'];
+            }
+        }
+
+        // Re-tag every image with the same variant(s) it belonged to on the source
+        // product, so a color's whole photo gallery carries over — not just its
+        // single swatch image.
+        foreach ($sourceImages as $sourceImage) {
+            $newImageId       = $imageMap[(string) ($sourceImage['id'] ?? '')] ?? null;
+            $sourceVariantIds = $sourceImage['variant_ids'] ?? [];
+
+            if (!$newImageId || empty($sourceVariantIds)) continue;
+
+            $newVariantIds = array_values(array_filter(array_map(
+                fn ($vid) => $variantIdMap[(string) $vid] ?? null,
+                $sourceVariantIds
+            )));
+
+            if (empty($newVariantIds)) continue;
+
+            try {
+                $this->setImageVariants($newProductId, $newImageId, $newVariantIds);
+            } catch (\Throwable $e) {
+                Log::warning("Shopify createFullProduct: failed to tag image {$newImageId} to variants: " . $e->getMessage());
+            }
+        }
+
+        // Explicitly set each variant's primary swatch image (some themes read variant.image_id directly)
         foreach ($sourceProduct['variants'] ?? [] as $index => $sourceVariant) {
             $sourceImageId = $sourceVariant['image_id'] ?? null;
             $newVariantId  = $newVariants[$index]['id'] ?? null;
