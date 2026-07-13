@@ -272,6 +272,9 @@
                         </tbody>
                     </table>
                 </div>
+                @if($recentSessions->hasPages())
+                <div class="px-6 py-4 border-t border-gray-100">{{ $recentSessions->links() }}</div>
+                @endif
             </div>
             @else
             <div class="bg-white rounded-xl border border-gray-200 p-8 text-center text-sm text-gray-400">

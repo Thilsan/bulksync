@@ -115,7 +115,8 @@ class RunStoreImageSyncJob implements ShouldQueue
             $targetProductId = $targetVariants[0]['product_id'];
             $targetVariantId = $targetVariants[0]['variant_id'];
 
-            $copied = 0;
+            $copied    = 0;
+            $primaryId = null;
             foreach ($images as $image) {
                 try {
                     $imgUrl = $image['src'] ?? '';
@@ -127,11 +128,21 @@ class RunStoreImageSyncJob implements ShouldQueue
                     $imageContent = @file_get_contents($imgUrl);
                     if ($imageContent === false || $imageContent === '') continue;
 
-                    $target->uploadImageToProduct($targetProductId, $imageContent, $filename, $image['alt'] ?? '', $targetVariantId);
-                    $copied++;
+                    // uploadImageToProduct() tags the new image with $targetVariantId itself,
+                    // so every uploaded photo is already linked to this variant on upload.
+                    $newImageId = $target->uploadImageToProduct($targetProductId, $imageContent, $filename, $image['alt'] ?? '', $targetVariantId);
+
+                    if ($newImageId) {
+                        $primaryId ??= $newImageId;
+                        $copied++;
+                    }
                 } catch (\Throwable $e) {
                     Log::error("RunStoreImageSyncJob: failed to copy image for SKU {$sku}: " . $e->getMessage());
                 }
+            }
+
+            if ($primaryId) {
+                $target->setVariantImage($targetVariantId, $primaryId);
             }
 
             $totalImages = count($images);

@@ -31,7 +31,7 @@ class StoreImageSyncController extends Controller
             'total_failed'   => (clone $sessionQuery)->sum('failed_count'),
         ];
 
-        $recentSessions = (clone $sessionQuery)->with(['fromStore', 'toStore', 'user'])->latest()->limit(10)->get();
+        $recentSessions = (clone $sessionQuery)->with(['fromStore', 'toStore', 'user'])->latest()->paginate(10);
 
         return view('store-image-sync.index', compact('stores', 'stats', 'recentSessions'));
     }
