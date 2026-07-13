@@ -435,6 +435,60 @@ class ShopifyService
     }
 
     /**
+     * Fetch the photos explicitly assigned to ONE variant via Shopify's
+     * variant media feature — the same list shown on that variant's own
+     * edit page in Shopify Admin. This is the authoritative source for
+     * "this colour's photos"; a colour can have several, and they are not
+     * reliably reconstructable from the classic image_id/variant_ids REST
+     * fields alone.
+     */
+    public function getVariantMedia(string $variantId): array
+    {
+        $this->throttle();
+
+        $gid = "gid://shopify/ProductVariant/{$variantId}";
+
+        try {
+            $response = $this->http->post("admin/api/{$this->apiVersion}/graphql.json", [
+                'json' => [
+                    'query' => 'query($id: ID!) {
+                        productVariant(id: $id) {
+                            media(first: 250) {
+                                edges {
+                                    node {
+                                        id
+                                        ... on MediaImage {
+                                            image { url altText }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }',
+                    'variables' => ['id' => $gid],
+                ],
+            ]);
+
+            $edges = json_decode((string) $response->getBody(), true)['data']['productVariant']['media']['edges'] ?? [];
+
+            return array_values(array_filter(array_map(function ($edge) {
+                $node = $edge['node'] ?? [];
+                $url  = $node['image']['url'] ?? null;
+                if (!$url) return null;
+
+                return [
+                    'id'  => ltrim(str_replace('gid://shopify/MediaImage/', '', $node['id'] ?? ''), '/'),
+                    'src' => $url,
+                    'alt' => $node['image']['altText'] ?? '',
+                ];
+            }, $edges)));
+        } catch (\Throwable $e) {
+            Log::warning("Shopify getVariantMedia({$variantId}): " . $e->getMessage());
+            return [];
+        }
+    }
+
+    /**
      * Delete a single product image by image ID.
      */
     public function deleteProductImage(string $productId, string $imageId): void

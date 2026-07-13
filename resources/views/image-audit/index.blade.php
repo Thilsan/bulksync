@@ -10,6 +10,7 @@
         <div>
             <h2 class="font-semibold text-gray-800 text-lg">Store Image Audit</h2>
             <p class="text-sm text-gray-500 mt-1">Scan your entire Shopify store to find which SKUs have images and which don't.</p>
+            <p class="text-sm text-gray-500 mt-1">Use SKU GAT207LUG00139 for test purpose.</p>
         </div>
         <form method="POST" action="{{ route('image-audit.start') }}">
             @csrf

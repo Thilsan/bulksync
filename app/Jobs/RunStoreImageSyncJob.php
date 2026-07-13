@@ -73,9 +73,10 @@ class RunStoreImageSyncJob implements ShouldQueue
     }
 
     /**
-     * Images Only mode — unchanged from before: for each SKU, sync all of the
-     * source product's images to the matching product in the target store.
-     * Requires the SKU to already exist in the target store.
+     * Images Only mode — for each SKU, sync only that variant's own photos
+     * (same resolution as Full Product mode), not the whole product's gallery
+     * across every colour/size. Requires the SKU to already exist in the
+     * target store.
      */
     private function runImagesOnlyMode(ShopifyService $source, ShopifyService $target, $handle, int $total, int &$processed, int &$success, int &$failed): void
     {
@@ -90,9 +91,10 @@ class RunStoreImageSyncJob implements ShouldQueue
             }
 
             $sourceProductId = $sourceVariants[0]['product_id'];
+            $sourceVariantId = $sourceVariants[0]['variant_id'];
             $productTitle    = $sourceVariants[0]['product_title'] ?? '';
 
-            $images = $source->getProductImages($sourceProductId);
+            $images = $this->resolveVariantImages($source, $sourceProductId, $sourceVariantId);
 
             if (empty($images)) {
                 fputcsv($handle, [$sku, $productTitle, 0, 0, 'No images in source store']);
@@ -111,6 +113,7 @@ class RunStoreImageSyncJob implements ShouldQueue
             }
 
             $targetProductId = $targetVariants[0]['product_id'];
+            $targetVariantId = $targetVariants[0]['variant_id'];
 
             $copied = 0;
             foreach ($images as $image) {
@@ -124,7 +127,7 @@ class RunStoreImageSyncJob implements ShouldQueue
                     $imageContent = @file_get_contents($imgUrl);
                     if ($imageContent === false || $imageContent === '') continue;
 
-                    $target->uploadImageToProduct($targetProductId, $imageContent, $filename, $image['alt'] ?? '');
+                    $target->uploadImageToProduct($targetProductId, $imageContent, $filename, $image['alt'] ?? '', $targetVariantId);
                     $copied++;
                 } catch (\Throwable $e) {
                     Log::error("RunStoreImageSyncJob: failed to copy image for SKU {$sku}: " . $e->getMessage());
@@ -226,17 +229,7 @@ class RunStoreImageSyncJob implements ShouldQueue
         $targetProductId = $targetVariant['product_id'];
         $targetVariantId = $targetVariant['variant_id'];
 
-        $sourceProduct = $source->getFullProduct($sourceProductId);
-        $allVariants   = $sourceProduct['variants'] ?? [];
-        $allImages     = $sourceProduct['images'] ?? [];
-
-        $imageBlocksByVariant = $this->partitionImagesByVariant($allVariants, $allImages);
-        $variantImages        = $imageBlocksByVariant[(string) $sourceVariantId] ?? [];
-
-        // Product has no per-variant tagging at all (simple product) — fall back to the first image.
-        if (empty($variantImages) && empty($imageBlocksByVariant) && !empty($allImages)) {
-            $variantImages = [$allImages[0]];
-        }
+        $variantImages = $this->resolveVariantImages($source, $sourceProductId, $sourceVariantId);
 
         if (empty($variantImages)) {
             fputcsv($handle, [$sku, $productTitle, 0, 0, 'No image found for this variant in source store']);
@@ -277,6 +270,36 @@ class RunStoreImageSyncJob implements ShouldQueue
 
         $statusMsg = $copied === $total ? 'Success (variant images)' : ($copied > 0 ? "Partial ({$copied}/{$total})" : 'Failed to copy variant images');
         fputcsv($handle, [$sku, $productTitle, $total, $copied, $statusMsg]);
+    }
+
+    /**
+     * Resolve the photos belonging to just one variant, trying the most
+     * authoritative source first:
+     *   1) Shopify's variant media assignment (what that variant's own edit
+     *      page in Shopify Admin shows) — a colour can have several photos.
+     *   2) the classic image_id anchor → next-anchor position block, for
+     *      stores that never adopted per-variant media assignment.
+     *   3) the product's first image, if it has no per-variant data at all.
+     */
+    private function resolveVariantImages(ShopifyService $source, string $productId, string $variantId): array
+    {
+        $variantImages = $source->getVariantMedia($variantId);
+        if (!empty($variantImages)) {
+            return $variantImages;
+        }
+
+        $sourceProduct = $source->getFullProduct($productId);
+        $allVariants   = $sourceProduct['variants'] ?? [];
+        $allImages     = $sourceProduct['images'] ?? [];
+
+        $imageBlocksByVariant = $this->partitionImagesByVariant($allVariants, $allImages);
+        $variantImages        = $imageBlocksByVariant[(string) $variantId] ?? [];
+
+        if (empty($variantImages) && empty($imageBlocksByVariant) && !empty($allImages)) {
+            $variantImages = [$allImages[0]];
+        }
+
+        return $variantImages;
     }
 
     /**
@@ -373,25 +396,27 @@ class RunStoreImageSyncJob implements ShouldQueue
             return [false, null];
         }
 
-        // Merchants typically upload one variant's whole photo set as a single
-        // consecutive run and only tag ONE photo in that run to the variant
-        // (its image_id) — the rest of the run is untagged. So resolve each
-        // variant's full photo set as: from its own tagged image's position,
-        // up to (not including) the next variant's tagged position.
+        // For each included variant, prefer Shopify's variant media assignment
+        // (the authoritative "this colour's photos" list); fall back to the
+        // classic image_id anchor → next-anchor position block for products
+        // that never adopted per-variant media assignment.
         $allImages            = $sourceProduct['images'] ?? [];
         $imageBlocksByVariant = $this->partitionImagesByVariant($allVariants, $allImages);
 
-        // Blocks are disjoint (each image belongs to exactly one variant's
-        // range), so it's safe to stamp the resolved variant straight onto
-        // each image — this overrides Shopify's own sparse variant_ids
-        // (which, per-block, is usually only set on the one anchor photo)
-        // so createFullProduct() re-tags every copied photo correctly, not
-        // just the anchor.
-        $filteredImages = [];
-        $seenImageIds   = [];
+        $filteredImages     = [];
+        $seenImageIds       = [];
+        $anyVariantMedia    = false;
         foreach ($filteredVariants as $v) {
             $variantId = (string) ($v['id'] ?? '');
-            foreach ($imageBlocksByVariant[$variantId] ?? [] as $img) {
+            $media     = $source->getVariantMedia($variantId);
+
+            if (!empty($media)) {
+                $anyVariantMedia = true;
+            } else {
+                $media = $imageBlocksByVariant[$variantId] ?? [];
+            }
+
+            foreach ($media as $img) {
                 $imgId = (string) ($img['id'] ?? '');
                 if (!isset($seenImageIds[$imgId])) {
                     $seenImageIds[$imgId] = true;
@@ -401,8 +426,9 @@ class RunStoreImageSyncJob implements ShouldQueue
             }
         }
 
-        // Product has no per-variant tagging at all (simple product, single photo set) — use everything.
-        if (empty($imageBlocksByVariant)) {
+        // No variant had media assignment AND no image_id tagging at all
+        // (simple product, single photo set) — use everything.
+        if (!$anyVariantMedia && empty($imageBlocksByVariant)) {
             $filteredImages = $allImages;
         }
 

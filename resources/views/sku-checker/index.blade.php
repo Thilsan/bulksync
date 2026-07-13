@@ -52,6 +52,7 @@
             <div class="px-6 py-5 border-b border-gray-100">
                 <h2 class="font-semibold text-gray-800 text-lg">Check SKU Availability</h2>
                 <p class="text-sm text-gray-500 mt-1">Enter SKUs or upload a CSV. Each SKU is checked live against the Shopify API. Large batches run in the background.</p>
+                <p class="text-sm text-gray-500 mt-1">Use SKU GAT207LUG00139 for test purpose.</p>
             </div>
 
             <form method="POST" action="{{ route('sku-checker.check') }}" enctype="multipart/form-data"

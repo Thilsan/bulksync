@@ -65,7 +65,7 @@
             <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
                 <div class="px-6 py-5 border-b border-gray-100">
                     <h2 class="font-semibold text-gray-800 text-lg" x-text="migrationType === 'full_product' ? 'Migrate Products by SKU' : 'Copy Images by SKU'"></h2>
-                    <p class="text-sm text-gray-500 mt-1" x-text="migrationType === 'full_product' ? 'Select source and target stores, then enter the SKUs to migrate.' : 'Select source and target stores, then enter the SKUs to sync.'"></p>
+                    <p class="text-sm text-gray-500 mt-1">Select source and target stores, then enter the SKUs to migrate.</p>
                 </div>
 
                 <form method="POST" action="{{ route('store-image-sync.start') }}" enctype="multipart/form-data"
