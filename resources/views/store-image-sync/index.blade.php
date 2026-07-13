@@ -3,7 +3,7 @@
 @section('page-title', 'Product Migration - Image')
 
 @section('content')
-<div class="max-w-7xl mx-auto space-y-6" x-data="{ loading: false, mode: 'text', migrationType: 'images_only' }">
+<div class="space-y-6" x-data="{ loading: false, mode: 'text', migrationType: 'images_only' }">
 
     {{-- Loading overlay --}}
     <div x-show="loading" x-cloak

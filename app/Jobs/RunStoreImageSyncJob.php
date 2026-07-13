@@ -216,7 +216,7 @@ class RunStoreImageSyncJob implements ShouldQueue
 
     /**
      * For a SKU whose product already exists in the target store: copy every
-     * gallery photo tagged to that variant (a colour/size can have several,
+     * gallery photo belonging to that variant (a colour/size can have several,
      * not just one), never the sibling colours/sizes' photos.
      */
     private function syncSingleVariantImage(ShopifyService $source, ShopifyService $target, string $sku, array $sourceVariant, array $targetVariant, $handle, string $productTitle): void
@@ -226,15 +226,16 @@ class RunStoreImageSyncJob implements ShouldQueue
         $targetProductId = $targetVariant['product_id'];
         $targetVariantId = $targetVariant['variant_id'];
 
-        $sourceImages = $source->getProductImages($sourceProductId);
+        $sourceProduct = $source->getFullProduct($sourceProductId);
+        $allVariants   = $sourceProduct['variants'] ?? [];
+        $allImages     = $sourceProduct['images'] ?? [];
 
-        // Every gallery photo tagged to this variant; fall back to the first
-        // product image if there's no per-variant image assignment at all.
-        $variantImages = array_values(array_filter($sourceImages, fn ($img) =>
-            in_array((int) $sourceVariantId, $img['variant_ids'] ?? [], true)
-        ));
-        if (empty($variantImages) && !empty($sourceImages)) {
-            $variantImages = [$sourceImages[0]];
+        $imageBlocksByVariant = $this->partitionImagesByVariant($allVariants, $allImages);
+        $variantImages        = $imageBlocksByVariant[(string) $sourceVariantId] ?? [];
+
+        // Product has no per-variant tagging at all (simple product) — fall back to the first image.
+        if (empty($variantImages) && empty($imageBlocksByVariant) && !empty($allImages)) {
+            $variantImages = [$allImages[0]];
         }
 
         if (empty($variantImages)) {
@@ -276,6 +277,56 @@ class RunStoreImageSyncJob implements ShouldQueue
 
         $statusMsg = $copied === $total ? 'Success (variant images)' : ($copied > 0 ? "Partial ({$copied}/{$total})" : 'Failed to copy variant images');
         fputcsv($handle, [$sku, $productTitle, $total, $copied, $statusMsg]);
+    }
+
+    /**
+     * Partition a product's images into contiguous per-variant photo blocks.
+     * Merchants typically upload one variant's whole photo set as a single
+     * consecutive run and only tag ONE photo in that run to the variant (its
+     * image_id) — the rest of the run is untagged. So a variant's full photo
+     * set is: from its own tagged image's position, up to (not including) the
+     * next variant's tagged position.
+     *
+     * @param array $allVariants every variant of the product, each with 'id' and 'image_id'
+     * @param array $allImages   every image of the product, position-sorted, each with 'id'
+     * @return array<string,array> variantId => images belonging to that variant; empty if
+     *         the product has no per-variant tagging at all
+     */
+    private function partitionImagesByVariant(array $allVariants, array $allImages): array
+    {
+        $imageList        = array_values($allImages);
+        $ordinalByImageId = [];
+        foreach ($imageList as $ordinal => $img) {
+            $ordinalByImageId[(string) ($img['id'] ?? '')] = $ordinal;
+        }
+
+        $anchors = []; // ordinal => variantId
+        foreach ($allVariants as $variant) {
+            $variantId = (string) ($variant['id'] ?? '');
+            $imageId   = (string) ($variant['image_id'] ?? '');
+            if ($variantId !== '' && $imageId !== '' && isset($ordinalByImageId[$imageId])) {
+                $anchors[$ordinalByImageId[$imageId]] = $variantId;
+            }
+        }
+
+        if (empty($anchors)) {
+            return [];
+        }
+
+        ksort($anchors);
+        $anchorOrdinals = array_keys($anchors);
+        $total          = count($imageList);
+
+        $blocks = [];
+        foreach ($anchors as $ordinal => $variantId) {
+            $next = $total;
+            foreach ($anchorOrdinals as $o) {
+                if ($o > $ordinal) { $next = $o; break; }
+            }
+            $blocks[$variantId] = array_slice($imageList, $ordinal, $next - $ordinal);
+        }
+
+        return $blocks;
     }
 
     /**
@@ -322,16 +373,40 @@ class RunStoreImageSyncJob implements ShouldQueue
             return [false, null];
         }
 
-        // Keep every image tagged to any of the included variant(s) — a color
-        // can have many gallery photos, not just its one "swatch" image. If
-        // none of the source images have variant tagging at all, fall back
-        // to the full gallery (covers simple products with no per-variant photos).
-        $filteredVariantIds = array_map(fn ($v) => (int) ($v['id'] ?? 0), $filteredVariants);
-        $allImages          = $sourceProduct['images'] ?? [];
-        $anyImageTagged     = (bool) array_filter($allImages, fn ($img) => !empty($img['variant_ids']));
-        $filteredImages     = $anyImageTagged
-            ? array_values(array_filter($allImages, fn ($img) => array_intersect($img['variant_ids'] ?? [], $filteredVariantIds)))
-            : $allImages;
+        // Merchants typically upload one variant's whole photo set as a single
+        // consecutive run and only tag ONE photo in that run to the variant
+        // (its image_id) — the rest of the run is untagged. So resolve each
+        // variant's full photo set as: from its own tagged image's position,
+        // up to (not including) the next variant's tagged position.
+        $allImages            = $sourceProduct['images'] ?? [];
+        $imageBlocksByVariant = $this->partitionImagesByVariant($allVariants, $allImages);
+
+        // Blocks are disjoint (each image belongs to exactly one variant's
+        // range), so it's safe to stamp the resolved variant straight onto
+        // each image — this overrides Shopify's own sparse variant_ids
+        // (which, per-block, is usually only set on the one anchor photo)
+        // so createFullProduct() re-tags every copied photo correctly, not
+        // just the anchor.
+        $filteredImages = [];
+        $seenImageIds   = [];
+        foreach ($filteredVariants as $v) {
+            $variantId = (string) ($v['id'] ?? '');
+            foreach ($imageBlocksByVariant[$variantId] ?? [] as $img) {
+                $imgId = (string) ($img['id'] ?? '');
+                if (!isset($seenImageIds[$imgId])) {
+                    $seenImageIds[$imgId] = true;
+                    $img['variant_ids'] = [(int) $variantId];
+                    $filteredImages[] = $img;
+                }
+            }
+        }
+
+        // Product has no per-variant tagging at all (simple product, single photo set) — use everything.
+        if (empty($imageBlocksByVariant)) {
+            $filteredImages = $allImages;
+        }
+
+        usort($filteredImages, fn ($a, $b) => ($a['position'] ?? 0) <=> ($b['position'] ?? 0));
 
         // Trim each option's value list down to only what the included variants actually use
         $filteredOptions = [];

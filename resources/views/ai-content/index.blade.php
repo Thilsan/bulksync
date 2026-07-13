@@ -40,7 +40,7 @@
                         SKU List <span class="text-gray-400 font-normal">(one per line)</span>
                     </label>
                     <textarea name="sku_raw" rows="8"
-                        placeholder="SKU001&#10;SKU002&#10;SKU003"
+                        placeholder="GAT207LUG00139 (for test purpose)"
                         class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent resize-y">{{ old('sku_raw') }}</textarea>
                     <p class="text-xs text-gray-400 mt-1">System will fetch product images from Shopify for each SKU.</p>
                 </div>
