@@ -5,6 +5,75 @@
 @section('content')
 <div class="max-w-3xl mx-auto space-y-6" x-data="{ loading: false, mode: 'text', migrationType: 'images_only' }">
 
+    {{-- Dashboard --}}
+    <div class="grid grid-cols-2 sm:grid-cols-5 gap-3">
+        <div class="bg-white rounded-xl border border-gray-200 p-4 text-center">
+            <p class="text-2xl font-bold text-gray-800">{{ $stats['total_runs'] }}</p>
+            <p class="text-xs text-gray-500 mt-0.5">Total Runs</p>
+        </div>
+        <div class="bg-white rounded-xl border border-gray-200 p-4 text-center">
+            <p class="text-2xl font-bold text-brand-600">{{ $stats['full_product'] }}</p>
+            <p class="text-xs text-gray-500 mt-0.5">Full Product</p>
+        </div>
+        <div class="bg-white rounded-xl border border-gray-200 p-4 text-center">
+            <p class="text-2xl font-bold text-gray-800">{{ $stats['images_only'] }}</p>
+            <p class="text-xs text-gray-500 mt-0.5">Images Only</p>
+        </div>
+        <div class="bg-white rounded-xl border border-gray-200 p-4 text-center">
+            <p class="text-2xl font-bold text-emerald-600">{{ $stats['total_migrated'] }}</p>
+            <p class="text-xs text-gray-500 mt-0.5">Migrated OK</p>
+        </div>
+        <div class="bg-white rounded-xl border border-gray-200 p-4 text-center">
+            <p class="text-2xl font-bold text-red-500">{{ $stats['total_failed'] }}</p>
+            <p class="text-xs text-gray-500 mt-0.5">Failed</p>
+        </div>
+    </div>
+
+    @if($recentSessions->isNotEmpty())
+    <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div class="px-6 py-4 border-b border-gray-100">
+            <h2 class="text-base font-semibold text-gray-800">Recent Migrations</h2>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead class="bg-gray-50 border-b border-gray-100">
+                    <tr>
+                        <th class="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Date</th>
+                        <th class="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">From → To</th>
+                        <th class="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Type</th>
+                        <th class="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">SKUs</th>
+                        <th class="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
+                        <th class="px-6 py-3"></th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100">
+                    @foreach($recentSessions as $session)
+                    <tr class="hover:bg-gray-50">
+                        <td class="px-6 py-3 text-gray-600 whitespace-nowrap">{{ $session->created_at->format('d M Y H:i') }}</td>
+                        <td class="px-6 py-3 text-gray-600">{{ $session->fromStore?->name ?? '—' }} → {{ $session->toStore?->name ?? '—' }}</td>
+                        <td class="px-6 py-3 text-gray-600">{{ $session->migration_type === 'full_product' ? 'Full Product' : 'Images Only' }}</td>
+                        <td class="px-6 py-3 text-gray-600">{{ $session->success_count }}/{{ $session->total_skus }} ok
+                            @if($session->failed_count > 0)<span class="text-red-500">, {{ $session->failed_count }} failed</span>@endif
+                        </td>
+                        <td class="px-6 py-3">
+                            @php
+                                $colors = ['running' => 'bg-blue-100 text-blue-700', 'completed' => 'bg-emerald-100 text-emerald-700', 'failed' => 'bg-red-100 text-red-700'];
+                            @endphp
+                            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium {{ $colors[$session->status] ?? 'bg-gray-100 text-gray-600' }}">
+                                {{ ucfirst($session->status) }}
+                            </span>
+                        </td>
+                        <td class="px-6 py-3 text-right">
+                            <a href="{{ route('store-image-sync.show', $session->token) }}" class="text-brand-600 hover:text-brand-800 font-medium text-xs">View →</a>
+                        </td>
+                    </tr>
+                    @endforeach
+                </tbody>
+            </table>
+        </div>
+    </div>
+    @endif
+
     {{-- Loading overlay --}}
     <div x-show="loading" x-cloak
          class="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/60 backdrop-blur-sm">

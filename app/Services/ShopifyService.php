@@ -423,7 +423,7 @@ class ShopifyService
         try {
             $response = $this->http->get(
                 "admin/api/{$this->apiVersion}/products/{$productId}/images.json",
-                ['query' => ['fields' => 'id,src,alt,position', 'limit' => 250]]
+                ['query' => ['fields' => 'id,src,alt,position,variant_ids', 'limit' => 250]]
             );
             $images = json_decode((string) $response->getBody(), true)['images'] ?? [];
             usort($images, fn ($a, $b) => ($a['position'] ?? 0) <=> ($b['position'] ?? 0));
@@ -482,6 +482,8 @@ class ShopifyService
      */
     public function getFullProduct(string $productId): ?array
     {
+        $this->throttle();
+
         try {
             $response = $this->http->get("admin/api/{$this->apiVersion}/products/{$productId}.json");
             $product  = json_decode((string) $response->getBody(), true)['product'] ?? null;
@@ -509,6 +511,8 @@ class ShopifyService
      */
     public function createFullProduct(array $sourceProduct): array
     {
+        $this->throttle();
+
         $variants = array_map(function ($v) {
             return array_filter([
                 'sku'                 => $v['sku'] ?? null,
@@ -542,7 +546,13 @@ class ShopifyService
             'images'       => $images,
         ]);
 
-        $response    = $this->http->post("admin/api/{$this->apiVersion}/products.json", ['json' => ['product' => $payload]]);
+        // Longer timeout than the client default (30s) — Shopify fetches every image
+        // src URL server-side before responding, which can take a while for products
+        // with several images.
+        $response    = $this->http->post("admin/api/{$this->apiVersion}/products.json", [
+            'json'    => ['product' => $payload],
+            'timeout' => 120,
+        ]);
         $newProduct  = json_decode((string) $response->getBody(), true)['product'] ?? [];
         $newProductId = (string) ($newProduct['id'] ?? '');
 
@@ -621,6 +631,8 @@ class ShopifyService
      */
     private function getProductFeatures(string $productId): array
     {
+        $this->throttle();
+
         $gid = "gid://shopify/Product/{$productId}";
 
         try {
@@ -653,6 +665,8 @@ class ShopifyService
      */
     public function getProductMaterialAndFeatures(string $productId): array
     {
+        $this->throttle();
+
         $gid = "gid://shopify/Product/{$productId}";
 
         try {
@@ -715,6 +729,8 @@ class ShopifyService
 
         if (empty($metafields)) return;
 
+        $this->throttle();
+
         $gid = "gid://shopify/Product/{$productId}";
 
         $this->http->post("admin/api/{$this->apiVersion}/graphql.json", [
@@ -739,17 +755,20 @@ class ShopifyService
             $product['title'] = $title;
         }
 
+        $this->throttle();
         $this->http->put("admin/api/{$this->apiVersion}/products/{$productId}.json", [
             'json' => ['product' => $product],
         ]);
 
         if ($metaTitle) {
+            $this->throttle();
             $this->http->post("admin/api/{$this->apiVersion}/products/{$productId}/metafields.json", [
                 'json' => ['metafield' => ['namespace' => 'global', 'key' => 'title_tag', 'value' => $metaTitle, 'type' => 'single_line_text_field']],
             ]);
         }
 
         if ($metaDescription) {
+            $this->throttle();
             $this->http->post("admin/api/{$this->apiVersion}/products/{$productId}/metafields.json", [
                 'json' => ['metafield' => ['namespace' => 'global', 'key' => 'description_tag', 'value' => $metaDescription, 'type' => 'single_line_text_field']],
             ]);
@@ -763,6 +782,8 @@ class ShopifyService
      */
     public function getAllCollectionTitles(): array
     {
+        $this->throttle();
+
         try {
             $response = $this->http->post("admin/api/{$this->apiVersion}/graphql.json", [
                 'json' => [
@@ -792,6 +813,8 @@ class ShopifyService
     {
         if (empty($newTags)) return;
 
+        $this->throttle();
+
         try {
             $response = $this->http->get("admin/api/{$this->apiVersion}/products/{$productId}.json", [
                 'query' => ['fields' => 'tags'],
@@ -812,6 +835,8 @@ class ShopifyService
                 $merged[] = $tag;
             }
         }
+
+        $this->throttle();
 
         $this->http->put("admin/api/{$this->apiVersion}/products/{$productId}.json", [
             'json' => ['product' => ['id' => (int) $productId, 'tags' => implode(', ', $merged)]],
@@ -835,6 +860,8 @@ class ShopifyService
             if (!$match) continue;
 
             try {
+                $this->throttle();
+
                 $collectionGid = "gid://shopify/Collection/{$match['id']}";
                 $this->http->post("admin/api/{$this->apiVersion}/graphql.json", [
                     'json' => [
@@ -850,6 +877,7 @@ class ShopifyService
 
     public function updateImageAlt(string $productId, string $imageId, string $altText): void
     {
+        $this->throttle();
         $this->http->put("admin/api/{$this->apiVersion}/products/{$productId}/images/{$imageId}.json", [
             'json' => ['image' => ['id' => (int) $imageId, 'alt' => $altText]],
         ]);

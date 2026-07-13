@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Jobs\RunStoreImageSyncJob;
 use App\Models\Store;
+use App\Models\StoreMigrationSession;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
@@ -16,7 +17,23 @@ class StoreImageSyncController extends Controller
         $stores = $user->is_super_admin
             ? Store::orderBy('name')->get()
             : $user->stores()->orderBy('name')->get();
-        return view('store-image-sync.index', compact('stores'));
+
+        $sessionQuery = StoreMigrationSession::query();
+        if (!$user->is_super_admin) {
+            $sessionQuery->where('user_id', $user->id);
+        }
+
+        $stats = [
+            'total_runs'     => (clone $sessionQuery)->count(),
+            'full_product'   => (clone $sessionQuery)->where('migration_type', 'full_product')->count(),
+            'images_only'    => (clone $sessionQuery)->where('migration_type', 'images_only')->count(),
+            'total_migrated' => (clone $sessionQuery)->sum('success_count'),
+            'total_failed'   => (clone $sessionQuery)->sum('failed_count'),
+        ];
+
+        $recentSessions = (clone $sessionQuery)->with(['fromStore', 'toStore'])->latest()->limit(10)->get();
+
+        return view('store-image-sync.index', compact('stores', 'stats', 'recentSessions'));
     }
 
     public function start(Request $request)
@@ -57,6 +74,16 @@ class StoreImageSyncController extends Controller
             'migration_type' => $request->migration_type,
         ], now()->addHours(2));
 
+        StoreMigrationSession::create([
+            'user_id'        => $user->id,
+            'from_store_id'  => $fromStore->id,
+            'to_store_id'    => $toStore->id,
+            'migration_type' => $request->migration_type,
+            'token'          => $token,
+            'status'         => 'running',
+            'total_skus'     => count($skus),
+        ]);
+
         RunStoreImageSyncJob::dispatch($token, $fromStore->id, $toStore->id, $skus, $request->migration_type)
             ->onQueue('bulkupload');
 
@@ -65,16 +92,42 @@ class StoreImageSyncController extends Controller
 
     public function show(string $token)
     {
-        $progress = Cache::get("store_sync_{$token}");
+        $progress = $this->resolveProgress($token);
         abort_if(!$progress, 404);
         return view('store-image-sync.show', compact('token', 'progress'));
     }
 
     public function status(string $token)
     {
-        $progress = Cache::get("store_sync_{$token}");
+        $progress = $this->resolveProgress($token);
         abort_if(!$progress, 404);
         return response()->json($progress);
+    }
+
+    /**
+     * Live progress is cached for 2 hours only (fast, no DB writes per SKU).
+     * Once that expires, fall back to the persisted session record so
+     * "View" links from the history table below keep working indefinitely.
+     */
+    private function resolveProgress(string $token): ?array
+    {
+        $progress = Cache::get("store_sync_{$token}");
+        if ($progress) return $progress;
+
+        $session = StoreMigrationSession::where('token', $token)->with(['fromStore', 'toStore'])->first();
+        if (!$session) return null;
+
+        return [
+            'status'         => $session->status,
+            'total'          => $session->total_skus,
+            'processed'      => $session->total_skus,
+            'success'        => $session->success_count,
+            'failed'         => $session->failed_count,
+            'from_store'     => $session->fromStore?->name,
+            'to_store'       => $session->toStore?->name,
+            'migration_type' => $session->migration_type,
+            'error'          => $session->error_message,
+        ];
     }
 
     public function download(string $token)
