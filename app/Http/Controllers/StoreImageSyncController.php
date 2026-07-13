@@ -22,10 +22,11 @@ class StoreImageSyncController extends Controller
     public function start(Request $request)
     {
         $request->validate([
-            'from_store' => 'required|integer',
-            'to_store'   => 'required|integer|different:from_store',
-            'skus'       => 'nullable|string',
-            'csv_file'   => 'nullable|file|mimes:csv,txt|max:20480',
+            'from_store'     => 'required|integer',
+            'to_store'       => 'required|integer|different:from_store',
+            'skus'           => 'nullable|string',
+            'csv_file'       => 'nullable|file|mimes:csv,txt|max:20480',
+            'migration_type' => 'required|in:images_only,full_product',
         ]);
 
         // Ensure both stores belong to the authenticated user
@@ -46,16 +47,17 @@ class StoreImageSyncController extends Controller
         $token = Str::random(40);
 
         Cache::put("store_sync_{$token}", [
-            'status'     => 'pending',
-            'total'      => count($skus),
-            'processed'  => 0,
-            'success'    => 0,
-            'failed'     => 0,
-            'from_store' => $fromStore->name,
-            'to_store'   => $toStore->name,
+            'status'         => 'pending',
+            'total'          => count($skus),
+            'processed'      => 0,
+            'success'        => 0,
+            'failed'         => 0,
+            'from_store'     => $fromStore->name,
+            'to_store'       => $toStore->name,
+            'migration_type' => $request->migration_type,
         ], now()->addHours(2));
 
-        RunStoreImageSyncJob::dispatch($token, $fromStore->id, $toStore->id, $skus)
+        RunStoreImageSyncJob::dispatch($token, $fromStore->id, $toStore->id, $skus, $request->migration_type)
             ->onQueue('bulkupload');
 
         return redirect()->route('store-image-sync.show', $token);

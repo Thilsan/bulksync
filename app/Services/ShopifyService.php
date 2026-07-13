@@ -473,6 +473,111 @@ class ShopifyService
         Log::info("Shopify: variant {$variantId} image_id set to {$imageId}");
     }
 
+    // ── Full product migration ──────────────────────────────────────────────
+
+    /**
+     * Fetch everything needed to recreate this product in another store:
+     * core fields, options, every variant (price/inventory/SKU/barcode/weight),
+     * and every image. One REST call returns almost all of it.
+     */
+    public function getFullProduct(string $productId): ?array
+    {
+        try {
+            $response = $this->http->get("admin/api/{$this->apiVersion}/products/{$productId}.json");
+            $product  = json_decode((string) $response->getBody(), true)['product'] ?? null;
+            if (!$product) return null;
+
+            $product['images'] = $product['images'] ?? [];
+            usort($product['images'], fn ($a, $b) => ($a['position'] ?? 0) <=> ($b['position'] ?? 0));
+
+            return $product;
+        } catch (\Throwable $e) {
+            Log::error("Shopify getFullProduct({$productId}): " . $e->getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Create a brand-new product in this store from a full product payload
+     * fetched via getFullProduct() on the source store. Always created as a
+     * draft — never published automatically. Copies price/inventory as-is,
+     * keeps each variant's image linked to the correct photo (source and
+     * target get different image IDs, so this maps them by position after
+     * creation).
+     *
+     * @return array{product_id: string, image_map: array<string,string>} Shopify product ID and old→new image ID map
+     */
+    public function createFullProduct(array $sourceProduct): array
+    {
+        $variants = array_map(function ($v) {
+            return array_filter([
+                'sku'                 => $v['sku'] ?? null,
+                'price'               => $v['price'] ?? null,
+                'compare_at_price'    => $v['compare_at_price'] ?? null,
+                'inventory_quantity'  => $v['inventory_quantity'] ?? 0,
+                'inventory_management' => $v['inventory_management'] ?? null,
+                'weight'              => $v['weight'] ?? null,
+                'weight_unit'         => $v['weight_unit'] ?? null,
+                'barcode'             => $v['barcode'] ?? null,
+                'option1'             => $v['option1'] ?? null,
+                'option2'             => $v['option2'] ?? null,
+                'option3'             => $v['option3'] ?? null,
+            ], fn ($val) => $val !== null);
+        }, $sourceProduct['variants'] ?? []);
+
+        $images = array_map(fn ($img) => array_filter([
+            'src' => $img['src'] ?? null,
+            'alt' => $img['alt'] ?? null,
+        ]), $sourceProduct['images'] ?? []);
+
+        $payload = array_filter([
+            'title'        => $sourceProduct['title'] ?? '',
+            'body_html'    => $sourceProduct['body_html'] ?? '',
+            'vendor'       => $sourceProduct['vendor'] ?? '',
+            'product_type' => $sourceProduct['product_type'] ?? '',
+            'tags'         => $sourceProduct['tags'] ?? '',
+            'status'       => 'draft', // never auto-publish a migrated product
+            'options'      => $sourceProduct['options'] ?? [],
+            'variants'     => $variants,
+            'images'       => $images,
+        ]);
+
+        $response    = $this->http->post("admin/api/{$this->apiVersion}/products.json", ['json' => ['product' => $payload]]);
+        $newProduct  = json_decode((string) $response->getBody(), true)['product'] ?? [];
+        $newProductId = (string) ($newProduct['id'] ?? '');
+
+        // Map source image position → new image ID, so variant image links can be recreated
+        $sourceImages = $sourceProduct['images'] ?? [];
+        usort($sourceImages, fn ($a, $b) => ($a['position'] ?? 0) <=> ($b['position'] ?? 0));
+
+        $newImages = $newProduct['images'] ?? [];
+        usort($newImages, fn ($a, $b) => ($a['position'] ?? 0) <=> ($b['position'] ?? 0));
+
+        $imageMap = [];
+        foreach ($sourceImages as $index => $sourceImage) {
+            if (isset($newImages[$index]['id'])) {
+                $imageMap[(string) $sourceImage['id']] = (string) $newImages[$index]['id'];
+            }
+        }
+
+        // Re-link each new variant to its correct image (source and target images have different IDs)
+        $newVariants = $newProduct['variants'] ?? [];
+        foreach ($sourceProduct['variants'] ?? [] as $index => $sourceVariant) {
+            $sourceImageId = $sourceVariant['image_id'] ?? null;
+            $newVariantId  = $newVariants[$index]['id'] ?? null;
+
+            if ($sourceImageId && $newVariantId && isset($imageMap[(string) $sourceImageId])) {
+                try {
+                    $this->setVariantImage((string) $newVariantId, $imageMap[(string) $sourceImageId]);
+                } catch (\Throwable $e) {
+                    Log::warning("Shopify createFullProduct: failed to link variant {$newVariantId} image: " . $e->getMessage());
+                }
+            }
+        }
+
+        return ['product_id' => $newProductId, 'image_map' => $imageMap];
+    }
+
     // ── Image Audit ────────────────────────────────────────────────────────
 
     /**

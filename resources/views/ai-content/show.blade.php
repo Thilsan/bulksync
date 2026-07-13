@@ -360,6 +360,8 @@ function aiContentShow(sessionId, initialStatus) {
         processedItems: 0,
         items: [],
         pollTimer: null,
+        polling: false,
+        itemsLoaded: false,
 
         init() {
             if (this.status === 'pending' || this.status === 'processing' || this.status === 'translating') {
@@ -371,24 +373,40 @@ function aiContentShow(sessionId, initialStatus) {
 
         poll() {
             this.pollTimer = setInterval(async () => {
-                const res  = await fetch(`/ai-content/${this.sessionId}/status`);
-                const data = await res.json();
+                // Guard against overlapping ticks (e.g. a backgrounded tab firing
+                // several queued ticks in a burst) — without this, two ticks can
+                // both call loadItems() and silently reset every checkbox/edit.
+                if (this.polling) return;
+                this.polling = true;
 
-                this.status         = data.status;
-                this.progress       = data.progress;
-                this.totalItems     = data.total_items;
-                this.processedItems = data.processed_items;
+                try {
+                    const res  = await fetch(`/ai-content/${this.sessionId}/status`);
+                    const data = await res.json();
 
-                if (this.status === 'ready' || this.status === 'done' || this.status === 'failed') {
-                    clearInterval(this.pollTimer);
-                    if (this.status === 'ready' || this.status === 'done') {
-                        this.loadItems();
+                    this.status         = data.status;
+                    this.progress       = data.progress;
+                    this.totalItems     = data.total_items;
+                    this.processedItems = data.processed_items;
+
+                    if (this.status === 'ready' || this.status === 'done' || this.status === 'failed') {
+                        clearInterval(this.pollTimer);
+                        this.pollTimer = null;
+                        if (this.status === 'ready' || this.status === 'done') {
+                            this.loadItems();
+                        }
                     }
+                } finally {
+                    this.polling = false;
                 }
             }, 3000);
         },
 
         async loadItems() {
+            // Only ever populate items once — reloading here would wipe out
+            // any checkboxes/edits the user has already made in the browser.
+            if (this.itemsLoaded) return;
+            this.itemsLoaded = true;
+
             const res  = await fetch(`/ai-content/${this.sessionId}/items`);
             const data = await res.json();
             this.items = data.map(i => ({

@@ -3,7 +3,7 @@
 @section('page-title', 'Product Migration - Image')
 
 @section('content')
-<div class="max-w-3xl mx-auto space-y-6" x-data="{ loading: false, mode: 'text' }">
+<div class="max-w-3xl mx-auto space-y-6" x-data="{ loading: false, mode: 'text', migrationType: 'images_only' }">
 
     {{-- Loading overlay --}}
     <div x-show="loading" x-cloak
@@ -27,7 +27,8 @@
         <svg class="w-5 h-5 text-blue-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
         </svg>
-        <p>Provide the SKUs you want to copy. The system will find those products in the <strong>source store</strong>, fetch their images, and upload them to the matching products in the <strong>target store</strong>.</p>
+        <p x-show="migrationType === 'images_only'">Provide the SKUs you want to copy. The system will find those products in the <strong>source store</strong>, fetch their images, and upload them to the matching products in the <strong>target store</strong>. The product must already exist in both stores.</p>
+        <p x-show="migrationType === 'full_product'" x-cloak>Provide the SKUs you want to migrate. For any SKU that doesn't exist yet in the <strong>target store</strong>, the system creates the full product there (title, description, variants, price, stock, images) as a <strong>draft</strong> — you review and publish it manually. SKUs that already exist in the target store just get their images synced instead.</p>
     </div>
 
     {{-- Form --}}
@@ -40,6 +41,29 @@
         <form method="POST" action="{{ route('store-image-sync.start') }}" enctype="multipart/form-data"
               class="px-6 py-5 space-y-5" @submit="loading = true">
             @csrf
+
+            {{-- Migration type --}}
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1.5">Migration Type</label>
+                <div class="flex gap-2">
+                    <button type="button"
+                        @click="migrationType = 'images_only'"
+                        :class="migrationType === 'images_only' ? 'bg-brand-600 text-white border-brand-600' : 'bg-white text-gray-600 border-gray-300 hover:border-gray-400'"
+                        class="px-4 py-2 rounded-lg border text-sm font-medium transition-colors">
+                        Images Only
+                    </button>
+                    <button type="button"
+                        @click="migrationType = 'full_product'"
+                        :class="migrationType === 'full_product' ? 'bg-brand-600 text-white border-brand-600' : 'bg-white text-gray-600 border-gray-300 hover:border-gray-400'"
+                        class="px-4 py-2 rounded-lg border text-sm font-medium transition-colors">
+                        Full Product Migration
+                    </button>
+                </div>
+                <input type="hidden" name="migration_type" :value="migrationType">
+                <p class="text-xs text-gray-400 mt-1.5" x-show="migrationType === 'full_product'" x-cloak>
+                    Creates missing products as <strong>drafts</strong> in the target store — copies price, stock, variants, images, tags, matching collections, and Material/Features. Never auto-publishes.
+                </p>
+            </div>
 
             {{-- Store selectors --}}
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -130,7 +154,8 @@
     {{-- How it works --}}
     <div class="bg-white rounded-xl border border-gray-200 p-5">
         <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">What happens</p>
-        <div class="space-y-3">
+
+        <div class="space-y-3" x-show="migrationType === 'images_only'">
             <div class="flex items-start gap-3">
                 <span class="shrink-0 w-6 h-6 rounded-full bg-brand-100 text-brand-700 text-xs font-bold flex items-center justify-center">1</span>
                 <p class="text-sm text-gray-600">For each SKU, the system finds the product in the <strong>source store</strong> and fetches all its images.</p>
@@ -146,6 +171,25 @@
             <div class="flex items-start gap-3">
                 <span class="shrink-0 w-6 h-6 rounded-full bg-brand-100 text-brand-700 text-xs font-bold flex items-center justify-center">4</span>
                 <p class="text-sm text-gray-600">Download the result CSV showing how many images were copied per SKU and any errors.</p>
+            </div>
+        </div>
+
+        <div class="space-y-3" x-show="migrationType === 'full_product'" x-cloak>
+            <div class="flex items-start gap-3">
+                <span class="shrink-0 w-6 h-6 rounded-full bg-brand-100 text-brand-700 text-xs font-bold flex items-center justify-center">1</span>
+                <p class="text-sm text-gray-600">For each SKU, the system checks the <strong>target store</strong> first — if it already exists there, only images are synced (same as Images Only mode).</p>
+            </div>
+            <div class="flex items-start gap-3">
+                <span class="shrink-0 w-6 h-6 rounded-full bg-brand-100 text-brand-700 text-xs font-bold flex items-center justify-center">2</span>
+                <p class="text-sm text-gray-600">If the SKU doesn't exist in the target store, the full product is fetched from the <strong>source store</strong> — title, description, all variants (SKU/price/stock/options), and images.</p>
+            </div>
+            <div class="flex items-start gap-3">
+                <span class="shrink-0 w-6 h-6 rounded-full bg-brand-100 text-brand-700 text-xs font-bold flex items-center justify-center">3</span>
+                <p class="text-sm text-gray-600">A new product is created in the target store as a <strong>draft</strong> (never live automatically) — with tags, matching collections, and Material/Features metafields also copied over.</p>
+            </div>
+            <div class="flex items-start gap-3">
+                <span class="shrink-0 w-6 h-6 rounded-full bg-brand-100 text-brand-700 text-xs font-bold flex items-center justify-center">4</span>
+                <p class="text-sm text-gray-600">You review the new draft product in Shopify admin — check price/stock currency, then publish it manually when ready.</p>
             </div>
         </div>
     </div>

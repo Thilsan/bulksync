@@ -24,6 +24,7 @@ class RunStoreImageSyncJob implements ShouldQueue
         public readonly int    $fromStoreId,
         public readonly int    $toStoreId,
         public readonly array  $skus,
+        public readonly string $migrationType = 'images_only', // 'images_only' or 'full_product'
     ) {}
 
     public function handle(): void
@@ -80,9 +81,17 @@ class RunStoreImageSyncJob implements ShouldQueue
             $targetVariants = $target->findVariantsBySku($sku);
 
             if (empty($targetVariants)) {
-                fputcsv($handle, [$sku, $productTitle, count($images), 0, 'SKU not found in target store']);
-                $processed++; $failed++;
-                $this->updateProgress('running', $total, $processed, $success, $failed);
+                if ($this->migrationType === 'full_product') {
+                    $sourceCollections = $sourceVariants[0]['collections'] ?? [];
+                    $ok = $this->migrateFullProduct($source, $target, $sku, $sourceProductId, $productTitle, $sourceCollections, $handle);
+                    $processed++;
+                    $ok ? $success++ : $failed++;
+                    $this->updateProgress('running', $total, $processed, $success, $failed);
+                } else {
+                    fputcsv($handle, [$sku, $productTitle, count($images), 0, 'SKU not found in target store']);
+                    $processed++; $failed++;
+                    $this->updateProgress('running', $total, $processed, $success, $failed);
+                }
                 continue;
             }
 
@@ -135,6 +144,63 @@ class RunStoreImageSyncJob implements ShouldQueue
         $this->updateProgress('completed', $total, $processed, $success, $failed);
 
         Log::info("RunStoreImageSyncJob: done — {$success} succeeded, {$failed} failed.");
+    }
+
+    /**
+     * Create the product from scratch in the target store — used only when
+     * the SKU doesn't exist there at all. Always created as a draft. Copies
+     * price/inventory/variants/images as-is, plus tags, matching collections
+     * (by name, never creates new ones), and Material/Features metafields.
+     */
+    private function migrateFullProduct(
+        ShopifyService $source,
+        ShopifyService $target,
+        string $sku,
+        string $sourceProductId,
+        string $productTitle,
+        array $sourceCollections,
+        $handle,
+    ): bool {
+        $sourceProduct = $source->getFullProduct($sourceProductId);
+
+        if (!$sourceProduct) {
+            fputcsv($handle, [$sku, $productTitle, 0, 0, 'Failed to fetch full product from source store']);
+            return false;
+        }
+
+        try {
+            $result       = $target->createFullProduct($sourceProduct);
+            $newProductId = $result['product_id'];
+
+            if (!$newProductId) {
+                fputcsv($handle, [$sku, $productTitle, count($sourceProduct['images'] ?? []), 0, 'Product creation returned no ID']);
+                return false;
+            }
+
+            // Collections — matched by name against the target store's real list, additive only
+            if (!empty($sourceCollections)) {
+                $targetCollections = $target->getAllCollectionTitles();
+                $target->addProductToCollections($newProductId, $sourceCollections, $targetCollections);
+            }
+
+            // Material/Features metafields
+            $materialAndFeatures = $source->getProductMaterialAndFeatures($sourceProductId);
+            if ($materialAndFeatures['material'] || !empty($materialAndFeatures['features'])) {
+                $target->updateProductMetafields(
+                    $newProductId,
+                    $materialAndFeatures['material'],
+                    implode(', ', $materialAndFeatures['features']),
+                );
+            }
+
+            $imageCount = count($sourceProduct['images'] ?? []);
+            fputcsv($handle, [$sku, $productTitle, $imageCount, $imageCount, "New product created as draft (ID: {$newProductId})"]);
+            return true;
+        } catch (\Throwable $e) {
+            Log::error("RunStoreImageSyncJob: full product migration failed for SKU {$sku}: " . $e->getMessage());
+            fputcsv($handle, [$sku, $productTitle, 0, 0, 'Failed to create product: ' . $e->getMessage()]);
+            return false;
+        }
     }
 
     private function updateProgress(string $status, int $total, int $processed, int $success, int $failed): void
