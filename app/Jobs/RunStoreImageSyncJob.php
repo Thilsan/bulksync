@@ -284,21 +284,17 @@ class RunStoreImageSyncJob implements ShouldQueue
     }
 
     /**
-     * Resolve the photos belonging to just one variant, trying the most
-     * authoritative source first:
-     *   1) Shopify's variant media assignment (what that variant's own edit
-     *      page in Shopify Admin shows) — a colour can have several photos.
-     *   2) the classic image_id anchor → next-anchor position block, for
-     *      stores that never adopted per-variant media assignment.
-     *   3) the product's first image, if it has no per-variant data at all.
+     * Resolve the photos belonging to just one variant. Merchants upload a
+     * colour's whole photo set as one consecutive run and only tag the ONE
+     * anchor photo in that run to the variant (image_id) — so the anchor's
+     * position, up to the next variant's anchor position, is the real photo
+     * block. Shopify's variant media connection (GraphQL) is checked as a
+     * secondary source — in practice it often just mirrors the single
+     * image_id anchor rather than the full block, so it's only useful when
+     * the product has no image_id tagging to anchor on at all.
      */
     private function resolveVariantImages(ShopifyService $source, string $productId, string $variantId): array
     {
-        $variantImages = $source->getVariantMedia($variantId);
-        if (!empty($variantImages)) {
-            return $variantImages;
-        }
-
         $sourceProduct = $source->getFullProduct($productId);
         $allVariants   = $sourceProduct['variants'] ?? [];
         $allImages     = $sourceProduct['images'] ?? [];
@@ -306,7 +302,16 @@ class RunStoreImageSyncJob implements ShouldQueue
         $imageBlocksByVariant = $this->partitionImagesByVariant($allVariants, $allImages);
         $variantImages        = $imageBlocksByVariant[(string) $variantId] ?? [];
 
-        if (empty($variantImages) && empty($imageBlocksByVariant) && !empty($allImages)) {
+        if (!empty($variantImages)) {
+            return $variantImages;
+        }
+
+        $variantImages = $source->getVariantMedia($variantId);
+        if (!empty($variantImages)) {
+            return $variantImages;
+        }
+
+        if (empty($imageBlocksByVariant) && !empty($allImages)) {
             $variantImages = [$allImages[0]];
         }
 
@@ -407,24 +412,21 @@ class RunStoreImageSyncJob implements ShouldQueue
             return [false, null];
         }
 
-        // For each included variant, prefer Shopify's variant media assignment
-        // (the authoritative "this colour's photos" list); fall back to the
-        // classic image_id anchor → next-anchor position block for products
-        // that never adopted per-variant media assignment.
+        // For each included variant, prefer the classic image_id anchor →
+        // next-anchor position block (the real photo set for that colour's
+        // upload run); fall back to Shopify's variant media connection only
+        // when the product has no image_id tagging to anchor on at all.
         $allImages            = $sourceProduct['images'] ?? [];
         $imageBlocksByVariant = $this->partitionImagesByVariant($allVariants, $allImages);
 
-        $filteredImages     = [];
-        $seenImageIds       = [];
-        $anyVariantMedia    = false;
+        $filteredImages = [];
+        $seenImageIds   = [];
         foreach ($filteredVariants as $v) {
             $variantId = (string) ($v['id'] ?? '');
-            $media     = $source->getVariantMedia($variantId);
+            $media     = $imageBlocksByVariant[$variantId] ?? [];
 
-            if (!empty($media)) {
-                $anyVariantMedia = true;
-            } else {
-                $media = $imageBlocksByVariant[$variantId] ?? [];
+            if (empty($media)) {
+                $media = $source->getVariantMedia($variantId);
             }
 
             foreach ($media as $img) {
@@ -437,9 +439,9 @@ class RunStoreImageSyncJob implements ShouldQueue
             }
         }
 
-        // No variant had media assignment AND no image_id tagging at all
-        // (simple product, single photo set) — use everything.
-        if (!$anyVariantMedia && empty($imageBlocksByVariant)) {
+        // No variant had an image_id anchor anywhere in this product (simple
+        // product, single photo set) — use everything.
+        if (empty($imageBlocksByVariant) && empty($filteredImages)) {
             $filteredImages = $allImages;
         }
 
