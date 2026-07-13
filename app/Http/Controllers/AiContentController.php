@@ -136,6 +136,7 @@ class AiContentController extends Controller
                 'ai_description'      => $request->input("description.{$item->id}", $item->ai_description),
                 'ai_meta_title'       => $request->input("meta_title.{$item->id}", $item->ai_meta_title),
                 'ai_meta_description' => $request->input("meta_description.{$item->id}", $item->ai_meta_description),
+                'ai_title'            => $request->input("title.{$item->id}", $item->ai_title),
             ]);
 
             foreach ($item->images as $image) {
@@ -161,10 +162,11 @@ class AiContentController extends Controller
             return back()->with('warning', 'No store associated with this session.');
         }
 
-        $shopify   = new ShopifyService($store);
-        $confirmed = $request->input('confirmed', []);
-        $pushed    = 0;
-        $failed    = 0;
+        $shopify           = new ShopifyService($store);
+        $confirmed         = $request->input('confirmed', []);
+        $allCollections    = $shopify->getAllCollectionTitles();
+        $pushed            = 0;
+        $failed            = 0;
 
         foreach ($confirmed as $itemId) {
             $item = AiContentItem::where('id', $itemId)
@@ -182,16 +184,31 @@ class AiContentController extends Controller
                 'ai_description_ar'      => $request->input("description_ar.{$itemId}", $item->ai_description_ar),
                 'ai_meta_title_ar'       => $request->input("meta_title_ar.{$itemId}", $item->ai_meta_title_ar),
                 'ai_meta_description_ar' => $request->input("meta_description_ar.{$itemId}", $item->ai_meta_description_ar),
+                'ai_title'               => $request->input("title.{$itemId}", $item->ai_title),
                 'is_confirmed'           => true,
             ]);
 
             try {
+                $overwriteTitle = $request->boolean("overwrite_title.{$itemId}");
+
                 $shopify->updateProductContent(
                     $item->shopify_product_id,
                     $item->ai_description,
                     $item->ai_meta_title,
                     $item->ai_meta_description,
+                    $overwriteTitle ? ($item->ai_title ?? '') : '',
                 );
+
+                // Additive only — checked suggestions get added, nothing existing is ever removed or replaced
+                $selectedTags = array_values(array_filter((array) $request->input("selected_tags.{$itemId}", [])));
+                if (!empty($selectedTags)) {
+                    $shopify->addProductTags($item->shopify_product_id, $selectedTags);
+                }
+
+                $selectedCollections = array_values(array_filter((array) $request->input("selected_collections.{$itemId}", [])));
+                if (!empty($selectedCollections)) {
+                    $shopify->addProductToCollections($item->shopify_product_id, $selectedCollections, $allCollections);
+                }
 
                 foreach ($item->images as $image) {
                     $altText   = $request->input("image_alt.{$image->id}", $image->ai_alt_text);

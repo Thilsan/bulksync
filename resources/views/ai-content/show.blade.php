@@ -167,6 +167,26 @@
 
                                             <div>
                                                 <div class="flex items-center justify-between mb-1">
+                                                    <label class="block text-xs font-medium text-gray-500">
+                                                        Product Title <span class="text-gray-400" x-text="`(${(item.ai_title || '').length}/80)`"></span>
+                                                    </label>
+                                                    <label class="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer select-none">
+                                                        <input type="checkbox" :name="`overwrite_title[${item.id}]`" value="1"
+                                                            x-model="item.overwrite_title"
+                                                            class="w-3.5 h-3.5 rounded border-gray-300 text-brand-600 focus:ring-brand-500">
+                                                        Overwrite Shopify title with this
+                                                    </label>
+                                                </div>
+                                                <input type="text" maxlength="80" :name="`title[${item.id}]`"
+                                                    x-model="item.ai_title"
+                                                    :disabled="!item.overwrite_title"
+                                                    :class="!item.overwrite_title ? 'bg-gray-50 text-gray-400' : 'text-gray-800'"
+                                                    class="w-full rounded-md border border-gray-200 px-3 py-2 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-brand-400 focus:border-transparent">
+                                                <p class="text-xs text-gray-400 mt-1" x-show="!item.overwrite_title">Unchecked — the existing Shopify title will be kept as-is.</p>
+                                            </div>
+
+                                            <div>
+                                                <div class="flex items-center justify-between mb-1">
                                                     <label class="block text-xs font-medium text-gray-500">Description</label>
                                                     <button type="button" @click="editMode = !editMode"
                                                         class="text-xs text-brand-600 hover:text-brand-800 font-medium"
@@ -271,6 +291,40 @@
                                                     </template>
                                                 </div>
                                             </div>
+
+                                            {{-- Suggested new tags — additive only, never touches existing tags --}}
+                                            <div x-show="item.ai_new_tags && item.ai_new_tags.length > 0">
+                                                <label class="block text-xs font-medium text-gray-500 mb-1">
+                                                    Suggested New Tags <span class="text-gray-400">(unchecked = not added, existing tags are never touched)</span>
+                                                </label>
+                                                <div class="flex flex-wrap gap-2">
+                                                    <template x-for="tag in item.ai_new_tags" :key="tag">
+                                                        <label class="inline-flex items-center gap-1.5 bg-gray-50 border border-gray-200 rounded-full px-3 py-1 cursor-pointer select-none hover:bg-gray-100">
+                                                            <input type="checkbox" :name="`selected_tags[${item.id}][]`" :value="tag"
+                                                                x-model="item.selected_tags"
+                                                                class="w-3.5 h-3.5 rounded border-gray-300 text-brand-600 focus:ring-brand-500">
+                                                            <span class="text-xs text-gray-700" x-text="tag"></span>
+                                                        </label>
+                                                    </template>
+                                                </div>
+                                            </div>
+
+                                            {{-- Suggested new collections — additive only, chosen from real existing store collections --}}
+                                            <div x-show="item.ai_new_collections && item.ai_new_collections.length > 0">
+                                                <label class="block text-xs font-medium text-gray-500 mb-1">
+                                                    Suggested Collections <span class="text-gray-400">(unchecked = not added, existing collections are never touched)</span>
+                                                </label>
+                                                <div class="flex flex-wrap gap-2">
+                                                    <template x-for="collection in item.ai_new_collections" :key="collection">
+                                                        <label class="inline-flex items-center gap-1.5 bg-gray-50 border border-gray-200 rounded-full px-3 py-1 cursor-pointer select-none hover:bg-gray-100">
+                                                            <input type="checkbox" :name="`selected_collections[${item.id}][]`" :value="collection"
+                                                                x-model="item.selected_collections"
+                                                                class="w-3.5 h-3.5 rounded border-gray-300 text-brand-600 focus:ring-brand-500">
+                                                            <span class="text-xs text-gray-700" x-text="collection"></span>
+                                                        </label>
+                                                    </template>
+                                                </div>
+                                            </div>
                                         </div>
                                     </template>
                                 </div>
@@ -337,7 +391,13 @@ function aiContentShow(sessionId, initialStatus) {
         async loadItems() {
             const res  = await fetch(`/ai-content/${this.sessionId}/items`);
             const data = await res.json();
-            this.items = data.map(i => ({ ...i, confirmed: i.is_confirmed }));
+            this.items = data.map(i => ({
+                ...i,
+                confirmed: i.is_confirmed,
+                overwrite_title: false,
+                selected_tags: [...(i.ai_new_tags || [])],
+                selected_collections: [...(i.ai_new_collections || [])],
+            }));
         },
 
         toggleAll(event) {

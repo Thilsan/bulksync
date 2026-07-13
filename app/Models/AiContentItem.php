@@ -12,12 +12,17 @@ class AiContentItem extends Model
         'session_id', 'sku', 'all_skus', 'shopify_product_id', 'product_title',
         'image_url', 'shopify_image_id', 'ai_description', 'ai_meta_title', 'ai_meta_description',
         'ai_description_ar', 'ai_meta_title_ar', 'ai_meta_description_ar',
+        'ai_title', 'ai_new_tags', 'ai_new_collections',
         'status', 'is_confirmed', 'error_message',
     ];
 
     protected function casts(): array
     {
-        return ['is_confirmed' => 'boolean'];
+        return [
+            'is_confirmed'       => 'boolean',
+            'ai_new_tags'        => 'array',
+            'ai_new_collections' => 'array',
+        ];
     }
 
     public function session(): BelongsTo

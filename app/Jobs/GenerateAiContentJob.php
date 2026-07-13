@@ -31,12 +31,13 @@ class GenerateAiContentJob implements ShouldQueue
             $shopify = new ShopifyService($store);
         }
 
-        $storeName = $store->name ?? '';
+        $storeName           = $store->name ?? '';
+        $availableCollections = $shopify->getAllCollectionTitles();
 
         $session->update(['status' => 'processing']);
 
         try {
-            $this->processSkus($session, $shopify, $gemini, $storeName);
+            $this->processSkus($session, $shopify, $gemini, $storeName, $availableCollections);
 
             $session->update(['status' => 'ready']);
         } catch (\Throwable $e) {
@@ -50,7 +51,7 @@ class GenerateAiContentJob implements ShouldQueue
      * with multiple variant SKUs only gets ONE description/meta title/meta
      * description, while every image in its gallery gets its own alt text.
      */
-    private function processSkus(AiContentSession $session, ShopifyService $shopify, GeminiService $gemini, string $storeName): void
+    private function processSkus(AiContentSession $session, ShopifyService $shopify, GeminiService $gemini, string $storeName, array $availableCollections): void
     {
         $skus = json_decode($session->skus_json ?? '[]', true) ?: [];
 
@@ -85,7 +86,7 @@ class GenerateAiContentJob implements ShouldQueue
                     continue;
                 }
 
-                $item = $this->generateForProduct($session, $shopify, $gemini, $sku, $variant, $productId, $storeName);
+                $item = $this->generateForProduct($session, $shopify, $gemini, $sku, $variant, $productId, $storeName, $availableCollections);
                 $itemsByProductId[$productId] = $item;
             } catch (\Throwable $e) {
                 Log::warning('AiContent SKU failed', ['sku' => $sku, 'error' => $e->getMessage()]);
@@ -110,6 +111,7 @@ class GenerateAiContentJob implements ShouldQueue
         array $variant,
         string $productId,
         string $storeName,
+        array $availableCollections,
     ): AiContentItem {
         $productTitle        = $variant['product_title'] ?? '';
         $vendor              = $variant['vendor'] ?? '';
@@ -117,6 +119,7 @@ class GenerateAiContentJob implements ShouldQueue
         $tags                = $variant['tags'] ?? [];
         $collections         = $variant['collections'] ?? [];
         $existingDescription = $variant['existing_description'] ?? '';
+        $collectionTitles    = array_column($availableCollections, 'title');
 
         $materialAndFeatures = $shopify->getProductMaterialAndFeatures($productId);
         $existingMaterial    = $materialAndFeatures['material'];
@@ -134,12 +137,12 @@ class GenerateAiContentJob implements ShouldQueue
         $images = $shopify->getProductImages($productId);
 
         if (empty($images)) {
-            return $this->generateForProductWithoutImage($item, $gemini, $productTitle, $vendor, $productType, $tags, $collections, $sku, $storeName, $existingDescription, $existingMaterial, $existingFeatures);
+            return $this->generateForProductWithoutImage($item, $gemini, $productTitle, $vendor, $productType, $tags, $collections, $sku, $storeName, $existingDescription, $existingMaterial, $existingFeatures, $collectionTitles);
         }
 
         $hero = $images[0];
 
-        $content = $gemini->generateFromImageUrl($hero['src'], $productTitle, $vendor, $productType, $tags, $collections, $sku, $storeName, $existingDescription, $existingMaterial, $existingFeatures);
+        $content = $gemini->generateFromImageUrl($hero['src'], $productTitle, $vendor, $productType, $tags, $collections, $sku, $storeName, $existingDescription, $existingMaterial, $existingFeatures, $collectionTitles);
         sleep(4); // respect Gemini free tier: 15 req/min
 
         if (!$content) {
@@ -151,6 +154,7 @@ class GenerateAiContentJob implements ShouldQueue
         $content['meta_title']       = $this->sanitizeText($content['meta_title']);
         $content['meta_description'] = $this->sanitizeText($content['meta_description']);
         $content['alt_text']         = $this->sanitizeText($content['alt_text']);
+        $content['title']            = $this->sanitizeText($content['title'] ?? '');
 
         $item->update([
             'status'              => 'done',
@@ -159,6 +163,9 @@ class GenerateAiContentJob implements ShouldQueue
             'ai_description'      => $content['description'],
             'ai_meta_title'       => $content['meta_title'],
             'ai_meta_description' => $content['meta_description'],
+            'ai_title'            => $content['title'],
+            'ai_new_tags'         => $content['new_tags'] ?? [],
+            'ai_new_collections'  => $content['new_collections'] ?? [],
         ]);
 
         AiContentImage::create([
@@ -219,8 +226,9 @@ class GenerateAiContentJob implements ShouldQueue
         string $existingDescription,
         string $existingMaterial,
         array $existingFeatures,
+        array $collectionTitles,
     ): AiContentItem {
-        $content = $gemini->generateFromTextOnly($productTitle, $vendor, $productType, $tags, $collections, $sku, $storeName, $existingDescription, $existingMaterial, $existingFeatures);
+        $content = $gemini->generateFromTextOnly($productTitle, $vendor, $productType, $tags, $collections, $sku, $storeName, $existingDescription, $existingMaterial, $existingFeatures, $collectionTitles);
         sleep(4); // respect Gemini free tier: 15 req/min
 
         if (!$content) {
@@ -233,6 +241,9 @@ class GenerateAiContentJob implements ShouldQueue
             'ai_description'      => $this->sanitizeDescriptionHtml($this->sanitizeText($content['description'])),
             'ai_meta_title'       => $this->sanitizeText($content['meta_title']),
             'ai_meta_description' => $this->sanitizeText($content['meta_description']),
+            'ai_title'            => $this->sanitizeText($content['title'] ?? ''),
+            'ai_new_tags'         => $content['new_tags'] ?? [],
+            'ai_new_collections'  => $content['new_collections'] ?? [],
         ]);
 
         return $item;

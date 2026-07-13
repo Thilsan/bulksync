@@ -20,13 +20,13 @@ class GeminiService
      *
      * @return array{description: string, meta_title: string, meta_description: string, alt_text: string}|null
      */
-    public function generateFromImageUrl(string $imageUrl, string $productTitle = '', string $vendor = '', string $productType = '', array $tags = [], array $collections = [], string $sku = '', string $storeName = '', string $existingDescription = '', string $existingMaterial = '', array $existingFeatures = []): ?array
+    public function generateFromImageUrl(string $imageUrl, string $productTitle = '', string $vendor = '', string $productType = '', array $tags = [], array $collections = [], string $sku = '', string $storeName = '', string $existingDescription = '', string $existingMaterial = '', array $existingFeatures = [], array $availableCollections = []): ?array
     {
         try {
             $imageContent = $this->downloadImage($imageUrl);
             if (!$imageContent) return null;
 
-            return $this->generateFromImageBytes($imageContent, $productTitle, $vendor, $productType, $tags, $collections, $sku, $storeName, $existingDescription, $existingMaterial, $existingFeatures);
+            return $this->generateFromImageBytes($imageContent, $productTitle, $vendor, $productType, $tags, $collections, $sku, $storeName, $existingDescription, $existingMaterial, $existingFeatures, $availableCollections);
         } catch (\Throwable $e) {
             Log::error('GeminiService::generateFromImageUrl failed', ['url' => $imageUrl, 'error' => $e->getMessage()]);
             return null;
@@ -38,7 +38,7 @@ class GeminiService
      *
      * @return array{description: string, meta_title: string, meta_description: string, alt_text: string}|null
      */
-    public function generateFromImageBytes(string $imageBytes, string $productTitle = '', string $vendor = '', string $productType = '', array $tags = [], array $collections = [], string $sku = '', string $storeName = '', string $existingDescription = '', string $existingMaterial = '', array $existingFeatures = []): ?array
+    public function generateFromImageBytes(string $imageBytes, string $productTitle = '', string $vendor = '', string $productType = '', array $tags = [], array $collections = [], string $sku = '', string $storeName = '', string $existingDescription = '', string $existingMaterial = '', array $existingFeatures = [], array $availableCollections = []): ?array
     {
         $imageBytes = $this->shrinkForApi($imageBytes);
         $mimeType   = $this->detectMimeType($imageBytes);
@@ -50,10 +50,11 @@ class GeminiService
         if ($vendor)         $context[] = "Brand/vendor: \"{$vendor}\"";
         if ($productType)    $context[] = "Product type/category: \"{$productType}\"";
         if ($storeName)      $context[] = "Store name: \"{$storeName}\" (based in Qatar)";
-        if (!empty($tags))        $context[] = "Store tags on this product: " . implode(', ', $tags);
-        if (!empty($collections)) $context[] = "Collections this product belongs to: " . implode(', ', $collections);
+        if (!empty($tags))        $context[] = "Tags ALREADY on this product (do not repeat these as new suggestions): " . implode(', ', $tags);
+        if (!empty($collections)) $context[] = "Collections this product ALREADY belongs to (do not repeat these as new suggestions): " . implode(', ', $collections);
         if ($existingMaterial)    $context[] = "CONFIRMED material (from store data, not a guess): \"{$existingMaterial}\" — use this exact material, do not visually guess a different one.";
         if (!empty($existingFeatures)) $context[] = "CONFIRMED features already on file (from store data): " . implode(', ', $existingFeatures);
+        if (!empty($availableCollections)) $context[] = "Collections that EXIST in this store and could potentially apply (choose only from this exact list, never invent a new one): " . implode(', ', $availableCollections);
         if ($existingDescription) {
             $plainExisting = trim(strip_tags($existingDescription));
             if ($plainExisting) $context[] = "Existing product description already on the store (for reference only — may be outdated or inaccurate, do not copy blindly, but stay consistent with any facts here that you can also visually confirm):\n\"{$plainExisting}\"";
@@ -80,6 +81,7 @@ Strict accuracy rules:
 - Do NOT invent specifications, materials, capacity, technology, or features that cannot be visually confirmed (e.g. don't say \"waterproof\" or \"lightweight\" unless it's visibly obvious).
 - The Brand/vendor, Product title, tags, and collections above (if given) are confirmed real data from the store — use them to determine facts like Gender or Category, but do not invent a brand, gender, or category that isn't supported by that context or clearly visible.
 - If a CONFIRMED material is given above, use that exact material in the description and specifications — do NOT visually guess a different material, even if the photo looks like it could be something else. If a CONFIRMED features list is given above, treat those as real facts already established — you can restate them and may add more visible features on top, but never contradict them.
+- This store does NOT sell genuine/solid precious metals. Many products merely have a gold-, silver-, or rose-gold-toned finish or plating over a base metal. NEVER describe a product as \"solid gold\", \"pure gold\", \"genuine gold\", or similar — even if it looks shiny and gold-colored in the photo. If the CONFIRMED material or product title says something like \"18K Gold Finished\" or \"Gold-Plated\", use that exact wording (it means a finish/plating, not solid metal). If no material is confirmed and the item merely looks gold-coloured, describe it as \"gold-toned\" or \"gold-finished\" — never imply it is the solid precious metal itself.
 - If an existing product description was given above, treat it only as a hint, never as ground truth — it may be outdated, generic, or wrong. Write your own fresh description grounded in the image, but don't contradict a fact from it that you can also visually confirm.
 - If unsure about a detail, omit it rather than guessing.
 - Do not repeat the same claim in different words to pad length.
@@ -103,7 +105,10 @@ Return a JSON object with exactly these fields:
   Stay within the 1000-character total limit — trim paragraph count, sentence length, or bullet count as needed to fit, always keeping valid, complete HTML.
 - \"meta_title\": An SEO page title (max 60 characters) that accurately reflects the product type and its main visible attribute (e.g. color or style) — no mention of model/background.
 - \"meta_description\": An SEO meta description (max 160 characters) summarizing only the product's visible/confirmed attributes — no mention of model/background. If a store name was given above, naturally work the store name and \"Qatar\" into the sentence (e.g. \"...available at {{store name}} in Qatar.\") while staying within 160 characters — shorten the product details if needed to fit both in.
-- \"alt_text\": A concise, literal description of the PRODUCT itself for accessibility (max 125 characters) — e.g. \"Light blue relaxed-fit shorts with side pockets and elasticated waistband\". Do NOT describe a person/model wearing it, their pose, or the background — describe the garment/item as if on its own.
+- \"alt_text\": A concise, literal description of the PRODUCT itself for accessibility (max 125 characters) — e.g. \"Light blue relaxed-fit shorts with side pockets and elasticated waistband\". Do NOT describe a person/model wearing it, their pose, or the background — describe the garment/item as if on its own. If the product has two or more similar parts (e.g. two ends of a bracelet, a pair of earrings), do NOT assume they look the same — describe only what THIS specific image actually shows, which may be a back/reverse angle where the parts genuinely differ.
+- \"title\": A clear, accurate SEO-friendly product title (max 80 characters) reflecting brand, product type, and main visible attribute — grounded in the same accuracy rules as everything else. This is a SUGGESTION for the merchant to review, not automatically applied.
+- \"new_tags\": An array of 3-8 short, genuinely NEW descriptive tags for this product (e.g. colour, material, style, occasion) that are NOT already in the \"Tags ALREADY on this product\" list above. Do not repeat existing tags. Return an empty array if you have nothing confident to add.
+- \"new_collections\": An array of collection names this product should ALSO belong to, chosen ONLY from the \"Collections that EXIST in this store\" list given above (if one was given) — copy the name exactly as listed. Only include a collection if the product clearly, confidently fits it based on visible/confirmed facts. Never invent a collection name not in that list. Return an empty array if unsure or if no list was given.
 
 Return only valid JSON. No markdown, no code blocks, no extra text.";
 
@@ -134,6 +139,9 @@ Return only valid JSON. No markdown, no code blocks, no extra text.";
             'meta_title'       => mb_substr(trim($data['meta_title'] ?? ''), 0, 60),
             'meta_description' => mb_substr(trim($data['meta_description'] ?? ''), 0, 160),
             'alt_text'         => mb_substr(trim($data['alt_text'] ?? ''), 0, 125),
+            'title'            => mb_substr(trim($data['title'] ?? ''), 0, 80),
+            'new_tags'         => is_array($data['new_tags'] ?? null) ? array_values(array_filter(array_map('trim', $data['new_tags']))) : [],
+            'new_collections'  => is_array($data['new_collections'] ?? null) ? array_values(array_filter(array_map('trim', $data['new_collections']))) : [],
         ];
     }
 
@@ -146,7 +154,7 @@ Return only valid JSON. No markdown, no code blocks, no extra text.";
      *
      * @return array{description: string, meta_title: string, meta_description: string}|null
      */
-    public function generateFromTextOnly(string $productTitle = '', string $vendor = '', string $productType = '', array $tags = [], array $collections = [], string $sku = '', string $storeName = '', string $existingDescription = '', string $existingMaterial = '', array $existingFeatures = []): ?array
+    public function generateFromTextOnly(string $productTitle = '', string $vendor = '', string $productType = '', array $tags = [], array $collections = [], string $sku = '', string $storeName = '', string $existingDescription = '', string $existingMaterial = '', array $existingFeatures = [], array $availableCollections = []): ?array
     {
         $context = [];
         if ($productTitle)   $context[] = "Product title: \"{$productTitle}\"";
@@ -154,10 +162,11 @@ Return only valid JSON. No markdown, no code blocks, no extra text.";
         if ($vendor)         $context[] = "Brand/vendor: \"{$vendor}\"";
         if ($productType)    $context[] = "Product type/category: \"{$productType}\"";
         if ($storeName)      $context[] = "Store name: \"{$storeName}\" (based in Qatar)";
-        if (!empty($tags))        $context[] = "Store tags on this product: " . implode(', ', $tags);
-        if (!empty($collections)) $context[] = "Collections this product belongs to: " . implode(', ', $collections);
+        if (!empty($tags))        $context[] = "Tags ALREADY on this product (do not repeat these as new suggestions): " . implode(', ', $tags);
+        if (!empty($collections)) $context[] = "Collections this product ALREADY belongs to (do not repeat these as new suggestions): " . implode(', ', $collections);
         if ($existingMaterial)    $context[] = "CONFIRMED material (from store data): \"{$existingMaterial}\"";
         if (!empty($existingFeatures)) $context[] = "CONFIRMED features already on file (from store data): " . implode(', ', $existingFeatures);
+        if (!empty($availableCollections)) $context[] = "Collections that EXIST in this store and could potentially apply (choose only from this exact list, never invent a new one): " . implode(', ', $availableCollections);
         if ($existingDescription) {
             $plainExisting = trim(strip_tags($existingDescription));
             if ($plainExisting) $context[] = "Existing product description already on the store (you may draw on its facts, but rephrase and improve rather than copy verbatim):\n\"{$plainExisting}\"";
@@ -179,6 +188,7 @@ Return only valid JSON. No markdown, no code blocks, no extra text.";
 Strict accuracy rules (critical — there is no image, so extra caution applies):
 - Base every statement ONLY on the confirmed data given above (title, brand, product type, tags, collections, existing description). Do NOT invent colour, material, texture, pattern, shape, or any other visual specific you have no evidence for — you cannot see this product.
 - If the title or existing description implies a fact (e.g. the title says \"Leather Jacket\", so material is leather), you may state it, but do not add further unverified detail on top of it.
+- This store does NOT sell genuine/solid precious metals. NEVER describe a product as \"solid gold\", \"pure gold\", \"genuine gold\", or similar. If the CONFIRMED material or product title says something like \"18K Gold Finished\" or \"Gold-Plated\", use that exact wording (it means a finish/plating, not solid metal) — never upgrade it to imply solid precious metal.
 - If there is not enough information to write something concrete, keep that sentence general rather than guessing specifics.
 
 Return a JSON object with exactly these fields:
@@ -196,6 +206,9 @@ Return a JSON object with exactly these fields:
   Always keep valid, complete HTML.
 - \"meta_title\": An SEO page title (max 60 characters) based on the confirmed product title/type/brand.
 - \"meta_description\": An SEO meta description (max 160 characters) summarizing only the confirmed attributes. If a store name was given above, naturally work the store name and \"Qatar\" into the sentence while staying within 160 characters.
+- \"title\": A clear, accurate SEO-friendly product title (max 80 characters) based only on the confirmed data above. This is a SUGGESTION for the merchant to review, not automatically applied.
+- \"new_tags\": An array of 3-8 short, genuinely NEW descriptive tags for this product that are NOT already in the \"Tags ALREADY on this product\" list above and are clearly supported by the confirmed data. Return an empty array if you have nothing confident to add.
+- \"new_collections\": An array of collection names this product should ALSO belong to, chosen ONLY from the \"Collections that EXIST in this store\" list given above (if one was given) — copy the name exactly as listed. Only include if clearly, confidently supported by the confirmed data. Never invent a collection name. Return an empty array if unsure or if no list was given.
 
 Return only valid JSON. No markdown, no code blocks, no extra text.";
 
@@ -222,6 +235,9 @@ Return only valid JSON. No markdown, no code blocks, no extra text.";
             'description'      => trim($data['description'] ?? ''),
             'meta_title'       => mb_substr(trim($data['meta_title'] ?? ''), 0, 60),
             'meta_description' => mb_substr(trim($data['meta_description'] ?? ''), 0, 160),
+            'title'            => mb_substr(trim($data['title'] ?? ''), 0, 80),
+            'new_tags'         => is_array($data['new_tags'] ?? null) ? array_values(array_filter(array_map('trim', $data['new_tags']))) : [],
+            'new_collections'  => is_array($data['new_collections'] ?? null) ? array_values(array_filter(array_map('trim', $data['new_collections']))) : [],
         ];
     }
 
@@ -253,6 +269,8 @@ Return only valid JSON. No markdown, no code blocks, no extra text.";
 
         $prompt = "Look at this image and write a concise, literal accessibility alt text describing ONLY the product itself (max 125 characters).{$titleHint}
 This image may show the product on a model, mannequin, or lifestyle setting — describe ONLY the product/garment (its color, style, visible material, and design details). Do NOT mention the model/person, their pose, face, body, or the background/setting. Do not invent details that aren't visible on the product. Never reference the image/photo itself (e.g. never write \"shown in the image\" or \"pictured\") — describe the product directly.
+If the product has two or more similar parts (e.g. two ends of a bracelet, a pair of earrings, two straps), do NOT assume they look the same — describe each part only as it actually appears in THIS photo. This image may show a different angle (e.g. a back/reverse view) where the parts genuinely look different from other photos of the same product — describe what you actually see here, not what would be typical or symmetric.
+This store does NOT sell genuine/solid precious metals — if something looks gold/silver/rose-gold coloured, describe it as \"gold-toned\" or \"gold-finished\", never as \"gold\", \"solid gold\", or \"genuine gold\".
 Return a JSON object: {\"alt_text\": \"...\"}. No markdown, no code blocks, no extra text.";
 
         $payload = [

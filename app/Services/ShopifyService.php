@@ -627,10 +627,15 @@ class ShopifyService
 
     // ── AI Content update ──────────────────────────────────────────────────
 
-    public function updateProductContent(string $productId, string $description, string $metaTitle, string $metaDescription): void
+    public function updateProductContent(string $productId, string $description, string $metaTitle, string $metaDescription, string $title = ''): void
     {
+        $product = ['id' => (int) $productId, 'body_html' => $description];
+        if ($title !== '') {
+            $product['title'] = $title;
+        }
+
         $this->http->put("admin/api/{$this->apiVersion}/products/{$productId}.json", [
-            'json' => ['product' => ['id' => (int) $productId, 'body_html' => $description]],
+            'json' => ['product' => $product],
         ]);
 
         if ($metaTitle) {
@@ -643,6 +648,98 @@ class ShopifyService
             $this->http->post("admin/api/{$this->apiVersion}/products/{$productId}/metafields.json", [
                 'json' => ['metafield' => ['namespace' => 'global', 'key' => 'description_tag', 'value' => $metaDescription, 'type' => 'single_line_text_field']],
             ]);
+        }
+    }
+
+    /**
+     * Fetch up to 250 of the store's collections (title + numeric ID) so AI
+     * Content can suggest ONLY real, existing collections for a product —
+     * never invent fictional collection names.
+     */
+    public function getAllCollectionTitles(): array
+    {
+        try {
+            $response = $this->http->post("admin/api/{$this->apiVersion}/graphql.json", [
+                'json' => [
+                    'query' => 'query{collections(first:250){edges{node{id title}}}}',
+                ],
+            ]);
+
+            $data  = json_decode((string) $response->getBody(), true);
+            $edges = $data['data']['collections']['edges'] ?? [];
+
+            return array_map(fn ($edge) => [
+                'id'    => ltrim(str_replace('gid://shopify/Collection/', '', $edge['node']['id']), '/'),
+                'title' => $edge['node']['title'] ?? '',
+            ], $edges);
+        } catch (\Throwable $e) {
+            Log::warning('Shopify getAllCollectionTitles: ' . $e->getMessage());
+            return [];
+        }
+    }
+
+    /**
+     * Add new tags to a product WITHOUT removing any existing tags — fetches
+     * the current tag list fresh (it may have changed since generation) and
+     * merges in only genuinely new ones (case-insensitive dedupe).
+     */
+    public function addProductTags(string $productId, array $newTags): void
+    {
+        if (empty($newTags)) return;
+
+        try {
+            $response = $this->http->get("admin/api/{$this->apiVersion}/products/{$productId}.json", [
+                'query' => ['fields' => 'tags'],
+            ]);
+            $data = json_decode((string) $response->getBody(), true);
+            $existingTags = array_filter(array_map('trim', explode(',', $data['product']['tags'] ?? '')));
+        } catch (\Throwable $e) {
+            Log::warning("Shopify addProductTags({$productId}) fetch failed: " . $e->getMessage());
+            $existingTags = [];
+        }
+
+        $merged = $existingTags;
+        foreach ($newTags as $tag) {
+            $tag = trim($tag);
+            if (!$tag) continue;
+            $alreadyPresent = collect($existingTags)->contains(fn ($e) => strcasecmp(trim($e), $tag) === 0);
+            if (!$alreadyPresent) {
+                $merged[] = $tag;
+            }
+        }
+
+        $this->http->put("admin/api/{$this->apiVersion}/products/{$productId}.json", [
+            'json' => ['product' => ['id' => (int) $productId, 'tags' => implode(', ', $merged)]],
+        ]);
+    }
+
+    /**
+     * Add a product to existing Shopify collections by title — never creates
+     * new collections, only matches against the real list already in the
+     * store. Smart/automated collections will silently no-op (Shopify manages
+     * their membership by rule, not manual assignment) — logged, not thrown.
+     */
+    public function addProductToCollections(string $productId, array $collectionTitles, array $allCollections): void
+    {
+        if (empty($collectionTitles)) return;
+
+        $gid = "gid://shopify/Product/{$productId}";
+
+        foreach ($collectionTitles as $title) {
+            $match = collect($allCollections)->first(fn ($c) => strcasecmp(trim($c['title']), trim($title)) === 0);
+            if (!$match) continue;
+
+            try {
+                $collectionGid = "gid://shopify/Collection/{$match['id']}";
+                $this->http->post("admin/api/{$this->apiVersion}/graphql.json", [
+                    'json' => [
+                        'query'     => 'mutation($id:ID!,$productIds:[ID!]!){collectionAddProducts(id:$id,productIds:$productIds){userErrors{field message}}}',
+                        'variables' => ['id' => $collectionGid, 'productIds' => [$gid]],
+                    ],
+                ]);
+            } catch (\Throwable $e) {
+                Log::warning("Shopify addProductToCollections({$productId}, {$title}): " . $e->getMessage());
+            }
         }
     }
 
