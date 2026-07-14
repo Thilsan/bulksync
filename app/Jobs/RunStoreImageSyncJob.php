@@ -218,7 +218,34 @@ class RunStoreImageSyncJob implements ShouldQueue
                 continue;
             }
 
-            [$ok, $newProductId] = $this->migrateFullProduct($source, $target, $missingSkus, $sourceProductId, $productTitle, $sourceCollections, $targetCollections, $handle);
+            $sourceProduct = $source->getFullProduct($sourceProductId);
+
+            if (!$sourceProduct) {
+                foreach ($missingSkus as $sku) {
+                    fputcsv($handle, [$sku, $productTitle, 0, 0, 'Failed to fetch full product from source store']);
+                    $processed++; $failed++;
+                    $this->updateProgress('running', $total, $processed, $success, $failed);
+                }
+                continue;
+            }
+
+            // A sibling SKU of this same source product may already have been
+            // migrated in an earlier run — its target product already exists,
+            // so add this variant there instead of creating a duplicate product.
+            $existingTargetProductId = $this->findExistingTargetProduct($target, $sourceProduct, $missingSkus);
+
+            if ($existingTargetProductId) {
+                $results = $this->addVariantsToExistingProduct($source, $target, $missingSkus, $sourceProduct, $existingTargetProductId, $handle, $productTitle);
+
+                foreach ($missingSkus as $sku) {
+                    $processed++;
+                    ($results[$sku] ?? false) ? $success++ : $failed++;
+                    $this->updateProgress('running', $total, $processed, $success, $failed);
+                }
+                continue;
+            }
+
+            [$ok, $newProductId] = $this->migrateFullProduct($source, $target, $missingSkus, $sourceProduct, $productTitle, $sourceCollections, $targetCollections, $handle);
 
             foreach ($missingSkus as $sku) {
                 $processed++;
@@ -226,6 +253,100 @@ class RunStoreImageSyncJob implements ShouldQueue
                 $this->updateProgress('running', $total, $processed, $success, $failed);
             }
         }
+    }
+
+    /**
+     * Check whether the target store already has a product for this same
+     * source product — created by a previous migration of a SIBLING SKU —
+     * by looking up every other variant of the source product (not just the
+     * ones requested in this run) against the target store.
+     */
+    private function findExistingTargetProduct(ShopifyService $target, array $sourceProduct, array $excludeSkus): ?string
+    {
+        $excludeSkuSet = array_flip(array_map('strtoupper', $excludeSkus));
+
+        foreach ($sourceProduct['variants'] ?? [] as $variant) {
+            $sku = $variant['sku'] ?? '';
+            if ($sku === '' || isset($excludeSkuSet[strtoupper($sku)])) {
+                continue;
+            }
+
+            $targetVariants = $target->findVariantsBySku($sku);
+            if (!empty($targetVariants)) {
+                return $targetVariants[0]['product_id'];
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Add each missing SKU as a new variant onto a target product that
+     * already exists (created by a previous migration of a sibling SKU),
+     * then sync just that variant's own photo block — never touching or
+     * duplicating the sibling variants already on that product.
+     *
+     * @return array<string,bool> sku => success
+     */
+    private function addVariantsToExistingProduct(
+        ShopifyService $source,
+        ShopifyService $target,
+        array $missingSkus,
+        array $sourceProduct,
+        string $targetProductId,
+        $handle,
+        string $productTitle,
+    ): array {
+        $requestedSkuSet = array_flip(array_map('strtoupper', $missingSkus));
+        $variantsToAdd    = array_filter(
+            $sourceProduct['variants'] ?? [],
+            fn ($v) => isset($requestedSkuSet[strtoupper($v['sku'] ?? '')])
+        );
+
+        $results = [];
+
+        foreach ($variantsToAdd as $sourceVariant) {
+            $sku = $sourceVariant['sku'];
+
+            try {
+                $newVariantId = $target->addVariantToProduct($targetProductId, [
+                    'sku'                  => $sourceVariant['sku'] ?? null,
+                    'price'                => $sourceVariant['price'] ?? null,
+                    'compare_at_price'     => $sourceVariant['compare_at_price'] ?? null,
+                    'inventory_quantity'   => $sourceVariant['inventory_quantity'] ?? 0,
+                    'inventory_management' => $sourceVariant['inventory_management'] ?? null,
+                    'weight'               => $sourceVariant['weight'] ?? null,
+                    'weight_unit'          => $sourceVariant['weight_unit'] ?? null,
+                    'barcode'              => $sourceVariant['barcode'] ?? null,
+                    'option1'              => $sourceVariant['option1'] ?? null,
+                    'option2'              => $sourceVariant['option2'] ?? null,
+                    'option3'              => $sourceVariant['option3'] ?? null,
+                ]);
+
+                if (!$newVariantId) {
+                    fputcsv($handle, [$sku, $productTitle, 0, 0, 'Failed to add variant to existing target product']);
+                    $results[$sku] = false;
+                    continue;
+                }
+
+                $this->syncSingleVariantImage(
+                    $source,
+                    $target,
+                    $sku,
+                    ['product_id' => (string) $sourceProduct['id'], 'variant_id' => (string) $sourceVariant['id']],
+                    ['product_id' => $targetProductId, 'variant_id' => $newVariantId],
+                    $handle,
+                    $productTitle
+                );
+                $results[$sku] = true;
+            } catch (\Throwable $e) {
+                Log::error("RunStoreImageSyncJob: failed to add variant for SKU {$sku} to existing product {$targetProductId}: " . $e->getMessage());
+                fputcsv($handle, [$sku, $productTitle, 0, 0, 'Failed to add variant: ' . $e->getMessage()]);
+                $results[$sku] = false;
+            }
+        }
+
+        return $results;
     }
 
     /**
@@ -381,21 +502,12 @@ class RunStoreImageSyncJob implements ShouldQueue
         ShopifyService $source,
         ShopifyService $target,
         array $requestedSkus,
-        string $sourceProductId,
+        array $sourceProduct,
         string $productTitle,
         array $sourceCollections,
         array $targetCollections,
         $handle,
     ): array {
-        $sourceProduct = $source->getFullProduct($sourceProductId);
-
-        if (!$sourceProduct) {
-            foreach ($requestedSkus as $sku) {
-                fputcsv($handle, [$sku, $productTitle, 0, 0, 'Failed to fetch full product from source store']);
-            }
-            return [false, null];
-        }
-
         // Keep only the variant(s) actually requested — not every sibling
         // colour/size the source product has.
         $requestedSkuSet  = array_flip(array_map('strtoupper', $requestedSkus));
@@ -478,7 +590,7 @@ class RunStoreImageSyncJob implements ShouldQueue
             }
 
             // Material/Features metafields
-            $materialAndFeatures = $source->getProductMaterialAndFeatures($sourceProductId);
+            $materialAndFeatures = $source->getProductMaterialAndFeatures((string) $sourceProduct['id']);
             if ($materialAndFeatures['material'] || !empty($materialAndFeatures['features'])) {
                 $target->updateProductMetafields(
                     $newProductId,
@@ -494,7 +606,7 @@ class RunStoreImageSyncJob implements ShouldQueue
             }
             return [true, $newProductId];
         } catch (\Throwable $e) {
-            Log::error("RunStoreImageSyncJob: full product migration failed for product {$sourceProductId}: " . $e->getMessage());
+            Log::error("RunStoreImageSyncJob: full product migration failed for product {$sourceProduct['id']}: " . $e->getMessage());
             foreach ($requestedSkus as $sku) {
                 fputcsv($handle, [$sku, $productTitle, 0, 0, 'Failed to create product: ' . $e->getMessage()]);
             }

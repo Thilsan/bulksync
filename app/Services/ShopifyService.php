@@ -414,6 +414,36 @@ class ShopifyService
     }
 
     /**
+     * Add a single new variant to a product that already exists in this
+     * store — used when a sibling SKU of the same source product was
+     * migrated in an earlier run, so we're filling in another colour/size
+     * on it rather than creating a duplicate product. Shopify auto-adds any
+     * new option value (e.g. a colour this product didn't have yet here)
+     * onto the product's options.
+     */
+    public function addVariantToProduct(string $productId, array $variantData): ?string
+    {
+        $this->throttle();
+
+        $payload = array_filter($variantData, fn ($val) => $val !== null);
+
+        try {
+            $response = $this->http->post(
+                "admin/api/{$this->apiVersion}/products/{$productId}/variants.json",
+                ['json' => ['variant' => $payload]]
+            );
+
+            $data = json_decode((string) $response->getBody(), true);
+
+            return isset($data['variant']['id']) ? (string) $data['variant']['id'] : null;
+
+        } catch (ClientException $e) {
+            $this->handleClientException($e, "addVariantToProduct({$productId})");
+            throw new \RuntimeException('Shopify variant creation failed: ' . $e->getMessage());
+        }
+    }
+
+    /**
      * Return all images for a product, fields: id, alt, position.
      * Results are sorted by position (Shopify's natural order).
      */
