@@ -108,9 +108,23 @@ class ProcessUploadItemJob implements ShouldQueue
 
             foreach ($variants as $variant) {
                 $existingImages = $shopify->getProductImages($variant['product_id']);
+
+                // Sibling files for this same SKU in this batch (e.g. _0, _1, _2)
+                // already carry this SKU's alt text once uploaded — exclude those
+                // from the duplicate check, or every image after the first would
+                // look like "already has image" and get skipped.
+                $ownUploadedImageIds = UploadItem::where('upload_session_id', $item->upload_session_id)
+                    ->where('variant_id', $variant['variant_id'])
+                    ->where('status', 'uploaded')
+                    ->whereNotNull('shopify_image_id')
+                    ->pluck('shopify_image_id')
+                    ->map(fn ($id) => (string) $id)
+                    ->all();
+
                 $matchingImages = array_values(array_filter(
                     $existingImages,
                     fn ($img) => ($img['alt'] ?? '') === $item->sku_detected
+                        && !in_array((string) ($img['id'] ?? ''), $ownUploadedImageIds, true)
                 ));
 
                 if ($matchingImages && $duplicateHandling === 'skip') {
