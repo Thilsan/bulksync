@@ -122,7 +122,7 @@ class GenerateAiContentJob implements ShouldQueue
         $collectionTitles    = array_column($availableCollections, 'title');
 
         $materialAndFeatures = $shopify->getProductMaterialAndFeatures($productId);
-        $existingMaterial    = $materialAndFeatures['material'];
+        $existingMaterial    = $this->stripMaterialPercentage($materialAndFeatures['material']);
         $existingFeatures    = $materialAndFeatures['features'];
 
         $item = AiContentItem::create([
@@ -258,6 +258,28 @@ class GenerateAiContentJob implements ShouldQueue
     {
         $decoded = html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
         return str_replace("\xC2\xA0", ' ', $decoded); // non-breaking space → normal space
+    }
+
+    /**
+     * Strip composition percentages from the confirmed material metafield
+     * (e.g. "50% cotton and 50% Tencel blend" -> "cotton and Tencel blend")
+     * before it reaches the AI prompt — the Material bullet should just name
+     * the material, not restate its composition breakdown.
+     */
+    private function stripMaterialPercentage(string $material): string
+    {
+        if ($material === '') {
+            return $material;
+        }
+
+        $cleaned = preg_replace('/\d+(\.\d+)?\s*%\s*/u', '', $material);
+        $cleaned = preg_replace('/\(\s*\)/u', '', $cleaned);
+        $cleaned = preg_replace('/\s+,/u', ',', $cleaned);
+        $cleaned = preg_replace('/\s*,\s*,/u', ',', $cleaned);
+        $cleaned = preg_replace('/\s{2,}/u', ' ', $cleaned);
+        $cleaned = trim($cleaned, " ,\t\n\r\0\x0B");
+
+        return $cleaned !== '' ? ucfirst($cleaned) : $material;
     }
 
     /**
