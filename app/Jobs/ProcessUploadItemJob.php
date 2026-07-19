@@ -32,8 +32,11 @@ class ProcessUploadItemJob implements ShouldQueue
     ): void {
         $item = UploadItem::find($this->itemId);
 
-        // Skip if already processed by a previous attempt or another worker
-        if (!$item || !in_array($item->status, ['pending', 'failed'])) {
+        // Skip only if a previous attempt already FINISHED this item (terminal
+        // state). In-flight statuses ('processing', 'matched') mean a prior
+        // attempt died mid-job — timeout kill, worker restart — and the queue
+        // retry must be allowed to resume it, or the item orphans forever.
+        if (!$item || in_array($item->status, ['uploaded', 'skipped', 'exists'])) {
             return;
         }
 
@@ -79,9 +82,12 @@ class ProcessUploadItemJob implements ShouldQueue
                 return;
             }
 
-            // Record the first match on the item (for display purposes)
+            // Record the first match on the item (for display purposes).
+            // error_message is cleared so a stale failure note from a prior
+            // retried attempt doesn't linger next to a healthy status.
             $item->update([
                 'status'        => 'matched',
+                'error_message' => null,
                 'product_id'    => $variants[0]['product_id'],
                 'product_title' => $variants[0]['product_title'],
                 'variant_id'    => $variants[0]['variant_id'],
