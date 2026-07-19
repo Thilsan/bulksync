@@ -6,6 +6,7 @@ use App\Models\Store;
 use GuzzleHttp\Client;
 use GuzzleHttp\Exception\ClientException;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class ShopifyService
@@ -114,6 +115,12 @@ class ShopifyService
     {
         Log::info('ShopifyService: warming SKU cache…');
 
+        // Previous generation's rows are about to become unreachable — nothing
+        // ever reads them again, so the database cache driver's lazy expiry
+        // (which only deletes a row when it's looked up) would never clean
+        // them up on its own. Delete them explicitly once this warm finishes.
+        $previousGen = Cache::get($this->skuWarmSentinel());
+
         // New generation timestamp makes stale keys from prior warmings unreachable
         $gen    = time();
         $ttl    = now()->addHours(4);
@@ -194,7 +201,34 @@ class ShopifyService
 
         Log::info("ShopifyService: SKU cache warmed — {$count} variants, generation {$gen}.");
 
+        if ($previousGen) {
+            $this->purgeSkuCacheGeneration((int) $previousGen);
+        }
+
         return $count;
+    }
+
+    /**
+     * Delete every per-SKU/barcode row belonging to one old generation. Only
+     * applies with the database cache driver — with any other driver (e.g.
+     * Redis, which expires keys on its own) this is a no-op.
+     */
+    private function purgeSkuCacheGeneration(int $gen): void
+    {
+        if (config('cache.default') !== 'database') {
+            return;
+        }
+
+        $connection = config('cache.stores.database.connection') ?: config('database.default');
+        $table      = config('cache.stores.database.table', 'cache');
+        $shopHash   = md5($this->shop);
+
+        $deleted = DB::connection($connection)->table($table)
+            ->where('key', 'like', "%shopify_sku_{$shopHash}_v{$gen}_%")
+            ->orWhere('key', 'like', "%shopify_barcode_{$shopHash}_v{$gen}_%")
+            ->delete();
+
+        Log::info("ShopifyService: purged {$deleted} stale cache rows from generation {$gen}.");
     }
 
     public function isSkuCacheWarmed(): bool
