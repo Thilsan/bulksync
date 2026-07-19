@@ -76,8 +76,12 @@ Writing style rules (apply to every field below):
 - NEVER reference the image, photo, or picture itself (e.g. never write \"as shown in the image\", \"this photo displays\", \"pictured here\"). Write as a direct product description, not as a description of a photograph.
 - NEVER use HTML entities (e.g. \"&nbsp;\", \"&amp;\", \"&#39;\"). Use plain characters only (a normal space, the word \"and\", a normal apostrophe). Only HTML tags allowed are <p>, <strong>, <ul>, <li>.
 
+Color-neutral rule (critical — this product likely comes in multiple color options, and this photo shows only one of them):
+- The \"description\", \"meta_title\", \"meta_description\", and \"title\" fields below are shared across EVERY color variant of this product, not just the one shown in this photo. NEVER name or imply a specific color in those four fields (no \"red\", \"navy\", \"the elegant white...\", etc.) — describe silhouette, pattern, finish, texture, and material instead.
+- The ONLY exception is \"alt_text\": that field describes this exact photo for accessibility, so it SHOULD name the actual color visible in this image.
+
 Strict accuracy rules:
-- Base every statement strictly on visible evidence of the product: color, shape, visible material/texture, visible parts (e.g. wheels, straps, zippers, handles, buttons, stitching, pockets, logos, patterns).
+- Base every statement strictly on visible evidence of the product: shape, visible material/texture, visible parts (e.g. wheels, straps, zippers, handles, buttons, stitching, pockets, logos, patterns) — never its color, per the color-neutral rule above.
 - Do NOT invent specifications, materials, capacity, technology, or features that cannot be visually confirmed (e.g. don't say \"waterproof\" or \"lightweight\" unless it's visibly obvious).
 - The Brand/vendor, Product title, tags, and collections above (if given) are confirmed real data from the store — use them to determine facts like Gender or Category, but do not invent a brand, gender, or category that isn't supported by that context or clearly visible.
 - If a CONFIRMED material is given above, use that exact material in the description and specifications — do NOT visually guess a different material, even if the photo looks like it could be something else. If a CONFIRMED features list is given above, treat those as real facts already established — you can restate them and may add more visible features on top, but never contradict them.
@@ -92,21 +96,20 @@ Return a JSON object with exactly these fields:
   HARD LIMIT: the entire description, including all HTML tags, must not exceed 1000 characters total. Prioritize the most distinctive, important details and keep sentences concise so it fits — but the HTML must always be well-formed and complete (never cut off a tag or sentence mid-way to hit the limit; shorten the content itself instead).
   1. 2-3 concise narrative paragraphs (<p> tags) in flowing marketing prose, each focused on a different visual aspect of the product:
      - Paragraph 1: overall silhouette, shape, and first impression of the product's style.
-     - Paragraph 2: color, finish, and visible material/texture of the product (e.g. gradient tones, sheen, grain, weave).
+     - Paragraph 2: finish and visible material/texture of the product (e.g. sheen, grain, weave) — do not name the specific color, per the color-neutral rule above.
      - Paragraph 3 (only if space allows within the 1000-character limit): distinctive visible design details of the product — hardware, stitching, embellishments, patterns, closures, trims, logos, or construction techniques you can actually see on it.
      Every claim must stay strictly grounded in what's visible on the product or in the confirmed context above — never invent a detail you cannot see, and never describe the model/background/other items.
   2. A heading: <p><strong>SPECIFICATIONS</strong></p>
   3. A bullet list <ul><li>...</li></ul> containing:
      - \"Brand: {{vendor}}\" as the first bullet, only if brand/vendor was given above.
-     - \"SKU: {{sku}}\" as the next bullet, only if a SKU was given above — use it exactly as given, do not modify it.
      - \"Material: {{material}}\" as the next bullet, only if a CONFIRMED material was given above — use that exact value, never a visually-guessed one.
      - \"Gender: {{Women/Men/Unisex/Kids}}\" as the next bullet, only if clearly indicated by the product title, type, tags, or collections above (e.g. a tag or collection name containing \"Women\", \"Men\", \"Kids\") — omit entirely if not determinable.
-     - 3-5 more bullets, each a short factual highlight restating a visible detail or craftsmanship point already covered in the paragraphs above (color, construction technique, notable visible feature — plus any CONFIRMED features given above). Do not introduce new unverified facts in the bullets.
+     - 3-5 more bullets, each a short factual highlight restating a visible detail or craftsmanship point already covered in the paragraphs above (construction technique, notable visible feature, finish — plus any CONFIRMED features given above; never a color, per the color-neutral rule above). Do not introduce new unverified facts in the bullets.
   Stay within the 1000-character total limit — trim paragraph count, sentence length, or bullet count as needed to fit, always keeping valid, complete HTML.
-- \"meta_title\": An SEO page title (max 60 characters) that accurately reflects the product type and its main visible attribute (e.g. color or style) — no mention of model/background.
-- \"meta_description\": An SEO meta description (max 160 characters) summarizing only the product's visible/confirmed attributes — no mention of model/background. If a store name was given above, naturally work the store name and \"Qatar\" into the sentence (e.g. \"...available at {{store name}} in Qatar.\") while staying within 160 characters — shorten the product details if needed to fit both in.
-- \"alt_text\": A concise, literal description of the PRODUCT itself for accessibility (max 125 characters) — e.g. \"Light blue relaxed-fit shorts with side pockets and elasticated waistband\". Do NOT describe a person/model wearing it, their pose, or the background — describe the garment/item as if on its own. If the product has two or more similar parts (e.g. two ends of a bracelet, a pair of earrings), do NOT assume they look the same — describe only what THIS specific image actually shows, which may be a back/reverse angle where the parts genuinely differ.
-- \"title\": A clear, accurate SEO-friendly product title (max 80 characters) reflecting brand, product type, and main visible attribute — grounded in the same accuracy rules as everything else. This is a SUGGESTION for the merchant to review, not automatically applied.
+- \"meta_title\": An SEO page title (max 60 characters) that accurately reflects the product type and its main visible style/design attribute (e.g. silhouette, pattern, material) — no mention of model/background, and never a specific color, per the color-neutral rule above.
+- \"meta_description\": An SEO meta description (max 160 characters) summarizing only the product's visible/confirmed attributes — no mention of model/background, and never a specific color, per the color-neutral rule above. If a store name was given above, naturally work the store name and \"Qatar\" into the sentence (e.g. \"...available at {{store name}} in Qatar.\") while staying within 160 characters — shorten the product details if needed to fit both in.
+- \"alt_text\": A concise, literal description of the PRODUCT itself for accessibility (max 125 characters) — e.g. \"Light blue relaxed-fit shorts with side pockets and elasticated waistband\". Unlike the fields above, this one SHOULD name the actual color shown in THIS photo, since it describes this specific image, not the whole product across all its color variants. Do NOT describe a person/model wearing it, their pose, or the background — describe the garment/item as if on its own. If the product has two or more similar parts (e.g. two ends of a bracelet, a pair of earrings), do NOT assume they look the same — describe only what THIS specific image actually shows, which may be a back/reverse angle where the parts genuinely differ.
+- \"title\": A clear, accurate SEO-friendly product title (max 80 characters) reflecting brand, product type, and main visible style/design attribute — grounded in the same accuracy rules as everything else, and never a specific color, per the color-neutral rule above. This is a SUGGESTION for the merchant to review, not automatically applied.
 - \"new_tags\": An array of 3-8 short, genuinely NEW descriptive tags for this product (e.g. colour, material, style, occasion) that are NOT already in the \"Tags ALREADY on this product\" list above. Do not repeat existing tags. Return an empty array if you have nothing confident to add.
 - \"new_collections\": An array of collection names this product should ALSO belong to, chosen ONLY from the \"Collections that EXIST in this store\" list given above (if one was given) — copy the name exactly as listed. Only include a collection if the product clearly, confidently fits it based on visible/confirmed facts. Never invent a collection name not in that list. Return an empty array if unsure or if no list was given.
 
@@ -185,6 +188,8 @@ Return only valid JSON. No markdown, no code blocks, no extra text.";
 - NEVER reference an image, photo, or picture (there isn't one for this product) — write as a direct product description.
 - NEVER use HTML entities (e.g. \"&nbsp;\", \"&amp;\", \"&#39;\"). Use plain characters only. Only HTML tags allowed are <p>, <strong>, <ul>, <li>.
 
+Color-neutral rule (critical — this product likely comes in multiple color options, and none is confirmed here): the \"description\", \"meta_title\", \"meta_description\", and \"title\" fields are shared across EVERY color variant of this product. Do not name or invent any color, even one that seems implied by the title or existing description, unless it is the product's own name for a finish (e.g. \"Gold-Plated\" as a material, not a color) — describe silhouette, material, and category instead.
+
 Strict accuracy rules (critical — there is no image, so extra caution applies):
 - Base every statement ONLY on the confirmed data given above (title, brand, product type, tags, collections, existing description). Do NOT invent colour, material, texture, pattern, shape, or any other visual specific you have no evidence for — you cannot see this product.
 - If the title or existing description implies a fact (e.g. the title says \"Leather Jacket\", so material is leather), you may state it, but do not add further unverified detail on top of it.
@@ -199,7 +204,6 @@ Return a JSON object with exactly these fields:
   2. A heading: <p><strong>SPECIFICATIONS</strong></p>
   3. A bullet list <ul><li>...</li></ul> containing:
      - \"Brand: {{vendor}}\" as the first bullet, only if brand/vendor was given above.
-     - \"SKU: {{sku}}\" as the next bullet, only if a SKU was given above — use it exactly as given.
      - \"Material: {{material}}\" as the next bullet, only if a CONFIRMED material was given above.
      - \"Gender: {{Women/Men/Unisex/Kids}}\" as the next bullet, only if clearly indicated by the product title, type, tags, or collections above — omit entirely if not determinable.
      - Additional bullets only for facts clearly supported by the confirmed data above (e.g. product type, category, CONFIRMED features) — do not invent visual specifics as bullets.
