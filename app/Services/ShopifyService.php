@@ -47,7 +47,7 @@ class ShopifyService
      * Each SKU is stored as its own small Redis key (not one giant blob)
      * to avoid PHP memory exhaustion during cache warming.
      */
-    public function findVariantsBySkuCached(string $sku): array
+    public function findVariantsBySkuCached(string $sku, bool $throwOnFailure = false): array
     {
         if (!$sku) {
             return [];
@@ -57,7 +57,7 @@ class ShopifyService
 
         if ($gen === null) {
             // Cache not warmed — fall back to live lookup
-            return $this->findVariantsBySku($sku);
+            return $this->findVariantsBySku($sku, $throwOnFailure);
         }
 
         $cached = Cache::get($this->skuEntryKey($sku, $gen));
@@ -70,7 +70,7 @@ class ShopifyService
      * Returns ALL variants matching the barcode across all products.
      * Mirrors findVariantsBySkuCached but keyed by barcode instead of SKU.
      */
-    public function findVariantsByBarcodeCached(string $barcode): array
+    public function findVariantsByBarcodeCached(string $barcode, bool $throwOnFailure = false): array
     {
         if (!$barcode) {
             return [];
@@ -79,7 +79,7 @@ class ShopifyService
         $gen = Cache::get($this->skuWarmSentinel());
 
         if ($gen === null) {
-            return $this->findVariantsByBarcode($barcode);
+            return $this->findVariantsByBarcode($barcode, $throwOnFailure);
         }
 
         $cached = Cache::get($this->barcodeEntryKey($barcode, $gen));
@@ -92,15 +92,15 @@ class ShopifyService
      * Used by the bulk image upload flow, where OneDrive folders/filenames
      * are sometimes named after the item's barcode rather than its SKU.
      */
-    public function findVariantsBySkuOrBarcodeCached(string $identifier): array
+    public function findVariantsBySkuOrBarcodeCached(string $identifier, bool $throwOnFailure = false): array
     {
-        $variants = $this->findVariantsBySkuCached($identifier);
+        $variants = $this->findVariantsBySkuCached($identifier, $throwOnFailure);
 
         if ($variants) {
             return $variants;
         }
 
-        $variants = $this->findVariantsByBarcodeCached($identifier);
+        $variants = $this->findVariantsByBarcodeCached($identifier, $throwOnFailure);
 
         // Tag the fallback path so callers can report accurately (e.g. "Duplicate barcode" vs "Duplicate SKU")
         return array_map(fn ($v) => $v + ['matched_via' => 'barcode'], $variants);
@@ -309,7 +309,7 @@ class ShopifyService
      * The REST GET /variants.json?sku= endpoint silently ignores the sku
      * filter and returns unrelated variants, so GraphQL is the reliable path.
      */
-    public function findVariantsBySku(string $sku): array
+    public function findVariantsBySku(string $sku, bool $throwOnFailure = false): array
     {
         if (!$sku) {
             return [];
@@ -353,6 +353,9 @@ class ShopifyService
 
         } catch (\Throwable $e) {
             Log::error("Shopify findVariantsBySku({$sku}) GraphQL failed: " . $e->getMessage());
+            if ($throwOnFailure) {
+                throw new \RuntimeException("Shopify SKU lookup failed for {$sku}: " . $e->getMessage(), 0, $e);
+            }
             return [];
         }
     }
@@ -362,7 +365,7 @@ class ShopifyService
      * Fallback for when the OneDrive folder/filename identifier doesn't
      * match any SKU — some catalogues are organised by barcode instead.
      */
-    public function findVariantsByBarcode(string $barcode): array
+    public function findVariantsByBarcode(string $barcode, bool $throwOnFailure = false): array
     {
         if (!$barcode) {
             return [];
@@ -405,6 +408,9 @@ class ShopifyService
 
         } catch (\Throwable $e) {
             Log::error("Shopify findVariantsByBarcode({$barcode}) GraphQL failed: " . $e->getMessage());
+            if ($throwOnFailure) {
+                throw new \RuntimeException("Shopify barcode lookup failed for {$barcode}: " . $e->getMessage(), 0, $e);
+            }
             return [];
         }
     }

@@ -52,7 +52,10 @@ class ProcessUploadItemJob implements ShouldQueue
 
         try {
             // ── 1. Look up Shopify SKU, falling back to barcode — may match multiple products ──
-            $variants = $shopify->findVariantsBySkuOrBarcodeCached($item->sku_detected);
+            // throwOnFailure: a transient API/network error (DNS blip, timeout) must
+            // surface as a retryable failure, NOT be mistaken for "SKU doesn't exist"
+            // and permanently marked No Match.
+            $variants = $shopify->findVariantsBySkuOrBarcodeCached($item->sku_detected, true);
 
             if (empty($variants)) {
                 $item->update([
