@@ -54,8 +54,9 @@
             <p class="text-sm text-gray-500 mt-1" x-show="matchingMode === 'style_code'" x-cloak>
                 Organise your OneDrive folder with <strong class="text-gray-700">subfolders named by style code</strong>
                 (e.g. <code class="text-xs bg-gray-100 px-1 py-0.5 rounded">W60830/126</code>) — each subfolder name is matched
-                to the style code at the start of the product's Shopify title. Matched images are added to that
-                product's <strong class="text-gray-700">photo gallery only</strong>; variants, SKU, and barcode are left untouched.
+                to the style code at the start of the product's Shopify title. If images aren't organised into subfolders,
+                the <strong class="text-gray-700">image filename itself</strong> must contain the style code instead.
+                Matched images are added to that product's <strong class="text-gray-700">photo gallery only</strong>.
             </p>
         </div>
 
