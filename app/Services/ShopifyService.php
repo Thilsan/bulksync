@@ -416,14 +416,19 @@ class ShopifyService
     }
 
     /**
-     * Find products whose title starts with the given style code, e.g. an
-     * OneDrive folder "W60830-126" matching a product titled
-     * "W60830/126 T-Shirt Ivory 2 Ss26". Folder/file punctuation around the
-     * code (/, -, _, spaces) doesn't always match the title's punctuation
-     * exactly, so both sides are canonicalized (letters + digits only,
-     * uppercased) before comparing — only the leading alphanumeric run is
-     * sent to Shopify as a search prefix, since that portion is guaranteed
-     * to appear literally in the title before any separator.
+     * Find products whose title contains the given style code as one of its
+     * space-separated tokens, e.g. an OneDrive folder "W60830-126" matching
+     * a product titled "W60830/126 T-Shirt Ivory 2 Ss26". A set/bundle
+     * product can list several style codes up front — one per piece, each
+     * with its own OneDrive folder — e.g. "KG314107O KG5141O9O KGQ14100N Set
+     * Sleepsuit Multicolor 0-3M SS26" — so every token is checked, not just
+     * the first; each matching folder's images land in that same product's
+     * gallery. Folder/file punctuation around the code (/, -, _, spaces)
+     * doesn't always match the title's punctuation exactly, so both sides
+     * are canonicalized (letters + digits only, uppercased) before
+     * comparing — only the leading alphanumeric run is sent to Shopify as a
+     * search term, since that portion is guaranteed to appear literally in
+     * the title before any separator.
      */
     public function findProductsByStyleCode(string $styleCode, bool $throwOnFailure = false): array
     {
@@ -452,11 +457,19 @@ class ShopifyService
 
             $matches = [];
             foreach ($edges as $edge) {
-                $node       = $edge['node'];
-                $title      = trim($node['title'] ?? '');
-                $firstToken = strtok($title, " \t");
+                $node   = $edge['node'];
+                $title  = trim($node['title'] ?? '');
+                $tokens = preg_split('/\s+/', $title, -1, PREG_SPLIT_NO_EMPTY);
 
-                if ($firstToken === false || $this->canonicalizeStyleCode($firstToken) !== $canonical) {
+                $tokenMatches = false;
+                foreach ($tokens as $token) {
+                    if ($this->canonicalizeStyleCode($token) === $canonical) {
+                        $tokenMatches = true;
+                        break;
+                    }
+                }
+
+                if (!$tokenMatches) {
                     continue;
                 }
 
