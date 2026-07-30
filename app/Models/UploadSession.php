@@ -16,6 +16,7 @@ class UploadSession extends Model
         'image_width',
         'image_height',
         'duplicate_handling',
+        'matching_mode',
         'status',
         'scan_status',
         'total_files',

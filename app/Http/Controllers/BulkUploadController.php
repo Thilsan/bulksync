@@ -161,6 +161,7 @@ class BulkUploadController extends Controller
             'image_width'        => ['nullable', 'integer', 'min:100', 'max:5000'],
             'image_height'       => ['nullable', 'integer', 'min:100', 'max:5000'],
             'duplicate_handling' => ['required', 'in:skip,replace,add'],
+            'matching_mode'      => ['required', 'in:sku_barcode,style_code'],
         ]);
 
         $hasSize = filled($validated['image_width']) && filled($validated['image_height']);
@@ -176,6 +177,7 @@ class BulkUploadController extends Controller
             'image_height'       => $hasSize ? (int) $validated['image_height'] : null,
             'image_size'         => $hasSize ? $validated['image_width'] . 'x' . $validated['image_height'] : 'original',
             'duplicate_handling' => $validated['duplicate_handling'],
+            'matching_mode'      => $validated['matching_mode'],
             'status'             => 'processing',
             'scan_status'        => 'pending',
         ]);

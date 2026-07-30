@@ -53,25 +53,32 @@ class ProcessUploadItemJob implements ShouldQueue
             }
         }
 
+        $matchingMode = $session->matching_mode ?? 'sku_barcode';
+
         try {
-            // ── 1. Look up Shopify SKU, falling back to barcode — may match multiple products ──
+            // ── 1. Look up matching Shopify product(s) — may match multiple ──
             // throwOnFailure: a transient API/network error (DNS blip, timeout) must
-            // surface as a retryable failure, NOT be mistaken for "SKU doesn't exist"
+            // surface as a retryable failure, NOT be mistaken for "no match"
             // and permanently marked No Match.
-            $variants = $shopify->findVariantsBySkuOrBarcodeCached($item->sku_detected, true);
+            $variants = $matchingMode === 'style_code'
+                ? $shopify->findProductsByStyleCode($item->sku_detected, true)
+                : $shopify->findVariantsBySkuOrBarcodeCached($item->sku_detected, true);
 
             if (empty($variants)) {
+                $label = $matchingMode === 'style_code' ? 'style code' : 'SKU or barcode';
                 $item->update([
                     'status'        => 'skipped',
-                    'error_message' => "No Shopify variant found for SKU or barcode: {$item->sku_detected}",
+                    'error_message' => "No Shopify product found for {$label}: {$item->sku_detected}",
                 ]);
                 $this->syncSessionCounts($item->upload_session_id);
                 return;
             }
 
-            $matchLabel = ($variants[0]['matched_via'] ?? 'sku') === 'barcode' ? 'barcode' : 'SKU';
+            $matchLabel = $matchingMode === 'style_code'
+                ? 'style code'
+                : (($variants[0]['matched_via'] ?? 'sku') === 'barcode' ? 'barcode' : 'SKU');
 
-            // If the same SKU/barcode exists on multiple different products — skip and warn
+            // If the same SKU/barcode/style code exists on multiple different products — skip and warn
             $uniqueProductIds = array_unique(array_column($variants, 'product_id'));
             if (count($uniqueProductIds) > 1) {
                 $item->update([
@@ -90,8 +97,8 @@ class ProcessUploadItemJob implements ShouldQueue
                 'error_message' => null,
                 'product_id'    => $variants[0]['product_id'],
                 'product_title' => $variants[0]['product_title'],
-                'variant_id'    => $variants[0]['variant_id'],
-                'variant_sku'   => $variants[0]['variant_sku'],
+                'variant_id'    => $variants[0]['variant_id'] ?? null,
+                'variant_sku'   => $variants[0]['variant_sku'] ?? null,
             ]);
 
             // ── 2. Download from OneDrive using item ID (fresh — never expires) ──
@@ -110,6 +117,8 @@ class ProcessUploadItemJob implements ShouldQueue
             unset($rawContent);
 
             // ── 4. Upload to every product that shares this SKU ──
+            // (style_code mode: exactly one product by this point — ambiguous
+            // matches were already skipped above.)
             $processedSizeKb   = (int) round(strlen($processed) / 1024);
             $duplicateHandling = $session->duplicate_handling ?? 'skip';
             $firstImageId      = null;
@@ -118,14 +127,18 @@ class ProcessUploadItemJob implements ShouldQueue
             foreach ($variants as $variant) {
                 $existingImages = $shopify->getProductImages($variant['product_id']);
 
-                // Sibling files for this same SKU in this batch (e.g. _0, _1, _2)
-                // already carry this SKU's alt text once uploaded — exclude those
+                // Sibling files for this same identifier in this batch (e.g. _0, _1, _2)
+                // already carry this identifier's alt text once uploaded — exclude those
                 // from the duplicate check, or every image after the first would
-                // look like "already has image" and get skipped.
-                $ownUploadedImageIds = UploadItem::where('upload_session_id', $item->upload_session_id)
-                    ->where('variant_id', $variant['variant_id'])
+                // look like "already has image" and get skipped. Style-code matches have
+                // no variant, so dedupe against the product instead.
+                $ownUploadedQuery = UploadItem::where('upload_session_id', $item->upload_session_id)
                     ->where('status', 'uploaded')
-                    ->whereNotNull('shopify_image_id')
+                    ->whereNotNull('shopify_image_id');
+                $ownUploadedQuery = $matchingMode === 'style_code'
+                    ? $ownUploadedQuery->where('product_id', $variant['product_id'])
+                    : $ownUploadedQuery->where('variant_id', $variant['variant_id']);
+                $ownUploadedImageIds = $ownUploadedQuery
                     ->pluck('shopify_image_id')
                     ->map(fn ($id) => (string) $id)
                     ->all();
@@ -146,21 +159,32 @@ class ProcessUploadItemJob implements ShouldQueue
                     }
                 }
 
-                $isFirstForVariant = !UploadItem::where('upload_session_id', $item->upload_session_id)
-                    ->where('variant_id', $variant['variant_id'])
-                    ->where('status', 'uploaded')
-                    ->exists();
+                if ($matchingMode === 'style_code') {
+                    // Gallery-only upload — never linked to a variant.
+                    $shopifyImageId = $shopify->uploadImageToProduct(
+                        $variant['product_id'],
+                        $processed,
+                        $outputName,
+                        $item->sku_detected,
+                        null,
+                    );
+                } else {
+                    $isFirstForVariant = !UploadItem::where('upload_session_id', $item->upload_session_id)
+                        ->where('variant_id', $variant['variant_id'])
+                        ->where('status', 'uploaded')
+                        ->exists();
 
-                $shopifyImageId = $shopify->uploadImageToProduct(
-                    $variant['product_id'],
-                    $processed,
-                    $outputName,
-                    $item->sku_detected,
-                    $isFirstForVariant ? $variant['variant_id'] : null,
-                );
+                    $shopifyImageId = $shopify->uploadImageToProduct(
+                        $variant['product_id'],
+                        $processed,
+                        $outputName,
+                        $item->sku_detected,
+                        $isFirstForVariant ? $variant['variant_id'] : null,
+                    );
 
-                if ($isFirstForVariant && $shopifyImageId) {
-                    $shopify->setVariantImage($variant['variant_id'], $shopifyImageId);
+                    if ($isFirstForVariant && $shopifyImageId) {
+                        $shopify->setVariantImage($variant['variant_id'], $shopifyImageId);
+                    }
                 }
 
                 if (!$firstImageId) {
@@ -169,7 +193,7 @@ class ProcessUploadItemJob implements ShouldQueue
                 $allSkipped = false;
             }
 
-            // Every product already has an image for this SKU/barcode — nothing to upload
+            // Every product already has an image for this identifier — nothing to upload
             if ($allSkipped) {
                 $item->update([
                     'status'        => 'exists',

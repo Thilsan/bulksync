@@ -47,15 +47,41 @@
     <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
         <div class="px-6 py-5 border-b border-gray-100">
             <h2 class="font-semibold text-gray-800 text-lg">Upload Configuration</h2>
-            <p class="text-sm text-gray-500 mt-1">
+            <p class="text-sm text-gray-500 mt-1" x-show="matchingMode === 'sku_barcode'">
                 Organise your OneDrive folder with <strong class="text-gray-700">subfolders named by item code</strong>
                 — each subfolder name is matched to the Shopify product SKU, falling back to the barcode if no SKU matches.
+            </p>
+            <p class="text-sm text-gray-500 mt-1" x-show="matchingMode === 'style_code'" x-cloak>
+                Organise your OneDrive folder with <strong class="text-gray-700">subfolders named by style code</strong>
+                (e.g. <code class="text-xs bg-gray-100 px-1 py-0.5 rounded">W60830/126</code>) — each subfolder name is matched
+                to the style code at the start of the product's Shopify title. Matched images are added to that
+                product's <strong class="text-gray-700">photo gallery only</strong>; variants, SKU, and barcode are left untouched.
             </p>
         </div>
 
         <form method="POST" action="{{ route('upload.store') }}" class="px-6 py-5 space-y-6"
               @submit="loading = true">
             @csrf
+
+            {{-- Matching mode --}}
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1.5">Match by</label>
+                <div class="flex gap-2">
+                    <button type="button"
+                        @click="matchingMode = 'sku_barcode'"
+                        :class="matchingMode === 'sku_barcode' ? 'bg-brand-600 text-white border-brand-600' : 'bg-white text-gray-600 border-gray-300 hover:border-gray-400'"
+                        class="px-4 py-2 rounded-lg border text-sm font-medium transition-colors">
+                        SKU / Barcode
+                    </button>
+                    <button type="button"
+                        @click="matchingMode = 'style_code'"
+                        :class="matchingMode === 'style_code' ? 'bg-brand-600 text-white border-brand-600' : 'bg-white text-gray-600 border-gray-300 hover:border-gray-400'"
+                        class="px-4 py-2 rounded-lg border text-sm font-medium transition-colors">
+                        Style Code
+                    </button>
+                </div>
+                <input type="hidden" name="matching_mode" :value="matchingMode">
+            </div>
 
             {{-- Session name --}}
             <div>
@@ -188,10 +214,11 @@
 <script>
 function uploadForm() {
     return {
-        width:      {{ old('image_width', 'null') }},
-        height:     {{ old('image_height', 'null') }},
-        customMode: false,
-        loading:    false,
+        width:       {{ old('image_width', 'null') }},
+        height:      {{ old('image_height', 'null') }},
+        customMode:  false,
+        loading:     false,
+        matchingMode: '{{ old('matching_mode', 'sku_barcode') }}',
 
         setDimensions(w, h) {
             this.width      = w;

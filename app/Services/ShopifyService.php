@@ -415,6 +415,80 @@ class ShopifyService
         }
     }
 
+    /**
+     * Find products whose title starts with the given style code, e.g. an
+     * OneDrive folder "W60830-126" matching a product titled
+     * "W60830/126 T-Shirt Ivory 2 Ss26". Folder/file punctuation around the
+     * code (/, -, _, spaces) doesn't always match the title's punctuation
+     * exactly, so both sides are canonicalized (letters + digits only,
+     * uppercased) before comparing — only the leading alphanumeric run is
+     * sent to Shopify as a search prefix, since that portion is guaranteed
+     * to appear literally in the title before any separator.
+     */
+    public function findProductsByStyleCode(string $styleCode, bool $throwOnFailure = false): array
+    {
+        $canonical = $this->canonicalizeStyleCode($styleCode);
+        $prefix    = $this->leadingAlnumRun($styleCode);
+
+        if (!$canonical || !$prefix) {
+            return [];
+        }
+
+        $this->throttle();
+
+        try {
+            $response = $this->http->post(
+                "admin/api/{$this->apiVersion}/graphql.json",
+                [
+                    'json' => [
+                        'query'     => 'query($q:String!){products(first:50,query:$q){edges{node{id title status}}}}',
+                        'variables' => ['q' => "title:{$prefix}*"],
+                    ],
+                ]
+            );
+
+            $data  = json_decode((string) $response->getBody(), true);
+            $edges = $data['data']['products']['edges'] ?? [];
+
+            $matches = [];
+            foreach ($edges as $edge) {
+                $node       = $edge['node'];
+                $title      = trim($node['title'] ?? '');
+                $firstToken = strtok($title, " \t");
+
+                if ($firstToken === false || $this->canonicalizeStyleCode($firstToken) !== $canonical) {
+                    continue;
+                }
+
+                $matches[] = [
+                    'product_id'    => ltrim(str_replace('gid://shopify/Product/', '', $node['id']), '/'),
+                    'product_title' => $title,
+                    'published'     => ($node['status'] ?? '') === 'ACTIVE',
+                ];
+            }
+
+            return $matches;
+
+        } catch (\Throwable $e) {
+            Log::error("Shopify findProductsByStyleCode({$styleCode}) GraphQL failed: " . $e->getMessage());
+            if ($throwOnFailure) {
+                throw new \RuntimeException("Shopify style code lookup failed for {$styleCode}: " . $e->getMessage(), 0, $e);
+            }
+            return [];
+        }
+    }
+
+    private function canonicalizeStyleCode(string $raw): string
+    {
+        return strtoupper(preg_replace('/[^A-Za-z0-9]/', '', $raw));
+    }
+
+    private function leadingAlnumRun(string $raw): string
+    {
+        preg_match('/^[A-Za-z0-9]+/', trim($raw), $m);
+        return $m[0] ?? '';
+    }
+
     // ── Image upload ───────────────────────────────────────────────────────
 
     public function uploadImageToProduct(

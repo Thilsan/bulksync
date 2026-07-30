@@ -118,7 +118,7 @@
                 <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wide">
                     <tr>
                         <th class="px-5 py-3 text-left">Filename</th>
-                        <th class="px-5 py-3 text-left">SKU</th>
+                        <th class="px-5 py-3 text-left">{{ $session->matching_mode === 'style_code' ? 'Style Code' : 'SKU' }}</th>
                         <th class="px-5 py-3 text-left">Product</th>
                         <th class="px-5 py-3 text-center">Original</th>
                         <th class="px-5 py-3 text-center">Output</th>
