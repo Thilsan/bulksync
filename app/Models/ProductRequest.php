@@ -272,7 +272,14 @@ class ProductRequest extends Model
             return self::PIPELINE;
         }
 
-        return array_values(array_filter(self::PIPELINE, fn ($s) => $s !== self::WAITING_MAPPING));
+        // Keep the stage the request is *currently* sitting in, even when the
+        // website says it shouldn't exist — a website's mapping flag can be
+        // turned off while a request is parked in Waiting for Mapping, and a
+        // stepper that omits the live status renders as 0% with nothing lit up.
+        return array_values(array_filter(
+            self::PIPELINE,
+            fn ($s) => $s !== self::WAITING_MAPPING || $s === $this->status,
+        ));
     }
 
     /** Position within displayStages() — drives the stepper and the progress bar. */
