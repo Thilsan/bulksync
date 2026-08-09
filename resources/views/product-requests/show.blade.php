@@ -195,7 +195,7 @@
                                         $stepDone    = $currentStep > $globalIndex;
                                         $stepCurrent = $currentStep === $globalIndex;
                                     @endphp
-                                    <span class="inline-flex items-center gap-1.5">
+                                    <span class="inline-flex items-center gap-1.5" title="{{ $request->guideFor($stage)['what'] }}">
                                         <span class="w-1.5 h-1.5 rounded-full shrink-0
                                             {{ $stepDone ? 'bg-green-500' : ($stepCurrent ? 'bg-blue-600 ring-2 ring-blue-200' : 'bg-gray-300') }}"></span>
                                         <span class="text-[11px] leading-tight
@@ -212,6 +212,72 @@
                     @endforeach
                 </div>
             </div>
+        </div>
+    </div>
+
+    {{-- What has to happen next. The single thing a newcomer needs to read. --}}
+    @php
+        $guide  = $request->currentGuide();
+        $mine   = $request->isWaitingOn(auth()->user());
+        $closed = $request->isClosed();
+    @endphp
+    <div class="rounded-xl border shadow-sm px-5 py-4
+                {{ $closed ? 'bg-gray-50 border-gray-200' : ($mine ? 'bg-brand-50 border-brand-200' : 'bg-white border-gray-200') }}">
+        <div class="flex items-start gap-4">
+            <div class="w-9 h-9 rounded-lg flex items-center justify-center shrink-0
+                        {{ $closed ? 'bg-gray-200 text-gray-500' : ($mine ? 'bg-brand-600 text-white' : 'bg-amber-100 text-amber-700') }}">
+                <svg class="w-4.5 h-4.5" style="width:1.125rem;height:1.125rem" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="{{ $closed ? 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z' : 'M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z' }}"/>
+                </svg>
+            </div>
+
+            <div class="flex-1 min-w-0">
+                <div class="flex flex-wrap items-center gap-2">
+                    <h3 class="text-sm font-semibold text-gray-900">
+                        {{ $closed ? 'This request is closed' : 'What needs to happen next' }}
+                    </h3>
+                    @if($mine && !$closed)
+                        <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wide bg-brand-600 text-white">
+                            Your task
+                        </span>
+                    @endif
+                </div>
+
+                <p class="text-sm text-gray-700 mt-1">{{ $guide['what'] }}</p>
+
+                @unless($closed)
+                    <p class="text-xs text-gray-500 mt-2">
+                        <span class="font-medium text-gray-700">Responsible:</span>
+                        {{ $guide['role'] ?? 'Unassigned' }}
+                        @if($guide['owner'])
+                            &middot; {{ $guide['owner']->name }}
+                        @elseif($guide['field'])
+                            &middot; <span class="text-amber-600 font-medium">nobody assigned yet</span>
+                        @endif
+                        <span class="mx-1 text-gray-300">|</span>
+                        <span class="font-medium text-gray-700">Current stage:</span> {{ $request->statusLabel() }}
+                    </p>
+                @endunless
+            </div>
+
+            @unless($closed)
+                @if(!empty($transitions))
+                <button type="button" @click="showTransition = true"
+                        class="shrink-0 inline-flex items-center gap-2 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors self-center"
+                        style="background-color:#1d5a74" onmouseover="this.style.backgroundColor='#164659'" onmouseout="this.style.backgroundColor='#1d5a74'">
+                    Move to next stage
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7"/>
+                    </svg>
+                </button>
+                @elseif($request->isBlockedOnMapping())
+                <button type="button" @click="tab = 'skus'"
+                        class="shrink-0 inline-flex items-center gap-2 border border-amber-300 bg-white text-amber-700 text-sm font-medium px-4 py-2 rounded-lg hover:bg-amber-50 transition-colors self-center">
+                    Go to SKUs
+                </button>
+                @endif
+            @endunless
         </div>
     </div>
 
@@ -866,6 +932,14 @@
                                value="{{ $request->photoshoot_scheduled_at?->format('Y-m-d') }}"
                                class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
                     </div>
+                    <div class="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2.5 text-xs text-gray-600">
+                        <span class="font-medium text-gray-700">Suggested next:</span>
+                        {{ $request->suggestedNextStatus() ? $request->stageLabel($request->suggestedNextStatus()) : '—' }}
+                        @if($request->suggestedNextStatus())
+                            <p class="mt-1">{{ $request->guideFor($request->suggestedNextStatus())['what'] }}</p>
+                        @endif
+                    </div>
+
                     <div>
                         <label class="block text-xs font-medium text-gray-600 mb-1.5">Remarks</label>
                         <textarea name="remarks" rows="3" placeholder="Optional note recorded in the activity log"

@@ -589,6 +589,69 @@ class ProductRequestTest extends TestCase
             ->assertDontSee('Awaiting content sheet');
     }
 
+    // ── Guidance for people who don't know the process ───────────────────────
+
+    public function test_every_stage_tells_you_who_is_responsible_and_what_to_do(): void
+    {
+        $request = new ProductRequest(['status' => ProductRequest::SUBMITTED, 'use_ai_content' => true]);
+
+        // No stage may be left without guidance — that is the whole point.
+        foreach (ProductRequest::PIPELINE as $stage) {
+            $guide = $request->guideFor($stage);
+            $this->assertNotEmpty($guide['what'], "Stage {$stage} has no guidance text");
+        }
+
+        $this->assertSame('Supply Chain Team', $request->guideFor(ProductRequest::WAITING_MAPPING)['role']);
+        $this->assertSame('Photographer', $request->guideFor(ProductRequest::PHOTOSHOOT_SCHEDULED)['role']);
+        $this->assertSame('QA Team', $request->guideFor(ProductRequest::QA_REVIEW)['role']);
+    }
+
+    public function test_the_content_stage_guidance_changes_when_the_brand_team_supplies_copy(): void
+    {
+        $ai     = new ProductRequest(['status' => ProductRequest::AI_CONTENT, 'use_ai_content' => true]);
+        $manual = new ProductRequest(['status' => ProductRequest::AI_CONTENT, 'use_ai_content' => false]);
+
+        $this->assertStringContainsString('AI Content Generator', $ai->currentGuide()['what']);
+        $this->assertStringContainsString('brand team', $manual->currentGuide()['what']);
+    }
+
+    public function test_the_request_page_tells_the_assignee_it_is_their_task(): void
+    {
+        Notification::fake();
+
+        $user    = $this->brandManager();
+        $request = $this->submitFor($user, $this->plainSite(), 'GUIDE-1');
+
+        // Sitting at SKU Verified, which the E-Commerce owner drives.
+        $request->update(['assigned_to' => $user->id]);
+        $request->refresh();
+
+        $this->assertTrue($request->isWaitingOn($user));
+
+        $this->actingAs($user)->get(route('product-requests.show', $request))
+            ->assertOk()
+            ->assertSee('What needs to happen next')
+            ->assertSee('Your task');
+
+        // Someone else's stage shouldn't be badged as theirs.
+        $other = User::create([
+            'name' => 'Bystander', 'email' => 'by@example.test', 'password' => 'password',
+            'is_active' => true, 'perm_product_request' => true, 'pcr_role' => 'ecommerce',
+        ]);
+        $this->assertFalse($request->isWaitingOn($other));
+    }
+
+    public function test_the_dashboard_explains_the_process_to_newcomers(): void
+    {
+        $user = $this->brandManager();
+
+        $this->actingAs($user)->get(route('product-requests.index'))
+            ->assertOk()
+            ->assertSee('How this works')
+            ->assertSee('Who does what')
+            ->assertSee('Supply Chain');
+    }
+
     public function test_an_unknown_queue_is_not_found(): void
     {
         $user = $this->brandManager();

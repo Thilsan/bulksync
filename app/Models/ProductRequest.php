@@ -73,6 +73,90 @@ class ProductRequest extends Model
         self::CANCELLED            => 'bg-red-50 text-red-700 border-red-200',
     ];
 
+    /**
+     * Plain-English "who does what" for every stage.
+     *
+     * The workflow is obvious to the people who designed it and opaque to
+     * everyone else. This is the single source for the guidance shown on the
+     * request page, the stepper tooltips and the dashboard explainer, so the
+     * answer to "what am I meant to do?" is never buried in someone's head.
+     */
+    public const STAGE_GUIDE = [
+        self::SUBMITTED => [
+            'role'  => 'E-Commerce Team',
+            'field' => 'assigned_to',
+            'what'  => 'Review the request, check the SKU validation result, and assign the people who will work on it.',
+        ],
+        self::WAITING_MAPPING => [
+            'role'  => 'Supply Chain Team',
+            'field' => null,
+            'what'  => 'Map the outstanding SKUs in Cegid, then record the result on the SKUs tab. The request moves on by itself once every SKU is mapped — nobody needs to re-submit it.',
+        ],
+        self::SKU_VERIFIED => [
+            'role'  => 'E-Commerce Team',
+            'field' => 'assigned_to',
+            'what'  => 'Every SKU is mapped. Confirm where the images are coming from — supplier or photoshoot — and move the request to the next stage.',
+        ],
+        self::WAITING_IMAGES => [
+            'role'  => 'Photographer',
+            'field' => 'photographer_id',
+            'what'  => 'Gather the product images. If a photoshoot is needed, book it and set the shoot date when you move the request on.',
+        ],
+        self::PHOTOSHOOT_SCHEDULED => [
+            'role'  => 'Photographer',
+            'field' => 'photographer_id',
+            'what'  => 'Shoot the products on the scheduled date, then mark the photoshoot completed.',
+        ],
+        self::PHOTOSHOOT_COMPLETED => [
+            'role'  => 'Photographer',
+            'field' => 'photographer_id',
+            'what'  => 'Hand the raw images over to the E-Commerce team for editing.',
+        ],
+        self::IMAGE_EDITING => [
+            'role'  => 'E-Commerce Team',
+            'field' => 'assigned_to',
+            'what'  => 'Edit, crop and optimise the images so they are ready for the website.',
+        ],
+        self::AI_CONTENT => [
+            'role'  => 'Content Team',
+            'field' => 'content_owner_id',
+            'what'  => 'Generate the product copy — descriptions, meta titles and meta descriptions — using the AI Content Generator.',
+        ],
+        self::QA_REVIEW => [
+            'role'  => 'QA Team',
+            'field' => 'qa_owner_id',
+            'what'  => 'Check the images, copy and product data. If something needs rework, move the request back one stage with a remark explaining why.',
+        ],
+        self::READY_FOR_UPLOAD => [
+            'role'  => 'E-Commerce Team',
+            'field' => 'assigned_to',
+            'what'  => 'Everything is approved. Upload the products so they go live on the planned online launch date.',
+        ],
+        self::PUBLISHED => [
+            'role'  => 'E-Commerce Team',
+            'field' => 'assigned_to',
+            'what'  => 'Products are live on the website. Check them over, then close the request as completed.',
+        ],
+        self::COMPLETED => [
+            'role'  => null,
+            'field' => null,
+            'what'  => 'This request is finished. Nothing further to do.',
+        ],
+        self::CANCELLED => [
+            'role'  => null,
+            'field' => null,
+            'what'  => 'This request was cancelled and is no longer being worked on.',
+        ],
+    ];
+
+    /** Which relation holds the owner for each assignment column. */
+    private const OWNER_RELATIONS = [
+        'assigned_to'      => 'assignee',
+        'photographer_id'  => 'photographer',
+        'content_owner_id' => 'contentOwner',
+        'qa_owner_id'      => 'qaOwner',
+    ];
+
     /** The four people a request can be assigned to, and what to call each. */
     public const ASSIGNMENT_ROLES = [
         'assigned_to'      => 'E-Commerce Owner',
@@ -203,6 +287,59 @@ class ProductRequest extends Model
     public function contentSheets(): HasMany
     {
         return $this->attachments()->where('kind', ProductRequestAttachment::KIND_CONTENT);
+    }
+
+    /**
+     * Who is responsible for a stage and what they have to do, adjusted for this
+     * request's own settings.
+     *
+     * @return array{role: ?string, what: ?string, owner: ?User, field: ?string}
+     */
+    public function guideFor(string $stage): array
+    {
+        $guide = self::STAGE_GUIDE[$stage] ?? ['role' => null, 'field' => null, 'what' => null];
+
+        // The content stage means something different when the brand team writes
+        // the copy themselves.
+        if ($stage === self::AI_CONTENT && !$this->use_ai_content) {
+            $guide['what'] = $this->awaitingContentSheet()
+                ? 'The brand team is providing the copy themselves — chase them for the content sheet, then apply it to the products.'
+                : 'Apply the copy from the brand team\'s content sheet to the products.';
+        }
+
+        // Waiting for mapping is the one stage that can be blocked on someone
+        // outside the request's own assignment list.
+        if ($stage === self::WAITING_MAPPING && $this->total_skus > 0) {
+            $outstanding = $this->pending_skus + $this->not_mapped_skus;
+            $guide['what'] = "{$outstanding} of {$this->total_skus} SKUs still need mapping. " . $guide['what'];
+        }
+
+        $relation = $guide['field'] ? (self::OWNER_RELATIONS[$guide['field']] ?? null) : null;
+
+        return [
+            'role'  => $guide['role'],
+            'what'  => $guide['what'],
+            'field' => $guide['field'],
+            'owner' => $relation ? $this->{$relation} : null,
+        ];
+    }
+
+    /** Guidance for the stage the request is sitting in right now. */
+    public function currentGuide(): array
+    {
+        return $this->guideFor($this->status);
+    }
+
+    /** Is the logged-in user the person this stage is waiting on? */
+    public function isWaitingOn(?User $user): bool
+    {
+        if (!$user) {
+            return false;
+        }
+
+        $guide = $this->currentGuide();
+
+        return $guide['owner'] && (int) $guide['owner']->id === $user->id;
     }
 
     /** Brand team owes us a content sheet and hasn't sent one yet. */

@@ -35,6 +35,85 @@
         </div>
     </div>
 
+    {{-- First-timer orientation. Auto-open when there is nothing to look at yet,
+         collapsed once the team is up and running. --}}
+    <div class="bg-white rounded-xl border border-gray-200 shadow-sm"
+         x-data="{ how: {{ $stats['total'] === 0 ? 'true' : 'false' }} }">
+        <button type="button" @click="how = !how"
+                class="w-full flex items-center justify-between px-5 py-3.5 text-left hover:bg-gray-50/70 transition-colors rounded-xl">
+            <div class="flex items-center gap-2.5">
+                <div class="w-7 h-7 rounded-lg bg-brand-50 text-brand-600 flex items-center justify-center shrink-0">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                    </svg>
+                </div>
+                <div>
+                    <p class="text-sm font-semibold text-gray-800">New here? How this works</p>
+                    <p class="text-xs text-gray-400">What a product creation request is, and who does what.</p>
+                </div>
+            </div>
+            <svg :class="how ? 'rotate-180' : ''" class="w-4 h-4 text-gray-400 transition-transform shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+            </svg>
+        </button>
+
+        <div x-show="how" x-cloak class="px-5 pb-5 border-t border-gray-100 pt-4">
+            <p class="text-sm text-gray-600 mb-4">
+                A <span class="font-medium text-gray-800">product creation request</span> is how the brand team asks for new
+                products to be listed on the website. It replaces the old email chain: one request holds the SKUs, the launch
+                dates and every update, so anyone can see exactly where things stand without chasing people.
+            </p>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-4">
+                <div>
+                    <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">If you are raising a request</p>
+                    <ol class="space-y-1.5 text-sm text-gray-600 list-decimal list-inside">
+                        <li>Click <span class="font-medium text-gray-800">New Request</span> and pick the website.</li>
+                        <li>Enter the brand, category and the SKUs — typed in or from a CSV.</li>
+                        <li>Set the store and online launch dates.</li>
+                        <li>Say whether a photoshoot is needed, and whether AI should write the content.</li>
+                        <li>Submit. You do not need the SKUs mapped first.</li>
+                    </ol>
+                </div>
+
+                <div>
+                    <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">If work has been assigned to you</p>
+                    <ol class="space-y-1.5 text-sm text-gray-600 list-decimal list-inside">
+                        <li>Open <span class="font-medium text-gray-800">Assigned to Me</span> in the menu, or the bell at the top.</li>
+                        <li>Open the request — the panel at the top says exactly what is needed.</li>
+                        <li>Do the work, then click <span class="font-medium text-gray-800">Move to next stage</span>.</li>
+                        <li>Add a remark if anything needs explaining. It is kept in the activity log.</li>
+                    </ol>
+                </div>
+            </div>
+
+            <div class="mt-5 pt-4 border-t border-gray-100">
+                <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2.5">Who does what</p>
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-2">
+                    @foreach([
+                        'Brand Team'       => 'Raises the request and supplies content if AI is not used.',
+                        'Supply Chain'     => 'Maps the SKUs in Cegid and records it here.',
+                        'E-Commerce Team'  => 'Runs the request, edits images and uploads the products.',
+                        'Photographer'     => 'Schedules and shoots the products.',
+                        'Content Team'     => 'Produces the descriptions and meta content.',
+                        'QA Team'          => 'Reviews everything before it goes live.',
+                    ] as $team => $does)
+                        <div class="flex gap-2">
+                            <span class="w-1.5 h-1.5 rounded-full bg-brand-400 shrink-0 mt-1.5"></span>
+                            <p class="text-xs text-gray-600"><span class="font-medium text-gray-800">{{ $team }}</span> — {{ $does }}</p>
+                        </div>
+                    @endforeach
+                </div>
+            </div>
+
+            <p class="text-xs text-gray-400 mt-4">
+                Stages run: Submitted &rsaquo; SKU Verified &rsaquo; Photoshoot &rsaquo; Content &rsaquo; QA &rsaquo; Published.
+                If SKUs are not mapped yet the request waits with Supply Chain and then continues on its own.
+            </p>
+        </div>
+    </div>
+
     @include('product-requests.partials.stat-cards')
 
     {{-- Recent requests --}}
