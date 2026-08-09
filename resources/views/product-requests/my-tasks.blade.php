@@ -154,6 +154,9 @@
                                 <span class="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium border whitespace-nowrap {{ $item->statusColor() }}">
                                     {{ $item->statusLabel() }}
                                 </span>
+                                @if($item->isOnHold())
+                                    <p class="text-xs text-red-600 font-medium mt-0.5">On hold: {{ $item->hold_reason }}</p>
+                                @endif
                             </td>
                             <td class="px-3 py-3 whitespace-nowrap">
                                 @if($days === null)

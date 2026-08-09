@@ -46,6 +46,10 @@
             <p class="text-2xl font-semibold leading-tight {{ $overdue > 0 ? 'text-red-600' : 'text-gray-900' }}">{{ $overdue }}</p>
         </div>
         <div>
+            <p class="text-xs text-gray-500">Blocked</p>
+            <p class="text-2xl font-semibold leading-tight {{ $blocked > 0 ? 'text-red-600' : 'text-gray-900' }}">{{ $blocked }}</p>
+        </div>
+        <div>
             <p class="text-xs text-gray-500">Unassigned</p>
             <p class="text-2xl font-semibold leading-tight {{ $unassigned > 0 ? 'text-amber-600' : 'text-gray-900' }}">{{ $unassigned }}</p>
         </div>
@@ -80,7 +84,8 @@
                     @forelse($items as $item)
                         @php $days = $item->daysToOnlineLaunch(); @endphp
                         <a href="{{ route('product-requests.show', $item) }}"
-                           class="block bg-white rounded-lg border border-gray-200 px-3.5 py-3 hover:border-brand-300 hover:shadow-sm transition-all">
+                           class="block rounded-lg border px-3.5 py-3 hover:shadow-sm transition-all
+                                  {{ $item->isOnHold() ? 'bg-red-50 border-red-300 hover:border-red-400' : 'bg-white border-gray-200 hover:border-brand-300' }}">
 
                             <div class="flex items-start justify-between gap-2">
                                 <span class="text-sm font-semibold text-brand-600">{{ $item->reference }}</span>
@@ -91,6 +96,15 @@
 
                             <p class="text-sm text-gray-800 mt-0.5 truncate">{{ $item->brand }} / {{ $item->category }}</p>
                             <p class="text-xs text-gray-400 truncate">{{ $item->store?->name }} &middot; {{ number_format($item->total_skus) }} SKUs</p>
+
+                            @if($item->isOnHold())
+                                <p class="text-xs text-red-700 font-medium mt-1.5 flex items-start gap-1">
+                                    <svg class="w-3 h-3 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                    </svg>
+                                    <span>Blocked: {{ $item->hold_reason }}</span>
+                                </p>
+                            @endif
 
                             @if($queueKey === 'photoshoot')
                                 <p class="text-xs text-gray-500 mt-1.5">

@@ -130,6 +130,9 @@ Route::middleware('auth')->group(function () {
         Route::post('/{productRequest}/transition',        [ProductRequestController::class, 'transition'])->name('transition');
         Route::post('/{productRequest}/assign',            [ProductRequestController::class, 'assign'])->name('assign');
         Route::post('/{productRequest}/claim',             [ProductRequestController::class, 'claim'])->name('claim');
+        Route::post('/{productRequest}/reassign',          [ProductRequestController::class, 'reassign'])->name('reassign');
+        Route::post('/{productRequest}/hold',              [ProductRequestController::class, 'hold'])->name('hold');
+        Route::post('/{productRequest}/resume',            [ProductRequestController::class, 'resume'])->name('resume');
         Route::post('/{productRequest}/comment',           [ProductRequestController::class, 'comment'])->name('comment');
         Route::post('/{productRequest}/cancel',            [ProductRequestController::class, 'cancel'])->name('cancel');
 

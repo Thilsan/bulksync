@@ -20,6 +20,8 @@
         editing: false,
         showTransition: false,
         showCancel: false,
+        showHold: false,
+        showHandover: false,
         validating: {{ in_array($request->validation_status, ['pending', 'running'], true) ? 'true' : 'false' }},
         poll() {
             if (!this.validating) return;
@@ -223,9 +225,14 @@
         $claimable = $request->claimableBy($me);
         $closed    = $request->isClosed();
 
-        // One colour per ownership state so "is this mine?" is answerable at a glance.
+        $onHold = $request->isOnHold();
+        $held   = $request->heldForDays();
+
+        // One colour per state. Being blocked outranks whose task it is —
+        // nothing can move until the blocker is cleared.
         [$panelBg, $iconBg, $heading] = match (true) {
             $closed                  => ['bg-gray-50 border-gray-200',    'bg-gray-200 text-gray-500',   'This request is closed'],
+            $onHold                  => ['bg-red-50 border-red-300',      'bg-red-600 text-white',       'On hold — work is blocked'],
             $ownership === 'mine'    => ['bg-brand-50 border-brand-300',  'bg-brand-600 text-white',     'This is your task'],
             $ownership === 'my_team' => ['bg-amber-50 border-amber-300',  'bg-amber-500 text-white',     'Waiting on your team'],
             default                  => ['bg-white border-gray-200',      'bg-gray-100 text-gray-500',   'What needs to happen next'],
@@ -236,11 +243,13 @@
             <div class="w-9 h-9 rounded-lg flex items-center justify-center shrink-0 {{ $iconBg }}">
                 <svg class="w-4.5 h-4.5" style="width:1.125rem;height:1.125rem" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="{{ $closed
+                        d="{{ $onHold && !$closed
+                            ? 'M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z'
+                            : ($closed
                             ? 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z'
                             : ($ownership === 'mine' || $ownership === 'my_team'
                                 ? 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4'
-                                : 'M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z') }}"/>
+                                : 'M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z')) }}"/>
                 </svg>
             </div>
 
@@ -248,7 +257,11 @@
                 <div class="flex flex-wrap items-center gap-2">
                     <h3 class="text-sm font-semibold text-gray-900">{{ $heading }}</h3>
 
-                    @if($ownership === 'mine')
+                    @if($onHold && !$closed)
+                        <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wide bg-red-600 text-white">
+                            Blocked{{ $held !== null && $held > 0 ? " · {$held}d" : '' }}
+                        </span>
+                    @elseif($ownership === 'mine')
                         <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wide bg-brand-600 text-white">
                             Assigned to you
                         </span>
@@ -259,7 +272,21 @@
                     @endif
                 </div>
 
-                <p class="text-sm text-gray-700 mt-1">{{ $guide['what'] }}</p>
+                @if($onHold && !$closed)
+                    <p class="text-sm text-red-900 mt-1">
+                        <span class="font-semibold">{{ $request->hold_reason }}</span>
+                    </p>
+                    <p class="text-xs text-red-700 mt-0.5">
+                        Flagged by {{ $request->holdSetter?->name ?? 'someone' }}
+                        {{ $request->hold_since ? $request->hold_since->diffForHumans() : '' }}.
+                        Nothing moves until this is resolved.
+                    </p>
+                    <p class="text-xs text-gray-600 mt-2">
+                        When unblocked: {{ $guide['what'] }}
+                    </p>
+                @else
+                    <p class="text-sm text-gray-700 mt-1">{{ $guide['what'] }}</p>
+                @endif
 
                 @unless($closed)
                     {{-- Say plainly whose court the ball is in. --}}
@@ -283,6 +310,20 @@
 
             @unless($closed)
             <div class="shrink-0 flex flex-col gap-2 self-center">
+                @if($onHold)
+                    <form method="POST" action="{{ route('product-requests.resume', $request) }}">
+                        @csrf
+                        <button type="submit"
+                                class="w-full inline-flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/>
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                            </svg>
+                            Unblock &amp; resume
+                        </button>
+                    </form>
+                @endif
+
                 @if($claimable)
                     <form method="POST" action="{{ route('product-requests.claim', $request) }}">
                         @csrf
@@ -312,6 +353,22 @@
                     Go to SKUs
                 </button>
                 @endif
+
+                {{-- Secondary actions: report a blocker, or pass the task on. --}}
+                <div class="flex gap-2">
+                    @unless($onHold)
+                        <button type="button" @click="showHold = true"
+                                class="flex-1 text-xs font-medium px-3 py-1.5 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 transition-colors whitespace-nowrap">
+                            Report a blocker
+                        </button>
+                    @endunless
+                    @if($guide['field'])
+                        <button type="button" @click="showHandover = true"
+                                class="flex-1 text-xs font-medium px-3 py-1.5 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 transition-colors whitespace-nowrap">
+                            Hand over
+                        </button>
+                    @endif
+                </div>
             </div>
             @endunless
         </div>
@@ -986,6 +1043,76 @@
                     <button type="button" @click="showTransition = false"
                             class="border border-gray-300 text-gray-700 text-sm font-medium px-4 py-2 rounded-lg hover:bg-gray-100 transition-colors">Cancel</button>
                     <button type="submit" class="bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">Update Status</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    {{-- Modal: report a blocker --}}
+    <div x-show="showHold" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div class="absolute inset-0 bg-gray-900/40" @click="showHold = false"></div>
+        <div class="relative bg-white rounded-xl shadow-2xl w-full max-w-md">
+            <form method="POST" action="{{ route('product-requests.hold', $request) }}">
+                @csrf
+                <div class="px-5 py-4 border-b border-gray-100">
+                    <h3 class="text-base font-semibold text-gray-900">Report a blocker</h3>
+                    <p class="text-sm text-gray-500 mt-0.5">
+                        The request stays at {{ $request->statusLabel() }} and is flagged as blocked. Everyone involved is notified.
+                    </p>
+                </div>
+                <div class="px-5 py-4 space-y-3">
+                    <label class="block text-xs font-medium text-gray-600">What is blocking this? <span class="text-red-500">*</span></label>
+                    @foreach(\App\Models\ProductRequest::HOLD_REASONS as $reason)
+                        <label class="flex items-center gap-2 cursor-pointer">
+                            <input type="radio" name="hold_reason" value="{{ $reason }}" class="text-brand-600 focus:ring-brand-500">
+                            <span class="text-sm text-gray-700">{{ $reason }}</span>
+                        </label>
+                    @endforeach
+                    <div>
+                        <label class="block text-xs font-medium text-gray-600 mb-1.5 mt-2">Or describe it</label>
+                        <input type="text" name="hold_reason_other" maxlength="255" placeholder="e.g. Only 12 of 45 samples arrived"
+                               class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
+                    </div>
+                </div>
+                <div class="px-5 py-4 bg-gray-50 border-t border-gray-100 flex gap-2 justify-end">
+                    <button type="button" @click="showHold = false"
+                            class="border border-gray-300 text-gray-700 text-sm font-medium px-4 py-2 rounded-lg hover:bg-gray-100 transition-colors">Cancel</button>
+                    <button type="submit" class="bg-red-600 hover:bg-red-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">Put on hold</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    {{-- Modal: hand the current stage to someone else --}}
+    <div x-show="showHandover" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div class="absolute inset-0 bg-gray-900/40" @click="showHandover = false"></div>
+        <div class="relative bg-white rounded-xl shadow-2xl w-full max-w-md">
+            <form method="POST" action="{{ route('product-requests.reassign', $request) }}">
+                @csrf
+                <div class="px-5 py-4 border-b border-gray-100">
+                    <h3 class="text-base font-semibold text-gray-900">Hand this task over</h3>
+                    <p class="text-sm text-gray-500 mt-0.5">
+                        Choose who takes over as <span class="font-medium">{{ $guide['role'] }}</span>. They are notified straight away.
+                    </p>
+                </div>
+                <div class="px-5 py-4">
+                    <label class="block text-xs font-medium text-gray-600 mb-1.5">Hand over to <span class="text-red-500">*</span></label>
+                    <select name="user_id" required
+                            class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
+                        <option value="">Select a person…</option>
+                        @foreach($teamPool as $member)
+                            @continue($guide['owner'] && $member->id === $guide['owner']->id)
+                            <option value="{{ $member->id }}">
+                                {{ $member->name }}@if($member->pcr_role) — {{ $member->pcrRoleLabel() }}@endif
+                            </option>
+                        @endforeach
+                    </select>
+                    <p class="text-xs text-gray-400 mt-1.5">The hand-over is recorded in the activity log.</p>
+                </div>
+                <div class="px-5 py-4 bg-gray-50 border-t border-gray-100 flex gap-2 justify-end">
+                    <button type="button" @click="showHandover = false"
+                            class="border border-gray-300 text-gray-700 text-sm font-medium px-4 py-2 rounded-lg hover:bg-gray-100 transition-colors">Cancel</button>
+                    <button type="submit" class="bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">Hand over</button>
                 </div>
             </form>
         </div>

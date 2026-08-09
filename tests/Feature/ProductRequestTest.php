@@ -7,6 +7,7 @@ use App\Models\ProductRequestActivity;
 use App\Models\Store;
 use App\Models\User;
 use App\Notifications\ProductRequestAssigned;
+use App\Notifications\ProductRequestHoldChanged;
 use App\Notifications\ProductRequestStatusChanged;
 use App\Services\ProductRequestWorkflow;
 use App\Services\SkuMappingService;
@@ -716,6 +717,121 @@ class ProductRequestTest extends TestCase
             ->assertSessionHasErrors('claim');
 
         $this->assertSame($ecom->id, $request->fresh()->assigned_to);
+    }
+
+    // ── Blocked work and hand-over ───────────────────────────────────────────
+
+    public function test_a_photographer_can_report_that_samples_never_arrived(): void
+    {
+        Notification::fake();
+
+        $requester = $this->brandManager();
+        $request   = $this->submitFor($requester, $this->plainSite(), 'HOLD-1');
+
+        $shooter = User::create([
+            'name' => 'Shooter', 'email' => 'shoot@example.test', 'password' => 'password',
+            'is_active' => true, 'perm_product_request' => true, 'pcr_role' => 'photographer',
+        ]);
+
+        $request->update(['status' => ProductRequest::PHOTOSHOOT_SCHEDULED, 'photographer_id' => $shooter->id]);
+        $request->refresh();
+
+        $this->actingAs($shooter)->post(route('product-requests.hold', $request), [
+            'hold_reason' => 'Samples not received at studio',
+        ])->assertRedirect();
+
+        $request->refresh();
+
+        $this->assertTrue($request->isOnHold());
+        $this->assertSame('Samples not received at studio', $request->hold_reason);
+        $this->assertSame($shooter->id, $request->hold_by);
+        $this->assertNotNull($request->hold_since);
+
+        // The stage does not move — the request is blocked where it stands.
+        $this->assertSame(ProductRequest::PHOTOSHOOT_SCHEDULED, $request->status);
+
+        // Everyone involved hears about it, including the person who raised it.
+        Notification::assertSentTo($requester, ProductRequestHoldChanged::class);
+
+        $this->actingAs($shooter)->get(route('product-requests.show', $request))
+            ->assertOk()
+            ->assertSee('On hold — work is blocked')
+            ->assertSee('Samples not received at studio');
+    }
+
+    public function test_a_free_text_blocker_is_accepted_and_can_be_cleared(): void
+    {
+        Notification::fake();
+
+        $user    = $this->brandManager();
+        $request = $this->submitFor($user, $this->plainSite(), 'HOLD-2');
+
+        $this->actingAs($user)->post(route('product-requests.hold', $request), [
+            'hold_reason_other' => 'Only 12 of 45 samples arrived',
+        ])->assertRedirect();
+
+        $this->assertSame('Only 12 of 45 samples arrived', $request->fresh()->hold_reason);
+
+        $this->actingAs($user)->post(route('product-requests.resume', $request))->assertRedirect();
+
+        $request->refresh();
+
+        $this->assertFalse($request->isOnHold());
+        $this->assertNull($request->hold_reason);
+        $this->assertNull($request->hold_by);
+
+        // Both events are in the trail, so the stall is auditable after the fact.
+        $trail = ProductRequestActivity::where('product_request_id', $request->id)->pluck('action');
+        $this->assertContains('on_hold', $trail->all());
+        $this->assertContains('resumed', $trail->all());
+    }
+
+    public function test_a_blocker_needs_a_reason(): void
+    {
+        Notification::fake();
+
+        $user    = $this->brandManager();
+        $request = $this->submitFor($user, $this->plainSite(), 'HOLD-3');
+
+        $this->actingAs($user)->post(route('product-requests.hold', $request), [
+            'hold_reason'       => '',
+            'hold_reason_other' => '   ',
+        ])->assertSessionHasErrors('hold_reason');
+
+        $this->assertFalse($request->fresh()->isOnHold());
+    }
+
+    public function test_a_task_can_be_handed_to_someone_else(): void
+    {
+        Notification::fake();
+
+        $requester = $this->brandManager();
+        $request   = $this->submitFor($requester, $this->plainSite(), 'HAND-1');
+
+        $first = User::create([
+            'name' => 'First Shooter', 'email' => 'first@example.test', 'password' => 'password',
+            'is_active' => true, 'perm_product_request' => true, 'pcr_role' => 'photographer',
+        ]);
+        $second = User::create([
+            'name' => 'Second Shooter', 'email' => 'second@example.test', 'password' => 'password',
+            'is_active' => true, 'perm_product_request' => true, 'pcr_role' => 'photographer',
+        ]);
+
+        $request->update(['status' => ProductRequest::PHOTOSHOOT_SCHEDULED, 'photographer_id' => $first->id]);
+        $request->refresh();
+
+        $this->actingAs($first)->post(route('product-requests.reassign', $request), [
+            'user_id' => $second->id,
+        ])->assertRedirect();
+
+        $request->refresh();
+
+        // Hand-over writes to the stage's own slot, not some generic field.
+        $this->assertSame($second->id, $request->photographer_id);
+        $this->assertSame('mine', $request->ownershipFor($second));
+        $this->assertSame('other', $request->ownershipFor($first));
+
+        Notification::assertSentTo($second, ProductRequestAssigned::class);
     }
 
     public function test_the_dashboard_explains_the_process_to_newcomers(): void

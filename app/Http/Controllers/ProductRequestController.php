@@ -10,6 +10,7 @@ use App\Models\ProductRequestSku;
 use App\Models\Store;
 use App\Models\User;
 use App\Notifications\ProductRequestAssigned;
+use App\Notifications\ProductRequestHoldChanged;
 use App\Services\ProductRequestWorkflow;
 use App\Services\SkuMappingService;
 use Illuminate\Container\Attributes\CurrentUser;
@@ -18,6 +19,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
+use Illuminate\Support\Facades\Notification as NotificationFacade;
 use Illuminate\View\View;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -275,6 +277,7 @@ class ProductRequestController extends Controller implements HasMiddleware
             'columns'    => $columns,
             'total'      => $requests->count(),
             'overdue'    => $requests->filter->isOverdue()->count(),
+            'blocked'    => $requests->filter->isOnHold()->count(),
             'unassigned' => $requests->whereNull($config['owner_field'])->count(),
         ]);
     }
@@ -717,6 +720,138 @@ class ProductRequestController extends Controller implements HasMiddleware
         );
 
         return back()->with('success', "You are now the {$guide['role']} on this request.");
+    }
+
+    /**
+     * Flag that work has stalled — most often that the samples never reached
+     * the studio, so the photographer physically cannot shoot. The request keeps
+     * its stage; it is just visibly blocked, and everyone involved is told.
+     */
+    public function hold(Request $request, ProductRequest $productRequest, #[CurrentUser] User $user): RedirectResponse
+    {
+        $this->authorizeView($productRequest, $user);
+
+        abort_if($productRequest->isClosed(), 403, 'This request is closed.');
+
+        $data = $request->validate([
+            'hold_reason'       => 'required_without:hold_reason_other|nullable|string|max:255',
+            'hold_reason_other' => 'nullable|string|max:255',
+        ]);
+
+        $reason = trim($data['hold_reason_other'] ?? '') ?: trim((string) ($data['hold_reason'] ?? ''));
+
+        if ($reason === '') {
+            return back()->withErrors(['hold_reason' => 'Please give a reason so the team knows what is blocking this.']);
+        }
+
+        $productRequest->update([
+            'on_hold'     => true,
+            'hold_reason' => $reason,
+            'hold_since'  => now(),
+            'hold_by'     => $user->id,
+        ]);
+
+        $this->workflow->log(
+            request:     $productRequest,
+            action:      'on_hold',
+            description: 'Request put on hold',
+            actor:       $user,
+            remarks:     $reason,
+        );
+
+        $this->notifyHold($productRequest, $user);
+
+        return back()->with('success', 'Request put on hold. Everyone involved has been notified.');
+    }
+
+    /** Clear the block and put the request back in play at the same stage. */
+    public function resume(ProductRequest $productRequest, #[CurrentUser] User $user): RedirectResponse
+    {
+        $this->authorizeView($productRequest, $user);
+
+        if (!$productRequest->isOnHold()) {
+            return back();
+        }
+
+        $was = $productRequest->hold_reason;
+
+        $productRequest->update([
+            'on_hold'     => false,
+            'hold_reason' => null,
+            'hold_since'  => null,
+            'hold_by'     => null,
+        ]);
+
+        $this->workflow->log(
+            request:     $productRequest,
+            action:      'resumed',
+            description: 'Request taken off hold',
+            actor:       $user,
+            remarks:     $was ? "Was blocked by: {$was}" : null,
+        );
+
+        $this->notifyHold($productRequest, $user);
+
+        return back()->with('success', 'Request is back in progress.');
+    }
+
+    /**
+     * Hand the current stage to someone else. The photographer who can't do a
+     * shoot needs to pass it on without an admin rewiring the whole assignment
+     * panel.
+     */
+    public function reassign(Request $request, ProductRequest $productRequest, #[CurrentUser] User $user): RedirectResponse
+    {
+        $this->authorizeView($productRequest, $user);
+
+        abort_if($productRequest->isClosed(), 403, 'This request is closed.');
+
+        $data = $request->validate(['user_id' => 'required|exists:users,id']);
+
+        $guide = $productRequest->currentGuide();
+        $field = $guide['field'];
+
+        if (!$field) {
+            return back()->withErrors(['user_id' => 'This stage has no owner to hand over.']);
+        }
+
+        $newOwner = User::find($data['user_id']);
+
+        if (!$newOwner?->is_active) {
+            return back()->withErrors(['user_id' => 'That user is not active.']);
+        }
+
+        $productRequest->update([$field => $newOwner->id]);
+
+        $this->workflow->log(
+            request:     $productRequest,
+            action:      'assigned',
+            description: "Handed over to {$newOwner->name} as {$guide['role']}",
+            actor:       $user,
+        );
+
+        if ($newOwner->id !== $user->id) {
+            $newOwner->notify(ProductRequestAssigned::forRequest($productRequest, $guide['role'], $user->name));
+        }
+
+        return back()->with('success', "Handed over to {$newOwner->name}.");
+    }
+
+    private function notifyHold(ProductRequest $productRequest, User $actor): void
+    {
+        try {
+            $recipients = $this->workflow->recipients($productRequest->fresh());
+
+            if ($recipients->isNotEmpty()) {
+                NotificationFacade::send(
+                    $recipients,
+                    ProductRequestHoldChanged::forRequest($productRequest->fresh(), $actor->name),
+                );
+            }
+        } catch (\Throwable $e) {
+            // Never let a notification failure undo the hold the user just set.
+            report($e);
+        }
     }
 
     public function comment(Request $request, ProductRequest $productRequest, #[CurrentUser] User $user): RedirectResponse

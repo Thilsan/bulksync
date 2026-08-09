@@ -146,6 +146,9 @@
                         <td class="px-5 py-3">
                             @if($item->isClosed())
                                 <span class="text-gray-400">—</span>
+                            @elseif($item->isOnHold())
+                                <span class="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-semibold bg-red-600 text-white">On hold</span>
+                                <p class="text-xs text-red-600 truncate max-w-[10rem]" title="{{ $item->hold_reason }}">{{ $item->hold_reason }}</p>
                             @elseif($own === 'mine')
                                 <span class="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-semibold bg-brand-600 text-white">You</span>
                                 <p class="text-xs text-gray-400">{{ $g['role'] }}</p>

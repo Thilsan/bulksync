@@ -221,6 +221,10 @@ class ProductRequest extends Model
         'photographer_id',
         'content_owner_id',
         'qa_owner_id',
+        'on_hold',
+        'hold_reason',
+        'hold_since',
+        'hold_by',
         'published_at',
         'completed_at',
         'cancelled_at',
@@ -236,6 +240,8 @@ class ProductRequest extends Model
             'supplier_images_available' => 'boolean',
             'photoshoot_required'       => 'boolean',
             'use_ai_content'            => 'boolean',
+            'on_hold'                   => 'boolean',
+            'hold_since'                => 'datetime',
             'validated_at'              => 'datetime',
             'published_at'              => 'datetime',
             'completed_at'              => 'datetime',
@@ -300,6 +306,45 @@ class ProductRequest extends Model
     public function contentSheets(): HasMany
     {
         return $this->attachments()->where('kind', ProductRequestAttachment::KIND_CONTENT);
+    }
+
+    /**
+     * Common reasons work stalls, offered as one-click picks so the reason is
+     * consistent enough to report on. Free text is always allowed as well.
+     */
+    public const HOLD_REASONS = [
+        'Samples not received at studio',
+        'Waiting for product samples from supplier',
+        'Studio or photographer unavailable',
+        'Waiting on brand team for information',
+        'Waiting on supplier images',
+        'Launch postponed by the brand',
+    ];
+
+    public function isOnHold(): bool
+    {
+        return (bool) $this->on_hold && !$this->isClosed();
+    }
+
+    /** Whole days this request has been stalled — the number worth escalating on. */
+    public function heldForDays(): ?int
+    {
+        if (!$this->isOnHold() || !$this->hold_since) {
+            return null;
+        }
+
+        return (int) $this->hold_since->startOfDay()->diffInDays(now()->startOfDay());
+    }
+
+    public function holdSetter(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'hold_by');
+    }
+
+    public function scopeOnHold($query)
+    {
+        return $query->where('on_hold', true)
+            ->whereNotIn('status', [self::COMPLETED, self::CANCELLED]);
     }
 
     /**
