@@ -197,9 +197,7 @@
                             @else
                                 Not validated yet
                             @endif
-                            @unless($cegidAutomatic)
-                                &middot; <span class="text-amber-600">Cegid lookup not connected — mapping is recorded manually</span>
-                            @endunless
+                            &middot; <span class="text-gray-500">Supply Chain records mapping on the SKUs tab</span>
                         </p>
                     </div>
                     <form method="POST" action="{{ route('product-requests.revalidate', $request) }}">
@@ -431,27 +429,36 @@
                         </div>
                     </form>
 
-                    {{-- Supply Chain: record Cegid mapping --}}
-                    <form method="POST" action="{{ route('product-requests.skus.cegid', $request) }}" class="mb-4">
+                    {{-- Supply Chain records the mapping outcome here. --}}
+                    <form method="POST" action="{{ route('product-requests.skus.mapping', $request) }}" class="mb-4">
                         @csrf
                         <template x-for="id in selected" :key="id">
                             <input type="hidden" name="sku_ids[]" :value="id">
                         </template>
-                        <div class="flex flex-wrap items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2.5">
-                            <span class="text-xs font-medium text-gray-600">Supply Chain —</span>
-                            <span class="text-xs text-gray-500"><span x-text="selected.length"></span> selected</span>
-                            <div class="flex-1"></div>
-                            <button type="submit" name="in_cegid" value="1" :disabled="!selected.length"
-                                    class="text-xs font-medium px-3 py-1.5 rounded-lg transition-colors bg-green-600 hover:bg-green-700 text-white disabled:opacity-40 disabled:cursor-not-allowed">
-                                Mark selected as mapped in Cegid
-                            </button>
-                            <button type="submit" name="in_cegid" value="0" :disabled="!selected.length"
-                                    class="text-xs font-medium px-3 py-1.5 rounded-lg transition-colors border border-gray-300 text-gray-700 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed">
-                                Mark not mapped
-                            </button>
+                        <div class="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2.5">
+                            <div class="flex flex-wrap items-center gap-2">
+                                <span class="text-xs font-medium text-gray-600">Supply Chain — update mapping status</span>
+                                <span class="text-xs text-gray-500">(<span x-text="selected.length"></span> selected)</span>
+                                <div class="flex-1"></div>
+                                <button type="submit" name="mapping_status" value="{{ \App\Models\ProductRequest::MAP_MAPPED }}" :disabled="!selected.length"
+                                        class="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors bg-green-600 hover:bg-green-700 text-white disabled:opacity-40 disabled:cursor-not-allowed">
+                                    <span class="w-1.5 h-1.5 rounded-full bg-white"></span> Mapped
+                                </button>
+                                <button type="submit" name="mapping_status" value="{{ \App\Models\ProductRequest::MAP_PENDING }}" :disabled="!selected.length"
+                                        class="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors bg-amber-500 hover:bg-amber-600 text-white disabled:opacity-40 disabled:cursor-not-allowed">
+                                    <span class="w-1.5 h-1.5 rounded-full bg-white"></span> Pending
+                                </button>
+                                <button type="submit" name="mapping_status" value="{{ \App\Models\ProductRequest::MAP_NOT_MAPPED }}" :disabled="!selected.length"
+                                        class="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors bg-red-600 hover:bg-red-700 text-white disabled:opacity-40 disabled:cursor-not-allowed">
+                                    <span class="w-1.5 h-1.5 rounded-full bg-white"></span> Not Mapped
+                                </button>
+                            </div>
+                            <input type="text" name="mapping_note" maxlength="255" placeholder="Optional note — e.g. awaiting supplier article code"
+                                   class="w-full mt-2 rounded-lg border border-gray-300 px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500">
                         </div>
                         <p class="text-xs text-gray-400 mt-1.5">
-                            Marking the last outstanding SKU releases the request to <span class="font-medium">SKU Verified</span> automatically.
+                            Mapping is done in Cegid by Supply Chain and recorded here. Marking the last outstanding SKU as
+                            <span class="font-medium">Mapped</span> releases the request to <span class="font-medium">SKU Verified</span> automatically.
                         </p>
                     </form>
                     @endunless
@@ -472,8 +479,8 @@
                                     @endunless
                                     <th class="py-2 pr-3 font-medium">SKU</th>
                                     <th class="py-2 pr-3 font-medium">Mapping Status</th>
-                                    <th class="py-2 pr-3 font-medium">Cegid</th>
-                                    <th class="py-2 pr-3 font-medium">Shopify</th>
+                                    <th class="py-2 pr-3 font-medium">Recorded By</th>
+                                    <th class="py-2 pr-3 font-medium">In Shopify</th>
                                     <th class="py-2 pr-3 font-medium">Product</th>
                                     <th class="py-2 font-medium">Last Checked</th>
                                 </tr>
@@ -495,7 +502,10 @@
                                         </span>
                                     </td>
                                     <td class="py-2.5 pr-3 text-xs text-gray-600">
-                                        {{ $sku->in_cegid === null ? 'Unknown' : ($sku->in_cegid ? 'Yes' : 'No') }}
+                                        <span class="{{ $sku->isManuallySet() ? '' : 'text-gray-400 italic' }}">{{ $sku->sourceLabel() }}</span>
+                                        @if($sku->mapping_note)
+                                            <p class="text-gray-400">{{ $sku->mapping_note }}</p>
+                                        @endif
                                     </td>
                                     <td class="py-2.5 pr-3 text-xs text-gray-600">{{ $sku->in_shopify ? 'Yes' : 'No' }}</td>
                                     <td class="py-2.5 pr-3 text-xs text-gray-600 max-w-xs truncate">{{ $sku->shopify_product_title ?: '—' }}</td>

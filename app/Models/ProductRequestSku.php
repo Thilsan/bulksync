@@ -11,7 +11,9 @@ class ProductRequestSku extends Model
         'product_request_id',
         'sku',
         'mapping_status',
-        'in_cegid',
+        'mapping_set_by',
+        'mapping_set_at',
+        'mapping_note',
         'in_shopify',
         'shopify_product_id',
         'shopify_product_title',
@@ -22,9 +24,9 @@ class ProductRequestSku extends Model
     protected function casts(): array
     {
         return [
-            'in_cegid'          => 'boolean',
             'in_shopify'        => 'boolean',
             'shopify_published' => 'boolean',
+            'mapping_set_at'    => 'datetime',
             'last_checked_at'   => 'datetime',
         ];
     }
@@ -53,6 +55,18 @@ class ProductRequestSku extends Model
         return $this->belongsTo(ProductRequest::class);
     }
 
+    /** The Supply Chain user who recorded the mapping outcome, if anyone has. */
+    public function mappedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'mapping_set_by');
+    }
+
+    /** True once a human has set the status — the automatic check leaves it alone. */
+    public function isManuallySet(): bool
+    {
+        return $this->mapping_set_by !== null;
+    }
+
     public function label(): string
     {
         return self::LABELS[$this->mapping_status] ?? $this->mapping_status;
@@ -66,5 +80,14 @@ class ProductRequestSku extends Model
     public function dot(): string
     {
         return self::DOTS[$this->mapping_status] ?? 'bg-gray-400';
+    }
+
+    public function sourceLabel(): string
+    {
+        if ($this->isManuallySet()) {
+            return $this->mappedBy?->name ?? 'Supply Chain';
+        }
+
+        return $this->in_shopify ? 'Auto (found in Shopify)' : 'Awaiting Supply Chain';
     }
 }

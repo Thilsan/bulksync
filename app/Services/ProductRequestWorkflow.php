@@ -121,7 +121,7 @@ class ProductRequestWorkflow
                 $request,
                 ProductRequest::SKU_VERIFIED,
                 $actor,
-                "All {$request->total_skus} SKUs mapped in Cegid & Shopify.",
+                "All {$request->total_skus} SKUs mapped — ready for the E-Commerce team.",
             );
         }
     }

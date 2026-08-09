@@ -13,11 +13,13 @@ use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
 
 /**
- * Re-resolves every request that is still waiting on Supply Chain and releases
- * the ones that have since been mapped.
+ * Re-checks every request still waiting on Supply Chain and releases the ones
+ * that have since been mapped.
  *
  * This is what makes "no re-submission needed" true: the brand team files once,
- * and the request moves to SKU Verified by itself as soon as Cegid catches up.
+ * and the request moves to SKU Verified by itself as soon as the mapping is
+ * recorded — whether that came from Supply Chain's entry or the read-only
+ * Shopify check picking the product up.
  */
 class RecheckProductRequestMappingsJob implements ShouldQueue
 {

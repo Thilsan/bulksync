@@ -244,7 +244,7 @@ class ProductRequest extends Model
         return $this->status === self::WAITING_MAPPING;
     }
 
-    /** Every SKU resolved in Cegid/Shopify — the gate for leaving "Waiting for Mapping". */
+    /** Every SKU mapped — the gate for leaving "Waiting for Mapping". */
     public function isFullyMapped(): bool
     {
         return $this->total_skus > 0 && $this->mapped_skus === $this->total_skus;

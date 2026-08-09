@@ -109,8 +109,9 @@
                     </div>
 
                     <p class="text-xs text-gray-400 mt-2">
-                        You can submit even if SKUs are not yet mapped in Cegid or Shopify — the request will move to
-                        <span class="font-medium text-amber-600">Waiting for Mapping</span> and continue automatically once mapping is done.
+                        You can submit even if the SKUs or brand are not mapped yet — the request will move to
+                        <span class="font-medium text-amber-600">Waiting for Mapping</span> and continue automatically once
+                        Supply Chain records the mapping. No re-submission needed.
                     </p>
                 </section>
 

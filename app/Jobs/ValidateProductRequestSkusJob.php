@@ -14,8 +14,9 @@ use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
 
 /**
- * Resolves a request's SKUs against Cegid + Shopify, then lets the workflow
- * decide whether the request is blocked on mapping or ready to move on.
+ * Refreshes the read-only Shopify check for a request's SKUs, then lets the
+ * workflow decide whether it is blocked on mapping or ready to move on.
+ * Statuses Supply Chain recorded by hand are left untouched.
  */
 class ValidateProductRequestSkusJob implements ShouldQueue
 {

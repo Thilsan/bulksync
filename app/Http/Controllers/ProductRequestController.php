@@ -6,9 +6,9 @@ use App\Jobs\ValidateProductRequestSkusJob;
 use App\Models\ProductRequest;
 use App\Models\ProductRequestActivity;
 use App\Models\ProductRequestAttachment;
+use App\Models\ProductRequestSku;
 use App\Models\Store;
 use App\Models\User;
-use App\Services\CegidService;
 use App\Services\ProductRequestWorkflow;
 use App\Services\SkuMappingService;
 use Illuminate\Container\Attributes\CurrentUser;
@@ -201,7 +201,7 @@ class ProductRequestController extends Controller implements HasMiddleware
 
     // ── Detail ───────────────────────────────────────────────────────────────
 
-    public function show(ProductRequest $productRequest, #[CurrentUser] User $user, CegidService $cegid): View
+    public function show(ProductRequest $productRequest, #[CurrentUser] User $user): View
     {
         $this->authorizeView($productRequest, $user);
 
@@ -209,16 +209,15 @@ class ProductRequestController extends Controller implements HasMiddleware
             'user', 'store', 'assignee', 'photographer', 'contentOwner', 'qaOwner', 'attachments.user',
         ]);
 
-        $skus       = $productRequest->skus()->orderBy('id')->paginate(50, ['*'], 'skus');
+        $skus       = $productRequest->skus()->with('mappedBy')->orderBy('id')->paginate(50, ['*'], 'skus');
         $activities = $productRequest->activities()->with('user')->limit(20)->get();
         $teamPool   = User::where('is_active', true)->orderBy('name')->get(['id', 'name', 'pcr_role']);
 
         return view('product-requests.show', [
-            'request'        => $productRequest,
-            'skus'           => $skus,
-            'activities'     => $activities,
-            'teamPool'       => $teamPool,
-            'cegidAutomatic' => $cegid->isConfigured(),
+            'request'    => $productRequest,
+            'skus'       => $skus,
+            'activities' => $activities,
+            'teamPool'   => $teamPool,
         ]);
     }
 
@@ -340,21 +339,25 @@ class ProductRequestController extends Controller implements HasMiddleware
     }
 
     /**
-     * Supply Chain records Cegid mapping by hand. With no Cegid API wired up this
-     * is the signal that releases a request from Waiting for Mapping.
+     * Supply Chain records the mapping outcome. They do the mapping in Cegid on
+     * their own side — there is no integration — so this entry is the signal
+     * that releases a request from Waiting for Mapping.
      */
-    public function markCegid(Request $request, ProductRequest $productRequest, #[CurrentUser] User $user): RedirectResponse
+    public function updateMapping(Request $request, ProductRequest $productRequest, #[CurrentUser] User $user): RedirectResponse
     {
         $this->authorizeView($productRequest, $user);
 
         $data = $request->validate([
-            'sku_ids'   => 'nullable|array',
-            'sku_ids.*' => 'integer',
-            'in_cegid'  => 'required|boolean',
-            'scope'     => 'nullable|in:selected,all',
+            'sku_ids'        => 'nullable|array',
+            'sku_ids.*'      => 'integer',
+            'mapping_status' => 'required|in:' . implode(',', [
+                ProductRequest::MAP_MAPPED,
+                ProductRequest::MAP_PENDING,
+                ProductRequest::MAP_NOT_MAPPED,
+            ]),
+            'mapping_note'   => 'nullable|string|max:255',
+            'scope'          => 'nullable|in:selected,all',
         ]);
-
-        $inCegid = (bool) $data['in_cegid'];
 
         $query = $productRequest->skus();
 
@@ -365,34 +368,30 @@ class ProductRequestController extends Controller implements HasMiddleware
             $query->whereIn('id', $data['sku_ids']);
         }
 
-        $rows    = $query->get();
-        $touched = 0;
-
-        foreach ($rows as $row) {
-            $row->update([
-                'in_cegid'        => $inCegid,
-                'mapping_status'  => $this->mapping->resolveStatus($inCegid, $row->in_shopify),
-                'last_checked_at' => now(),
-            ]);
-            $touched++;
-        }
+        $touched = $this->mapping->setMappingStatus(
+            $query->get(),
+            $data['mapping_status'],
+            $user,
+            $data['mapping_note'] ?? null,
+        );
 
         $this->mapping->rollUp($productRequest);
         $productRequest->refresh();
 
-        $verb = $inCegid ? 'mapped in Cegid' : 'marked not mapped in Cegid';
+        $label = ProductRequestSku::LABELS[$data['mapping_status']];
 
         $this->workflow->log(
             request:     $productRequest,
             action:      'mapping_updated',
-            description: "{$touched} SKU(s) {$verb}",
+            description: "{$touched} SKU(s) marked as {$label}",
             actor:       $user,
+            remarks:     $data['mapping_note'] ?? null,
         );
 
         // Releases the request automatically when the last SKU lands.
         $this->workflow->reconcileMapping($productRequest, $user);
 
-        return back()->with('success', "{$touched} SKU(s) updated.");
+        return back()->with('success', "{$touched} SKU(s) updated to {$label}.");
     }
 
     /** Streamed so no export file ever lands on disk. */
@@ -412,14 +411,16 @@ class ProductRequestController extends Controller implements HasMiddleware
 
         return response()->stream(function () use ($query) {
             $out = fopen('php://output', 'w');
-            fputcsv($out, ['SKU', 'Mapping Status', 'In Cegid', 'In Shopify', 'Shopify Product ID', 'Product Name', 'Published', 'Last Checked']);
+            fputcsv($out, ['SKU', 'Mapping Status', 'Recorded By', 'Recorded On', 'Mapping Note', 'In Shopify', 'Shopify Product ID', 'Product Name', 'Published', 'Last Checked']);
 
-            $query->chunk(500, function ($rows) use ($out) {
+            $query->with('mappedBy')->chunk(500, function ($rows) use ($out) {
                 foreach ($rows as $row) {
                     fputcsv($out, [
                         $row->sku,
                         $row->label(),
-                        $row->in_cegid === null ? 'Unknown' : ($row->in_cegid ? 'Yes' : 'No'),
+                        $row->sourceLabel(),
+                        $row->mapping_set_at?->format('Y-m-d H:i'),
+                        $row->mapping_note,
                         $row->in_shopify ? 'Yes' : 'No',
                         $row->shopify_product_id,
                         $row->shopify_product_title,

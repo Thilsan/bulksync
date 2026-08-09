@@ -5,24 +5,32 @@ namespace App\Services;
 use App\Models\ProductRequest;
 use App\Models\ProductRequestSku;
 use App\Models\Store;
+use App\Models\User;
 use Illuminate\Support\Facades\Log;
 
 /**
- * Resolves every SKU on a Product Creation Request against Cegid and Shopify
- * and rolls the result up onto the request.
+ * Keeps the mapping state of a request's SKUs up to date and rolls it up onto
+ * the request.
+ *
+ * Two sources feed a SKU's status, and only two:
+ *
+ *   1. Supply Chain, by hand. They do the mapping in Cegid on their side and
+ *      record the outcome here. There is no Cegid integration — this entry IS
+ *      the signal, and it always wins.
+ *   2. A read-only Shopify check (the existing SKU Checker). If a SKU is
+ *      already live, it is plainly mapped, so an untouched row is filled in
+ *      automatically. This module NEVER writes to Shopify.
  *
  * Legend the brand team works to:
- *   🟢 Mapped        — present in Cegid AND Shopify
- *   🟡 Pending       — present in one of them; Supply Chain still finishing
- *   🔴 Not Mapped    — present in neither
+ *   🟢 Mapped        — mapping done; E-Commerce can proceed
+ *   🟡 Pending       — with Supply Chain
+ *   🔴 Not Mapped    — Supply Chain confirmed it cannot be mapped yet
  */
 class SkuMappingService
 {
-    public function __construct(private readonly CegidService $cegid = new CegidService()) {}
-
     /**
-     * Re-resolve every SKU on the request and update the roll-up counters.
-     * Safe to call repeatedly — that is exactly what the hourly re-check does.
+     * Refresh the read-only Shopify check for rows Supply Chain hasn't set, then
+     * recompute the roll-up. Safe to call repeatedly — the hourly re-check does.
      */
     public function validate(ProductRequest $request): void
     {
@@ -36,30 +44,27 @@ class SkuMappingService
                 return;
             }
 
-            $cegidMap = $this->cegid->lookup($rows->pluck('sku')->all());
-            $shopify  = $this->shopifyFor($request);
+            $shopify = $this->shopifyFor($request);
 
             foreach ($rows as $row) {
-                $inCegid = $cegidMap[$row->sku] ?? null;
-
-                // Manual entry wins when there is no automatic Cegid lookup:
-                // Supply Chain ticking the box is the only signal we have.
-                if ($inCegid === null && !$this->cegid->isConfigured()) {
-                    $inCegid = $row->in_cegid;
-                }
-
                 $variants  = $shopify ? $this->lookupShopify($shopify, $row->sku) : [];
                 $inShopify = !empty($variants);
 
-                $row->update([
-                    'in_cegid'              => $inCegid,
+                $attributes = [
                     'in_shopify'            => $inShopify,
                     'shopify_product_id'    => $inShopify ? ($variants[0]['product_id'] ?? null) : null,
                     'shopify_product_title' => $inShopify ? ($variants[0]['product_title'] ?? null) : null,
                     'shopify_published'     => $inShopify ? (bool) ($variants[0]['published'] ?? false) : null,
-                    'mapping_status'        => $this->resolveStatus($inCegid, $inShopify),
                     'last_checked_at'       => now(),
-                ]);
+                ];
+
+                // A status Supply Chain set by hand is never overwritten by the
+                // automatic check — they are the authority on mapping.
+                if (!$row->isManuallySet()) {
+                    $attributes['mapping_status'] = $this->autoStatus($inShopify);
+                }
+
+                $row->update($attributes);
             }
 
             $this->rollUp($request, 'completed');
@@ -75,33 +80,40 @@ class SkuMappingService
     }
 
     /**
-     * Cegid answer + Shopify presence → badge colour.
-     *
-     * Cegid is the authority here, not Shopify. The whole point of the module is
-     * to prepare content BEFORE the product exists online, so a SKU is normally
-     * absent from Shopify for most of the workflow — gating on Shopify would
-     * park every request in Waiting for Mapping forever.
-     *
-     * Shopify presence is only used as positive evidence: if the product is
-     * already live, mapping is plainly done whatever Cegid says.
-     *
-     * A null Cegid answer means "nobody has told us yet" — not "absent" — so it
-     * reads as Pending (with Supply Chain), never as a red Not Mapped.
+     * Status for a row nobody has touched. Already in Shopify → clearly mapped;
+     * otherwise it sits with Supply Chain. Never auto-flags red: "we haven't
+     * been told yet" is not the same as "it cannot be mapped".
      */
-    public function resolveStatus(?bool $inCegid, bool $inShopify): string
+    public function autoStatus(bool $inShopify): string
     {
-        if ($inCegid === true || $inShopify) {
-            return ProductRequest::MAP_MAPPED;
-        }
-
-        if ($inCegid === false) {
-            return ProductRequest::MAP_NOT_MAPPED;
-        }
-
-        return ProductRequest::MAP_PENDING;
+        return $inShopify ? ProductRequest::MAP_MAPPED : ProductRequest::MAP_PENDING;
     }
 
-    /** Recompute the denormalised counters the dashboard reads. */
+    /**
+     * Supply Chain records the mapping outcome for a set of SKUs.
+     *
+     * @param  \Illuminate\Support\Collection<int, ProductRequestSku>  $rows
+     * @return int  number of rows updated
+     */
+    public function setMappingStatus($rows, string $status, User $actor, ?string $note = null): int
+    {
+        $touched = 0;
+
+        foreach ($rows as $row) {
+            $row->update([
+                'mapping_status'  => $status,
+                'mapping_set_by'  => $actor->id,
+                'mapping_set_at'  => now(),
+                'mapping_note'    => $note,
+                'last_checked_at' => now(),
+            ]);
+            $touched++;
+        }
+
+        return $touched;
+    }
+
+    /** Recompute the denormalised counters the dashboard and workflow gate read. */
     public function rollUp(ProductRequest $request, ?string $validationStatus = null): void
     {
         $counts = $request->skus()
@@ -124,7 +136,7 @@ class SkuMappingService
         ], fn ($v) => $v !== null));
     }
 
-    /** Replace the SKU list on a request, keeping existing rows' resolved state. */
+    /** Replace the SKU list on a request, keeping existing rows' recorded state. */
     public function syncSkus(ProductRequest $request, array $skus): void
     {
         $skus = array_values(array_unique(array_filter(array_map('trim', $skus))));
@@ -156,14 +168,17 @@ class SkuMappingService
             : Store::getActive($request->user_id);
 
         if (!$store) {
-            Log::warning("SkuMappingService: no store for request {$request->id} — Shopify side skipped.");
+            Log::warning("SkuMappingService: no store for request {$request->id} — Shopify check skipped.");
             return null;
         }
 
         return new ShopifyService($store);
     }
 
-    /** A Shopify hiccup must not fail the whole request — treat it as "not found". */
+    /**
+     * Read-only lookup. A Shopify hiccup must not fail the whole request, so a
+     * failure reads as "not found" and Supply Chain's entry still decides.
+     */
     private function lookupShopify(ShopifyService $shopify, string $sku): array
     {
         try {

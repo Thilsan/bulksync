@@ -121,7 +121,7 @@ Route::middleware('auth')->group(function () {
 
         Route::post('/{productRequest}/revalidate',        [ProductRequestController::class, 'revalidate'])->name('revalidate');
         Route::post('/{productRequest}/skus',              [ProductRequestController::class, 'addSkus'])->name('skus.add');
-        Route::post('/{productRequest}/skus/cegid',        [ProductRequestController::class, 'markCegid'])->name('skus.cegid');
+        Route::post('/{productRequest}/skus/mapping',      [ProductRequestController::class, 'updateMapping'])->name('skus.mapping');
         Route::post('/{productRequest}/transition',        [ProductRequestController::class, 'transition'])->name('transition');
         Route::post('/{productRequest}/assign',            [ProductRequestController::class, 'assign'])->name('assign');
         Route::post('/{productRequest}/comment',           [ProductRequestController::class, 'comment'])->name('comment');

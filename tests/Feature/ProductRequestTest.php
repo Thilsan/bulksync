@@ -87,10 +87,11 @@ class ProductRequestTest extends TestCase
 
         $this->assertSame(ProductRequest::WAITING_MAPPING, $request->status);
 
-        $this->actingAs($user)->post(route('product-requests.skus.cegid', $request), [
-            'sku_ids'  => $request->skus()->pluck('id')->all(),
-            'in_cegid' => 1,
-            'scope'    => 'selected',
+        $this->actingAs($user)->post(route('product-requests.skus.mapping', $request), [
+            'sku_ids'        => $request->skus()->pluck('id')->all(),
+            'mapping_status' => ProductRequest::MAP_MAPPED,
+            'mapping_note'   => 'Mapped in Cegid by Supply Chain',
+            'scope'          => 'selected',
         ])->assertRedirect();
 
         $request->refresh();
@@ -100,7 +101,36 @@ class ProductRequestTest extends TestCase
         $this->assertSame(2, $request->mapped_skus);
         $this->assertSame(0, $request->pending_skus);
 
+        // The entry is attributed, so the audit trail shows who released it.
+        $row = $request->skus()->first();
+        $this->assertTrue($row->isManuallySet());
+        $this->assertSame($user->id, $row->mapping_set_by);
+        $this->assertSame('Mapped in Cegid by Supply Chain', $row->mapping_note);
+
         Notification::assertSentTo($user, ProductRequestStatusChanged::class);
+    }
+
+    public function test_the_automatic_check_never_overwrites_supply_chains_entry(): void
+    {
+        Notification::fake();
+
+        $user    = $this->brandManager();
+        $request = $this->makeRequest($user, ['G-1']);
+
+        // Supply Chain says this one cannot be mapped yet.
+        $this->actingAs($user)->post(route('product-requests.skus.mapping', $request), [
+            'sku_ids'        => $request->skus()->pluck('id')->all(),
+            'mapping_status' => ProductRequest::MAP_NOT_MAPPED,
+            'scope'          => 'selected',
+        ])->assertRedirect();
+
+        $this->assertSame(ProductRequest::MAP_NOT_MAPPED, $request->skus()->first()->mapping_status);
+
+        // A later re-validation must leave that decision alone.
+        app(SkuMappingService::class)->validate($request->fresh());
+
+        $this->assertSame(ProductRequest::MAP_NOT_MAPPED, $request->skus()->first()->mapping_status);
+        $this->assertSame(ProductRequest::WAITING_MAPPING, $request->fresh()->status);
     }
 
     public function test_a_request_cannot_leave_waiting_for_mapping_while_skus_are_unmapped(): void
@@ -252,7 +282,11 @@ class ProductRequestTest extends TestCase
 
     private function markMapped(ProductRequest $request): void
     {
-        $request->skus()->update(['in_cegid' => true, 'mapping_status' => ProductRequest::MAP_MAPPED]);
+        $request->skus()->update([
+            'mapping_status' => ProductRequest::MAP_MAPPED,
+            'mapping_set_by' => $request->user_id,
+            'mapping_set_at' => now(),
+        ]);
 
         $mapping = app(SkuMappingService::class);
         $mapping->rollUp($request);

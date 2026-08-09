@@ -69,10 +69,10 @@ $pruneExpiredCache = function () {
 
 Schedule::call($pruneExpiredCache)->hourly()->name('prune-expired-cache')->withoutOverlapping();
 
-// Product Creation Requests parked in "Waiting for Mapping" are released the
-// moment Supply Chain finishes mapping in Cegid — this is what removes the
-// re-submission step the old email process needed. Runs on 'maintenance' so a
-// long Shopify lookup can't sit in front of a user's upload.
+// Product Creation Requests parked in "Waiting for Mapping" are released as soon
+// as their SKUs resolve — this is what removes the re-submission step the old
+// email process needed. Runs on 'maintenance' so a long read-only Shopify check
+// can't sit in front of a user's upload.
 Schedule::job(new RecheckProductRequestMappingsJob, 'maintenance')
     ->hourly()
     ->name('recheck-product-request-mappings')
