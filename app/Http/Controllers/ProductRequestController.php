@@ -155,6 +155,7 @@ class ProductRequestController extends Controller implements HasMiddleware
             $term = '%' . $request->string('search') . '%';
             $query->where(function ($q) use ($term) {
                 $q->where('reference', 'like', $term)
+                  ->orWhere('name', 'like', $term)
                   ->orWhere('brand', 'like', $term)
                   ->orWhere('category', 'like', $term);
             });
@@ -310,6 +311,7 @@ class ProductRequestController extends Controller implements HasMiddleware
 
         $data = $request->validate([
             'store_id'                  => 'required|exists:stores,id',
+            'name'                      => 'nullable|string|max:255',
             'request_type'              => 'required|in:new_brand,existing_brand',
             'brand'                     => 'required|string|max:255',
             'category'                  => 'required|string|max:255',
@@ -351,6 +353,7 @@ class ProductRequestController extends Controller implements HasMiddleware
 
         $productRequest = ProductRequest::create([
             'reference'                 => ProductRequest::nextReference(),
+            'name'                      => $data['name'] ?? null,
             'user_id'                   => $user->id,
             'store_id'                  => $store->id,
             'request_type'              => $data['request_type'],
@@ -438,6 +441,7 @@ class ProductRequestController extends Controller implements HasMiddleware
         abort_if($productRequest->isClosed(), 403, 'This request is closed and can no longer be edited.');
 
         $data = $request->validate([
+            'name'                      => 'nullable|string|max:255',
             'brand'                     => 'required|string|max:255',
             'category'                  => 'required|string|max:255',
             'sub_category'              => 'nullable|string|max:255',

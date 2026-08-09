@@ -97,7 +97,7 @@
             <table class="w-full text-sm">
                 <thead>
                     <tr class="text-left text-xs text-gray-500 border-b border-gray-100 bg-gray-50/60">
-                        <th class="px-5 py-2.5 font-medium">Request ID</th>
+                        <th class="px-5 py-2.5 font-medium">Request</th>
                         <th class="px-3 py-2.5 font-medium">Brand / Category</th>
                         <th class="px-3 py-2.5 font-medium text-right">SKUs</th>
                         <th class="px-3 py-2.5 font-medium">Mapping</th>
@@ -112,8 +112,9 @@
                     @foreach($requests as $item)
                     <tr class="hover:bg-gray-50/70 transition-colors">
                         <td class="px-5 py-3">
-                            <a href="{{ route('product-requests.show', $item) }}" class="text-brand-600 hover:text-brand-700 font-medium">{{ $item->reference }}</a>
-                            <p class="text-xs text-gray-400">by {{ $item->user?->name ?? '—' }}</p>
+                            <a href="{{ route('product-requests.show', $item) }}"
+                               class="text-brand-600 hover:text-brand-700 font-medium">{{ $item->displayName() }}</a>
+                            <p class="text-xs text-gray-400">{{ $item->reference }} &middot; by {{ $item->user?->name ?? '—' }}</p>
                         </td>
                         <td class="px-3 py-3 text-gray-700">{{ $item->brand }} / {{ $item->category }}</td>
                         <td class="px-3 py-3 text-right text-gray-700 tabular-nums">{{ number_format($item->total_skus) }}</td>

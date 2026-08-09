@@ -135,7 +135,7 @@
             <table class="w-full text-sm">
                 <thead>
                     <tr class="text-left text-xs text-gray-500 border-b border-gray-100 bg-gray-50/60">
-                        <th class="px-5 py-2.5 font-medium">Request ID</th>
+                        <th class="px-5 py-2.5 font-medium">Request</th>
                         <th class="px-3 py-2.5 font-medium">Brand / Category</th>
                         <th class="px-3 py-2.5 font-medium text-right">SKUs</th>
                         <th class="px-3 py-2.5 font-medium">Store Launch</th>
@@ -150,7 +150,9 @@
                     @foreach($recent as $item)
                     <tr class="hover:bg-gray-50/70 transition-colors">
                         <td class="px-5 py-3">
-                            <a href="{{ route('product-requests.show', $item) }}" class="text-brand-600 hover:text-brand-700 font-medium">{{ $item->reference }}</a>
+                            <a href="{{ route('product-requests.show', $item) }}"
+                               class="text-brand-600 hover:text-brand-700 font-medium">{{ $item->displayName() }}</a>
+                            <p class="text-xs text-gray-400">{{ $item->reference }}</p>
                         </td>
                         <td class="px-3 py-3 text-gray-700">{{ $item->brand }} / {{ $item->category }}</td>
                         <td class="px-3 py-3 text-right text-gray-700 tabular-nums">{{ number_format($item->total_skus) }}</td>
@@ -271,7 +273,7 @@
                             <p class="text-xs uppercase text-gray-400">{{ $item->online_launch_date->format('M') }}</p>
                         </div>
                         <div class="flex-1 min-w-0">
-                            <p class="text-sm font-medium text-gray-800 truncate">{{ $item->reference }}</p>
+                            <p class="text-sm font-medium text-gray-800 truncate">{{ $item->displayName() }}</p>
                             <p class="text-xs text-gray-500 truncate">
                                 @if($days < 0)
                                     <span class="text-red-600 font-medium">Overdue by {{ abs($days) }} day(s)</span>

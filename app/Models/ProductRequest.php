@@ -197,6 +197,7 @@ class ProductRequest extends Model
 
     protected $fillable = [
         'reference',
+        'name',
         'user_id',
         'store_id',
         'request_type',
@@ -494,6 +495,22 @@ class ProductRequest extends Model
     }
 
     // ── Workflow helpers ─────────────────────────────────────────────────────
+
+    /**
+     * What to call this request in a list. Falls back to brand + category so a
+     * request raised before names existed — or one someone left blank — still
+     * reads as something, never as an empty cell.
+     */
+    public function displayName(): string
+    {
+        if (filled($this->name)) {
+            return $this->name;
+        }
+
+        return collect([$this->brand, $this->category, $this->collection])
+            ->filter()
+            ->implode(' · ') ?: $this->reference;
+    }
 
     public function statusLabel(): string
     {

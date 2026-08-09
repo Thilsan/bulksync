@@ -15,7 +15,7 @@
                 <span class="mx-1.5">&gt;</span>
                 <span class="text-gray-600">Activity Log</span>
             </nav>
-            <p class="text-sm text-gray-500">Full audit trail for {{ $request->brand }} / {{ $request->category }}.</p>
+            <p class="text-sm text-gray-500">Full audit trail for {{ $request->displayName() }} ({{ $request->reference }}).</p>
         </div>
         <a href="{{ route('product-requests.show', $request) }}"
            class="inline-flex items-center gap-2 border border-gray-300 text-gray-700 text-sm font-medium px-4 py-2 rounded-lg hover:bg-gray-50 transition-colors">

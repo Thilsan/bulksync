@@ -41,7 +41,17 @@
 
                 {{-- 1. Brand & Category --}}
                 <section>
-                    <h3 class="text-sm font-semibold text-gray-800 mb-3">1. Website, Brand &amp; Category Information</h3>
+                    <h3 class="text-sm font-semibold text-gray-800 mb-3">1. Request, Website &amp; Category Information</h3>
+
+                    <div class="mb-4">
+                        <label class="block text-xs font-medium text-gray-600 mb-1.5">Request Name</label>
+                        <input type="text" name="name" value="{{ old('name') }}" maxlength="255"
+                               placeholder="e.g. New Balance Running SS26 launch"
+                               class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent">
+                        <p class="text-xs text-gray-400 mt-1">
+                            How this request appears in lists. Leave blank and it is named from the brand and category.
+                        </p>
+                    </div>
 
                     <div class="mb-4">
                         <label class="block text-xs font-medium text-gray-600 mb-1.5">Website <span class="text-red-500">*</span></label>

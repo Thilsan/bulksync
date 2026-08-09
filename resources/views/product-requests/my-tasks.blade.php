@@ -72,8 +72,8 @@
                 @php $days = $item->daysToOnlineLaunch(); @endphp
                 <div class="flex flex-wrap items-center gap-3 px-5 py-3">
                     <div class="min-w-0 flex-1">
-                        <a href="{{ route('product-requests.show', $item) }}" class="text-sm font-medium text-brand-700 hover:text-brand-800">{{ $item->reference }}</a>
-                        <span class="text-sm text-gray-700 ml-1.5">{{ $item->brand }} / {{ $item->category }}</span>
+                        <a href="{{ route('product-requests.show', $item) }}" class="text-sm font-medium text-brand-700 hover:text-brand-800">{{ $item->displayName() }}</a>
+                        <span class="text-xs text-gray-400 ml-1.5">{{ $item->reference }}</span>
                         <p class="text-xs text-gray-500">
                             {{ $item->statusLabel() }}
                             @if($days !== null)
@@ -124,7 +124,7 @@
             <table class="w-full text-sm">
                 <thead>
                     <tr class="text-left text-xs text-gray-500 border-b border-gray-100 bg-gray-50/60">
-                        <th class="px-5 py-2.5 font-medium">Request ID</th>
+                        <th class="px-5 py-2.5 font-medium">Request</th>
                         <th class="px-3 py-2.5 font-medium">Brand / Category</th>
                         <th class="px-3 py-2.5 font-medium">My Role</th>
                         <th class="px-3 py-2.5 font-medium">Current Stage</th>
@@ -137,8 +137,9 @@
                         @php $days = $item->daysToOnlineLaunch(); @endphp
                         <tr class="hover:bg-gray-50/70 transition-colors">
                             <td class="px-5 py-3">
-                                <a href="{{ route('product-requests.show', $item) }}" class="text-brand-600 hover:text-brand-700 font-medium">{{ $item->reference }}</a>
-                                <p class="text-xs text-gray-400">{{ $item->store?->name }}</p>
+                                <a href="{{ route('product-requests.show', $item) }}"
+                                   class="text-brand-600 hover:text-brand-700 font-medium">{{ $item->displayName() }}</a>
+                                <p class="text-xs text-gray-400">{{ $item->reference }} &middot; {{ $item->store?->name }}</p>
                             </td>
                             <td class="px-3 py-3 text-gray-700">{{ $item->brand }} / {{ $item->category }}</td>
                             <td class="px-3 py-3">

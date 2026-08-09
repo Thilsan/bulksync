@@ -929,6 +929,59 @@ class ProductRequestTest extends TestCase
         }
     }
 
+    public function test_a_request_is_listed_by_its_name_with_the_reference_kept(): void
+    {
+        Notification::fake();
+
+        $user  = $this->brandManager();
+        $store = $this->mappingSite();
+        $user->stores()->sync([$store->id]);
+
+        $this->actingAs($user)->post(route('product-requests.store'), [
+            'store_id'                  => $store->id,
+            'name'                      => 'New Balance Running SS26 launch',
+            'request_type'              => 'new_brand',
+            'brand'                     => 'New Balance',
+            'category'                  => 'Footwear',
+            'skus'                      => 'NB-1',
+            'store_launch_date'         => now()->addDays(20)->toDateString(),
+            'online_launch_date'        => now()->addDays(18)->toDateString(),
+            'supplier_images_available' => 0,
+            'photoshoot_required'       => 1,
+            'use_ai_content'            => 1,
+            'priority'                  => 'high',
+        ])->assertRedirect();
+
+        $request = ProductRequest::first();
+        $this->assertSame('New Balance Running SS26 launch', $request->name);
+
+        // Name leads, but the reference is never lost — it is the handle people quote.
+        $this->actingAs($user)->get(route('product-requests.list'))
+            ->assertOk()
+            ->assertSee('New Balance Running SS26 launch')
+            ->assertSee($request->reference);
+
+        // And it is searchable by name.
+        $this->actingAs($user)->get(route('product-requests.list', ['search' => 'SS26']))
+            ->assertOk()
+            ->assertSee('New Balance Running SS26 launch');
+    }
+
+    public function test_a_request_without_a_name_falls_back_to_brand_and_category(): void
+    {
+        Notification::fake();
+
+        $user    = $this->brandManager();
+        $request = $this->submitFor($user, $this->mappingSite(), 'NONAME-1');
+
+        $this->assertNull($request->name);
+        $this->assertSame('Samsonite · Luggage', $request->displayName());
+
+        $this->actingAs($user)->get(route('product-requests.list'))
+            ->assertOk()
+            ->assertSee('Samsonite · Luggage', false);
+    }
+
     public function test_the_dashboard_explains_the_process_to_newcomers(): void
     {
         $user = $this->brandManager();

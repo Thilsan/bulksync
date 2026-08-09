@@ -92,13 +92,14 @@
                     </div>
                     <div>
                         <div class="flex items-center gap-2.5">
-                            <h2 class="text-xl font-semibold text-gray-900">{{ $request->reference }}</h2>
+                            <h2 class="text-xl font-semibold text-gray-900">{{ $request->displayName() }}</h2>
                             <span class="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium border {{ $request->statusColor() }}">
                                 {{ $request->statusLabel() }}
                             </span>
                         </div>
                         <p class="text-sm text-gray-500 mt-0.5">
-                            Request created on {{ $request->created_at->format('d M Y, h:i A') }} by {{ $request->user?->name ?? 'Unknown' }}
+                            <span class="font-mono text-gray-600">{{ $request->reference }}</span>
+                            &middot; created {{ $request->created_at->format('d M Y, h:i A') }} by {{ $request->user?->name ?? 'Unknown' }}
                         </p>
                     </div>
                 </div>
@@ -513,6 +514,7 @@
 
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
                             @foreach([
+                                ['name', 'Request Name', 'text', false],
                                 ['brand', 'Brand', 'text', true],
                                 ['category', 'Category', 'text', true],
                                 ['sub_category', 'Sub Category', 'text', false],
@@ -991,6 +993,7 @@
                 </div>
                 <dl class="px-5 py-4 space-y-2.5 text-sm">
                     @foreach([
+                        'Request Name'  => $request->displayName(),
                         'Request ID'    => $request->reference,
                         'Requested By'  => $request->user?->name ?? '—',
                         'Request Type'  => $request->request_type === 'new_brand' ? 'New Brand' : 'Existing Brand / New Category',

@@ -88,14 +88,14 @@
                                   {{ $item->isOnHold() ? 'bg-red-50 border-red-300 hover:border-red-400' : 'bg-white border-gray-200 hover:border-brand-300' }}">
 
                             <div class="flex items-start justify-between gap-2">
-                                <span class="text-sm font-semibold text-brand-600">{{ $item->reference }}</span>
+                                <span class="text-sm font-semibold text-brand-600 truncate">{{ $item->displayName() }}</span>
                                 <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium border shrink-0 {{ $item->priorityColor() }}">
                                     {{ $item->priorityLabel() }}
                                 </span>
                             </div>
 
                             <p class="text-sm text-gray-800 mt-0.5 truncate">{{ $item->brand }} / {{ $item->category }}</p>
-                            <p class="text-xs text-gray-400 truncate">{{ $item->store?->name }} &middot; {{ number_format($item->total_skus) }} SKUs</p>
+                            <p class="text-xs text-gray-400 truncate">{{ $item->reference }} &middot; {{ $item->store?->name }} &middot; {{ number_format($item->total_skus) }} SKUs</p>
 
                             @if($item->isOnHold())
                                 <p class="text-xs text-red-700 font-medium mt-1.5 flex items-start gap-1">
