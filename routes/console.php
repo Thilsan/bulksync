@@ -4,6 +4,7 @@ use App\Jobs\WarmSkuCacheJob;
 use App\Models\Store;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schedule;
 
 Artisan::command('inspire', function () {
@@ -37,3 +38,25 @@ $pruneOldExports = function () {
 };
 
 Schedule::call($pruneOldExports)->daily()->name('prune-old-csv-exports')->withoutOverlapping();
+
+// The database cache driver only deletes an expired row when that exact key is
+// read again. Rows nothing ever reads — abandoned SKU-cache generations, keys
+// from a warm that died mid-run — are therefore never reclaimed, and grow until
+// the disk fills. Sweep expired rows explicitly, in chunks.
+$pruneExpiredCache = function () {
+    if (config('cache.default') !== 'database') {
+        return; // Redis and friends expire keys on their own
+    }
+
+    $connection = config('cache.stores.database.connection') ?: config('database.default');
+    $table      = config('cache.stores.database.table', 'cache');
+
+    do {
+        $deleted = DB::connection($connection)->table($table)
+            ->where('expiration', '<', now()->timestamp)
+            ->limit(10000)
+            ->delete();
+    } while ($deleted > 0);
+};
+
+Schedule::call($pruneExpiredCache)->hourly()->name('prune-expired-cache')->withoutOverlapping();

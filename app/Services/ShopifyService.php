@@ -115,12 +115,6 @@ class ShopifyService
     {
         Log::info('ShopifyService: warming SKU cache…');
 
-        // Previous generation's rows are about to become unreachable — nothing
-        // ever reads them again, so the database cache driver's lazy expiry
-        // (which only deletes a row when it's looked up) would never clean
-        // them up on its own. Delete them explicitly once this warm finishes.
-        $previousGen = Cache::get($this->skuWarmSentinel());
-
         // New generation timestamp makes stale keys from prior warmings unreachable
         $gen    = time();
         $ttl    = now()->addHours(4);
@@ -201,19 +195,28 @@ class ShopifyService
 
         Log::info("ShopifyService: SKU cache warmed — {$count} variants, generation {$gen}.");
 
-        if ($previousGen) {
-            $this->purgeSkuCacheGeneration((int) $previousGen);
-        }
+        // Every generation but this one is now unreachable. Purge by exclusion
+        // rather than by remembered generation: a warm that dies before writing
+        // its sentinel (timeout, OOM, Shopify error) leaves rows nothing can
+        // name, and those orphans would otherwise accumulate forever.
+        $this->purgeSkuCacheGenerations($gen);
 
         return $count;
     }
 
     /**
-     * Delete every per-SKU/barcode row belonging to one old generation. Only
-     * applies with the database cache driver — with any other driver (e.g.
-     * Redis, which expires keys on its own) this is a no-op.
+     * Delete this shop's per-SKU/barcode cache rows, keeping only $keepGen
+     * (pass null to remove every generation).
+     *
+     * Necessary because the database cache driver expires a row lazily — only
+     * when that exact key is looked up. Old generation keys are unreachable by
+     * design, so they are never looked up and never expire. Only applies with
+     * the database cache driver; with Redis (which expires keys itself) this
+     * is a no-op.
+     *
+     * Deletes in chunks so a large backlog never becomes one huge transaction.
      */
-    private function purgeSkuCacheGeneration(int $gen): void
+    private function purgeSkuCacheGenerations(?int $keepGen): void
     {
         if (config('cache.default') !== 'database') {
             return;
@@ -222,13 +225,25 @@ class ShopifyService
         $connection = config('cache.stores.database.connection') ?: config('database.default');
         $table      = config('cache.stores.database.table', 'cache');
         $shopHash   = md5($this->shop);
+        $deleted    = 0;
 
-        $deleted = DB::connection($connection)->table($table)
-            ->where('key', 'like', "%shopify_sku_{$shopHash}_v{$gen}_%")
-            ->orWhere('key', 'like', "%shopify_barcode_{$shopHash}_v{$gen}_%")
-            ->delete();
+        // Leading % because Laravel prepends the configured cache prefix to keys
+        foreach (['shopify_sku_', 'shopify_barcode_'] as $prefix) {
+            do {
+                $query = DB::connection($connection)->table($table)
+                    ->where('key', 'like', "%{$prefix}{$shopHash}_v%");
 
-        Log::info("ShopifyService: purged {$deleted} stale cache rows from generation {$gen}.");
+                if ($keepGen !== null) {
+                    $query->where('key', 'not like', "%{$prefix}{$shopHash}_v{$keepGen}_%");
+                }
+
+                $removed = $query->limit(5000)->delete();
+                $deleted += $removed;
+            } while ($removed > 0);
+        }
+
+        Log::info("ShopifyService: purged {$deleted} stale cache rows"
+            . ($keepGen !== null ? " (kept generation {$keepGen})." : '.'));
     }
 
     public function isSkuCacheWarmed(): bool
@@ -239,8 +254,10 @@ class ShopifyService
     public function clearSkuCache(): void
     {
         // Forgetting the sentinel makes all per-SKU keys unreachable immediately.
-        // The old per-SKU keys (from the previous generation) expire naturally after 4 hours.
+        // Unreachable keys are never looked up again, so the database driver's
+        // lazy expiry would never reclaim them — delete them outright.
         Cache::forget($this->skuWarmSentinel());
+        $this->purgeSkuCacheGenerations(null);
     }
 
     /**
