@@ -141,45 +141,67 @@
                 @endif
             </div>
 
-            {{-- Workflow progress --}}
+            {{-- Workflow progress, grouped into phases --}}
             <div>
-                <h3 class="text-sm font-semibold text-gray-800 mb-4">Workflow Progress</h3>
-                <div class="overflow-x-auto pb-2">
-                    <div class="flex items-start gap-0 min-w-max">
-                        @foreach($pipeline as $i => $stage)
-                            @php
-                                $done    = $currentStep > $i;
-                                $current = $currentStep === $i;
-                            @endphp
-                            <div class="flex items-start">
-                                <div class="flex flex-col items-center w-[74px]">
-                                    <div class="w-5 h-5 rounded-full flex items-center justify-center shrink-0
-                                        {{ $done ? 'bg-green-500 text-white' : ($current ? 'bg-blue-600 text-white ring-4 ring-blue-100' : 'bg-gray-200 text-gray-400') }}">
-                                        @if($done)
+                <div class="flex items-center justify-between mb-3">
+                    <h3 class="text-sm font-semibold text-gray-800">Workflow Progress</h3>
+                    <div class="flex items-center gap-2 w-40">
+                        <div class="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                            <div class="h-full bg-brand-600 rounded-full transition-all" style="width: {{ $request->progressPercent() }}%"></div>
+                        </div>
+                        <span class="text-xs text-gray-500 tabular-nums shrink-0">{{ $request->progressPercent() }}%</span>
+                    </div>
+                </div>
+
+                <div class="space-y-2">
+                    @foreach($request->phaseProgress() as $phase)
+                        @php
+                            $tone = match ($phase['state']) {
+                                'done'    => ['border-green-200 bg-green-50/50', 'bg-green-500 text-white',  'text-green-700',  'Done'],
+                                'current' => ['border-blue-200 bg-blue-50/50',   'bg-blue-600 text-white',   'text-blue-700',   'In Progress'],
+                                default   => ['border-gray-200 bg-white',        'bg-gray-200 text-gray-500','text-gray-400',   'Pending'],
+                            };
+                        @endphp
+                        <div class="rounded-lg border px-3 py-2.5 {{ $tone[0] }}">
+                            <div class="flex items-center justify-between gap-2 mb-2">
+                                <div class="flex items-center gap-2 min-w-0">
+                                    <span class="w-5 h-5 rounded-full flex items-center justify-center shrink-0 text-[10px] font-bold {{ $tone[1] }}">
+                                        @if($phase['state'] === 'done')
                                             <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/>
                                             </svg>
-                                        @elseif($current)
-                                            <span class="w-1.5 h-1.5 rounded-full bg-white"></span>
+                                        @else
+                                            {{ $loop->iteration }}
                                         @endif
-                                    </div>
-                                    <p class="text-[10px] leading-tight text-center mt-1.5 px-0.5
-                                        {{ $current ? 'text-gray-900 font-semibold' : ($done ? 'text-gray-600' : 'text-gray-400') }}">
-                                        {{ $labels[$stage] }}
-                                    </p>
+                                    </span>
+                                    <span class="text-xs font-semibold text-gray-800 truncate">{{ $phase['label'] }}</span>
                                 </div>
-                                @if(!$loop->last)
-                                    <div class="h-0.5 w-2 mt-2.5 -mx-1 shrink-0 {{ $done ? 'bg-green-500' : 'bg-gray-200' }}"></div>
-                                @endif
+                                <span class="text-[10px] font-medium shrink-0 {{ $tone[2] }}">{{ $tone[3] }}</span>
                             </div>
-                        @endforeach
-                    </div>
-                </div>
-                <div class="mt-3 flex items-center gap-3">
-                    <div class="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                        <div class="h-full bg-brand-600 rounded-full transition-all" style="width: {{ $request->progressPercent() }}%"></div>
-                    </div>
-                    <span class="text-xs text-gray-500 tabular-nums">{{ $request->progressPercent() }}%</span>
+
+                            {{-- Steps within the phase --}}
+                            <div class="flex flex-wrap items-center gap-x-1.5 gap-y-1 pl-7">
+                                @foreach($phase['stages'] as $k => $stage)
+                                    @php
+                                        $globalIndex = $phase['start'] + $k;
+                                        $stepDone    = $currentStep > $globalIndex;
+                                        $stepCurrent = $currentStep === $globalIndex;
+                                    @endphp
+                                    <span class="inline-flex items-center gap-1.5">
+                                        <span class="w-1.5 h-1.5 rounded-full shrink-0
+                                            {{ $stepDone ? 'bg-green-500' : ($stepCurrent ? 'bg-blue-600 ring-2 ring-blue-200' : 'bg-gray-300') }}"></span>
+                                        <span class="text-[11px] leading-tight
+                                            {{ $stepCurrent ? 'text-gray-900 font-semibold' : ($stepDone ? 'text-gray-600' : 'text-gray-400') }}">
+                                            {{ $labels[$stage] }}
+                                        </span>
+                                    </span>
+                                    @unless($loop->last)
+                                        <span class="text-gray-300 text-[10px]">&rsaquo;</span>
+                                    @endunless
+                                @endforeach
+                            </div>
+                        </div>
+                    @endforeach
                 </div>
             </div>
         </div>
@@ -398,7 +420,7 @@
                                 </select>
                             </div>
 
-                            <div>
+                            <div @class(['hidden' => !$request->photoshoot_required && !$request->photoshoot_scheduled_at])>
                                 <label class="block text-xs font-medium text-gray-500 mb-1">Photoshoot Scheduled On</label>
                                 <template x-if="!editing">
                                     <p class="text-sm text-gray-800 py-2">{{ $request->photoshoot_scheduled_at?->format('d M Y') ?? '—' }}</p>
@@ -682,12 +704,21 @@
                 </div>
                 <form method="POST" action="{{ route('product-requests.assign', $request) }}" class="px-5 py-4 space-y-3">
                     @csrf
-                    @foreach([
-                        'assigned_to'      => 'E-Commerce Owner',
-                        'photographer_id'  => 'Photographer',
-                        'content_owner_id' => 'Content Team',
-                        'qa_owner_id'      => 'QA Team',
-                    ] as $field => $label)
+                    @php
+                        // Only ask for a photographer when there is actually a shoot —
+                        // an empty field for work nobody is doing is just noise.
+                        // Kept visible if someone is already assigned, so an existing
+                        // assignment can never be stranded and un-editable.
+                        $assignmentFields = ['assigned_to' => 'E-Commerce Owner'];
+
+                        if ($request->photoshoot_required || $request->photographer_id) {
+                            $assignmentFields['photographer_id'] = 'Photographer';
+                        }
+
+                        $assignmentFields['content_owner_id'] = 'Content Team';
+                        $assignmentFields['qa_owner_id']      = 'QA Team';
+                    @endphp
+                    @foreach($assignmentFields as $field => $label)
                         <div>
                             <label class="block text-xs font-medium text-gray-500 mb-1">{{ $label }}</label>
                             <select name="{{ $field }}" {{ $request->isClosed() ? 'disabled' : '' }}
@@ -757,7 +788,7 @@
                             @endforeach
                         </select>
                     </div>
-                    <div>
+                    <div @class(['hidden' => !$request->photoshoot_required])>
                         <label class="block text-xs font-medium text-gray-600 mb-1.5">Photoshoot Date <span class="text-gray-400 font-normal">(if scheduling)</span></label>
                         <input type="date" name="photoshoot_scheduled_at"
                                value="{{ $request->photoshoot_scheduled_at?->format('Y-m-d') }}"

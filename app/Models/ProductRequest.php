@@ -265,21 +265,98 @@ class ProductRequest extends Model
         return $this->total_skus > 0 && $this->mapped_skus === $this->total_skus;
     }
 
-    /** The stages this particular request actually passes through. */
-    public function displayStages(): array
+    /**
+     * The pipeline grouped into the four things people actually talk about.
+     * Twelve stages in one strip is unreadable — and it hides the fact that
+     * Photoshoot and Content are separate pieces of work owned by different
+     * teams. Grouping keeps the same stages while making that obvious.
+     */
+    public const PHASES = [
+        'intake' => [
+            'label'  => 'Intake & Verification',
+            'stages' => [self::SUBMITTED, self::WAITING_MAPPING, self::SKU_VERIFIED],
+        ],
+        'photoshoot' => [
+            'label'  => 'Photoshoot',
+            'stages' => [self::WAITING_IMAGES, self::PHOTOSHOOT_SCHEDULED, self::PHOTOSHOOT_COMPLETED],
+        ],
+        'content' => [
+            'label'  => 'Content Creation',
+            'stages' => [self::IMAGE_EDITING, self::AI_CONTENT],
+        ],
+        'launch' => [
+            'label'  => 'Review & Launch',
+            'stages' => [self::QA_REVIEW, self::READY_FOR_UPLOAD, self::PUBLISHED, self::COMPLETED],
+        ],
+    ];
+
+    /**
+     * Does this stage exist for this request at all?
+     *
+     * The stage the request is currently sitting in always counts, whatever the
+     * flags say — a request can be parked somewhere and then have the flag that
+     * created that stage switched off, and a stepper missing the live status
+     * would render as no progress at all.
+     */
+    public function stageApplies(string $stage): bool
     {
-        if ($this->requiresMapping()) {
-            return self::PIPELINE;
+        if ($stage === $this->status) {
+            return true;
         }
 
-        // Keep the stage the request is *currently* sitting in, even when the
-        // website says it shouldn't exist — a website's mapping flag can be
-        // turned off while a request is parked in Waiting for Mapping, and a
-        // stepper that omits the live status renders as 0% with nothing lit up.
-        return array_values(array_filter(
-            self::PIPELINE,
-            fn ($s) => $s !== self::WAITING_MAPPING || $s === $this->status,
-        ));
+        return match ($stage) {
+            self::WAITING_MAPPING => $this->requiresMapping(),
+
+            // Still needed when nobody has the images yet, even without a shoot.
+            self::WAITING_IMAGES => $this->photoshoot_required || !$this->supplier_images_available,
+
+            self::PHOTOSHOOT_SCHEDULED, self::PHOTOSHOOT_COMPLETED => (bool) $this->photoshoot_required,
+
+            default => true,
+        };
+    }
+
+    /** Phases that apply to this request, each with its state for the stepper. */
+    public function phaseProgress(): array
+    {
+        $current = $this->displayStageIndex();
+        $offset  = 0;
+        $out     = [];
+
+        foreach (self::PHASES as $key => $phase) {
+            $stages = array_values(array_filter($phase['stages'], fn ($s) => $this->stageApplies($s)));
+
+            if (empty($stages)) {
+                continue; // e.g. no photoshoot on this request
+            }
+
+            $end = $offset + count($stages) - 1;
+
+            // Without a shoot this phase is just "we're waiting on images" —
+            // calling it Photoshoot would be misleading.
+            $label = ($key === 'photoshoot' && !$this->photoshoot_required)
+                ? 'Product Images'
+                : $phase['label'];
+
+            $out[] = [
+                'key'    => $key,
+                'label'  => $label,
+                'stages' => $stages,
+                'start'  => $offset,
+                'state'  => $current < 0 ? 'upcoming'
+                    : ($current > $end ? 'done' : ($current >= $offset ? 'current' : 'upcoming')),
+            ];
+
+            $offset += count($stages);
+        }
+
+        return $out;
+    }
+
+    /** The stages this particular request actually passes through, in order. */
+    public function displayStages(): array
+    {
+        return array_values(array_filter(self::PIPELINE, fn ($s) => $this->stageApplies($s)));
     }
 
     /** Position within displayStages() — drives the stepper and the progress bar. */
@@ -340,32 +417,25 @@ class ProductRequest extends Model
             return [];
         }
 
-        $i = $this->stageIndex();
+        // Work off the stages that apply to THIS request, so a request with no
+        // photoshoot is never offered a photoshoot stage — forward or backward.
+        $stages = $this->displayStages();
+        $i      = $this->displayStageIndex();
+
         if ($i < 0) {
             return [];
         }
-
-        $allowed = [];
 
         // Can't leave "Waiting for Mapping" until every SKU resolves.
         if ($this->status === self::WAITING_MAPPING && !$this->isFullyMapped()) {
             return [self::CANCELLED];
         }
 
-        foreach (self::PIPELINE as $j => $status) {
-            if ($j > $i) {
-                $allowed[] = $status;
-            }
-        }
+        $allowed = array_slice($stages, $i + 1);
 
-        // One step back for rework (QA bounce, re-shoot).
+        // One applicable step back for rework (QA bounce, re-shoot).
         if ($i > 0) {
-            array_unshift($allowed, self::PIPELINE[$i - 1]);
-        }
-
-        // Never offer a mapping stage for a website that has no mapping step.
-        if (!$this->requiresMapping()) {
-            $allowed = array_values(array_filter($allowed, fn ($s) => $s !== self::WAITING_MAPPING));
+            array_unshift($allowed, $stages[$i - 1]);
         }
 
         $allowed[] = self::CANCELLED;
