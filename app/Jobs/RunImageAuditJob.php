@@ -30,6 +30,17 @@ class RunImageAuditJob implements ShouldQueue
 
         $shopify = new ShopifyService($store);
 
+        // A re-run must REPLACE this session's result, not add to it. handle()
+        // only ever inserts, so without this every retry stacks another full set
+        // of rows on top of the last — 500k+ per attempt on a large store, with
+        // nothing ever removing them. Chunked so a big delete never becomes one
+        // huge transaction.
+        do {
+            $deleted = ImageAuditItem::where('image_audit_session_id', $auditSession->id)
+                ->limit(5000)
+                ->delete();
+        } while ($deleted > 0);
+
         $auditSession->update([
             'status'         => 'running',
             'total_products' => $shopify->getProductCount(),
