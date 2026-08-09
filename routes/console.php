@@ -1,6 +1,9 @@
 <?php
 
+use App\Jobs\RecheckProductRequestMappingsJob;
 use App\Jobs\WarmSkuCacheJob;
+use App\Models\ProductRequest;
+use App\Models\ProductRequestAttachment;
 use App\Models\Store;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
@@ -65,3 +68,46 @@ $pruneExpiredCache = function () {
 };
 
 Schedule::call($pruneExpiredCache)->hourly()->name('prune-expired-cache')->withoutOverlapping();
+
+// Product Creation Requests parked in "Waiting for Mapping" are released the
+// moment Supply Chain finishes mapping in Cegid — this is what removes the
+// re-submission step the old email process needed. Runs on 'maintenance' so a
+// long Shopify lookup can't sit in front of a user's upload.
+Schedule::job(new RecheckProductRequestMappingsJob, 'maintenance')
+    ->hourly()
+    ->name('recheck-product-request-mappings')
+    ->withoutOverlapping();
+
+// Reference images and read notifications are never deleted otherwise. Attachments
+// for requests closed over 90 days ago, and read notifications older than 60 days,
+// are both safe to drop — the activity log keeps the audit trail either way.
+$pruneProductRequestData = function () {
+    $cutoff = now()->subDays(90);
+
+    ProductRequestAttachment::whereHas('productRequest', fn ($q) => $q
+        ->whereIn('status', [ProductRequest::COMPLETED, ProductRequest::CANCELLED])
+        ->where('updated_at', '<', $cutoff))
+        ->chunkById(200, function ($attachments) {
+            foreach ($attachments as $attachment) {
+                $path = storage_path("app/{$attachment->path}");
+                if (is_file($path)) {
+                    @unlink($path);
+                }
+                $attachment->delete();
+            }
+        });
+
+    // Sweep now-empty per-request directories.
+    foreach (glob(storage_path('app/product-requests/*'), GLOB_ONLYDIR) as $dir) {
+        if (!glob("{$dir}/*")) {
+            @rmdir($dir);
+        }
+    }
+
+    DB::table('notifications')
+        ->whereNotNull('read_at')
+        ->where('read_at', '<', now()->subDays(60))
+        ->delete();
+};
+
+Schedule::call($pruneProductRequestData)->daily()->name('prune-product-request-data')->withoutOverlapping();

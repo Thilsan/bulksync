@@ -10,7 +10,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 
-#[Fillable(['name', 'email', 'password', 'is_super_admin', 'is_active', 'perm_bulk_upload', 'perm_sku_checker', 'perm_image_audit', 'perm_store_sync', 'perm_ai_content', 'perm_metafield_update', 'onedrive_access_token', 'onedrive_refresh_token', 'onedrive_token_expiry'])]
+#[Fillable(['name', 'email', 'password', 'is_super_admin', 'is_active', 'perm_bulk_upload', 'perm_sku_checker', 'perm_image_audit', 'perm_store_sync', 'perm_ai_content', 'perm_metafield_update', 'perm_product_request', 'pcr_role', 'onedrive_access_token', 'onedrive_refresh_token', 'onedrive_token_expiry'])]
 #[Hidden(['password', 'remember_token', 'onedrive_access_token', 'onedrive_refresh_token', 'onedrive_token_expiry'])]
 class User extends Authenticatable
 {
@@ -30,7 +30,33 @@ class User extends Authenticatable
             'perm_store_sync'   => 'boolean',
             'perm_ai_content'        => 'boolean',
             'perm_metafield_update'  => 'boolean',
+            'perm_product_request'   => 'boolean',
         ];
+    }
+
+    /** Product Creation Request workflow roles — drive notification routing. */
+    public const PCR_ROLES = [
+        'brand_manager' => 'Brand Manager / Team',
+        'supply_chain'  => 'Supply Chain Team',
+        'ecommerce'     => 'E-Commerce Team',
+        'photographer'  => 'Photographer',
+        'content'       => 'Content Team',
+        'qa'            => 'QA Team',
+    ];
+
+    public function pcrRoleLabel(): ?string
+    {
+        return $this->pcr_role ? (self::PCR_ROLES[$this->pcr_role] ?? $this->pcr_role) : null;
+    }
+
+    public function hasPcrRole(string ...$roles): bool
+    {
+        return in_array($this->pcr_role, $roles, true);
+    }
+
+    public function productRequests(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(ProductRequest::class);
     }
 
     public function stores(): \Illuminate\Database\Eloquent\Relations\BelongsToMany

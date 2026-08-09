@@ -97,6 +97,8 @@ class SuperAdminController extends Controller
             'perm_store_sync'  => $request->boolean('perm_store_sync'),
             'perm_ai_content'       => $request->boolean('perm_ai_content'),
             'perm_metafield_update' => $request->boolean('perm_metafield_update'),
+            'perm_product_request'  => $request->boolean('perm_product_request'),
+            'pcr_role'              => $request->input('pcr_role') ?: null,
         ]);
 
         return back()->with('success', "Permissions updated for \"{$user->name}\".");

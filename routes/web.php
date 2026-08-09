@@ -13,6 +13,7 @@ use App\Http\Controllers\SkuCheckerController;
 use App\Http\Controllers\StoreImageSyncController;
 use App\Http\Controllers\MetafieldUpdateController;
 use App\Http\Controllers\AiContentController;
+use App\Http\Controllers\ProductRequestController;
 use Illuminate\Support\Facades\Route;
 
 // Auth
@@ -102,6 +103,34 @@ Route::middleware('auth')->group(function () {
     Route::post('/ai-content/{aiContentSession}/push', [AiContentController::class, 'push'])->name('ai-content.push');
     Route::post('/ai-content/{aiContentSession}/translate', [AiContentController::class, 'translate'])->name('ai-content.translate');
     Route::delete('/ai-content/{aiContentSession}',    [AiContentController::class, 'destroy'])->name('ai-content.destroy');
+
+    // Product Creation Request
+    Route::prefix('product-requests')->name('product-requests.')->group(function () {
+        Route::get('/',                        [ProductRequestController::class, 'index'])->name('index');
+        Route::get('/list',                    [ProductRequestController::class, 'list'])->name('list');
+        Route::post('/',                       [ProductRequestController::class, 'store'])->name('store');
+
+        Route::get('/notifications',           [ProductRequestController::class, 'notifications'])->name('notifications');
+        Route::post('/notifications/read',     [ProductRequestController::class, 'readNotifications'])->name('notifications.read');
+
+        Route::get('/{productRequest}',                    [ProductRequestController::class, 'show'])->name('show');
+        Route::get('/{productRequest}/status',             [ProductRequestController::class, 'status'])->name('status');
+        Route::put('/{productRequest}',                    [ProductRequestController::class, 'update'])->name('update');
+        Route::get('/{productRequest}/activities',         [ProductRequestController::class, 'activities'])->name('activities');
+        Route::get('/{productRequest}/skus/download',      [ProductRequestController::class, 'downloadSkus'])->name('skus.download');
+
+        Route::post('/{productRequest}/revalidate',        [ProductRequestController::class, 'revalidate'])->name('revalidate');
+        Route::post('/{productRequest}/skus',              [ProductRequestController::class, 'addSkus'])->name('skus.add');
+        Route::post('/{productRequest}/skus/cegid',        [ProductRequestController::class, 'markCegid'])->name('skus.cegid');
+        Route::post('/{productRequest}/transition',        [ProductRequestController::class, 'transition'])->name('transition');
+        Route::post('/{productRequest}/assign',            [ProductRequestController::class, 'assign'])->name('assign');
+        Route::post('/{productRequest}/comment',           [ProductRequestController::class, 'comment'])->name('comment');
+        Route::post('/{productRequest}/cancel',            [ProductRequestController::class, 'cancel'])->name('cancel');
+
+        Route::post('/{productRequest}/attachments',                          [ProductRequestController::class, 'uploadAttachments'])->name('attachments.store');
+        Route::get('/{productRequest}/attachments/{attachment}',              [ProductRequestController::class, 'downloadAttachment'])->name('attachments.download');
+        Route::delete('/{productRequest}/attachments/{attachment}',           [ProductRequestController::class, 'destroyAttachment'])->name('attachments.destroy');
+    });
 
     // Shopify OAuth
     Route::get('/auth/shopify/redirect',   [ShopifyAuthController::class,  'redirect'])->name('shopify.auth.redirect');

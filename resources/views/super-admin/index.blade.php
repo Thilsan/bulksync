@@ -150,6 +150,7 @@
                                     'store_sync'  => 'Store Image Sync',
                                     'ai_content'       => 'AI Content',
                                     'metafield_update' => 'Metafield Update',
+                                    'product_request'  => 'Product Creation Request',
                                 ];
                             @endphp
                             @foreach($features as $key => $label)
@@ -160,6 +161,20 @@
                                 <span class="text-sm text-gray-700 group-hover:text-gray-900">{{ $label }}</span>
                             </label>
                             @endforeach
+
+                            {{-- Decides which product-request stages notify this user. --}}
+                            <div class="pt-3">
+                                <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Product Request Role</label>
+                                <select name="pcr_role"
+                                    class="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
+                                    <option value="">No workflow role</option>
+                                    @foreach(\App\Models\User::PCR_ROLES as $roleKey => $roleLabel)
+                                        <option value="{{ $roleKey }}" @selected($user->pcr_role === $roleKey)>{{ $roleLabel }}</option>
+                                    @endforeach
+                                </select>
+                                <p class="text-xs text-gray-400 mt-1">Controls which workflow stages notify this user.</p>
+                            </div>
+
                             <div class="pt-2">
                                 <button type="submit"
                                     class="text-xs bg-brand-600 hover:bg-brand-700 text-white px-3 py-1.5 rounded-lg transition-colors font-medium">
