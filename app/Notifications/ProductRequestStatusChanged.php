@@ -68,6 +68,7 @@ class ProductRequestStatusChanged extends Notification implements ShouldQueue
     public function toArray(object $notifiable): array
     {
         return [
+            'kind'        => 'status',
             'request_id'  => $this->requestId,
             'reference'   => $this->reference,
             'brand'       => $this->brand,

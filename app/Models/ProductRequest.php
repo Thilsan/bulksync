@@ -73,6 +73,14 @@ class ProductRequest extends Model
         self::CANCELLED            => 'bg-red-50 text-red-700 border-red-200',
     ];
 
+    /** The four people a request can be assigned to, and what to call each. */
+    public const ASSIGNMENT_ROLES = [
+        'assigned_to'      => 'E-Commerce Owner',
+        'photographer_id'  => 'Photographer',
+        'content_owner_id' => 'Content Team',
+        'qa_owner_id'      => 'QA Team',
+    ];
+
     public const PRIORITIES = ['high' => 'High', 'medium' => 'Medium', 'low' => 'Low'];
 
     public const PRIORITY_COLORS = [
@@ -480,6 +488,30 @@ class ProductRequest extends Model
               ->orWhere('content_owner_id', $user->id)
               ->orWhere('qa_owner_id', $user->id);
         });
+    }
+
+    /** Requests where this user holds any of the four assignment roles. */
+    public function scopeAssignedTo($query, User $user)
+    {
+        return $query->where(function ($q) use ($user) {
+            foreach (array_keys(self::ASSIGNMENT_ROLES) as $field) {
+                $q->orWhere($field, $user->id);
+            }
+        });
+    }
+
+    /** Which hats this user is wearing on this request, e.g. ["Photographer"]. */
+    public function rolesFor(User $user): array
+    {
+        $roles = [];
+
+        foreach (self::ASSIGNMENT_ROLES as $field => $label) {
+            if ((int) $this->{$field} === $user->id) {
+                $roles[] = $label;
+            }
+        }
+
+        return $roles;
     }
 
     /** "In Progress" for the dashboard tile — everything actively being worked. */

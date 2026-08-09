@@ -110,6 +110,8 @@ Route::middleware('auth')->group(function () {
         Route::get('/list',                    [ProductRequestController::class, 'list'])->name('list');
         Route::post('/',                       [ProductRequestController::class, 'store'])->name('store');
 
+        Route::get('/my-tasks',                [ProductRequestController::class, 'myTasks'])->name('my-tasks');
+
         Route::get('/queue/{queue}',           [ProductRequestController::class, 'queue'])->name('queue')
             ->whereIn('queue', ['photoshoot', 'content']);
 

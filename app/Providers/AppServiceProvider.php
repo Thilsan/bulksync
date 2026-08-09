@@ -30,12 +30,29 @@ class AppServiceProvider extends ServiceProvider
                 if ($user && !$user->is_super_admin) {
                     $storeQuery->whereHas('users', fn ($q) => $q->where('user_id', $user->id));
                 }
+                // Top-bar bell. Only queried for users who can see the module,
+                // and capped at 8 rows so this stays cheap on every page load.
+                $notifications = collect();
+                $unreadCount   = 0;
+
+                if ($user && $user->hasFeature('product_request')) {
+                    $notifications = $user->notifications()->latest()->limit(8)->get();
+                    $unreadCount   = $user->unreadNotifications()->count();
+                }
+
                 $view->with([
-                    'activeStore' => \App\Models\Store::getActive(),
-                    'allStores'   => $storeQuery->get(),
+                    'activeStore'       => \App\Models\Store::getActive(),
+                    'allStores'         => $storeQuery->get(),
+                    'bellNotifications' => $notifications,
+                    'bellUnreadCount'   => $unreadCount,
                 ]);
             } catch (\Throwable) {
-                $view->with(['activeStore' => null, 'allStores' => collect()]);
+                $view->with([
+                    'activeStore'       => null,
+                    'allStores'         => collect(),
+                    'bellNotifications' => collect(),
+                    'bellUnreadCount'   => 0,
+                ]);
             }
         });
     }

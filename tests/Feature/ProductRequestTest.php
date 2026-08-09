@@ -6,6 +6,7 @@ use App\Models\ProductRequest;
 use App\Models\ProductRequestActivity;
 use App\Models\Store;
 use App\Models\User;
+use App\Notifications\ProductRequestAssigned;
 use App\Notifications\ProductRequestStatusChanged;
 use App\Services\ProductRequestWorkflow;
 use App\Services\SkuMappingService;
@@ -422,6 +423,79 @@ class ProductRequestTest extends TestCase
             ->assertSee('New Request')
             ->assertSee('New Product Creation Request')
             ->assertSee($store->name);
+    }
+
+    public function test_being_assigned_notifies_the_person_but_not_the_assigner(): void
+    {
+        Notification::fake();
+
+        $user    = $this->brandManager();
+        $request = $this->submitFor($user, $this->mappingSite(), 'ASG-1');
+
+        $photographer = User::create([
+            'name'                 => 'Shooter',
+            'email'                => 'shooter@example.test',
+            'password'             => 'password',
+            'is_active'            => true,
+            'perm_product_request' => true,
+            'pcr_role'             => 'photographer',
+        ]);
+
+        $this->actingAs($user)->post(route('product-requests.assign', $request), [
+            'photographer_id' => $photographer->id,
+            'assigned_to'     => $user->id,   // assigning myself
+        ])->assertRedirect();
+
+        Notification::assertSentTo($photographer, ProductRequestAssigned::class,
+            fn ($n) => $n->roleLabel === 'Photographer' && $n->reference === $request->reference);
+
+        // Assigning yourself shouldn't ping you.
+        Notification::assertNotSentTo($user, ProductRequestAssigned::class);
+
+        // Re-saving the same assignments must not re-notify.
+        Notification::fake();
+        $this->actingAs($user)->post(route('product-requests.assign', $request), [
+            'photographer_id' => $photographer->id,
+            'assigned_to'     => $user->id,
+        ]);
+        Notification::assertNothingSent();
+    }
+
+    public function test_assigned_to_me_lists_my_work_and_my_role(): void
+    {
+        Notification::fake();
+
+        $user    = $this->brandManager();
+        $store   = $this->mappingSite();
+        $mine    = $this->submitFor($user, $store, 'MINE-1');
+        $notMine = $this->submitFor($user, $store, 'THEIRS-1');
+
+        $mine->update(['brand' => 'MY BRAND', 'qa_owner_id' => $user->id]);
+        $notMine->update(['brand' => 'SOMEONE ELSE']);
+
+        $response = $this->actingAs($user)->get(route('product-requests.my-tasks'));
+
+        $response->assertOk()
+            ->assertSee('MY BRAND')
+            ->assertSee('QA Team')          // the role badge
+            ->assertDontSee('SOMEONE ELSE');
+    }
+
+    public function test_assigned_to_me_hides_closed_work_by_default(): void
+    {
+        Notification::fake();
+
+        $user  = $this->brandManager();
+        $store = $this->mappingSite();
+        $done  = $this->submitFor($user, $store, 'DONE-1');
+
+        $done->update(['brand' => 'FINISHED WORK', 'assigned_to' => $user->id, 'status' => ProductRequest::COMPLETED]);
+
+        $this->actingAs($user)->get(route('product-requests.my-tasks'))
+            ->assertOk()->assertDontSee('FINISHED WORK');
+
+        $this->actingAs($user)->get(route('product-requests.my-tasks', ['include_closed' => 1]))
+            ->assertOk()->assertSee('FINISHED WORK');
     }
 
     public function test_an_unknown_queue_is_not_found(): void

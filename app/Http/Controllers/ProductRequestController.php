@@ -9,6 +9,7 @@ use App\Models\ProductRequestAttachment;
 use App\Models\ProductRequestSku;
 use App\Models\Store;
 use App\Models\User;
+use App\Notifications\ProductRequestAssigned;
 use App\Services\ProductRequestWorkflow;
 use App\Services\SkuMappingService;
 use Illuminate\Container\Attributes\CurrentUser;
@@ -160,6 +161,31 @@ class ProductRequestController extends Controller implements HasMiddleware
         $stores = Store::selectableFor($user);
 
         return view('product-requests.list', compact('requests', 'brands', 'stores'));
+    }
+
+    /** Everything currently sitting with this user, in any of the four roles. */
+    public function myTasks(Request $request, #[CurrentUser] User $user): View
+    {
+        $query = ProductRequest::query()
+            ->assignedTo($user)
+            ->with(['user', 'store']);
+
+        // Closed work is hidden by default — this is a to-do list, not history.
+        if (!$request->boolean('include_closed')) {
+            $query->whereNotIn('status', [ProductRequest::COMPLETED, ProductRequest::CANCELLED]);
+        }
+
+        $requests = $query
+            ->orderByRaw("CASE priority WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END")
+            ->orderByRaw('online_launch_date IS NULL, online_launch_date')
+            ->get();
+
+        return view('product-requests.my-tasks', [
+            'requests' => $requests,
+            'overdue'  => $requests->filter->isOverdue()->count(),
+            'closedCount' => ProductRequest::query()->assignedTo($user)
+                ->whereIn('status', [ProductRequest::COMPLETED, ProductRequest::CANCELLED])->count(),
+        ]);
     }
 
     /**
@@ -569,16 +595,44 @@ class ProductRequestController extends Controller implements HasMiddleware
             'qa_owner_id'      => 'nullable|exists:users,id',
         ]);
 
+        $before = $productRequest->only(array_keys(ProductRequest::ASSIGNMENT_ROLES));
+
         $productRequest->update($data);
+
+        // Tell people they personally have work — a team-wide status notice
+        // doesn't tell anyone that THEY are the one who has to act.
+        $notified = [];
+
+        foreach (ProductRequest::ASSIGNMENT_ROLES as $field => $roleLabel) {
+            $assigneeId = $productRequest->{$field};
+
+            if (!$assigneeId || $assigneeId == ($before[$field] ?? null)) {
+                continue;
+            }
+
+            // No point pinging yourself about your own action.
+            if ((int) $assigneeId === $user->id) {
+                continue;
+            }
+
+            $assignee = User::find($assigneeId);
+
+            if ($assignee?->is_active) {
+                $assignee->notify(ProductRequestAssigned::forRequest($productRequest, $roleLabel, $user->name));
+                $notified[] = "{$assignee->name} ({$roleLabel})";
+            }
+        }
 
         $this->workflow->log(
             request:     $productRequest,
             action:      'assigned',
             description: 'Team assignments updated',
             actor:       $user,
+            remarks:     $notified ? 'Notified: ' . implode(', ', $notified) : null,
         );
 
-        return back()->with('success', 'Team assignments updated.');
+        return back()->with('success', 'Team assignments updated.'
+            . ($notified ? ' ' . count($notified) . ' person(s) notified.' : ''));
     }
 
     public function comment(Request $request, ProductRequest $productRequest, #[CurrentUser] User $user): RedirectResponse

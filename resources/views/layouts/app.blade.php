@@ -145,29 +145,27 @@
 
             @if(auth()->user()->hasFeature('product_request'))
             @php
-                $pcrUnread = auth()->user()->unreadNotifications()->count();
                 $pcrActive = request()->routeIs('product-requests.*');
                 $pcrQueue  = request()->route('queue');
+                $pcrUnread = $bellUnreadCount ?? 0;
             @endphp
             <div x-data="{ open: {{ $pcrActive ? 'true' : 'false' }} }">
 
                 {{-- Parent: the link goes to the dashboard, the chevron just expands. --}}
                 <div class="flex items-stretch rounded-md transition-colors
                             {{ $pcrActive ? 'bg-white/20' : 'hover:bg-white/10' }}">
+                    {{-- Label wraps rather than truncating: "Product Creation Request"
+                         does not fit the sidebar on one line, and the badge that used
+                         to sit here now lives in the top bar. --}}
                     <a href="{{ route('product-requests.index') }}"
                        @click="open = true"
-                       class="flex-1 min-w-0 flex items-center gap-3 px-3 py-2 text-sm font-medium
+                       class="flex-1 min-w-0 flex items-start gap-3 px-3 py-2 text-sm font-medium
                               {{ $pcrActive ? 'text-white' : 'text-white/70 hover:text-white' }}">
-                        <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg class="w-4 h-4 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                 d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"/>
                         </svg>
-                        <span class="flex-1 truncate">Product Creation Request</span>
-                        @if($pcrUnread > 0)
-                            <span class="shrink-0 px-1 h-5 rounded-full bg-red-500 text-white text-[10px] font-semibold flex items-center justify-center" style="min-width:1.25rem">
-                                {{ $pcrUnread > 99 ? '99+' : $pcrUnread }}
-                            </span>
-                        @endif
+                        <span class="flex-1 leading-tight">Product Creation Request</span>
                     </a>
                     <button type="button" @click.stop="open = !open"
                             class="px-2 flex items-center shrink-0 {{ $pcrActive ? 'text-white' : 'text-white/50 hover:text-white' }}"
@@ -184,6 +182,7 @@
                         // No "Dashboard" entry — the parent link already goes there.
                         $pcrLinks = [
                             ['label' => 'All Requests',     'url' => route('product-requests.list'),                             'on' => request()->routeIs('product-requests.list')],
+                            ['label' => 'Assigned to Me',   'url' => route('product-requests.my-tasks'),                         'on' => request()->routeIs('product-requests.my-tasks')],
                             ['label' => 'Photoshoot',       'url' => route('product-requests.queue', 'photoshoot'),              'on' => $pcrQueue === 'photoshoot'],
                             ['label' => 'Content Creation', 'url' => route('product-requests.queue', 'content'),                 'on' => $pcrQueue === 'content'],
                             ['label' => 'Notifications',    'url' => route('product-requests.notifications'),                    'on' => request()->routeIs('product-requests.notifications')],
@@ -324,6 +323,89 @@
                     </div>
                 </div>
                 @endif
+                {{-- Notification bell --}}
+                @if(auth()->user()->hasFeature('product_request'))
+                <div x-data="{ bell: false }" class="relative">
+                    <button @click="bell = !bell"
+                            class="relative flex items-center justify-center w-9 h-9 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 hover:text-gray-700 transition-colors"
+                            aria-label="Notifications">
+                        <svg class="w-4.5 h-4.5" style="width:1.125rem;height:1.125rem" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1h6z"/>
+                        </svg>
+                        @if(($bellUnreadCount ?? 0) > 0)
+                            <span class="absolute -top-1 -right-1 px-1 h-4 rounded-full bg-red-500 text-white text-[10px] font-semibold flex items-center justify-center" style="min-width:1rem">
+                                {{ $bellUnreadCount > 99 ? '99+' : $bellUnreadCount }}
+                            </span>
+                        @endif
+                    </button>
+
+                    <div x-show="bell" @click.outside="bell = false" x-cloak
+                         class="absolute right-0 mt-2 w-96 max-w-[calc(100vw-2rem)] bg-white rounded-xl shadow-lg border border-gray-200 z-50 overflow-hidden">
+
+                        <div class="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+                            <div>
+                                <p class="text-sm font-semibold text-gray-800">Notifications</p>
+                                <p class="text-xs text-gray-400">
+                                    {{ ($bellUnreadCount ?? 0) > 0 ? $bellUnreadCount . ' unread' : 'You are all caught up' }}
+                                </p>
+                            </div>
+                            @if(($bellUnreadCount ?? 0) > 0)
+                            <form method="POST" action="{{ route('product-requests.notifications.read') }}">
+                                @csrf
+                                <button type="submit" class="text-xs text-brand-600 hover:text-brand-700 font-medium">Mark all read</button>
+                            </form>
+                            @endif
+                        </div>
+
+                        <div class="max-h-96 overflow-y-auto divide-y divide-gray-50">
+                            @forelse($bellNotifications ?? collect() as $note)
+                                @php
+                                    $d        = $note->data;
+                                    $assigned = ($d['kind'] ?? null) === 'assigned';
+                                @endphp
+                                <a href="{{ !empty($d['request_id']) ? route('product-requests.show', $d['request_id']) : route('product-requests.notifications') }}"
+                                   class="flex items-start gap-3 px-4 py-3 hover:bg-gray-50 transition-colors {{ $note->read_at ? '' : 'bg-brand-50/40' }}">
+                                    <div class="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 mt-0.5
+                                                {{ $assigned ? 'bg-amber-100 text-amber-700' : ($note->read_at ? 'bg-gray-100 text-gray-400' : 'bg-brand-100 text-brand-700') }}">
+                                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                                d="{{ $assigned ? 'M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z' : 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z' }}"/>
+                                        </svg>
+                                    </div>
+                                    <div class="min-w-0 flex-1">
+                                        @if($assigned)
+                                            <p class="text-sm text-gray-800">
+                                                <span class="font-medium">{{ $d['reference'] ?? 'A request' }}</span> assigned to you as
+                                                <span class="font-medium">{{ $d['role'] ?? 'owner' }}</span>
+                                            </p>
+                                            <p class="text-xs text-gray-500 truncate">{{ $d['brand'] ?? '' }} &middot; {{ $d['status_label'] ?? '' }}</p>
+                                        @else
+                                            <p class="text-sm text-gray-800">
+                                                <span class="font-medium">{{ $d['reference'] ?? 'A request' }}</span> is now
+                                                <span class="font-medium">{{ $d['status_label'] ?? 'updated' }}</span>
+                                            </p>
+                                            <p class="text-xs text-gray-500 truncate">{{ $d['brand'] ?? '' }}</p>
+                                        @endif
+                                        <p class="text-xs text-gray-400 mt-0.5">by {{ $d['actor'] ?? 'System' }} &middot; {{ $note->created_at->diffForHumans() }}</p>
+                                    </div>
+                                    @unless($note->read_at)
+                                        <span class="w-1.5 h-1.5 rounded-full bg-brand-500 shrink-0 mt-2"></span>
+                                    @endunless
+                                </a>
+                            @empty
+                                <p class="px-4 py-10 text-sm text-gray-400 text-center">No notifications yet.</p>
+                            @endforelse
+                        </div>
+
+                        <div class="px-4 py-2.5 bg-gray-50 border-t border-gray-100 flex items-center justify-between">
+                            <a href="{{ route('product-requests.my-tasks') }}" class="text-xs text-gray-600 hover:text-gray-900 font-medium">Assigned to me</a>
+                            <a href="{{ route('product-requests.notifications') }}" class="text-xs text-brand-600 hover:text-brand-700 font-medium">View all &rarr;</a>
+                        </div>
+                    </div>
+                </div>
+                @endif
+
                 <div class="text-sm text-gray-400">{{ now()->format('D, d M Y') }}</div>
             </div>
         </header>
