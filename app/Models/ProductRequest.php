@@ -84,66 +84,79 @@ class ProductRequest extends Model
     public const STAGE_GUIDE = [
         self::SUBMITTED => [
             'role'  => 'E-Commerce Team',
+            'role_key' => 'ecommerce',
             'field' => 'assigned_to',
             'what'  => 'Review the request, check the SKU validation result, and assign the people who will work on it.',
         ],
         self::WAITING_MAPPING => [
             'role'  => 'Supply Chain Team',
+            'role_key' => 'supply_chain',
             'field' => null,
             'what'  => 'Map the outstanding SKUs in Cegid, then record the result on the SKUs tab. The request moves on by itself once every SKU is mapped — nobody needs to re-submit it.',
         ],
         self::SKU_VERIFIED => [
             'role'  => 'E-Commerce Team',
+            'role_key' => 'ecommerce',
             'field' => 'assigned_to',
             'what'  => 'Every SKU is mapped. Confirm where the images are coming from — supplier or photoshoot — and move the request to the next stage.',
         ],
         self::WAITING_IMAGES => [
             'role'  => 'Photographer',
+            'role_key' => 'photographer',
             'field' => 'photographer_id',
             'what'  => 'Gather the product images. If a photoshoot is needed, book it and set the shoot date when you move the request on.',
         ],
         self::PHOTOSHOOT_SCHEDULED => [
             'role'  => 'Photographer',
+            'role_key' => 'photographer',
             'field' => 'photographer_id',
             'what'  => 'Shoot the products on the scheduled date, then mark the photoshoot completed.',
         ],
         self::PHOTOSHOOT_COMPLETED => [
             'role'  => 'Photographer',
+            'role_key' => 'photographer',
             'field' => 'photographer_id',
             'what'  => 'Hand the raw images over to the E-Commerce team for editing.',
         ],
         self::IMAGE_EDITING => [
             'role'  => 'E-Commerce Team',
+            'role_key' => 'ecommerce',
             'field' => 'assigned_to',
             'what'  => 'Edit, crop and optimise the images so they are ready for the website.',
         ],
         self::AI_CONTENT => [
             'role'  => 'Content Team',
+            'role_key' => 'content',
             'field' => 'content_owner_id',
             'what'  => 'Generate the product copy — descriptions, meta titles and meta descriptions — using the AI Content Generator.',
         ],
         self::QA_REVIEW => [
             'role'  => 'QA Team',
+            'role_key' => 'qa',
             'field' => 'qa_owner_id',
             'what'  => 'Check the images, copy and product data. If something needs rework, move the request back one stage with a remark explaining why.',
         ],
         self::READY_FOR_UPLOAD => [
             'role'  => 'E-Commerce Team',
+            'role_key' => 'ecommerce',
             'field' => 'assigned_to',
             'what'  => 'Everything is approved. Upload the products so they go live on the planned online launch date.',
         ],
         self::PUBLISHED => [
             'role'  => 'E-Commerce Team',
+            'role_key' => 'ecommerce',
             'field' => 'assigned_to',
             'what'  => 'Products are live on the website. Check them over, then close the request as completed.',
         ],
         self::COMPLETED => [
             'role'  => null,
+            'role_key' => null,
             'field' => null,
             'what'  => 'This request is finished. Nothing further to do.',
         ],
         self::CANCELLED => [
             'role'  => null,
+            'role_key' => null,
             'field' => null,
             'what'  => 'This request was cancelled and is no longer being worked on.',
         ],
@@ -317,10 +330,11 @@ class ProductRequest extends Model
         $relation = $guide['field'] ? (self::OWNER_RELATIONS[$guide['field']] ?? null) : null;
 
         return [
-            'role'  => $guide['role'],
-            'what'  => $guide['what'],
-            'field' => $guide['field'],
-            'owner' => $relation ? $this->{$relation} : null,
+            'role'     => $guide['role'],
+            'role_key' => $guide['role_key'] ?? null,
+            'what'     => $guide['what'],
+            'field'    => $guide['field'],
+            'owner'    => $relation ? $this->{$relation} : null,
         ];
     }
 
@@ -330,16 +344,63 @@ class ProductRequest extends Model
         return $this->guideFor($this->status);
     }
 
+    /**
+     * How this user relates to the stage the request is sitting in.
+     *
+     *   'mine'    — they are personally assigned to it
+     *   'my_team' — nobody is assigned, but their workflow role owns this stage,
+     *               so it IS their team's job even though no name is on it
+     *   'other'   — someone else's
+     *   'none'    — closed, or the viewer has no stake
+     *
+     * The 'my_team' case is the one that matters: without it, unassigned work
+     * is invisible to the very people who are supposed to pick it up.
+     */
+    public function ownershipFor(?User $user): string
+    {
+        if (!$user || $this->isClosed()) {
+            return 'none';
+        }
+
+        $guide = $this->currentGuide();
+
+        if ($guide['owner'] && (int) $guide['owner']->id === $user->id) {
+            return 'mine';
+        }
+
+        if (!$guide['owner'] && $guide['role_key'] && $user->pcr_role === $guide['role_key']) {
+            return 'my_team';
+        }
+
+        return $guide['owner'] ? 'other' : 'none';
+    }
+
     /** Is the logged-in user the person this stage is waiting on? */
     public function isWaitingOn(?User $user): bool
     {
-        if (!$user) {
+        return $this->ownershipFor($user) === 'mine';
+    }
+
+    /**
+     * Can this user put their own name on the current stage? Only when the
+     * stage has an assignment slot and it is empty — claiming never steals
+     * work from someone who already has it.
+     */
+    public function claimableBy(?User $user): bool
+    {
+        if (!$user || $this->isClosed()) {
             return false;
         }
 
         $guide = $this->currentGuide();
 
-        return $guide['owner'] && (int) $guide['owner']->id === $user->id;
+        return $guide['field'] !== null && $guide['owner'] === null;
+    }
+
+    /** The assignment column the current stage is claimed through. */
+    public function claimField(): ?string
+    {
+        return $this->currentGuide()['field'];
     }
 
     /** Brand team owes us a content sheet and hasn't sent one yet. */

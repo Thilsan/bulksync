@@ -630,8 +630,8 @@ class ProductRequestTest extends TestCase
 
         $this->actingAs($user)->get(route('product-requests.show', $request))
             ->assertOk()
-            ->assertSee('What needs to happen next')
-            ->assertSee('Your task');
+            ->assertSee('This is your task')
+            ->assertSee('Assigned to you');
 
         // Someone else's stage shouldn't be badged as theirs.
         $other = User::create([
@@ -639,6 +639,83 @@ class ProductRequestTest extends TestCase
             'is_active' => true, 'perm_product_request' => true, 'pcr_role' => 'ecommerce',
         ]);
         $this->assertFalse($request->isWaitingOn($other));
+    }
+
+    public function test_unassigned_work_is_flagged_to_the_team_that_owns_the_stage(): void
+    {
+        Notification::fake();
+
+        $requester = $this->brandManager();
+        $request   = $this->submitFor($requester, $this->plainSite(), 'TEAM-1');
+
+        // Sits at SKU Verified, which the E-Commerce team owns, with nobody named.
+        $this->assertSame(ProductRequest::SKU_VERIFIED, $request->status);
+
+        $ecom = User::create([
+            'name' => 'Ecom Person', 'email' => 'ecom@example.test', 'password' => 'password',
+            'is_active' => true, 'perm_product_request' => true, 'pcr_role' => 'ecommerce',
+        ]);
+        $qa = User::create([
+            'name' => 'QA Person', 'email' => 'qa@example.test', 'password' => 'password',
+            'is_active' => true, 'perm_product_request' => true, 'pcr_role' => 'qa',
+        ]);
+
+        // The E-Commerce person sees it as their team's; QA does not.
+        $this->assertSame('my_team', $request->ownershipFor($ecom));
+        $this->assertSame('none',    $request->ownershipFor($qa));
+
+        $this->actingAs($ecom)->get(route('product-requests.show', $request))
+            ->assertOk()
+            ->assertSee('Waiting on your team')
+            ->assertSee('Take this task');
+
+        // And it shows up on their Assigned to Me page as unclaimed.
+        $this->actingAs($ecom)->get(route('product-requests.my-tasks'))
+            ->assertOk()
+            ->assertSee('Waiting on your team');
+
+        $this->actingAs($qa)->get(route('product-requests.my-tasks'))
+            ->assertOk()
+            ->assertDontSee('Waiting on your team');
+    }
+
+    public function test_taking_a_task_puts_your_name_on_the_current_stage(): void
+    {
+        Notification::fake();
+
+        $requester = $this->brandManager();
+        $request   = $this->submitFor($requester, $this->plainSite(), 'CLAIM-1');
+
+        $ecom = User::create([
+            'name' => 'Ecom Person', 'email' => 'ecom2@example.test', 'password' => 'password',
+            'is_active' => true, 'perm_product_request' => true, 'pcr_role' => 'ecommerce',
+        ]);
+
+        $this->assertTrue($request->claimableBy($ecom));
+
+        $this->actingAs($ecom)->post(route('product-requests.claim', $request))->assertRedirect();
+
+        $request->refresh();
+
+        $this->assertSame($ecom->id, $request->assigned_to);
+        $this->assertSame('mine', $request->ownershipFor($ecom));
+
+        // Claiming is recorded, so there is no mystery about who picked it up.
+        $this->assertTrue(
+            ProductRequestActivity::where('product_request_id', $request->id)
+                ->where('description', 'like', '%took this task%')->exists()
+        );
+
+        // A second person cannot take it off them.
+        $other = User::create([
+            'name' => 'Other Ecom', 'email' => 'ecom3@example.test', 'password' => 'password',
+            'is_active' => true, 'perm_product_request' => true, 'pcr_role' => 'ecommerce',
+        ]);
+        $this->assertFalse($request->claimableBy($other));
+        $this->actingAs($other)->post(route('product-requests.claim', $request))
+            ->assertSessionHasErrors('claim');
+
+        $this->assertSame($ecom->id, $request->fresh()->assigned_to);
     }
 
     public function test_the_dashboard_explains_the_process_to_newcomers(): void

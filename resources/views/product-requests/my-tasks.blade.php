@@ -55,10 +55,66 @@
         @endif
     </div>
 
+    {{-- Unclaimed work your role owns. This is how a team member finds a job
+         that has their team's name on it but nobody's signature. --}}
+    @if($teamTasks->isNotEmpty())
+    <div class="bg-amber-50 rounded-xl border border-amber-200 overflow-hidden">
+        <div class="px-5 py-3.5 border-b border-amber-200">
+            <h3 class="text-sm font-semibold text-amber-900">
+                Waiting on your team &mdash; nobody has taken these ({{ $teamTasks->count() }})
+            </h3>
+            <p class="text-xs text-amber-700 mt-0.5">
+                These are sitting at a stage your role owns. Take one to put your name on it.
+            </p>
+        </div>
+        <div class="divide-y divide-amber-100">
+            @foreach($teamTasks as $item)
+                @php $days = $item->daysToOnlineLaunch(); @endphp
+                <div class="flex flex-wrap items-center gap-3 px-5 py-3">
+                    <div class="min-w-0 flex-1">
+                        <a href="{{ route('product-requests.show', $item) }}" class="text-sm font-medium text-brand-700 hover:text-brand-800">{{ $item->reference }}</a>
+                        <span class="text-sm text-gray-700 ml-1.5">{{ $item->brand }} / {{ $item->category }}</span>
+                        <p class="text-xs text-gray-500">
+                            {{ $item->statusLabel() }}
+                            @if($days !== null)
+                                &middot; <span class="{{ $days < 0 ? 'text-red-600 font-medium' : '' }}">
+                                    @if($days < 0) {{ abs($days) }}d overdue @elseif($days === 0) launches today @else {{ $days }}d to launch @endif
+                                </span>
+                            @endif
+                        </p>
+                    </div>
+                    <span class="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium border shrink-0 {{ $item->priorityColor() }}">
+                        {{ $item->priorityLabel() }}
+                    </span>
+                    @if($item->claimableBy($me))
+                    <form method="POST" action="{{ route('product-requests.claim', $item) }}" class="shrink-0">
+                        @csrf
+                        <button type="submit" class="bg-amber-500 hover:bg-amber-600 text-white text-xs font-medium px-3 py-1.5 rounded-lg transition-colors">
+                            Take this task
+                        </button>
+                    </form>
+                    @else
+                    <a href="{{ route('product-requests.show', $item) }}"
+                       class="shrink-0 text-xs font-medium text-amber-800 hover:text-amber-900 px-3 py-1.5">Open &rarr;</a>
+                    @endif
+                </div>
+            @endforeach
+        </div>
+    </div>
+    @endif
+
     <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+        @if($requests->isNotEmpty())
+            <div class="px-5 py-3 border-b border-gray-100">
+                <h3 class="text-sm font-semibold text-gray-800">Assigned to you by name</h3>
+            </div>
+        @endif
         @if($requests->isEmpty())
             <div class="px-5 py-16 text-center">
-                <p class="text-sm text-gray-500">Nothing is assigned to you right now.</p>
+                <p class="text-sm text-gray-500">
+                    Nothing is assigned to you by name right now.
+                    @if($teamTasks->isNotEmpty()) Your team has unclaimed work above. @endif
+                </p>
                 <a href="{{ route('product-requests.list') }}" class="text-sm text-brand-600 hover:text-brand-700 font-medium mt-2 inline-block">
                     View all requests &rarr;
                 </a>

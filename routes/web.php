@@ -129,6 +129,7 @@ Route::middleware('auth')->group(function () {
         Route::post('/{productRequest}/skus/mapping',      [ProductRequestController::class, 'updateMapping'])->name('skus.mapping');
         Route::post('/{productRequest}/transition',        [ProductRequestController::class, 'transition'])->name('transition');
         Route::post('/{productRequest}/assign',            [ProductRequestController::class, 'assign'])->name('assign');
+        Route::post('/{productRequest}/claim',             [ProductRequestController::class, 'claim'])->name('claim');
         Route::post('/{productRequest}/comment',           [ProductRequestController::class, 'comment'])->name('comment');
         Route::post('/{productRequest}/cancel',            [ProductRequestController::class, 'cancel'])->name('cancel');
 

@@ -215,31 +215,46 @@
         </div>
     </div>
 
-    {{-- What has to happen next. The single thing a newcomer needs to read. --}}
+    {{-- What has to happen next, and whose job it is. --}}
     @php
-        $guide  = $request->currentGuide();
-        $mine   = $request->isWaitingOn(auth()->user());
-        $closed = $request->isClosed();
+        $me        = auth()->user();
+        $guide     = $request->currentGuide();
+        $ownership = $request->ownershipFor($me);   // mine | my_team | other | none
+        $claimable = $request->claimableBy($me);
+        $closed    = $request->isClosed();
+
+        // One colour per ownership state so "is this mine?" is answerable at a glance.
+        [$panelBg, $iconBg, $heading] = match (true) {
+            $closed                  => ['bg-gray-50 border-gray-200',    'bg-gray-200 text-gray-500',   'This request is closed'],
+            $ownership === 'mine'    => ['bg-brand-50 border-brand-300',  'bg-brand-600 text-white',     'This is your task'],
+            $ownership === 'my_team' => ['bg-amber-50 border-amber-300',  'bg-amber-500 text-white',     'Waiting on your team'],
+            default                  => ['bg-white border-gray-200',      'bg-gray-100 text-gray-500',   'What needs to happen next'],
+        };
     @endphp
-    <div class="rounded-xl border shadow-sm px-5 py-4
-                {{ $closed ? 'bg-gray-50 border-gray-200' : ($mine ? 'bg-brand-50 border-brand-200' : 'bg-white border-gray-200') }}">
+    <div class="rounded-xl border shadow-sm px-5 py-4 {{ $panelBg }}">
         <div class="flex items-start gap-4">
-            <div class="w-9 h-9 rounded-lg flex items-center justify-center shrink-0
-                        {{ $closed ? 'bg-gray-200 text-gray-500' : ($mine ? 'bg-brand-600 text-white' : 'bg-amber-100 text-amber-700') }}">
+            <div class="w-9 h-9 rounded-lg flex items-center justify-center shrink-0 {{ $iconBg }}">
                 <svg class="w-4.5 h-4.5" style="width:1.125rem;height:1.125rem" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="{{ $closed ? 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z' : 'M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z' }}"/>
+                        d="{{ $closed
+                            ? 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z'
+                            : ($ownership === 'mine' || $ownership === 'my_team'
+                                ? 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4'
+                                : 'M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z') }}"/>
                 </svg>
             </div>
 
             <div class="flex-1 min-w-0">
                 <div class="flex flex-wrap items-center gap-2">
-                    <h3 class="text-sm font-semibold text-gray-900">
-                        {{ $closed ? 'This request is closed' : 'What needs to happen next' }}
-                    </h3>
-                    @if($mine && !$closed)
+                    <h3 class="text-sm font-semibold text-gray-900">{{ $heading }}</h3>
+
+                    @if($ownership === 'mine')
                         <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wide bg-brand-600 text-white">
-                            Your task
+                            Assigned to you
+                        </span>
+                    @elseif($ownership === 'my_team')
+                        <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wide bg-amber-500 text-white">
+                            Unclaimed
                         </span>
                     @endif
                 </div>
@@ -247,24 +262,44 @@
                 <p class="text-sm text-gray-700 mt-1">{{ $guide['what'] }}</p>
 
                 @unless($closed)
-                    <p class="text-xs text-gray-500 mt-2">
-                        <span class="font-medium text-gray-700">Responsible:</span>
-                        {{ $guide['role'] ?? 'Unassigned' }}
-                        @if($guide['owner'])
-                            &middot; {{ $guide['owner']->name }}
-                        @elseif($guide['field'])
-                            &middot; <span class="text-amber-600 font-medium">nobody assigned yet</span>
+                    {{-- Say plainly whose court the ball is in. --}}
+                    <p class="text-xs text-gray-600 mt-2">
+                        @if($ownership === 'mine')
+                            <span class="font-medium">You</span> are the {{ $guide['role'] }} on this request.
+                        @elseif($ownership === 'my_team')
+                            This stage belongs to the <span class="font-medium">{{ $guide['role'] }}</span> — your team — but
+                            <span class="font-medium text-amber-700">nobody has taken it yet</span>.
+                        @elseif($guide['owner'])
+                            Waiting on <span class="font-medium">{{ $guide['owner']->name }}</span> ({{ $guide['role'] }}).
+                        @else
+                            Waiting on the <span class="font-medium">{{ $guide['role'] ?? 'team' }}</span> —
+                            <span class="font-medium text-amber-700">nobody assigned yet</span>.
                         @endif
                         <span class="mx-1 text-gray-300">|</span>
-                        <span class="font-medium text-gray-700">Current stage:</span> {{ $request->statusLabel() }}
+                        Current stage: <span class="font-medium">{{ $request->statusLabel() }}</span>
                     </p>
                 @endunless
             </div>
 
             @unless($closed)
+            <div class="shrink-0 flex flex-col gap-2 self-center">
+                @if($claimable)
+                    <form method="POST" action="{{ route('product-requests.claim', $request) }}">
+                        @csrf
+                        <button type="submit"
+                                class="w-full inline-flex items-center justify-center gap-2 text-sm font-medium px-4 py-2 rounded-lg transition-colors
+                                       {{ $ownership === 'my_team' ? 'bg-amber-500 hover:bg-amber-600 text-white' : 'border border-gray-300 text-gray-700 hover:bg-gray-50' }}">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                            </svg>
+                            Take this task
+                        </button>
+                    </form>
+                @endif
+
                 @if(!empty($transitions))
                 <button type="button" @click="showTransition = true"
-                        class="shrink-0 inline-flex items-center gap-2 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors self-center"
+                        class="inline-flex items-center justify-center gap-2 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
                         style="background-color:#1d5a74" onmouseover="this.style.backgroundColor='#164659'" onmouseout="this.style.backgroundColor='#1d5a74'">
                     Move to next stage
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -273,10 +308,11 @@
                 </button>
                 @elseif($request->isBlockedOnMapping())
                 <button type="button" @click="tab = 'skus'"
-                        class="shrink-0 inline-flex items-center gap-2 border border-amber-300 bg-white text-amber-700 text-sm font-medium px-4 py-2 rounded-lg hover:bg-amber-50 transition-colors self-center">
+                        class="inline-flex items-center justify-center gap-2 border border-amber-300 bg-white text-amber-700 text-sm font-medium px-4 py-2 rounded-lg hover:bg-amber-50 transition-colors">
                     Go to SKUs
                 </button>
                 @endif
+            </div>
             @endunless
         </div>
     </div>

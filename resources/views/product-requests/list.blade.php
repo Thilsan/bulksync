@@ -105,7 +105,7 @@
                         <th class="px-3 py-2.5 font-medium">Online Launch</th>
                         <th class="px-3 py-2.5 font-medium">Status</th>
                         <th class="px-3 py-2.5 font-medium">Priority</th>
-                        <th class="px-5 py-2.5 font-medium">Assigned To</th>
+                        <th class="px-5 py-2.5 font-medium">Waiting On</th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-gray-50">
@@ -138,7 +138,28 @@
                                 {{ $item->priorityLabel() }}
                             </span>
                         </td>
-                        <td class="px-5 py-3 text-gray-600">{{ $item->assignee?->name ?? '—' }}</td>
+                        {{-- Whose court the ball is in right now, not just who owns the request. --}}
+                        @php
+                            $g   = $item->currentGuide();
+                            $own = $item->ownershipFor(auth()->user());
+                        @endphp
+                        <td class="px-5 py-3">
+                            @if($item->isClosed())
+                                <span class="text-gray-400">—</span>
+                            @elseif($own === 'mine')
+                                <span class="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-semibold bg-brand-600 text-white">You</span>
+                                <p class="text-xs text-gray-400">{{ $g['role'] }}</p>
+                            @elseif($own === 'my_team')
+                                <span class="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-amber-100 text-amber-800 border border-amber-200">Your team</span>
+                                <p class="text-xs text-amber-600">unclaimed</p>
+                            @elseif($g['owner'])
+                                <p class="text-gray-700">{{ $g['owner']->name }}</p>
+                                <p class="text-xs text-gray-400">{{ $g['role'] }}</p>
+                            @else
+                                <p class="text-gray-500">{{ $g['role'] ?? '—' }}</p>
+                                <p class="text-xs text-amber-600">unassigned</p>
+                            @endif
+                        </td>
                     </tr>
                     @endforeach
                 </tbody>

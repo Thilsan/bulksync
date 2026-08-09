@@ -128,7 +128,10 @@ class ProductRequestController extends Controller implements HasMiddleware
     /** Full, filterable request list — the "View Requests" screen. */
     public function list(Request $request, #[CurrentUser] User $user): View
     {
-        $query = ProductRequest::query()->visibleTo($user)->with(['user', 'assignee']);
+        // All four owner relations are eager-loaded: the "Waiting On" column
+        // resolves whichever one the current stage belongs to, per row.
+        $query = ProductRequest::query()->visibleTo($user)
+            ->with(['user', 'assignee', 'photographer', 'contentOwner', 'qaOwner']);
 
         if ($request->filled('status')) {
             $query->where('status', $request->string('status'));
@@ -168,7 +171,7 @@ class ProductRequestController extends Controller implements HasMiddleware
     {
         $query = ProductRequest::query()
             ->assignedTo($user)
-            ->with(['user', 'store']);
+            ->with(['user', 'store', 'assignee', 'photographer', 'contentOwner', 'qaOwner']);
 
         // Closed work is hidden by default — this is a to-do list, not history.
         if (!$request->boolean('include_closed')) {
@@ -181,11 +184,57 @@ class ProductRequestController extends Controller implements HasMiddleware
             ->get();
 
         return view('product-requests.my-tasks', [
-            'requests' => $requests,
-            'overdue'  => $requests->filter->isOverdue()->count(),
+            'requests'    => $requests,
+            'teamTasks'   => $this->unclaimedForRole($user),
+            'overdue'     => $requests->filter->isOverdue()->count(),
             'closedCount' => ProductRequest::query()->assignedTo($user)
                 ->whereIn('status', [ProductRequest::COMPLETED, ProductRequest::CANCELLED])->count(),
         ]);
+    }
+
+    /**
+     * Requests parked at a stage this user's role owns, with nobody's name on
+     * them. Without this, unassigned work is invisible to exactly the people
+     * who are meant to pick it up.
+     *
+     * @return \Illuminate\Support\Collection<int, ProductRequest>
+     */
+    private function unclaimedForRole(User $user)
+    {
+        if (!$user->pcr_role) {
+            return collect();
+        }
+
+        $myStages = collect(ProductRequest::STAGE_GUIDE)
+            ->filter(fn ($guide) => ($guide['role_key'] ?? null) === $user->pcr_role)
+            ->keys();
+
+        if ($myStages->isEmpty()) {
+            return collect();
+        }
+
+        return ProductRequest::query()
+            ->visibleTo($user)
+            ->whereIn('status', $myStages)
+            ->where(function ($q) use ($myStages) {
+                foreach ($myStages as $stage) {
+                    $field = ProductRequest::STAGE_GUIDE[$stage]['field'] ?? null;
+
+                    $q->orWhere(function ($inner) use ($stage, $field) {
+                        $inner->where('status', $stage);
+
+                        // A stage with no assignment slot (mapping) is always
+                        // the whole team's; one with a slot only counts if empty.
+                        if ($field) {
+                            $inner->whereNull($field);
+                        }
+                    });
+                }
+            })
+            ->with(['store', 'assignee', 'photographer', 'contentOwner', 'qaOwner'])
+            ->orderByRaw("CASE priority WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END")
+            ->orderByRaw('online_launch_date IS NULL, online_launch_date')
+            ->get();
     }
 
     /**
@@ -638,6 +687,36 @@ class ProductRequestController extends Controller implements HasMiddleware
 
         return back()->with('success', 'Team assignments updated.'
             . ($notified ? ' ' . count($notified) . ' person(s) notified.' : ''));
+    }
+
+    /**
+     * Put your own name on the current stage. This is how unassigned work stops
+     * being nobody's job — whoever picks it up says so, and everyone else can
+     * see the ball is in their court.
+     */
+    public function claim(ProductRequest $productRequest, #[CurrentUser] User $user): RedirectResponse
+    {
+        $this->authorizeView($productRequest, $user);
+
+        if (!$productRequest->claimableBy($user)) {
+            return back()->withErrors([
+                'claim' => 'This stage is already assigned, or has no owner slot to claim.',
+            ]);
+        }
+
+        $guide = $productRequest->currentGuide();
+        $field = $guide['field'];
+
+        $productRequest->update([$field => $user->id]);
+
+        $this->workflow->log(
+            request:     $productRequest,
+            action:      'assigned',
+            description: "{$user->name} took this task as {$guide['role']}",
+            actor:       $user,
+        );
+
+        return back()->with('success', "You are now the {$guide['role']} on this request.");
     }
 
     public function comment(Request $request, ProductRequest $productRequest, #[CurrentUser] User $user): RedirectResponse
