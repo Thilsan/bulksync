@@ -11,10 +11,15 @@ Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
 })->purpose('Display an inspiring quote');
 
-// Warm SKU cache for all stores at set times so user checks are always instant
+// Warm SKU cache for all stores at set times so user checks are always instant.
+// Dispatched to 'maintenance', NOT 'bulkupload': a warm holds a worker for ~an
+// hour, and on the shared queue it blocked every user upload behind it four
+// times a day. Requires a supervisor worker listening on 'maintenance' with a
+// timeout above the job's 10800s — one process only, since concurrent warms
+// purge each other's cache rows.
 $warmAllStores = function () {
     Store::all()->each(function ($store) {
-        WarmSkuCacheJob::dispatch($store->id)->onQueue('bulkupload');
+        WarmSkuCacheJob::dispatch($store->id)->onQueue('maintenance');
     });
 };
 
