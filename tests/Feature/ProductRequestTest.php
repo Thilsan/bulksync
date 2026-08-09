@@ -871,6 +871,64 @@ class ProductRequestTest extends TestCase
         Notification::assertSentTo($second, ProductRequestAssigned::class);
     }
 
+    public function test_mapping_and_image_editing_have_owners_of_their_own(): void
+    {
+        Notification::fake();
+
+        $requester = $this->brandManager();
+        $request   = $this->submitFor($requester, $this->mappingSite(), 'ROLE-1');
+
+        // Waiting for Mapping can now name a person, not just "Supply Chain".
+        $this->assertSame(ProductRequest::WAITING_MAPPING, $request->status);
+        $this->assertSame('supply_chain_id', $request->currentGuide()['field']);
+
+        $supply = User::create([
+            'name' => 'Supply Person', 'email' => 'sc@example.test', 'password' => 'password',
+            'is_active' => true, 'perm_product_request' => true, 'pcr_role' => 'supply_chain',
+        ]);
+        $editor = User::create([
+            'name' => 'Editor Person', 'email' => 'ed@example.test', 'password' => 'password',
+            'is_active' => true, 'perm_product_request' => true, 'pcr_role' => 'image_editor',
+        ]);
+
+        // Unclaimed mapping work now reaches the Supply Chain team.
+        $this->assertSame('my_team', $request->ownershipFor($supply));
+
+        $this->actingAs($requester)->post(route('product-requests.assign', $request), [
+            'supply_chain_id' => $supply->id,
+            'image_editor_id' => $editor->id,
+        ])->assertRedirect();
+
+        $request->refresh();
+
+        $this->assertSame($supply->id, $request->supply_chain_id);
+        $this->assertSame('mine', $request->ownershipFor($supply));
+        Notification::assertSentTo($supply, ProductRequestAssigned::class);
+
+        // Image Editing belongs to the editor, not the E-Commerce owner.
+        $request->update(['status' => ProductRequest::IMAGE_EDITING]);
+        $request->refresh();
+
+        $this->assertSame('Photo Editor', $request->currentGuide()['role']);
+        $this->assertSame($editor->id, $request->currentGuide()['owner']->id);
+        $this->assertSame('mine', $request->ownershipFor($editor));
+    }
+
+    public function test_the_assignment_panel_offers_every_role(): void
+    {
+        Notification::fake();
+
+        $user    = $this->brandManager();
+        $request = $this->submitFor($user, $this->mappingSite(), 'ROLE-2');
+
+        $page = $this->actingAs($user)->get(route('product-requests.show', $request))->assertOk();
+
+        foreach (ProductRequest::ASSIGNMENT_ROLES as $field => $label) {
+            $page->assertSee($label);
+            $page->assertSee('name="' . $field . '"', false);
+        }
+    }
+
     public function test_the_dashboard_explains_the_process_to_newcomers(): void
     {
         $user = $this->brandManager();

@@ -91,7 +91,7 @@ class ProductRequest extends Model
         self::WAITING_MAPPING => [
             'role'  => 'Supply Chain Team',
             'role_key' => 'supply_chain',
-            'field' => null,
+            'field' => 'supply_chain_id',
             'what'  => 'Map the outstanding SKUs in Cegid, then record the result on the SKUs tab. The request moves on by itself once every SKU is mapped — nobody needs to re-submit it.',
         ],
         self::SKU_VERIFIED => [
@@ -119,9 +119,9 @@ class ProductRequest extends Model
             'what'  => 'Hand the raw images over to the E-Commerce team for editing.',
         ],
         self::IMAGE_EDITING => [
-            'role'  => 'E-Commerce Team',
-            'role_key' => 'ecommerce',
-            'field' => 'assigned_to',
+            'role'  => 'Photo Editor',
+            'role_key' => 'image_editor',
+            'field' => 'image_editor_id',
             'what'  => 'Edit, crop and optimise the images so they are ready for the website.',
         ],
         self::AI_CONTENT => [
@@ -165,7 +165,9 @@ class ProductRequest extends Model
     /** Which relation holds the owner for each assignment column. */
     private const OWNER_RELATIONS = [
         'assigned_to'      => 'assignee',
+        'supply_chain_id'  => 'supplyChainOwner',
         'photographer_id'  => 'photographer',
+        'image_editor_id'  => 'imageEditor',
         'content_owner_id' => 'contentOwner',
         'qa_owner_id'      => 'qaOwner',
     ];
@@ -173,7 +175,9 @@ class ProductRequest extends Model
     /** The four people a request can be assigned to, and what to call each. */
     public const ASSIGNMENT_ROLES = [
         'assigned_to'      => 'E-Commerce Owner',
+        'supply_chain_id'  => 'Supply Chain',
         'photographer_id'  => 'Photographer',
+        'image_editor_id'  => 'Photo Editor',
         'content_owner_id' => 'Content Team',
         'qa_owner_id'      => 'QA Team',
     ];
@@ -218,7 +222,9 @@ class ProductRequest extends Model
         'validated_at',
         'validation_error',
         'assigned_to',
+        'supply_chain_id',
         'photographer_id',
+        'image_editor_id',
         'content_owner_id',
         'qa_owner_id',
         'on_hold',
@@ -266,9 +272,19 @@ class ProductRequest extends Model
         return $this->belongsTo(User::class, 'assigned_to');
     }
 
+    public function supplyChainOwner(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'supply_chain_id');
+    }
+
     public function photographer(): BelongsTo
     {
         return $this->belongsTo(User::class, 'photographer_id');
+    }
+
+    public function imageEditor(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'image_editor_id');
     }
 
     public function contentOwner(): BelongsTo

@@ -40,6 +40,7 @@ class User extends Authenticatable
         'supply_chain'  => 'Supply Chain Team',
         'ecommerce'     => 'E-Commerce Team',
         'photographer'  => 'Photographer',
+        'image_editor'  => 'Image / Photo Editor',
         'content'       => 'Content Team',
         'qa'            => 'QA Team',
     ];

@@ -120,8 +120,9 @@
                             @endif
 
                             <div class="flex items-center justify-between gap-2 mt-2 pt-2 border-t border-gray-50">
-                                <span class="text-xs {{ $item->{$ownerField} ? 'text-gray-600' : 'text-amber-600 font-medium' }} truncate">
-                                    {{ $item->{$ownerRelation}?->name ?? 'Unassigned' }}
+                                @php $cardOwner = $item->currentGuide()['owner']; @endphp
+                                <span class="text-xs {{ $cardOwner ? 'text-gray-600' : 'text-amber-600 font-medium' }} truncate">
+                                    {{ $cardOwner?->name ?? 'Unassigned' }}
                                 </span>
                                 <span class="text-xs shrink-0 whitespace-nowrap
                                     {{ $days !== null && $days < 0 ? 'text-red-600 font-medium' : ($days !== null && $days <= 3 ? 'text-amber-600 font-medium' : 'text-gray-400') }}">

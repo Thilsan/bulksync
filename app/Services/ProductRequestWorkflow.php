@@ -30,7 +30,7 @@ class ProductRequestWorkflow
         ProductRequest::WAITING_IMAGES       => ['photographer', 'ecommerce'],
         ProductRequest::PHOTOSHOOT_SCHEDULED => ['photographer'],
         ProductRequest::PHOTOSHOOT_COMPLETED => ['ecommerce', 'content'],
-        ProductRequest::IMAGE_EDITING        => ['ecommerce'],
+        ProductRequest::IMAGE_EDITING        => ['image_editor', 'ecommerce'],
         ProductRequest::AI_CONTENT           => ['content'],
         ProductRequest::QA_REVIEW            => ['qa'],
         ProductRequest::READY_FOR_UPLOAD     => ['ecommerce'],
@@ -155,13 +155,10 @@ class ProductRequestWorkflow
             ? User::where('is_active', true)->whereIn('pcr_role', $roles)->get()
             : collect();
 
-        $named = collect([
-            $request->user,
-            $request->assignee,
-            $request->photographer,
-            $request->contentOwner,
-            $request->qaOwner,
-        ])->filter();
+        $named = collect([$request->user])
+            ->merge(collect(array_keys(ProductRequest::ASSIGNMENT_ROLES))
+                ->map(fn ($field) => $request->{$field} ? User::find($request->{$field}) : null))
+            ->filter();
 
         return $byRole->merge($named)->filter(fn ($u) => $u->is_active)->unique('id')->values();
     }

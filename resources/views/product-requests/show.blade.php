@@ -936,22 +936,34 @@
                 <form method="POST" action="{{ route('product-requests.assign', $request) }}" class="px-5 py-4 space-y-3">
                     @csrf
                     @php
-                        // Only ask for a photographer when there is actually a shoot —
-                        // an empty field for work nobody is doing is just noise.
-                        // Kept visible if someone is already assigned, so an existing
-                        // assignment can never be stranded and un-editable.
-                        $assignmentFields = ['assigned_to' => 'E-Commerce Owner'];
-
-                        if ($request->photoshoot_required || $request->photographer_id) {
-                            $assignmentFields['photographer_id'] = 'Photographer';
-                        }
-
-                        $assignmentFields['content_owner_id'] = 'Content Team';
-                        $assignmentFields['qa_owner_id']      = 'QA Team';
+                        // Every assignable role, from the model. Photoshoot roles are
+                        // dropped when there is no shoot — an empty field for work
+                        // nobody is doing is just noise — but never when somebody is
+                        // already assigned, so an assignment can't be stranded.
+                        $assignmentFields = collect(\App\Models\ProductRequest::ASSIGNMENT_ROLES)
+                            ->reject(fn ($label, $field) =>
+                                $field === 'photographer_id'
+                                && !$request->photoshoot_required
+                                && !$request->photographer_id)
+                            ->reject(fn ($label, $field) =>
+                                $field === 'supply_chain_id'
+                                && !$request->requiresMapping()
+                                && !$request->supply_chain_id)
+                            ->all();
                     @endphp
                     @foreach($assignmentFields as $field => $label)
+                        {{-- Several roles own more than one stage, so rather than naming
+                             stages, flag the one the request is waiting on right now. --}}
+                        @php $isCurrentStageOwner = $guide['field'] === $field && !$request->isClosed(); @endphp
                         <div>
-                            <label class="block text-xs font-medium text-gray-500 mb-1">{{ $label }}</label>
+                            <label class="block text-xs font-medium mb-1 {{ $isCurrentStageOwner ? 'text-brand-700' : 'text-gray-500' }}">
+                                {{ $label }}
+                                @if($isCurrentStageOwner)
+                                    <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-brand-100 text-brand-700 ml-1">
+                                        current stage
+                                    </span>
+                                @endif
+                            </label>
                             <select name="{{ $field }}" {{ $request->isClosed() ? 'disabled' : '' }}
                                     class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 disabled:bg-gray-50 disabled:text-gray-500">
                                 <option value="">Unassigned</option>

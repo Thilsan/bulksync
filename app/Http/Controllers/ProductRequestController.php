@@ -38,6 +38,7 @@ class ProductRequestController extends Controller implements HasMiddleware
             'title'          => 'Photoshoot',
             'description'    => 'Requests waiting on images, scheduled shoots and completed shoots.',
             'owner_field'    => 'photographer_id',
+            'owner_fields'   => ['photographer_id'],
             'owner_relation' => 'photographer',
             'owner_label'    => 'Photographer',
             'stages'         => [
@@ -49,7 +50,10 @@ class ProductRequestController extends Controller implements HasMiddleware
         'content' => [
             'title'          => 'Content Creation',
             'description'    => 'Requests in image editing and AI content generation.',
+            // Image Editing and AI Content have different owners, so the board
+            // resolves each card's owner from its own stage.
             'owner_field'    => 'content_owner_id',
+            'owner_fields'   => ['image_editor_id', 'content_owner_id'],
             'owner_relation' => 'contentOwner',
             'owner_label'    => 'Content Owner',
             'stages'         => [
@@ -133,7 +137,7 @@ class ProductRequestController extends Controller implements HasMiddleware
         // All four owner relations are eager-loaded: the "Waiting On" column
         // resolves whichever one the current stage belongs to, per row.
         $query = ProductRequest::query()->visibleTo($user)
-            ->with(['user', 'assignee', 'photographer', 'contentOwner', 'qaOwner']);
+            ->with(['user', 'assignee', 'supplyChainOwner', 'photographer', 'imageEditor', 'contentOwner', 'qaOwner']);
 
         if ($request->filled('status')) {
             $query->where('status', $request->string('status'));
@@ -173,7 +177,7 @@ class ProductRequestController extends Controller implements HasMiddleware
     {
         $query = ProductRequest::query()
             ->assignedTo($user)
-            ->with(['user', 'store', 'assignee', 'photographer', 'contentOwner', 'qaOwner']);
+            ->with(['user', 'store', 'assignee', 'supplyChainOwner', 'photographer', 'imageEditor', 'contentOwner', 'qaOwner']);
 
         // Closed work is hidden by default — this is a to-do list, not history.
         if (!$request->boolean('include_closed')) {
@@ -233,7 +237,7 @@ class ProductRequestController extends Controller implements HasMiddleware
                     });
                 }
             })
-            ->with(['store', 'assignee', 'photographer', 'contentOwner', 'qaOwner'])
+            ->with(['store', 'assignee', 'supplyChainOwner', 'photographer', 'imageEditor', 'contentOwner', 'qaOwner'])
             ->orderByRaw("CASE priority WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END")
             ->orderByRaw('online_launch_date IS NULL, online_launch_date')
             ->get();
@@ -253,12 +257,24 @@ class ProductRequestController extends Controller implements HasMiddleware
 
         // "Mine" lets a photographer filter to their own assignments without
         // losing sight of unassigned work by default.
+        $ownerFields = $config['owner_fields'] ?? [$config['owner_field']];
+
         if ($request->boolean('mine')) {
-            $base->where($config['owner_field'], $user->id);
+            $base->where(function ($q) use ($ownerFields, $user) {
+                foreach ($ownerFields as $f) {
+                    $q->orWhere($f, $user->id);
+                }
+            });
         }
 
         if ($request->boolean('unassigned')) {
-            $base->whereNull($config['owner_field']);
+            // Unassigned means the stage the card is actually sitting at has no
+            // owner — not that every owner column happens to be empty.
+            $base->where(function ($q) use ($ownerFields) {
+                foreach ($ownerFields as $f) {
+                    $q->orWhereNull($f);
+                }
+            });
         }
 
         $requests = $base->with(['user', 'assignee', 'photographer', 'contentOwner', 'store'])
@@ -278,7 +294,7 @@ class ProductRequestController extends Controller implements HasMiddleware
             'total'      => $requests->count(),
             'overdue'    => $requests->filter->isOverdue()->count(),
             'blocked'    => $requests->filter->isOnHold()->count(),
-            'unassigned' => $requests->whereNull($config['owner_field'])->count(),
+            'unassigned' => $requests->filter(fn ($r) => $r->currentGuide()['owner'] === null)->count(),
         ]);
     }
 
@@ -382,7 +398,7 @@ class ProductRequestController extends Controller implements HasMiddleware
         $this->authorizeView($productRequest, $user);
 
         $productRequest->load([
-            'user', 'store', 'assignee', 'photographer', 'contentOwner', 'qaOwner', 'attachments.user',
+            'user', 'store', 'assignee', 'supplyChainOwner', 'photographer', 'imageEditor', 'contentOwner', 'qaOwner', 'attachments.user',
         ]);
 
         $skus       = $productRequest->skus()->with('mappedBy')->orderBy('id')->paginate(50, ['*'], 'skus');
@@ -655,12 +671,13 @@ class ProductRequestController extends Controller implements HasMiddleware
     {
         $this->authorizeView($productRequest, $user);
 
-        $data = $request->validate([
-            'assigned_to'      => 'nullable|exists:users,id',
-            'photographer_id'  => 'nullable|exists:users,id',
-            'content_owner_id' => 'nullable|exists:users,id',
-            'qa_owner_id'      => 'nullable|exists:users,id',
-        ]);
+        // Every assignable role, straight from the model, so adding a role never
+        // means remembering to update a second list here.
+        $data = $request->validate(
+            collect(array_keys(ProductRequest::ASSIGNMENT_ROLES))
+                ->mapWithKeys(fn ($field) => [$field => 'nullable|exists:users,id'])
+                ->all()
+        );
 
         $before = $productRequest->only(array_keys(ProductRequest::ASSIGNMENT_ROLES));
 
