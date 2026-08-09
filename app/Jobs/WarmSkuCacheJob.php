@@ -5,20 +5,34 @@ namespace App\Jobs;
 use App\Models\Store;
 use App\Services\ShopifyService;
 use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
 
-class WarmSkuCacheJob implements ShouldQueue
+class WarmSkuCacheJob implements ShouldQueue, ShouldBeUnique
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public int $timeout = 10800;
     public int $tries   = 2;
 
+    // Two warms for the same store must never overlap. Each one purges every
+    // generation but its own, so a warm finishing mid-flight would delete the
+    // rows another is still writing — leaving a sentinel pointing at an
+    // incomplete generation, which reads back as "SKU not in Shopify" and
+    // silently skips uploads. Lock for the full timeout so a killed worker
+    // can't strand the lock either.
+    public int $uniqueFor = 10800;
+
     public function __construct(public readonly int $storeId) {}
+
+    public function uniqueId(): string
+    {
+        return (string) $this->storeId;
+    }
 
     public function handle(): void
     {
