@@ -9,9 +9,16 @@ class ProductRequestAttachment extends Model
 {
     public const UPDATED_AT = null;
 
+    /** Mood boards / reference shots supplied with the request. */
+    public const KIND_REFERENCE = 'reference';
+
+    /** The brand team's written content, when the AI generator isn't being used. */
+    public const KIND_CONTENT = 'content';
+
     protected $fillable = [
         'product_request_id',
         'user_id',
+        'kind',
         'original_name',
         'path',
         'mime',
@@ -49,5 +56,10 @@ class ProductRequestAttachment extends Model
     public function isImage(): bool
     {
         return str_starts_with((string) $this->mime, 'image/');
+    }
+
+    public function isContentSheet(): bool
+    {
+        return $this->kind === self::KIND_CONTENT;
     }
 }

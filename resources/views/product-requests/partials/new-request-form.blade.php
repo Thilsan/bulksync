@@ -27,6 +27,7 @@
               class="flex-1 flex flex-col overflow-hidden"
               x-data="{
                   skuInput: 'type',
+                  useAi: '{{ old('use_ai_content', '1') }}',
                   storeDate: '{{ old('store_launch_date') }}',
                   onlineDate: '{{ old('online_launch_date') }}',
                   storeId: '{{ old('store_id', $stores->firstWhere('is_active', true)?->id ?? $stores->first()?->id) }}',
@@ -201,9 +202,48 @@
                     </div>
                 </section>
 
-                {{-- 5. Additional --}}
+                {{-- 5. Content --}}
                 <section>
-                    <h3 class="text-sm font-semibold text-gray-800 mb-3">5. Additional Information</h3>
+                    <h3 class="text-sm font-semibold text-gray-800 mb-3">5. Product Content</h3>
+
+                    <label class="block text-xs font-medium text-gray-600 mb-2">
+                        Use AI Content Generator? <span class="text-red-500">*</span>
+                    </label>
+                    <div class="space-y-1.5">
+                        <label class="flex items-start gap-2 cursor-pointer">
+                            <input type="radio" name="use_ai_content" value="1" x-model="useAi" required
+                                   class="mt-0.5 text-brand-600 focus:ring-brand-500">
+                            <span>
+                                <span class="text-sm text-gray-700">Yes — generate content with AI</span>
+                                <span class="block text-xs text-gray-400">Descriptions, meta titles and meta descriptions are generated for you.</span>
+                            </span>
+                        </label>
+                        <label class="flex items-start gap-2 cursor-pointer">
+                            <input type="radio" name="use_ai_content" value="0" x-model="useAi"
+                                   class="mt-0.5 text-brand-600 focus:ring-brand-500">
+                            <span>
+                                <span class="text-sm text-gray-700">No — brand team will provide the content</span>
+                                <span class="block text-xs text-gray-400">You supply the copy as an Excel or CSV sheet.</span>
+                            </span>
+                        </label>
+                    </div>
+
+                    <div x-show="useAi === '0'" x-cloak class="mt-3 rounded-lg border border-amber-200 bg-amber-50/60 px-3 py-3">
+                        <label class="block text-xs font-medium text-amber-900 mb-1.5">
+                            Content Sheet <span class="text-gray-500 font-normal">(Excel or CSV)</span>
+                        </label>
+                        <input type="file" name="content_sheet" accept=".csv,.xlsx,.xls"
+                               class="w-full text-sm text-gray-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-medium file:bg-white file:text-amber-800 hover:file:bg-amber-100 cursor-pointer">
+                        <p class="text-xs text-amber-700 mt-1.5">
+                            You can attach this later if it isn't ready — the request will show as
+                            <span class="font-medium">awaiting content sheet</span> until you do.
+                        </p>
+                    </div>
+                </section>
+
+                {{-- 6. Additional --}}
+                <section>
+                    <h3 class="text-sm font-semibold text-gray-800 mb-3">6. Additional Information</h3>
 
                     <label class="block text-xs font-medium text-gray-600 mb-2">Priority <span class="text-red-500">*</span></label>
                     <div class="flex gap-5 mb-4">

@@ -11,6 +11,8 @@ use App\Notifications\ProductRequestStatusChanged;
 use App\Services\ProductRequestWorkflow;
 use App\Services\SkuMappingService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Notification;
 use Tests\TestCase;
 
@@ -66,6 +68,7 @@ class ProductRequestTest extends TestCase
             'online_launch_date'        => now()->addDays(18)->toDateString(),
             'supplier_images_available' => 0,
             'photoshoot_required'       => 1,
+            'use_ai_content'            => 1,
             'priority'                  => 'high',
         ]);
 
@@ -128,6 +131,7 @@ class ProductRequestTest extends TestCase
             'online_launch_date'        => now()->addDays(18)->toDateString(),
             'supplier_images_available' => 0,
             'photoshoot_required'       => 1,
+            'use_ai_content'            => 1,
             'priority'                  => 'high',
         ])->assertSessionHasErrors('store_id');
 
@@ -148,6 +152,7 @@ class ProductRequestTest extends TestCase
             'online_launch_date'        => now()->addDays(18)->toDateString(),
             'supplier_images_available' => 0,
             'photoshoot_required'       => 1,
+            'use_ai_content'            => 1,
             'priority'                  => 'high',
         ])->assertSessionHasErrors('store_id');
     }
@@ -168,6 +173,7 @@ class ProductRequestTest extends TestCase
             'online_launch_date'        => now()->addDays(18)->toDateString(),
             'supplier_images_available' => 0,
             'photoshoot_required'       => 1,
+            'use_ai_content'            => 1,
             'priority'                  => 'high',
         ])->assertSessionHasErrors('skus');
 
@@ -496,6 +502,91 @@ class ProductRequestTest extends TestCase
 
         $this->actingAs($user)->get(route('product-requests.my-tasks', ['include_closed' => 1]))
             ->assertOk()->assertSee('FINISHED WORK');
+    }
+
+    // ── Content source ───────────────────────────────────────────────────────
+
+    public function test_a_content_sheet_can_be_supplied_instead_of_ai_content(): void
+    {
+        Notification::fake();
+        Storage::fake();
+
+        $user  = $this->brandManager();
+        $store = $this->mappingSite();
+        $user->stores()->sync([$store->id]);
+
+        $this->actingAs($user)->post(route('product-requests.store'), [
+            'store_id'                  => $store->id,
+            'request_type'              => 'new_brand',
+            'brand'                     => 'Samsonite',
+            'category'                  => 'Luggage',
+            'skus'                      => 'CS-1',
+            'store_launch_date'         => now()->addDays(20)->toDateString(),
+            'online_launch_date'        => now()->addDays(18)->toDateString(),
+            'supplier_images_available' => 0,
+            'photoshoot_required'       => 1,
+            'use_ai_content'            => 0,
+            'priority'                  => 'high',
+            'content_sheet'             => UploadedFile::fake()->create('copy.csv', 12, 'text/csv'),
+        ])->assertRedirect();
+
+        $request = ProductRequest::first();
+
+        $this->assertFalse($request->use_ai_content);
+        $this->assertSame(1, $request->contentSheets()->count());
+        $this->assertSame(0, $request->referenceImages()->count());
+        $this->assertFalse($request->awaitingContentSheet());
+
+        // The stage reads honestly for a request that isn't using AI.
+        $this->assertSame('Content from Brand Team', $request->stageLabel(ProductRequest::AI_CONTENT));
+    }
+
+    public function test_a_request_without_ai_flags_that_it_is_awaiting_a_content_sheet(): void
+    {
+        Notification::fake();
+
+        $user  = $this->brandManager();
+        $store = $this->mappingSite();
+        $user->stores()->sync([$store->id]);
+
+        // Submitting without the sheet is allowed — it just isn't ready yet.
+        $this->actingAs($user)->post(route('product-requests.store'), [
+            'store_id'                  => $store->id,
+            'request_type'              => 'new_brand',
+            'brand'                     => 'Samsonite',
+            'category'                  => 'Luggage',
+            'skus'                      => 'CS-2',
+            'store_launch_date'         => now()->addDays(20)->toDateString(),
+            'online_launch_date'        => now()->addDays(18)->toDateString(),
+            'supplier_images_available' => 0,
+            'photoshoot_required'       => 1,
+            'use_ai_content'            => 0,
+            'priority'                  => 'high',
+        ])->assertRedirect();
+
+        $request = ProductRequest::first();
+
+        $this->assertTrue($request->awaitingContentSheet());
+
+        $this->actingAs($user)->get(route('product-requests.show', $request))
+            ->assertOk()
+            ->assertSee('Awaiting content sheet');
+    }
+
+    public function test_an_ai_request_never_asks_for_a_content_sheet(): void
+    {
+        Notification::fake();
+
+        $user    = $this->brandManager();
+        $request = $this->submitFor($user, $this->mappingSite(), 'AI-1');
+
+        $this->assertTrue($request->use_ai_content);
+        $this->assertFalse($request->awaitingContentSheet());
+        $this->assertSame('AI Content Generation', $request->stageLabel(ProductRequest::AI_CONTENT));
+
+        $this->actingAs($user)->get(route('product-requests.show', $request))
+            ->assertOk()
+            ->assertDontSee('Awaiting content sheet');
     }
 
     public function test_an_unknown_queue_is_not_found(): void

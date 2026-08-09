@@ -248,10 +248,12 @@ class ProductRequestController extends Controller implements HasMiddleware
             'online_launch_date'        => 'required|date',
             'supplier_images_available' => 'required|boolean',
             'photoshoot_required'       => 'required|boolean',
+            'use_ai_content'            => 'required|boolean',
             'priority'                  => 'required|in:high,medium,low',
             'notes'                     => 'nullable|string|max:5000',
             'reference_images'          => 'nullable|array|max:10',
             'reference_images.*'        => 'file|mimes:jpg,jpeg,png,pdf|max:10240',
+            'content_sheet'             => 'nullable|file|mimes:csv,txt,xlsx,xls|max:10240',
         ]);
 
         // A user must not be able to file against a website they can't see.
@@ -289,6 +291,7 @@ class ProductRequestController extends Controller implements HasMiddleware
             'online_launch_date'        => $data['online_launch_date'],
             'supplier_images_available' => (bool) $data['supplier_images_available'],
             'photoshoot_required'       => (bool) $data['photoshoot_required'],
+            'use_ai_content'            => (bool) $data['use_ai_content'],
             'notes'                     => $data['notes'] ?? null,
             'validation_status'         => 'pending',
             'total_skus'                => count($skus),
@@ -296,6 +299,7 @@ class ProductRequestController extends Controller implements HasMiddleware
 
         $this->mapping->syncSkus($productRequest, $skus);
         $this->storeAttachments($request, $productRequest, $user);
+        $this->storeAttachments($request, $productRequest, $user, 'content_sheet', ProductRequestAttachment::KIND_CONTENT);
 
         $this->workflow->log(
             request:     $productRequest,
@@ -370,6 +374,7 @@ class ProductRequestController extends Controller implements HasMiddleware
             'supplier_images_available' => 'required|boolean',
             'photoshoot_required'       => 'required|boolean',
             'photoshoot_scheduled_at'   => 'nullable|date',
+            'use_ai_content'            => 'required|boolean',
             'priority'                  => 'required|in:high,medium,low',
             'notes'                     => 'nullable|string|max:5000',
         ]);
@@ -694,21 +699,27 @@ class ProductRequestController extends Controller implements HasMiddleware
     {
         $this->authorizeView($productRequest, $user);
 
-        $request->validate([
+        $isContent = $request->input('kind') === ProductRequestAttachment::KIND_CONTENT;
+
+        $request->validate($isContent ? [
+            'content_sheet' => 'required|file|mimes:csv,txt,xlsx,xls|max:10240',
+        ] : [
             'reference_images'   => 'required|array|max:10',
             'reference_images.*' => 'file|mimes:jpg,jpeg,png,pdf|max:10240',
         ]);
 
-        $count = $this->storeAttachments($request, $productRequest, $user);
+        $count = $isContent
+            ? $this->storeAttachments($request, $productRequest, $user, 'content_sheet', ProductRequestAttachment::KIND_CONTENT)
+            : $this->storeAttachments($request, $productRequest, $user);
 
         $this->workflow->log(
             request:     $productRequest,
             action:      'attachment_added',
-            description: "{$count} file(s) attached",
+            description: $isContent ? 'Content sheet uploaded' : "{$count} file(s) attached",
             actor:       $user,
         );
 
-        return back()->with('success', "{$count} file(s) uploaded.");
+        return back()->with('success', $isContent ? 'Content sheet uploaded.' : "{$count} file(s) uploaded.");
     }
 
     public function downloadAttachment(ProductRequest $productRequest, ProductRequestAttachment $attachment, #[CurrentUser] User $user)
@@ -779,27 +790,39 @@ class ProductRequestController extends Controller implements HasMiddleware
         abort_unless($visible, 403, 'You do not have access to this request.');
     }
 
-    private function storeAttachments(Request $request, ProductRequest $productRequest, User $user): int
-    {
-        if (!$request->hasFile('reference_images')) {
+    /**
+     * @param  string  $field  form field holding the upload(s)
+     * @param  string  $kind   ProductRequestAttachment::KIND_*
+     */
+    private function storeAttachments(
+        Request $request,
+        ProductRequest $productRequest,
+        User $user,
+        string $field = 'reference_images',
+        string $kind = ProductRequestAttachment::KIND_REFERENCE,
+    ): int {
+        if (!$request->hasFile($field)) {
             return 0;
         }
 
-        $dir = "product-requests/{$productRequest->id}";
+        $dir      = "product-requests/{$productRequest->id}";
         $absolute = storage_path("app/{$dir}");
 
         if (!is_dir($absolute)) {
             mkdir($absolute, 0755, true);
         }
 
+        $files = $request->file($field);
+        $files = is_array($files) ? $files : [$files];   // single-file fields too
         $count = 0;
 
-        foreach ($request->file('reference_images') as $file) {
-            $name = uniqid('ref_', true) . '.' . $file->getClientOriginalExtension();
+        foreach ($files as $file) {
+            $name = uniqid("{$kind}_", true) . '.' . $file->getClientOriginalExtension();
 
             ProductRequestAttachment::create([
                 'product_request_id' => $productRequest->id,
                 'user_id'            => $user->id,
+                'kind'               => $kind,
                 'original_name'      => $file->getClientOriginalName(),
                 'path'               => "{$dir}/{$name}",
                 'mime'               => $file->getMimeType(),

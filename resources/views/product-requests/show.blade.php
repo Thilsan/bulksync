@@ -134,6 +134,14 @@
                     </div>
                 @endif
 
+                @if($request->awaitingContentSheet())
+                    <div class="mt-4 bg-amber-50 border border-amber-200 text-amber-900 rounded-lg px-4 py-2.5 text-sm">
+                        <span class="font-medium">Awaiting content sheet.</span>
+                        This request is not using the AI Content Generator — the brand team needs to upload the copy as an Excel or CSV file.
+                        <button type="button" @click="tab = 'attachments'" class="underline font-medium">Upload it now</button>
+                    </div>
+                @endif
+
                 @if($request->store_launch_date && $request->online_launch_date && $request->online_launch_date->lt($request->store_launch_date))
                     <div class="mt-4 bg-amber-50 border border-amber-200 text-amber-800 rounded-lg px-4 py-2.5 text-sm">
                         Online launch is scheduled before the store launch date.
@@ -192,7 +200,7 @@
                                             {{ $stepDone ? 'bg-green-500' : ($stepCurrent ? 'bg-blue-600 ring-2 ring-blue-200' : 'bg-gray-300') }}"></span>
                                         <span class="text-[11px] leading-tight
                                             {{ $stepCurrent ? 'text-gray-900 font-semibold' : ($stepDone ? 'text-gray-600' : 'text-gray-400') }}">
-                                            {{ $labels[$stage] }}
+                                            {{ $request->stageLabel($stage) }}
                                         </span>
                                     </span>
                                     @unless($loop->last)
@@ -329,7 +337,7 @@
                     @foreach([
                         'details'     => 'Request Details',
                         'skus'        => 'SKUs (' . $request->total_skus . ')',
-                        'attachments' => 'Attachments (' . $request->attachments->count() . ')',
+                        'attachments' => 'Attachments (' . $request->attachments()->count() . ')',
                         'comments'    => 'Comments',
                     ] as $key => $label)
                         <button type="button" @click="tab = '{{ $key }}'"
@@ -428,6 +436,18 @@
                                 <input x-show="editing" x-cloak type="date" name="photoshoot_scheduled_at"
                                        value="{{ old('photoshoot_scheduled_at', $request->photoshoot_scheduled_at?->format('Y-m-d')) }}"
                                        class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
+                            </div>
+
+                            <div>
+                                <label class="block text-xs font-medium text-gray-500 mb-1">Product Content</label>
+                                <template x-if="!editing">
+                                    <p class="text-sm text-gray-800 py-2">{{ $request->use_ai_content ? 'AI Content Generator' : 'Provided by brand team' }}</p>
+                                </template>
+                                <select x-show="editing" x-cloak name="use_ai_content"
+                                        class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
+                                    <option value="1" @selected($request->use_ai_content)>AI Content Generator</option>
+                                    <option value="0" @selected(!$request->use_ai_content)>Provided by brand team</option>
+                                </select>
                             </div>
 
                             <div class="md:col-span-2">
@@ -578,6 +598,57 @@
 
                 {{-- Tab: attachments --}}
                 <div x-show="tab === 'attachments'" x-cloak class="px-5 py-5">
+
+                    {{-- Content sheet: only relevant when the AI generator isn't used --}}
+                    @unless($request->use_ai_content)
+                    <div class="mb-5 pb-5 border-b border-gray-100">
+                        <h4 class="text-sm font-semibold text-gray-800 mb-1">Content Sheet</h4>
+                        <p class="text-xs text-gray-500 mb-3">
+                            This request is not using the AI Content Generator, so the brand team supplies the copy as an Excel or CSV file.
+                        </p>
+
+                        @forelse($request->contentSheets as $sheet)
+                            <div class="flex items-center gap-3 py-2.5 border-b border-gray-50 last:border-0">
+                                <div class="w-8 h-8 rounded-lg bg-green-50 text-green-600 flex items-center justify-center shrink-0">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                                    </svg>
+                                </div>
+                                <div class="flex-1 min-w-0">
+                                    <p class="text-sm text-gray-800 truncate">{{ $sheet->original_name }}</p>
+                                    <p class="text-xs text-gray-400">{{ $sheet->humanSize() }} &middot; {{ $sheet->user?->name ?? 'Unknown' }} &middot; {{ $sheet->created_at->format('d M Y') }}</p>
+                                </div>
+                                <a href="{{ route('product-requests.attachments.download', [$request, $sheet]) }}"
+                                   class="text-xs text-brand-600 hover:text-brand-700 font-medium shrink-0">Download</a>
+                                @unless($request->isClosed())
+                                <form method="POST" action="{{ route('product-requests.attachments.destroy', [$request, $sheet]) }}"
+                                      onsubmit="return confirm('Remove this content sheet?')" class="shrink-0">
+                                    @csrf
+                                    @method('DELETE')
+                                    <button type="submit" class="text-xs text-red-500 hover:text-red-700 font-medium">Remove</button>
+                                </form>
+                                @endunless
+                            </div>
+                        @empty
+                            <p class="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-3">
+                                No content sheet uploaded yet.
+                            </p>
+                        @endforelse
+
+                        @unless($request->isClosed())
+                        <form method="POST" action="{{ route('product-requests.attachments.store', $request) }}" enctype="multipart/form-data" class="flex gap-2 mt-3">
+                            @csrf
+                            <input type="hidden" name="kind" value="{{ \App\Models\ProductRequestAttachment::KIND_CONTENT }}">
+                            <input type="file" name="content_sheet" accept=".csv,.xlsx,.xls" required
+                                   class="flex-1 text-sm text-gray-600 file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-medium file:bg-brand-50 file:text-brand-700 hover:file:bg-brand-100 cursor-pointer">
+                            <button type="submit" class="bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors shrink-0">
+                                Upload Sheet
+                            </button>
+                        </form>
+                        @endunless
+                    </div>
+                    @endunless
+
                     @unless($request->isClosed())
                     <form method="POST" action="{{ route('product-requests.attachments.store', $request) }}" enctype="multipart/form-data" class="mb-5 pb-5 border-b border-gray-100">
                         @csrf
@@ -591,7 +662,8 @@
                     </form>
                     @endunless
 
-                    @forelse($request->attachments as $file)
+                    <h4 class="text-sm font-semibold text-gray-800 mb-2">Reference Images</h4>
+                    @forelse($request->referenceImages as $file)
                         <div class="flex items-center gap-3 py-2.5 border-b border-gray-50 last:border-0">
                             <div class="w-8 h-8 rounded-lg bg-gray-100 text-gray-500 flex items-center justify-center shrink-0">
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -614,7 +686,7 @@
                             @endunless
                         </div>
                     @empty
-                        <p class="py-10 text-sm text-gray-400 text-center">No attachments on this request.</p>
+                        <p class="py-10 text-sm text-gray-400 text-center">No reference images on this request.</p>
                     @endforelse
                 </div>
 
@@ -783,7 +855,7 @@
                                 class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
                             @foreach($transitions as $status)
                                 <option value="{{ $status }}" @selected($status === $request->suggestedNextStatus())>
-                                    {{ $labels[$status] ?? $status }}@if($status === $request->suggestedNextStatus()) (suggested)@endif
+                                    {{ $request->stageLabel($status) }}@if($status === $request->suggestedNextStatus()) (suggested)@endif
                                 </option>
                             @endforeach
                         </select>

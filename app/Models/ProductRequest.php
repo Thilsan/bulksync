@@ -111,6 +111,7 @@ class ProductRequest extends Model
         'supplier_images_available',
         'photoshoot_required',
         'photoshoot_scheduled_at',
+        'use_ai_content',
         'notes',
         'validation_status',
         'total_skus',
@@ -137,6 +138,7 @@ class ProductRequest extends Model
             'photoshoot_scheduled_at'   => 'date',
             'supplier_images_available' => 'boolean',
             'photoshoot_required'       => 'boolean',
+            'use_ai_content'            => 'boolean',
             'validated_at'              => 'datetime',
             'published_at'              => 'datetime',
             'completed_at'              => 'datetime',
@@ -191,6 +193,24 @@ class ProductRequest extends Model
         return $this->hasMany(ProductRequestAttachment::class);
     }
 
+    /** Mood boards and reference shots supplied with the request. */
+    public function referenceImages(): HasMany
+    {
+        return $this->attachments()->where('kind', ProductRequestAttachment::KIND_REFERENCE);
+    }
+
+    /** The brand team's written content, when they aren't using the AI generator. */
+    public function contentSheets(): HasMany
+    {
+        return $this->attachments()->where('kind', ProductRequestAttachment::KIND_CONTENT);
+    }
+
+    /** Brand team owes us a content sheet and hasn't sent one yet. */
+    public function awaitingContentSheet(): bool
+    {
+        return !$this->use_ai_content && $this->contentSheets()->doesntExist();
+    }
+
     // ── Reference generation ─────────────────────────────────────────────────
 
     /**
@@ -218,7 +238,21 @@ class ProductRequest extends Model
 
     public function statusLabel(): string
     {
-        return self::STATUS_LABELS[$this->status] ?? $this->status;
+        return $this->stageLabel($this->status);
+    }
+
+    /**
+     * Stage name as it applies to THIS request. "AI Content Generation" is a lie
+     * when the brand team is writing the copy themselves, and the content team
+     * needs to know which it is at a glance.
+     */
+    public function stageLabel(string $stage): string
+    {
+        if ($stage === self::AI_CONTENT && !$this->use_ai_content) {
+            return 'Content from Brand Team';
+        }
+
+        return self::STATUS_LABELS[$stage] ?? $stage;
     }
 
     public function statusColor(): string
