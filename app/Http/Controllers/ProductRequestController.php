@@ -155,7 +155,11 @@ class ProductRequestController extends Controller implements HasMiddleware
         $brands = ProductRequest::query()->visibleTo($user)
             ->distinct()->orderBy('brand')->pluck('brand');
 
-        return view('product-requests.list', compact('requests', 'brands'));
+        // The New Request slide-over lives on this page too, and needs the
+        // websites this user may file against.
+        $stores = Store::selectableFor($user);
+
+        return view('product-requests.list', compact('requests', 'brands', 'stores'));
     }
 
     /**

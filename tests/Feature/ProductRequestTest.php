@@ -409,6 +409,21 @@ class ProductRequestTest extends TestCase
             ->assertOk()->assertSee('NOBODYS')->assertDontSee('MINE');
     }
 
+    public function test_the_all_requests_page_can_raise_a_new_request(): void
+    {
+        $user  = $this->brandManager();
+        $store = $this->mappingSite();
+        $user->stores()->sync([$store->id]);
+
+        // The slide-over is on this page, so it must render the form and the
+        // website options — not just the table.
+        $this->actingAs($user)->get(route('product-requests.list'))
+            ->assertOk()
+            ->assertSee('New Request')
+            ->assertSee('New Product Creation Request')
+            ->assertSee($store->name);
+    }
+
     public function test_an_unknown_queue_is_not_found(): void
     {
         $user = $this->brandManager();

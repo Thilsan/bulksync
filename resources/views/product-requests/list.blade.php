@@ -4,7 +4,8 @@
 @section('page-title', 'Product Creation Request')
 
 @section('content')
-<div class="space-y-5">
+{{-- Same slide-over as the dashboard; re-opens itself if submission failed. --}}
+<div class="space-y-5" x-data="{ newRequestOpen: {{ $errors->any() && old('brand') ? 'true' : 'false' }} }">
 
     <div class="flex items-center justify-between">
         <div>
@@ -15,13 +16,23 @@
             </nav>
             <p class="text-sm text-gray-500">{{ number_format($requests->total()) }} request(s) found.</p>
         </div>
-        <a href="{{ route('product-requests.index') }}"
-           class="inline-flex items-center gap-2 border border-gray-300 text-gray-700 text-sm font-medium px-4 py-2 rounded-lg hover:bg-gray-50 transition-colors">
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/>
-            </svg>
-            Back to Dashboard
-        </a>
+        <div class="flex items-center gap-2">
+            <button type="button" @click="newRequestOpen = true"
+                    class="inline-flex items-center gap-2 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+                    style="background-color:#1d5a74" onmouseover="this.style.backgroundColor='#164659'" onmouseout="this.style.backgroundColor='#1d5a74'">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+                </svg>
+                New Request
+            </button>
+            <a href="{{ route('product-requests.index') }}"
+               class="inline-flex items-center gap-2 border border-gray-300 text-gray-700 text-sm font-medium px-4 py-2 rounded-lg hover:bg-gray-50 transition-colors">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/>
+                </svg>
+                Back to Dashboard
+            </a>
+        </div>
     </div>
 
     {{-- Filters --}}
@@ -71,7 +82,16 @@
     {{-- Results --}}
     <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
         @if($requests->isEmpty())
-            <p class="px-5 py-16 text-sm text-gray-400 text-center">No requests match these filters.</p>
+            <div class="px-5 py-16 text-center">
+                <p class="text-sm text-gray-400">
+                    {{ request()->hasAny(['search', 'status', 'priority', 'brand']) ? 'No requests match these filters.' : 'No product creation requests yet.' }}
+                </p>
+                @unless(request()->hasAny(['search', 'status', 'priority', 'brand']))
+                    <button type="button" @click="newRequestOpen = true" class="mt-3 text-sm text-brand-600 hover:text-brand-700 font-medium">
+                        Create the first request &rarr;
+                    </button>
+                @endunless
+            </div>
         @else
         <div class="overflow-x-auto">
             <table class="w-full text-sm">
@@ -130,6 +150,8 @@
     @if($requests->hasPages())
         <div>{{ $requests->links() }}</div>
     @endif
+
+    @include('product-requests.partials.new-request-form')
 
 </div>
 @endsection

@@ -181,8 +181,8 @@
                 {{-- Sub-menu --}}
                 <div x-show="open" x-cloak class="mt-0.5 ml-5 pl-3 border-l border-white/15 space-y-0.5">
                     @php
+                        // No "Dashboard" entry — the parent link already goes there.
                         $pcrLinks = [
-                            ['label' => 'Dashboard',        'url' => route('product-requests.index'),                            'on' => request()->routeIs('product-requests.index')],
                             ['label' => 'All Requests',     'url' => route('product-requests.list'),                             'on' => request()->routeIs('product-requests.list')],
                             ['label' => 'Photoshoot',       'url' => route('product-requests.queue', 'photoshoot'),              'on' => $pcrQueue === 'photoshoot'],
                             ['label' => 'Content Creation', 'url' => route('product-requests.queue', 'content'),                 'on' => $pcrQueue === 'content'],
