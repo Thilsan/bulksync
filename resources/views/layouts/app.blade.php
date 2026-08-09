@@ -144,21 +144,64 @@
             @endif
 
             @if(auth()->user()->hasFeature('product_request'))
-            @php $pcrUnread = auth()->user()->unreadNotifications()->count(); @endphp
-            <a href="{{ route('product-requests.index') }}"
-               class="flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors
-                      {{ request()->routeIs('product-requests.*') ? 'bg-white/20 text-white' : 'text-white/70 hover:bg-white/10 hover:text-white' }}">
-                <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"/>
-                </svg>
-                <span class="flex-1">Product Creation Request</span>
-                @if($pcrUnread > 0)
-                    <span class="shrink-0 px-1 h-5 rounded-full bg-red-500 text-white text-[10px] font-semibold flex items-center justify-center" style="min-width:1.25rem">
-                        {{ $pcrUnread > 99 ? '99+' : $pcrUnread }}
-                    </span>
-                @endif
-            </a>
+            @php
+                $pcrUnread = auth()->user()->unreadNotifications()->count();
+                $pcrActive = request()->routeIs('product-requests.*');
+                $pcrQueue  = request()->route('queue');
+            @endphp
+            <div x-data="{ open: {{ $pcrActive ? 'true' : 'false' }} }">
+
+                {{-- Parent: the link goes to the dashboard, the chevron just expands. --}}
+                <div class="flex items-stretch rounded-md transition-colors
+                            {{ $pcrActive ? 'bg-white/20' : 'hover:bg-white/10' }}">
+                    <a href="{{ route('product-requests.index') }}"
+                       @click="open = true"
+                       class="flex-1 min-w-0 flex items-center gap-3 px-3 py-2 text-sm font-medium
+                              {{ $pcrActive ? 'text-white' : 'text-white/70 hover:text-white' }}">
+                        <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"/>
+                        </svg>
+                        <span class="flex-1 truncate">Product Creation Request</span>
+                        @if($pcrUnread > 0)
+                            <span class="shrink-0 px-1 h-5 rounded-full bg-red-500 text-white text-[10px] font-semibold flex items-center justify-center" style="min-width:1.25rem">
+                                {{ $pcrUnread > 99 ? '99+' : $pcrUnread }}
+                            </span>
+                        @endif
+                    </a>
+                    <button type="button" @click.stop="open = !open"
+                            class="px-2 flex items-center shrink-0 {{ $pcrActive ? 'text-white' : 'text-white/50 hover:text-white' }}"
+                            :aria-expanded="open" aria-label="Toggle Product Creation Request menu">
+                        <svg :class="open ? 'rotate-180' : ''" class="w-3.5 h-3.5 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7"/>
+                        </svg>
+                    </button>
+                </div>
+
+                {{-- Sub-menu --}}
+                <div x-show="open" x-cloak class="mt-0.5 ml-5 pl-3 border-l border-white/15 space-y-0.5">
+                    @php
+                        $pcrLinks = [
+                            ['label' => 'Dashboard',        'url' => route('product-requests.index'),                            'on' => request()->routeIs('product-requests.index')],
+                            ['label' => 'All Requests',     'url' => route('product-requests.list'),                             'on' => request()->routeIs('product-requests.list')],
+                            ['label' => 'Photoshoot',       'url' => route('product-requests.queue', 'photoshoot'),              'on' => $pcrQueue === 'photoshoot'],
+                            ['label' => 'Content Creation', 'url' => route('product-requests.queue', 'content'),                 'on' => $pcrQueue === 'content'],
+                            ['label' => 'Notifications',    'url' => route('product-requests.notifications'),                    'on' => request()->routeIs('product-requests.notifications')],
+                        ];
+                    @endphp
+                    @foreach($pcrLinks as $link)
+                        <a href="{{ $link['url'] }}"
+                           class="flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-medium transition-colors
+                                  {{ $link['on'] ? 'bg-white/15 text-white' : 'text-white/60 hover:bg-white/10 hover:text-white' }}">
+                            <span class="w-1 h-1 rounded-full shrink-0 {{ $link['on'] ? 'bg-white' : 'bg-white/30' }}"></span>
+                            <span class="flex-1 truncate">{{ $link['label'] }}</span>
+                            @if($link['label'] === 'Notifications' && $pcrUnread > 0)
+                                <span class="shrink-0 text-[10px] text-red-300 font-semibold">{{ $pcrUnread > 99 ? '99+' : $pcrUnread }}</span>
+                            @endif
+                        </a>
+                    @endforeach
+                </div>
+            </div>
             @endif
 
             <a href="{{ route('stores.index') }}"

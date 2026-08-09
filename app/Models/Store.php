@@ -6,9 +6,17 @@ use Illuminate\Database\Eloquent\Model;
 
 class Store extends Model
 {
-    protected $fillable = ['name', 'shopify_domain', 'shopify_client_id', 'shopify_client_secret', 'shopify_access_token', 'is_active', 'user_id'];
+    protected $fillable = ['name', 'shopify_domain', 'shopify_client_id', 'shopify_client_secret', 'shopify_access_token', 'is_active', 'requires_sku_mapping', 'user_id'];
 
-    protected $casts = ['is_active' => 'boolean'];
+    protected $casts = ['is_active' => 'boolean', 'requires_sku_mapping' => 'boolean'];
+
+    /** Websites this user may raise a product creation request against. */
+    public static function selectableFor(User $user)
+    {
+        return $user->is_super_admin
+            ? static::orderBy('name')->get()
+            : $user->stores()->orderBy('name')->get();
+    }
 
     public function users(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
     {

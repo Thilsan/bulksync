@@ -244,19 +244,52 @@ class ProductRequest extends Model
         return $this->status === self::WAITING_MAPPING;
     }
 
+    /**
+     * Whether this request's website goes through Cegid mapping at all.
+     * Only websites flagged in Stores (Blue Salon) do — everywhere else there is
+     * no mapping step, so the request must not wait on Supply Chain.
+     */
+    public function requiresMapping(): bool
+    {
+        return (bool) $this->store?->requires_sku_mapping;
+    }
+
     /** Every SKU mapped — the gate for leaving "Waiting for Mapping". */
     public function isFullyMapped(): bool
     {
+        // No mapping step for this website, so there is nothing to wait for.
+        if (!$this->requiresMapping()) {
+            return true;
+        }
+
         return $this->total_skus > 0 && $this->mapped_skus === $this->total_skus;
+    }
+
+    /** The stages this particular request actually passes through. */
+    public function displayStages(): array
+    {
+        if ($this->requiresMapping()) {
+            return self::PIPELINE;
+        }
+
+        return array_values(array_filter(self::PIPELINE, fn ($s) => $s !== self::WAITING_MAPPING));
+    }
+
+    /** Position within displayStages() — drives the stepper and the progress bar. */
+    public function displayStageIndex(): int
+    {
+        $i = array_search($this->status, $this->displayStages(), true);
+
+        return $i === false ? -1 : $i;
     }
 
     public function progressPercent(): int
     {
         if ($this->status === self::CANCELLED) return 0;
-        $i = $this->stageIndex();
+        $i = $this->displayStageIndex();
         if ($i < 0) return 0;
 
-        return (int) round(($i + 1) / count(self::PIPELINE) * 100);
+        return (int) round(($i + 1) / count($this->displayStages()) * 100);
     }
 
     /**
@@ -321,6 +354,11 @@ class ProductRequest extends Model
         // One step back for rework (QA bounce, re-shoot).
         if ($i > 0) {
             array_unshift($allowed, self::PIPELINE[$i - 1]);
+        }
+
+        // Never offer a mapping stage for a website that has no mapping step.
+        if (!$this->requiresMapping()) {
+            $allowed = array_values(array_filter($allowed, fn ($s) => $s !== self::WAITING_MAPPING));
         }
 
         $allowed[] = self::CANCELLED;

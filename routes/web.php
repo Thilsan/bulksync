@@ -110,6 +110,9 @@ Route::middleware('auth')->group(function () {
         Route::get('/list',                    [ProductRequestController::class, 'list'])->name('list');
         Route::post('/',                       [ProductRequestController::class, 'store'])->name('store');
 
+        Route::get('/queue/{queue}',           [ProductRequestController::class, 'queue'])->name('queue')
+            ->whereIn('queue', ['photoshoot', 'content']);
+
         Route::get('/notifications',           [ProductRequestController::class, 'notifications'])->name('notifications');
         Route::post('/notifications/read',     [ProductRequestController::class, 'readNotifications'])->name('notifications.read');
 

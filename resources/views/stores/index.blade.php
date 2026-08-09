@@ -127,6 +127,20 @@
                             placeholder="shpat_xxxxxxxxxxxx — leave blank to keep existing"
                             class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent">
                     </div>
+                    <div class="pt-1 border-t border-gray-100">
+                        <label class="flex items-start gap-2.5 cursor-pointer select-none pt-3">
+                            <input type="checkbox" name="requires_sku_mapping" value="1" {{ $store->requires_sku_mapping ? 'checked' : '' }}
+                                class="w-4 h-4 mt-0.5 rounded border-gray-300 text-brand-600 focus:ring-brand-500">
+                            <span>
+                                <span class="text-sm text-gray-700">SKUs are mapped in Cegid for this website</span>
+                                <span class="block text-xs text-gray-400">
+                                    Product Creation Requests for this website go through the
+                                    <span class="font-medium">Waiting for Mapping</span> stage with Supply Chain.
+                                    Leave off and requests skip straight to SKU Verified.
+                                </span>
+                            </span>
+                        </label>
+                    </div>
                 </div>
                 <div class="px-6 py-3 bg-gray-50 border-t border-gray-100 flex gap-2 justify-end">
                     <button type="button" @click="editing = false"
@@ -190,6 +204,19 @@
                         <label class="block text-xs font-medium text-gray-600 mb-1">Access Token <span class="text-gray-400 font-normal">(optional — or use Connect Shopify after saving)</span></label>
                         <input type="password" name="shopify_access_token" placeholder="shpat_xxxxxxxxxxxx"
                             class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent">
+                    </div>
+                    <div class="pt-1 border-t border-gray-100">
+                        <label class="flex items-start gap-2.5 cursor-pointer select-none pt-3">
+                            <input type="checkbox" name="requires_sku_mapping" value="1"
+                                class="w-4 h-4 mt-0.5 rounded border-gray-300 text-brand-600 focus:ring-brand-500">
+                            <span>
+                                <span class="text-sm text-gray-700">SKUs are mapped in Cegid for this website</span>
+                                <span class="block text-xs text-gray-400">
+                                    Product Creation Requests for this website go through the
+                                    <span class="font-medium">Waiting for Mapping</span> stage with Supply Chain.
+                                </span>
+                            </span>
+                        </label>
                     </div>
                 </div>
                 <div class="px-6 py-3 bg-gray-50 border-t border-gray-100 flex justify-end">

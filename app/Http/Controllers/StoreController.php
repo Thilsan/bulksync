@@ -31,7 +31,10 @@ class StoreController extends Controller
             'shopify_client_id'     => ['nullable', 'string', 'max:255'],
             'shopify_client_secret' => ['nullable', 'string', 'max:500'],
             'shopify_access_token'  => ['nullable', 'string', 'max:500'],
+            'requires_sku_mapping'  => ['nullable', 'boolean'],
         ]);
+
+        $validated['requires_sku_mapping'] = $request->boolean('requires_sku_mapping');
 
         $userId  = auth()->id();
         $isFirst = Store::count() === 0;
@@ -54,7 +57,10 @@ class StoreController extends Controller
             'shopify_client_id'     => ['nullable', 'string', 'max:255'],
             'shopify_client_secret' => ['nullable', 'string', 'max:500'],
             'shopify_access_token'  => ['nullable', 'string', 'max:500'],
+            'requires_sku_mapping'  => ['nullable', 'boolean'],
         ]);
+
+        $validated['requires_sku_mapping'] = $request->boolean('requires_sku_mapping');
 
         $store->update($validated);
 

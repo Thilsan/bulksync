@@ -25,6 +25,37 @@ class ProductRequestController extends Controller implements HasMiddleware
     /** A single request can't carry more SKUs than this — keeps one bad CSV from flooding the table. */
     public const MAX_SKUS = 5000;
 
+    /**
+     * Stage-specific work queues. The photographer and the content team each
+     * only care about their own leg of the workflow, so they get a board of
+     * just those stages instead of the full request list.
+     */
+    public const QUEUES = [
+        'photoshoot' => [
+            'title'          => 'Photoshoot',
+            'description'    => 'Requests waiting on images, scheduled shoots and completed shoots.',
+            'owner_field'    => 'photographer_id',
+            'owner_relation' => 'photographer',
+            'owner_label'    => 'Photographer',
+            'stages'         => [
+                ProductRequest::WAITING_IMAGES,
+                ProductRequest::PHOTOSHOOT_SCHEDULED,
+                ProductRequest::PHOTOSHOOT_COMPLETED,
+            ],
+        ],
+        'content' => [
+            'title'          => 'Content Creation',
+            'description'    => 'Requests in image editing and AI content generation.',
+            'owner_field'    => 'content_owner_id',
+            'owner_relation' => 'contentOwner',
+            'owner_label'    => 'Content Owner',
+            'stages'         => [
+                ProductRequest::IMAGE_EDITING,
+                ProductRequest::AI_CONTENT,
+            ],
+        ],
+    ];
+
     public function __construct(
         private readonly ProductRequestWorkflow $workflow,
         private readonly SkuMappingService $mapping,
@@ -85,8 +116,11 @@ class ProductRequestController extends Controller implements HasMiddleware
             ->limit(6)
             ->get();
 
+        // Websites the requester can raise a request against.
+        $stores = Store::selectableFor($user);
+
         return view('product-requests.index', compact(
-            'stats', 'breakdown', 'recent', 'deadlines', 'topBrands', 'activity'
+            'stats', 'breakdown', 'recent', 'deadlines', 'topBrands', 'activity', 'stores'
         ));
     }
 
@@ -124,11 +158,54 @@ class ProductRequestController extends Controller implements HasMiddleware
         return view('product-requests.list', compact('requests', 'brands'));
     }
 
+    /**
+     * A board of just one team's stages, grouped by stage so the photographer or
+     * content team can see their workload at a glance.
+     */
+    public function queue(string $queue, Request $request, #[CurrentUser] User $user): View
+    {
+        abort_unless(isset(self::QUEUES[$queue]), 404);
+
+        $config = self::QUEUES[$queue];
+
+        $base = ProductRequest::query()->visibleTo($user)->whereIn('status', $config['stages']);
+
+        // "Mine" lets a photographer filter to their own assignments without
+        // losing sight of unassigned work by default.
+        if ($request->boolean('mine')) {
+            $base->where($config['owner_field'], $user->id);
+        }
+
+        if ($request->boolean('unassigned')) {
+            $base->whereNull($config['owner_field']);
+        }
+
+        $requests = $base->with(['user', 'assignee', 'photographer', 'contentOwner', 'store'])
+            // High priority first, then soonest launch; undated requests last.
+            // CASE rather than MySQL's FIELD() so this also runs on SQLite.
+            ->orderByRaw("CASE priority WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END")
+            ->orderByRaw('online_launch_date IS NULL, online_launch_date')
+            ->get();
+
+        $columns = collect($config['stages'])
+            ->mapWithKeys(fn ($stage) => [$stage => $requests->where('status', $stage)->values()]);
+
+        return view('product-requests.queue', [
+            'queueKey'   => $queue,
+            'config'     => $config,
+            'columns'    => $columns,
+            'total'      => $requests->count(),
+            'overdue'    => $requests->filter->isOverdue()->count(),
+            'unassigned' => $requests->whereNull($config['owner_field'])->count(),
+        ]);
+    }
+
     // ── Create ───────────────────────────────────────────────────────────────
 
     public function store(Request $request, #[CurrentUser] User $user): RedirectResponse
     {
         $data = $request->validate([
+            'store_id'                  => 'required|exists:stores,id',
             'request_type'              => 'required|in:new_brand,existing_brand',
             'brand'                     => 'required|string|max:255',
             'category'                  => 'required|string|max:255',
@@ -147,6 +224,13 @@ class ProductRequestController extends Controller implements HasMiddleware
             'reference_images.*'        => 'file|mimes:jpg,jpeg,png,pdf|max:10240',
         ]);
 
+        // A user must not be able to file against a website they can't see.
+        $store = Store::selectableFor($user)->firstWhere('id', (int) $data['store_id']);
+
+        if (!$store) {
+            return back()->withInput()->withErrors(['store_id' => 'You do not have access to that website.']);
+        }
+
         $skus = $this->parseSkus($request);
 
         if (empty($skus)) {
@@ -162,7 +246,7 @@ class ProductRequestController extends Controller implements HasMiddleware
         $productRequest = ProductRequest::create([
             'reference'                 => ProductRequest::nextReference(),
             'user_id'                   => $user->id,
-            'store_id'                  => Store::getActive($user->id)?->id,
+            'store_id'                  => $store->id,
             'request_type'              => $data['request_type'],
             'brand'                     => $data['brand'],
             'category'                  => $data['category'],

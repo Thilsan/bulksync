@@ -5,10 +5,13 @@
 
 @section('content')
 @php
-    $pipeline    = \App\Models\ProductRequest::PIPELINE;
+    // Stages this request actually passes through — websites without Cegid
+    // mapping never show "Waiting for Mapping".
+    $pipeline    = $request->displayStages();
     $labels      = \App\Models\ProductRequest::STATUS_LABELS;
-    $currentStep = $request->stageIndex();
+    $currentStep = $request->displayStageIndex();
     $transitions = $request->allowedTransitions();
+    $usesMapping = $request->requiresMapping();
 @endphp
 
 <div class="space-y-5"
@@ -98,8 +101,9 @@
                     </div>
                 </div>
 
-                <div class="grid grid-cols-3 sm:grid-cols-5 gap-4 mt-5">
+                <div class="grid grid-cols-3 sm:grid-cols-6 gap-4 mt-5">
                     @foreach([
+                        'Website'    => $request->store?->name ?? '—',
                         'Brand'      => $request->brand,
                         'Category'   => $request->category,
                         'Department' => $request->department ?: '—',
@@ -197,7 +201,11 @@
                             @else
                                 Not validated yet
                             @endif
-                            &middot; <span class="text-gray-500">Supply Chain records mapping on the SKUs tab</span>
+                            @if($usesMapping)
+                                &middot; <span class="text-gray-500">Supply Chain records mapping on the SKUs tab</span>
+                            @else
+                                &middot; <span class="text-gray-500">{{ $request->store?->name }} has no Cegid mapping step</span>
+                            @endif
                         </p>
                     </div>
                     <form method="POST" action="{{ route('product-requests.revalidate', $request) }}">
@@ -227,11 +235,15 @@
                         </div>
                     @endif
 
-                    <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    @php $inShopify = $request->skus()->where('in_shopify', true)->count(); @endphp
+
+                    <div class="grid grid-cols-2 {{ $usesMapping ? 'md:grid-cols-4' : 'md:grid-cols-3' }} gap-3">
                         <div class="rounded-lg border border-gray-200 px-4 py-3">
                             <p class="text-xs text-gray-500">Total SKUs</p>
                             <p class="text-2xl font-semibold text-gray-900">{{ number_format($request->total_skus) }}</p>
                         </div>
+
+                        @if($usesMapping)
                         <div class="rounded-lg border border-green-200 bg-green-50/60 px-4 py-3">
                             <p class="text-xs text-green-700 flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-green-500"></span> Mapped</p>
                             <p class="text-2xl font-semibold text-green-800">{{ number_format($request->mapped_skus) }}</p>
@@ -244,15 +256,29 @@
                             <p class="text-xs text-red-700 flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-red-500"></span> Not Mapped</p>
                             <p class="text-2xl font-semibold text-red-800">{{ number_format($request->not_mapped_skus) }}</p>
                         </div>
+                        @else
+                        {{-- No mapping step for this website — show what the SKU Checker found instead. --}}
+                        <div class="rounded-lg border border-teal-200 bg-teal-50/60 px-4 py-3">
+                            <p class="text-xs text-teal-700">Already in Shopify</p>
+                            <p class="text-2xl font-semibold text-teal-800">{{ number_format($inShopify) }}</p>
+                        </div>
+                        <div class="rounded-lg border border-gray-200 px-4 py-3">
+                            <p class="text-xs text-gray-500">Not yet in Shopify</p>
+                            <p class="text-2xl font-semibold text-gray-700">{{ number_format($request->total_skus - $inShopify) }}</p>
+                        </div>
+                        @endif
                     </div>
 
                     <div class="flex flex-wrap gap-2 mt-4">
-                        @foreach([
-                            'all' => 'Download All (' . $request->total_skus . ')',
-                            \App\Models\ProductRequest::MAP_MAPPED => 'Download Mapped (' . $request->mapped_skus . ')',
-                            \App\Models\ProductRequest::MAP_PENDING => 'Download Pending (' . $request->pending_skus . ')',
-                            \App\Models\ProductRequest::MAP_NOT_MAPPED => 'Download Not Mapped (' . $request->not_mapped_skus . ')',
-                        ] as $filter => $label)
+                        @php
+                            $downloads = ['all' => 'Download All (' . $request->total_skus . ')'];
+                            if ($usesMapping) {
+                                $downloads[\App\Models\ProductRequest::MAP_MAPPED]     = 'Download Mapped (' . $request->mapped_skus . ')';
+                                $downloads[\App\Models\ProductRequest::MAP_PENDING]    = 'Download Pending (' . $request->pending_skus . ')';
+                                $downloads[\App\Models\ProductRequest::MAP_NOT_MAPPED] = 'Download Not Mapped (' . $request->not_mapped_skus . ')';
+                            }
+                        @endphp
+                        @foreach($downloads as $filter => $label)
                             <a href="{{ route('product-requests.skus.download', [$request, 'filter' => $filter]) }}"
                                class="inline-flex items-center gap-1.5 border border-gray-300 text-gray-700 text-xs font-medium px-3 py-1.5 rounded-lg hover:bg-gray-50 transition-colors">
                                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -430,6 +456,7 @@
                     </form>
 
                     {{-- Supply Chain records the mapping outcome here. --}}
+                    @if($usesMapping)
                     <form method="POST" action="{{ route('product-requests.skus.mapping', $request) }}" class="mb-4">
                         @csrf
                         <template x-for="id in selected" :key="id">
@@ -461,6 +488,7 @@
                             <span class="font-medium">Mapped</span> releases the request to <span class="font-medium">SKU Verified</span> automatically.
                         </p>
                     </form>
+                    @endif
                     @endunless
 
                     @if($skus->isEmpty())
@@ -470,16 +498,18 @@
                         <table class="w-full text-sm">
                             <thead>
                                 <tr class="text-left text-xs text-gray-500 border-b border-gray-100">
-                                    @unless($request->isClosed())
+                                    @if(!$request->isClosed() && $usesMapping)
                                     <th class="py-2 pr-3 w-8">
                                         <input type="checkbox" x-model="selectAll"
                                                @change="selected = selectAll ? Array.from(document.querySelectorAll('[data-sku-id]')).map(el => el.dataset.skuId) : []"
                                                class="rounded border-gray-300 text-brand-600 focus:ring-brand-500">
                                     </th>
-                                    @endunless
+                                    @endif
                                     <th class="py-2 pr-3 font-medium">SKU</th>
+                                    @if($usesMapping)
                                     <th class="py-2 pr-3 font-medium">Mapping Status</th>
                                     <th class="py-2 pr-3 font-medium">Recorded By</th>
+                                    @endif
                                     <th class="py-2 pr-3 font-medium">In Shopify</th>
                                     <th class="py-2 pr-3 font-medium">Product</th>
                                     <th class="py-2 font-medium">Last Checked</th>
@@ -488,13 +518,14 @@
                             <tbody class="divide-y divide-gray-50">
                                 @foreach($skus as $sku)
                                 <tr class="hover:bg-gray-50/70 transition-colors">
-                                    @unless($request->isClosed())
+                                    @if(!$request->isClosed() && $usesMapping)
                                     <td class="py-2.5 pr-3">
                                         <input type="checkbox" data-sku-id="{{ $sku->id }}" value="{{ $sku->id }}" x-model="selected"
                                                class="rounded border-gray-300 text-brand-600 focus:ring-brand-500">
                                     </td>
-                                    @endunless
+                                    @endif
                                     <td class="py-2.5 pr-3 font-mono text-xs text-gray-800">{{ $sku->sku }}</td>
+                                    @if($usesMapping)
                                     <td class="py-2.5 pr-3">
                                         <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-xs font-medium border {{ $sku->color() }}">
                                             <span class="w-1.5 h-1.5 rounded-full {{ $sku->dot() }}"></span>
@@ -507,6 +538,7 @@
                                             <p class="text-gray-400">{{ $sku->mapping_note }}</p>
                                         @endif
                                     </td>
+                                    @endif
                                     <td class="py-2.5 pr-3 text-xs text-gray-600">{{ $sku->in_shopify ? 'Yes' : 'No' }}</td>
                                     <td class="py-2.5 pr-3 text-xs text-gray-600 max-w-xs truncate">{{ $sku->shopify_product_title ?: '—' }}</td>
                                     <td class="py-2.5 text-xs text-gray-400 whitespace-nowrap">{{ $sku->last_checked_at?->format('d M, h:i A') ?? '—' }}</td>

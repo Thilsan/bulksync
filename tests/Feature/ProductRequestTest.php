@@ -4,8 +4,10 @@ namespace Tests\Feature;
 
 use App\Models\ProductRequest;
 use App\Models\ProductRequestActivity;
+use App\Models\Store;
 use App\Models\User;
 use App\Notifications\ProductRequestStatusChanged;
+use App\Services\ProductRequestWorkflow;
 use App\Services\SkuMappingService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Notification;
@@ -27,17 +29,38 @@ class ProductRequestTest extends TestCase
         ]);
     }
 
-    public function test_a_request_can_be_submitted_with_unmapped_skus(): void
+    /** Blue Salon — the one website whose SKUs go through Cegid mapping. */
+    private function mappingSite(): Store
     {
-        $user = $this->brandManager();
+        return Store::create([
+            'name'                 => 'Bluesalon Website',
+            'shopify_domain'       => 'bluesalon.myshopify.com',
+            'is_active'            => true,
+            'requires_sku_mapping' => true,
+        ]);
+    }
 
-        $response = $this->actingAs($user)->post(route('product-requests.store'), [
+    /** Any other website — no Cegid, so no mapping stage. */
+    private function plainSite(): Store
+    {
+        return Store::create([
+            'name'                 => 'Other Website',
+            'shopify_domain'       => 'other.myshopify.com',
+            'is_active'            => false,
+            'requires_sku_mapping' => false,
+        ]);
+    }
+
+    private function submitFor(User $user, Store $store, string $skus = 'X-1'): ProductRequest
+    {
+        $user->stores()->syncWithoutDetaching([$store->id]);
+
+        $this->actingAs($user)->post(route('product-requests.store'), [
+            'store_id'                  => $store->id,
             'request_type'              => 'new_brand',
             'brand'                     => 'Samsonite',
             'category'                  => 'Luggage',
-            'department'                => 'Travel',
-            'collection'                => 'Summer 2026',
-            'skus'                      => "123456\n123457\n123458",
+            'skus'                      => $skus,
             'store_launch_date'         => now()->addDays(20)->toDateString(),
             'online_launch_date'        => now()->addDays(18)->toDateString(),
             'supplier_images_available' => 0,
@@ -45,25 +68,97 @@ class ProductRequestTest extends TestCase
             'priority'                  => 'high',
         ]);
 
-        $request = ProductRequest::first();
+        return ProductRequest::latest('id')->first();
+    }
+
+    // ── Website selection drives whether mapping applies ─────────────────────
+
+    public function test_a_bluesalon_request_waits_for_mapping(): void
+    {
+        Notification::fake();
+
+        $user    = $this->brandManager();
+        $request = $this->submitFor($user, $this->mappingSite(), "123456\n123457\n123458");
 
         $this->assertNotNull($request);
-        $response->assertRedirect(route('product-requests.show', $request));
-
         $this->assertMatchesRegularExpression('/^PCR-\d{4}-\d{5}$/', $request->reference);
         $this->assertSame(3, $request->skus()->count());
 
-        // Nothing is mapped yet, so the request parks itself with Supply Chain
-        // instead of rejecting the submission.
+        // Nothing mapped yet, so it parks with Supply Chain rather than
+        // rejecting the submission.
+        $this->assertTrue($request->requiresMapping());
         $this->assertSame(ProductRequest::WAITING_MAPPING, $request->status);
         $this->assertSame(3, $request->pending_skus);
+        $this->assertContains(ProductRequest::WAITING_MAPPING, $request->displayStages());
+    }
+
+    public function test_a_non_mapping_website_skips_straight_to_sku_verified(): void
+    {
+        Notification::fake();
+
+        $user    = $this->brandManager();
+        $request = $this->submitFor($user, $this->plainSite(), "A-1\nA-2");
+
+        $this->assertFalse($request->requiresMapping());
+        $this->assertSame(ProductRequest::SKU_VERIFIED, $request->status);
+
+        // The stage is absent from the stepper and can never be moved to.
+        $this->assertNotContains(ProductRequest::WAITING_MAPPING, $request->displayStages());
+        $this->assertNotContains(ProductRequest::WAITING_MAPPING, $request->allowedTransitions());
+        $this->assertCount(11, $request->displayStages());
+    }
+
+    public function test_the_website_must_be_one_the_user_can_access(): void
+    {
+        $user  = $this->brandManager();
+        $mine  = $this->mappingSite();
+        $other = $this->plainSite();
+
+        // Non-super-admin: only explicitly granted websites are selectable.
+        $user->stores()->sync([$mine->id]);
+
+        $this->actingAs($user)->post(route('product-requests.store'), [
+            'store_id'                  => $other->id,
+            'request_type'              => 'new_brand',
+            'brand'                     => 'Samsonite',
+            'category'                  => 'Luggage',
+            'skus'                      => 'Z-1',
+            'store_launch_date'         => now()->addDays(20)->toDateString(),
+            'online_launch_date'        => now()->addDays(18)->toDateString(),
+            'supplier_images_available' => 0,
+            'photoshoot_required'       => 1,
+            'priority'                  => 'high',
+        ])->assertSessionHasErrors('store_id');
+
+        $this->assertSame(0, ProductRequest::count());
+    }
+
+    public function test_a_website_must_be_chosen(): void
+    {
+        $user = $this->brandManager();
+        $user->stores()->sync([$this->mappingSite()->id]);
+
+        $this->actingAs($user)->post(route('product-requests.store'), [
+            'request_type'              => 'new_brand',
+            'brand'                     => 'Samsonite',
+            'category'                  => 'Luggage',
+            'skus'                      => 'Z-1',
+            'store_launch_date'         => now()->addDays(20)->toDateString(),
+            'online_launch_date'        => now()->addDays(18)->toDateString(),
+            'supplier_images_available' => 0,
+            'photoshoot_required'       => 1,
+            'priority'                  => 'high',
+        ])->assertSessionHasErrors('store_id');
     }
 
     public function test_submission_requires_at_least_one_sku(): void
     {
-        $user = $this->brandManager();
+        $user  = $this->brandManager();
+        $store = $this->mappingSite();
+        $user->stores()->sync([$store->id]);
 
         $this->actingAs($user)->post(route('product-requests.store'), [
+            'store_id'                  => $store->id,
             'request_type'              => 'new_brand',
             'brand'                     => 'Samsonite',
             'category'                  => 'Luggage',
@@ -78,12 +173,14 @@ class ProductRequestTest extends TestCase
         $this->assertSame(0, ProductRequest::count());
     }
 
+    // ── Mapping lifecycle (Blue Salon only) ─────────────────────────────────
+
     public function test_supply_chain_mapping_releases_the_request_automatically(): void
     {
         Notification::fake();
 
         $user    = $this->brandManager();
-        $request = $this->makeRequest($user, ['A-1', 'A-2']);
+        $request = $this->submitFor($user, $this->mappingSite(), "A-1\nA-2");
 
         $this->assertSame(ProductRequest::WAITING_MAPPING, $request->status);
 
@@ -115,9 +212,8 @@ class ProductRequestTest extends TestCase
         Notification::fake();
 
         $user    = $this->brandManager();
-        $request = $this->makeRequest($user, ['G-1']);
+        $request = $this->submitFor($user, $this->mappingSite(), 'G-1');
 
-        // Supply Chain says this one cannot be mapped yet.
         $this->actingAs($user)->post(route('product-requests.skus.mapping', $request), [
             'sku_ids'        => $request->skus()->pluck('id')->all(),
             'mapping_status' => ProductRequest::MAP_NOT_MAPPED,
@@ -126,7 +222,6 @@ class ProductRequestTest extends TestCase
 
         $this->assertSame(ProductRequest::MAP_NOT_MAPPED, $request->skus()->first()->mapping_status);
 
-        // A later re-validation must leave that decision alone.
         app(SkuMappingService::class)->validate($request->fresh());
 
         $this->assertSame(ProductRequest::MAP_NOT_MAPPED, $request->skus()->first()->mapping_status);
@@ -135,8 +230,10 @@ class ProductRequestTest extends TestCase
 
     public function test_a_request_cannot_leave_waiting_for_mapping_while_skus_are_unmapped(): void
     {
+        Notification::fake();
+
         $user    = $this->brandManager();
-        $request = $this->makeRequest($user, ['B-1']);
+        $request = $this->submitFor($user, $this->mappingSite(), 'B-1');
 
         $this->actingAs($user)->post(route('product-requests.transition', $request), [
             'to_status' => ProductRequest::READY_FOR_UPLOAD,
@@ -145,26 +242,14 @@ class ProductRequestTest extends TestCase
         $this->assertSame(ProductRequest::WAITING_MAPPING, $request->fresh()->status);
     }
 
+    // ── Audit trail, permissions, lifecycle ─────────────────────────────────
+
     public function test_every_status_change_is_written_to_the_audit_trail(): void
     {
         Notification::fake();
 
-        $user = $this->brandManager();
-
-        // Submit through the real endpoint so the trail is covered from creation.
-        $this->actingAs($user)->post(route('product-requests.store'), [
-            'request_type'              => 'new_brand',
-            'brand'                     => 'Samsonite',
-            'category'                  => 'Luggage',
-            'skus'                      => 'C-1',
-            'store_launch_date'         => now()->addDays(20)->toDateString(),
-            'online_launch_date'        => now()->addDays(18)->toDateString(),
-            'supplier_images_available' => 0,
-            'photoshoot_required'       => 1,
-            'priority'                  => 'high',
-        ]);
-
-        $request = ProductRequest::first();
+        $user    = $this->brandManager();
+        $request = $this->submitFor($user, $this->mappingSite(), 'C-1');
 
         $this->markMapped($request);
 
@@ -203,8 +288,10 @@ class ProductRequestTest extends TestCase
 
     public function test_a_request_is_hidden_from_unrelated_users(): void
     {
+        Notification::fake();
+
         $owner   = $this->brandManager();
-        $request = $this->makeRequest($owner, ['D-1']);
+        $request = $this->submitFor($owner, $this->mappingSite(), 'D-1');
 
         $other = User::create([
             'name'                 => 'Other Team',
@@ -223,7 +310,7 @@ class ProductRequestTest extends TestCase
         Notification::fake();
 
         $user    = $this->brandManager();
-        $request = $this->makeRequest($user, ['E-1']);
+        $request = $this->submitFor($user, $this->mappingSite(), 'E-1');
 
         $this->actingAs($user)->post(route('product-requests.cancel', $request), [
             'cancel_reason' => 'Brand postponed the launch',
@@ -239,8 +326,10 @@ class ProductRequestTest extends TestCase
 
     public function test_skus_export_streams_the_requested_subset(): void
     {
+        Notification::fake();
+
         $user    = $this->brandManager();
-        $request = $this->makeRequest($user, ['F-1', 'F-2']);
+        $request = $this->submitFor($user, $this->mappingSite(), "F-1\nF-2");
 
         $response = $this->actingAs($user)
             ->get(route('product-requests.skus.download', [$request, 'filter' => ProductRequest::MAP_PENDING]));
@@ -253,32 +342,81 @@ class ProductRequestTest extends TestCase
         $this->assertStringContainsString('Pending Mapping', $csv);
     }
 
-    // ── helpers ──────────────────────────────────────────────────────────────
+    // ── Stage queues ─────────────────────────────────────────────────────────
 
-    private function makeRequest(User $user, array $skus): ProductRequest
+    public function test_each_queue_shows_only_its_own_stages(): void
     {
-        $request = ProductRequest::create([
-            'reference'           => ProductRequest::nextReference(),
-            'user_id'             => $user->id,
-            'request_type'        => 'new_brand',
-            'brand'               => 'Samsonite',
-            'category'            => 'Luggage',
-            'status'              => ProductRequest::SUBMITTED,
-            'priority'            => 'medium',
-            'store_launch_date'   => now()->addDays(20),
-            'online_launch_date'  => now()->addDays(18),
-            'photoshoot_required' => true,
-            'validation_status'   => 'pending',
-        ]);
+        $user  = $this->brandManager();
+        $store = $this->mappingSite();
+        $user->stores()->sync([$store->id]);
 
-        $mapping = app(SkuMappingService::class);
-        $mapping->syncSkus($request, $skus);
-        $mapping->rollUp($request, 'completed');
+        $stages = [
+            ProductRequest::WAITING_IMAGES       => 'SHOOT-A',
+            ProductRequest::PHOTOSHOOT_SCHEDULED => 'SHOOT-B',
+            ProductRequest::IMAGE_EDITING        => 'CONTENT-A',
+            ProductRequest::AI_CONTENT           => 'CONTENT-B',
+            ProductRequest::QA_REVIEW            => 'QA-ONLY',
+        ];
 
-        app(\App\Services\ProductRequestWorkflow::class)->reconcileMapping($request->refresh(), $user);
+        foreach ($stages as $status => $brand) {
+            ProductRequest::create([
+                'reference'          => ProductRequest::nextReference(),
+                'user_id'            => $user->id,
+                'store_id'           => $store->id,
+                'request_type'       => 'new_brand',
+                'brand'              => $brand,
+                'category'           => 'Luggage',
+                'status'             => $status,
+                'priority'           => 'high',
+                'online_launch_date' => now()->addDays(5),
+            ]);
+        }
 
-        return $request->refresh();
+        $photoshoot = $this->actingAs($user)->get(route('product-requests.queue', 'photoshoot'));
+        $photoshoot->assertOk()
+            ->assertSee('SHOOT-A')->assertSee('SHOOT-B')
+            ->assertDontSee('CONTENT-A')->assertDontSee('QA-ONLY');
+
+        $content = $this->actingAs($user)->get(route('product-requests.queue', 'content'));
+        $content->assertOk()
+            ->assertSee('CONTENT-A')->assertSee('CONTENT-B')
+            ->assertDontSee('SHOOT-A')->assertDontSee('QA-ONLY');
     }
+
+    public function test_a_queue_can_be_filtered_to_my_assignments(): void
+    {
+        $user  = $this->brandManager();
+        $store = $this->mappingSite();
+        $user->stores()->sync([$store->id]);
+
+        $base = [
+            'user_id'            => $user->id,
+            'store_id'           => $store->id,
+            'request_type'       => 'new_brand',
+            'category'           => 'Luggage',
+            'status'             => ProductRequest::WAITING_IMAGES,
+            'priority'           => 'high',
+            'online_launch_date' => now()->addDays(5),
+        ];
+
+        ProductRequest::create($base + ['reference' => ProductRequest::nextReference(), 'brand' => 'MINE', 'photographer_id' => $user->id]);
+        ProductRequest::create($base + ['reference' => ProductRequest::nextReference(), 'brand' => 'NOBODYS']);
+
+        $this->actingAs($user)->get(route('product-requests.queue', ['queue' => 'photoshoot', 'mine' => 1]))
+            ->assertOk()->assertSee('MINE')->assertDontSee('NOBODYS');
+
+        $this->actingAs($user)->get(route('product-requests.queue', ['queue' => 'photoshoot', 'unassigned' => 1]))
+            ->assertOk()->assertSee('NOBODYS')->assertDontSee('MINE');
+    }
+
+    public function test_an_unknown_queue_is_not_found(): void
+    {
+        $user = $this->brandManager();
+
+        $this->actingAs($user)->get('/product-requests/queue/nonsense')->assertNotFound();
+    }
+
+    // ── helpers ──────────────────────────────────────────────────────────────
 
     private function markMapped(ProductRequest $request): void
     {
@@ -288,10 +426,8 @@ class ProductRequestTest extends TestCase
             'mapping_set_at' => now(),
         ]);
 
-        $mapping = app(SkuMappingService::class);
-        $mapping->rollUp($request);
-
-        app(\App\Services\ProductRequestWorkflow::class)->reconcileMapping($request->refresh());
+        app(SkuMappingService::class)->rollUp($request);
+        app(ProductRequestWorkflow::class)->reconcileMapping($request->refresh());
 
         $request->refresh();
     }

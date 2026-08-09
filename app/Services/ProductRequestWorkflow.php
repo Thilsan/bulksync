@@ -117,12 +117,11 @@ class ProductRequestWorkflow
         }
 
         if ($fullyMapped && in_array($request->status, [ProductRequest::SUBMITTED, ProductRequest::WAITING_MAPPING], true)) {
-            $this->transition(
-                $request,
-                ProductRequest::SKU_VERIFIED,
-                $actor,
-                "All {$request->total_skus} SKUs mapped — ready for the E-Commerce team.",
-            );
+            $remarks = $request->requiresMapping()
+                ? "All {$request->total_skus} SKUs mapped — ready for the E-Commerce team."
+                : "{$request->store?->name} does not use Cegid mapping — no mapping step required.";
+
+            $this->transition($request, ProductRequest::SKU_VERIFIED, $actor, $remarks);
         }
     }
 

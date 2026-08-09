@@ -29,6 +29,9 @@
                   skuInput: 'type',
                   storeDate: '{{ old('store_launch_date') }}',
                   onlineDate: '{{ old('online_launch_date') }}',
+                  storeId: '{{ old('store_id', $stores->firstWhere('is_active', true)?->id ?? $stores->first()?->id) }}',
+                  mappingSites: {{ Illuminate\Support\Js::from($stores->where('requires_sku_mapping', true)->pluck('id')->map(fn ($id) => (string) $id)->values()) }},
+                  get usesMapping() { return this.mappingSites.includes(String(this.storeId)) },
                   get dateWarning() { return this.storeDate && this.onlineDate && this.onlineDate < this.storeDate }
               }">
             @csrf
@@ -37,7 +40,31 @@
 
                 {{-- 1. Brand & Category --}}
                 <section>
-                    <h3 class="text-sm font-semibold text-gray-800 mb-3">1. Brand &amp; Category Information</h3>
+                    <h3 class="text-sm font-semibold text-gray-800 mb-3">1. Website, Brand &amp; Category Information</h3>
+
+                    <div class="mb-4">
+                        <label class="block text-xs font-medium text-gray-600 mb-1.5">Website <span class="text-red-500">*</span></label>
+                        @if($stores->isEmpty())
+                            <p class="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                                You don't have access to any website yet. Ask an admin to grant store access before raising a request.
+                            </p>
+                        @else
+                            <select name="store_id" x-model="storeId" required
+                                    class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent">
+                                @foreach($stores as $site)
+                                    <option value="{{ $site->id }}">{{ $site->name }}</option>
+                                @endforeach
+                            </select>
+                            <p x-show="usesMapping" x-cloak class="text-xs text-amber-600 mt-1">
+                                SKUs for this website are mapped in Cegid — unmapped SKUs will go to
+                                <span class="font-medium">Waiting for Mapping</span> with Supply Chain first.
+                            </p>
+                            <p x-show="!usesMapping" x-cloak class="text-xs text-gray-400 mt-1">
+                                This website has no Cegid mapping step — the request goes straight to
+                                <span class="font-medium">SKU Verified</span> after submission.
+                            </p>
+                        @endif
+                    </div>
 
                     <div class="mb-4">
                         <label class="block text-xs font-medium text-gray-600 mb-1.5">Request Type <span class="text-red-500">*</span></label>
@@ -108,7 +135,7 @@
                         <p class="text-xs text-gray-400 mt-1">First column should contain SKUs. Header row optional.</p>
                     </div>
 
-                    <p class="text-xs text-gray-400 mt-2">
+                    <p x-show="usesMapping" x-cloak class="text-xs text-gray-400 mt-2">
                         You can submit even if the SKUs or brand are not mapped yet — the request will move to
                         <span class="font-medium text-amber-600">Waiting for Mapping</span> and continue automatically once
                         Supply Chain records the mapping. No re-submission needed.
