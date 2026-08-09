@@ -62,4 +62,45 @@ class ProductRequestAttachment extends Model
     {
         return $this->kind === self::KIND_CONTENT;
     }
+
+    /**
+     * The largest upload PHP will actually accept, in kilobytes.
+     *
+     * A file bigger than upload_max_filesize is thrown away by PHP before
+     * Laravel sees it: hasFile() returns false, a `nullable` rule passes, and
+     * the user gets a saved record with no file and no error. So every limit we
+     * validate against and every hint we show has to be the real one.
+     */
+    public static function maxUploadKb(): int
+    {
+        $toKb = static function (string|false $value): int {
+            $value = trim((string) $value);
+
+            if ($value === '') {
+                return PHP_INT_MAX;
+            }
+
+            $number = (int) $value;
+
+            return match (strtolower(substr($value, -1))) {
+                'g'     => $number * 1024 * 1024,
+                'm'     => $number * 1024,
+                'k'     => $number,
+                default => (int) ($number / 1024),   // plain bytes
+            };
+        };
+
+        return max(1, min(
+            $toKb(ini_get('upload_max_filesize')),
+            $toKb(ini_get('post_max_size')),
+        ));
+    }
+
+    /** Same limit, capped at what the module wants, as a human string. */
+    public static function maxUploadLabel(int $preferredKb = 10240): string
+    {
+        $kb = min($preferredKb, self::maxUploadKb());
+
+        return $kb >= 1024 ? round($kb / 1024, 1) . 'MB' : $kb . 'KB';
+    }
 }

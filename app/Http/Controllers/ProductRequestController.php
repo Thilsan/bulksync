@@ -286,6 +286,12 @@ class ProductRequestController extends Controller implements HasMiddleware
 
     public function store(Request $request, #[CurrentUser] User $user): RedirectResponse
     {
+        if ($problem = $this->rejectedUpload($request, ['reference_images', 'content_sheet', 'sku_csv'])) {
+            return back()->withInput()->withErrors(['content_sheet' => $problem]);
+        }
+
+        $maxKb = min(10240, ProductRequestAttachment::maxUploadKb());
+
         $data = $request->validate([
             'store_id'                  => 'required|exists:stores,id',
             'request_type'              => 'required|in:new_brand,existing_brand',
@@ -304,8 +310,8 @@ class ProductRequestController extends Controller implements HasMiddleware
             'priority'                  => 'required|in:high,medium,low',
             'notes'                     => 'nullable|string|max:5000',
             'reference_images'          => 'nullable|array|max:10',
-            'reference_images.*'        => 'file|mimes:jpg,jpeg,png,pdf|max:10240',
-            'content_sheet'             => 'nullable|file|mimes:csv,txt,xlsx,xls|max:10240',
+            'reference_images.*'        => 'file|mimes:jpg,jpeg,png,pdf|max:' . $maxKb,
+            'content_sheet'             => 'nullable|file|mimes:csv,txt,xlsx,xls|max:' . $maxKb,
         ]);
 
         // A user must not be able to file against a website they can't see.
@@ -471,9 +477,13 @@ class ProductRequestController extends Controller implements HasMiddleware
 
         abort_if($productRequest->isClosed(), 403, 'This request is closed.');
 
+        if ($problem = $this->rejectedUpload($request, ['sku_csv'])) {
+            return back()->withErrors(['sku_csv' => $problem]);
+        }
+
         $request->validate([
             'skus'    => 'nullable|string',
-            'sku_csv' => 'nullable|file|mimes:csv,txt|max:20480',
+            'sku_csv' => 'nullable|file|mimes:csv,txt|max:' . min(20480, ProductRequestAttachment::maxUploadKb()),
         ]);
 
         $incoming = $this->parseSkus($request);
@@ -913,13 +923,18 @@ class ProductRequestController extends Controller implements HasMiddleware
     {
         $this->authorizeView($productRequest, $user);
 
+        if ($problem = $this->rejectedUpload($request, ['reference_images', 'content_sheet'])) {
+            return back()->withErrors(['reference_images' => $problem]);
+        }
+
+        $maxKb     = min(10240, ProductRequestAttachment::maxUploadKb());
         $isContent = $request->input('kind') === ProductRequestAttachment::KIND_CONTENT;
 
         $request->validate($isContent ? [
-            'content_sheet' => 'required|file|mimes:csv,txt,xlsx,xls|max:10240',
+            'content_sheet' => 'required|file|mimes:csv,txt,xlsx,xls|max:' . $maxKb,
         ] : [
             'reference_images'   => 'required|array|max:10',
-            'reference_images.*' => 'file|mimes:jpg,jpeg,png,pdf|max:10240',
+            'reference_images.*' => 'file|mimes:jpg,jpeg,png,pdf|max:' . $maxKb,
         ]);
 
         $count = $isContent
@@ -1049,6 +1064,43 @@ class ProductRequestController extends Controller implements HasMiddleware
         }
 
         return $count;
+    }
+
+    /**
+     * PHP silently discards a file larger than upload_max_filesize: it never
+     * reaches hasFile(), a `nullable` rule passes, and the user is told nothing.
+     * Catch that and say so, rather than saving a record with a missing file.
+     *
+     * @param  string[]  $fields
+     */
+    private function rejectedUpload(Request $request, array $fields): ?string
+    {
+        $limit = ProductRequestAttachment::maxUploadLabel();
+
+        foreach ($fields as $field) {
+            $files = $request->file($field);
+
+            if ($files === null) {
+                continue;
+            }
+
+            foreach (is_array($files) ? $files : [$files] as $file) {
+                if ($file && !$file->isValid()) {
+                    $reason = match ($file->getError()) {
+                        UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE =>
+                            "is larger than this server accepts ({$limit} max). Please split or compress it.",
+                        UPLOAD_ERR_PARTIAL   => 'was only partially uploaded. Please try again.',
+                        UPLOAD_ERR_NO_TMP_DIR, UPLOAD_ERR_CANT_WRITE =>
+                            'could not be saved on the server. Please contact an administrator.',
+                        default              => 'could not be uploaded. Please try again.',
+                    };
+
+                    return "The file \"{$file->getClientOriginalName()}\" {$reason}";
+                }
+            }
+        }
+
+        return null;
     }
 
     private function parseSkus(Request $request): array

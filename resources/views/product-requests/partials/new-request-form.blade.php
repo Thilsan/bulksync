@@ -197,7 +197,7 @@
                             <label class="block text-xs font-medium text-gray-600 mb-1.5 mt-4">Reference Images / Notes</label>
                             <input type="file" name="reference_images[]" multiple accept=".jpg,.jpeg,.png,.pdf"
                                    class="w-full text-sm text-gray-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-medium file:bg-brand-50 file:text-brand-700 hover:file:bg-brand-100 cursor-pointer">
-                            <p class="text-xs text-gray-400 mt-1">JPG, PNG, PDF up to 10MB each (max 10 files).</p>
+                            <p class="text-xs text-gray-400 mt-1">JPG, PNG, PDF up to {{ \App\Models\ProductRequestAttachment::maxUploadLabel() }} each (max 10 files).</p>
                         </div>
                     </div>
                 </section>
@@ -235,8 +235,8 @@
                         <input type="file" name="content_sheet" accept=".csv,.xlsx,.xls"
                                class="w-full text-sm text-gray-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-medium file:bg-white file:text-amber-800 hover:file:bg-amber-100 cursor-pointer">
                         <p class="text-xs text-amber-700 mt-1.5">
-                            You can attach this later if it isn't ready — the request will show as
-                            <span class="font-medium">awaiting content sheet</span> until you do.
+                            Up to {{ \App\Models\ProductRequestAttachment::maxUploadLabel() }}. You can attach this later if it isn't ready — the request
+                            will show as <span class="font-medium">awaiting content sheet</span> until you do.
                         </p>
                     </div>
                 </section>

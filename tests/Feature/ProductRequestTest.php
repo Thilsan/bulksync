@@ -542,6 +542,43 @@ class ProductRequestTest extends TestCase
         $this->assertSame('Content from Brand Team', $request->stageLabel(ProductRequest::AI_CONTENT));
     }
 
+    public function test_an_upload_php_rejected_is_reported_not_silently_dropped(): void
+    {
+        Notification::fake();
+
+        $user  = $this->brandManager();
+        $store = $this->mappingSite();
+        $user->stores()->sync([$store->id]);
+
+        // PHP marks a file over upload_max_filesize as invalid and hands it to
+        // Laravel with an error code; hasFile() then hides it entirely.
+        $tooBig = new UploadedFile(
+            tempnam(sys_get_temp_dir(), 'big'),
+            'huge.xlsx',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            UPLOAD_ERR_INI_SIZE,
+            true,
+        );
+
+        $this->actingAs($user)->post(route('product-requests.store'), [
+            'store_id'                  => $store->id,
+            'request_type'              => 'new_brand',
+            'brand'                     => 'Samsonite',
+            'category'                  => 'Luggage',
+            'skus'                      => 'BIG-1',
+            'store_launch_date'         => now()->addDays(20)->toDateString(),
+            'online_launch_date'        => now()->addDays(18)->toDateString(),
+            'supplier_images_available' => 0,
+            'photoshoot_required'       => 1,
+            'use_ai_content'            => 0,
+            'priority'                  => 'high',
+            'content_sheet'             => $tooBig,
+        ])->assertSessionHasErrors('content_sheet');
+
+        // The request must not be created with a quietly missing file.
+        $this->assertSame(0, ProductRequest::count());
+    }
+
     public function test_a_request_without_ai_flags_that_it_is_awaiting_a_content_sheet(): void
     {
         Notification::fake();

@@ -763,7 +763,7 @@
                     <div class="mb-5 pb-5 border-b border-gray-100">
                         <h4 class="text-sm font-semibold text-gray-800 mb-1">Content Sheet</h4>
                         <p class="text-xs text-gray-500 mb-3">
-                            This request is not using the AI Content Generator, so the brand team supplies the copy as an Excel or CSV file.
+                            This request is not using the AI Content Generator, so the brand team supplies the copy as an Excel or CSV file (up to {{ \App\Models\ProductRequestAttachment::maxUploadLabel() }}).
                         </p>
 
                         @forelse($request->contentSheets as $sheet)
@@ -817,7 +817,7 @@
                                    class="flex-1 text-sm text-gray-600 file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-medium file:bg-brand-50 file:text-brand-700 hover:file:bg-brand-100 cursor-pointer">
                             <button type="submit" class="bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors shrink-0">Upload</button>
                         </div>
-                        <p class="text-xs text-gray-400 mt-1">JPG, PNG, PDF up to 10MB each (max 10 files per upload).</p>
+                        <p class="text-xs text-gray-400 mt-1">JPG, PNG, PDF up to {{ \App\Models\ProductRequestAttachment::maxUploadLabel() }} each (max 10 files per upload).</p>
                     </form>
                     @endunless
 
