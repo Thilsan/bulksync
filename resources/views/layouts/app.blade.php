@@ -343,7 +343,7 @@
                             <div>
                                 <p class="text-sm font-semibold text-gray-800">Notifications</p>
                                 <p class="text-xs text-gray-400">
-                                    {{ ($bellUnreadCount ?? 0) > 0 ? $bellUnreadCount . ' unread' : 'You are all caught up' }}
+                                    {{ ($bellUnreadCount ?? 0) > 0 ? $bellUnreadCount . ' unread' : 'Nothing new' }}
                                 </p>
                             </div>
                             @if(($bellUnreadCount ?? 0) > 0)
@@ -361,9 +361,9 @@
                                     $assigned = ($d['kind'] ?? null) === 'assigned';
                                 @endphp
                                 <a href="{{ !empty($d['request_id']) ? route('product-requests.show', $d['request_id']) : route('product-requests.notifications') }}"
-                                   class="flex items-start gap-3 px-4 py-3 hover:bg-gray-50 transition-colors {{ $note->read_at ? '' : 'bg-brand-50/40' }}">
+                                   class="flex items-start gap-3 px-4 py-3 hover:bg-gray-50 transition-colors bg-brand-50/40">
                                     <div class="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 mt-0.5
-                                                {{ $assigned ? 'bg-amber-100 text-amber-700' : ($note->read_at ? 'bg-gray-100 text-gray-400' : 'bg-brand-100 text-brand-700') }}">
+                                                {{ $assigned ? 'bg-amber-100 text-amber-700' : 'bg-brand-100 text-brand-700' }}">
                                         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                                 d="{{ $assigned ? 'M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z' : 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z' }}"/>
@@ -385,12 +385,15 @@
                                         @endif
                                         <p class="text-xs text-gray-400 mt-0.5">by {{ $d['actor'] ?? 'System' }} &middot; {{ $note->created_at->diffForHumans() }}</p>
                                     </div>
-                                    @unless($note->read_at)
-                                        <span class="w-1.5 h-1.5 rounded-full bg-brand-500 shrink-0 mt-2"></span>
-                                    @endunless
+                                    <span class="w-1.5 h-1.5 rounded-full bg-brand-500 shrink-0 mt-2"></span>
                                 </a>
                             @empty
-                                <p class="px-4 py-10 text-sm text-gray-400 text-center">No notifications yet.</p>
+                                <div class="px-4 py-10 text-center">
+                                    <p class="text-sm text-gray-500">You're all caught up.</p>
+                                    <a href="{{ route('product-requests.notifications') }}" class="text-xs text-brand-600 hover:text-brand-700 font-medium mt-1 inline-block">
+                                        See earlier notifications &rarr;
+                                    </a>
+                                </div>
                             @endforelse
                         </div>
 

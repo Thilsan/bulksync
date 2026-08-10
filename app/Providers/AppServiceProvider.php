@@ -36,7 +36,9 @@ class AppServiceProvider extends ServiceProvider
                 $unreadCount   = 0;
 
                 if ($user && $user->hasFeature('product_request')) {
-                    $notifications = $user->notifications()->latest()->limit(8)->get();
+                    // Unread only: the bell is a to-read list, not history.
+                    // Everything ever sent lives on the notifications page.
+                    $notifications = $user->unreadNotifications()->latest()->limit(8)->get();
                     $unreadCount   = $user->unreadNotifications()->count();
                 }
 
