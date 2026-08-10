@@ -158,6 +158,45 @@ class ProductRequestTest extends TestCase
         ])->assertSessionHasErrors('store_id');
     }
 
+    public function test_both_image_questions_must_actually_be_answered(): void
+    {
+        $user  = $this->brandManager();
+        $store = $this->mappingSite();
+        $user->stores()->sync([$store->id]);
+
+        $base = [
+            'store_id'           => $store->id,
+            'request_type'       => 'new_brand',
+            'brand'              => 'Samsonite',
+            'category'           => 'Luggage',
+            'skus'               => 'ANSWER-1',
+            'online_launch_date' => now()->addDays(18)->format('Y-m-d H:i'),
+            'use_ai_content'     => 1,
+            'priority'           => 'high',
+        ];
+
+        // The form used to pre-tick both of these, so a request could be saved
+        // carrying answers nobody chose — and they contradicted each other.
+        $this->actingAs($user)->post(route('product-requests.store'),
+            $base + ['photoshoot_required' => 0])
+            ->assertSessionHasErrors('supplier_images_available');
+
+        $this->actingAs($user)->post(route('product-requests.store'),
+            $base + ['supplier_images_available' => 0])
+            ->assertSessionHasErrors('photoshoot_required');
+
+        $this->assertSame(0, ProductRequest::count());
+
+        // Answered properly, it saves exactly what was chosen.
+        $this->actingAs($user)->post(route('product-requests.store'),
+            $base + ['supplier_images_available' => 1, 'photoshoot_required' => 0])
+            ->assertRedirect();
+
+        $request = ProductRequest::first();
+        $this->assertTrue($request->supplier_images_available);
+        $this->assertFalse($request->photoshoot_required);
+    }
+
     public function test_submission_requires_at_least_one_sku(): void
     {
         $user  = $this->brandManager();

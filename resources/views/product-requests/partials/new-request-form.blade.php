@@ -28,7 +28,8 @@
               x-data="{
                   skuInput: 'type',
                   useAi: '{{ old('use_ai_content', '1') }}',
-                  photoshoot: '{{ old('photoshoot_required', '1') }}',
+                  photoshoot: '{{ old('photoshoot_required', '') }}',
+                  supplierImages: '{{ old('supplier_images_available', '') }}',
                   onlineDate: '{{ old('online_launch_date') }}',
                   todayIso: '{{ now()->format('Y-m-d\TH:i') }}',
                   // Per-person deadlines are dates, the launch is a moment — so
@@ -184,12 +185,12 @@
                             <label class="block text-xs font-medium text-gray-600 mb-2">Supplier Images Available? <span class="text-red-500">*</span></label>
                             <div class="space-y-1.5">
                                 <label class="flex items-center gap-2 cursor-pointer">
-                                    <input type="radio" name="supplier_images_available" value="1" {{ old('supplier_images_available') === '1' ? 'checked' : '' }} required class="text-brand-600 focus:ring-brand-500">
-                                    <span class="text-sm text-gray-700">Yes, images provided by supplier</span>
+                                    <input type="radio" name="supplier_images_available" value="1" x-model="supplierImages" required class="text-brand-600 focus:ring-brand-500">
+                                    <span class="text-sm text-gray-700">Yes — the supplier has sent images</span>
                                 </label>
                                 <label class="flex items-center gap-2 cursor-pointer">
-                                    <input type="radio" name="supplier_images_available" value="0" {{ old('supplier_images_available', '0') === '0' ? 'checked' : '' }} class="text-brand-600 focus:ring-brand-500">
-                                    <span class="text-sm text-gray-700">No, require photoshoot</span>
+                                    <input type="radio" name="supplier_images_available" value="0" x-model="supplierImages" class="text-brand-600 focus:ring-brand-500">
+                                    <span class="text-sm text-gray-700">No — not available</span>
                                 </label>
                             </div>
                         </div>
@@ -205,6 +206,27 @@
                                     <span class="text-sm text-gray-700">No</span>
                                 </label>
                             </div>
+
+                            {{-- These two answers decide the whole middle of the workflow,
+                                 so say what each combination means before it is submitted. --}}
+                            <p x-show="supplierImages === '1' && photoshoot === '0'" x-cloak
+                               class="text-xs text-gray-500 mt-2">
+                                Supplier images will be used as they are — no photoshoot or editing stage.
+                            </p>
+                            <p x-show="supplierImages === '0' && photoshoot === '1'" x-cloak
+                               class="text-xs text-gray-500 mt-2">
+                                The products will be shot in the studio, then edited.
+                            </p>
+                            <p x-show="supplierImages === '1' && photoshoot === '1'" x-cloak
+                               class="text-xs text-gray-500 mt-2">
+                                Supplier images plus a photoshoot — the shoot and editing stages both apply.
+                            </p>
+                            <p x-show="supplierImages === '0' && photoshoot === '0'" x-cloak
+                               class="text-xs text-amber-600 mt-2">
+                                No images from the supplier and no photoshoot — the request will wait at
+                                <span class="font-medium">Waiting for Images</span> until someone provides them.
+                                If a shoot is needed, answer Yes above.
+                            </p>
                         </div>
                     </div>
                 </section>

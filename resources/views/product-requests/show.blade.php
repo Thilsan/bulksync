@@ -683,12 +683,12 @@
                             <div>
                                 <label class="block text-xs font-medium text-gray-500 mb-1">Supplier Images Available?</label>
                                 <template x-if="!editing">
-                                    <p class="text-sm text-gray-800 py-2">{{ $request->supplier_images_available ? 'Yes, provided by supplier' : 'No, require photoshoot' }}</p>
+                                    <p class="text-sm text-gray-800 py-2">{{ $request->supplier_images_available ? 'Yes — supplier has sent images' : 'No — not available' }}</p>
                                 </template>
                                 <select x-show="editing" x-cloak name="supplier_images_available"
                                         class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
-                                    <option value="1" @selected($request->supplier_images_available)>Yes, provided by supplier</option>
-                                    <option value="0" @selected(!$request->supplier_images_available)>No, require photoshoot</option>
+                                    <option value="1" @selected($request->supplier_images_available)>Yes — supplier has sent images</option>
+                                    <option value="0" @selected(!$request->supplier_images_available)>No — not available</option>
                                 </select>
                             </div>
 
