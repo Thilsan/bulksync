@@ -167,11 +167,6 @@
                     </div>
                 @endif
 
-                @if($request->store_launch_date && $request->online_launch_date && $request->online_launch_date->lt($request->store_launch_date))
-                    <div class="mt-4 bg-amber-50 border border-amber-200 text-amber-800 rounded-lg px-4 py-2.5 text-sm">
-                        Online launch is scheduled before the store launch date.
-                    </div>
-                @endif
 
                 {{-- Next task, owner and time left — sits beside the stepper so the
                      two halves of "where is this?" are answered side by side. --}}
@@ -282,7 +277,7 @@
                                 {{ $dueText }}
                             </span>
                             @if($request->online_launch_date)
-                                <span class="text-xs text-gray-500">{{ $request->online_launch_date->format('d M Y') }}</span>
+                                <span class="text-xs text-gray-500">{{ $request->launchLabel('d M Y, H:i') }}</span>
                             @endif
                             @if($onHold && $held !== null && $held > 0)
                                 <span class="text-xs text-red-700 font-medium">&middot; blocked for {{ $held }} of those</span>
@@ -676,22 +671,12 @@
                             </div>
 
                             <div>
-                                <label class="block text-xs font-medium text-gray-500 mb-1">Expected Store Launch Date</label>
+                                <label class="block text-xs font-medium text-gray-500 mb-1">Launch Date &amp; Time</label>
                                 <template x-if="!editing">
-                                    <p class="text-sm text-gray-800 py-2">{{ $request->store_launch_date?->format('d M Y') ?? '—' }}</p>
+                                    <p class="text-sm text-gray-800 py-2">{{ $request->launchLabel() ?? '—' }}</p>
                                 </template>
-                                <input x-show="editing" x-cloak type="date" name="store_launch_date" required
-                                       value="{{ old('store_launch_date', $request->store_launch_date?->format('Y-m-d')) }}"
-                                       class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
-                            </div>
-
-                            <div>
-                                <label class="block text-xs font-medium text-gray-500 mb-1">Expected Online Launch Date</label>
-                                <template x-if="!editing">
-                                    <p class="text-sm text-gray-800 py-2">{{ $request->online_launch_date?->format('d M Y') ?? '—' }}</p>
-                                </template>
-                                <input x-show="editing" x-cloak type="date" name="online_launch_date" required
-                                       value="{{ old('online_launch_date', $request->online_launch_date?->format('Y-m-d')) }}"
+                                <input x-show="editing" x-cloak type="datetime-local" name="online_launch_date" required
+                                       value="{{ old('online_launch_date', $request->online_launch_date?->format('Y-m-d\TH:i')) }}"
                                        class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
                             </div>
 

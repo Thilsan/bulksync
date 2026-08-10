@@ -30,7 +30,7 @@ trait BuildsRequestEmail
         $days   = $request->daysToOnlineLaunch();
 
         $launchText = $launch
-            ? $launch->format('d M Y') . match (true) {
+            ? $launch->format('d M Y, H:i') . match (true) {
                 $days === null => '',
                 $days < 0      => '  (' . abs($days) . ' days overdue)',
                 $days === 0    => '  (today)',
@@ -46,8 +46,7 @@ trait BuildsRequestEmail
             'SKUs'          => number_format($request->total_skus),
             'Current stage' => $request->statusLabel(),
             'Priority'      => $request->priorityLabel(),
-            'Store launch'  => $request->store_launch_date?->format('d M Y'),
-            'Online launch' => $launchText,
+            'Launch'        => $launchText,
             'Requested by'  => $request->user?->name,
         ];
     }

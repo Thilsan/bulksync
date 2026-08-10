@@ -138,8 +138,7 @@
                         <th class="px-5 py-2.5 font-medium">Request</th>
                         <th class="px-3 py-2.5 font-medium">Brand / Category</th>
                         <th class="px-3 py-2.5 font-medium text-right">SKUs</th>
-                        <th class="px-3 py-2.5 font-medium">Store Launch</th>
-                        <th class="px-3 py-2.5 font-medium">Online Launch</th>
+                        <th class="px-3 py-2.5 font-medium">Launch</th>
                         <th class="px-3 py-2.5 font-medium">Photoshoot</th>
                         <th class="px-3 py-2.5 font-medium">Status</th>
                         <th class="px-3 py-2.5 font-medium">Priority</th>
@@ -156,9 +155,8 @@
                         </td>
                         <td class="px-3 py-3 text-gray-700">{{ $item->brand }} / {{ $item->category }}</td>
                         <td class="px-3 py-3 text-right text-gray-700 tabular-nums">{{ number_format($item->total_skus) }}</td>
-                        <td class="px-3 py-3 text-gray-600 whitespace-nowrap">{{ $item->store_launch_date?->format('d M Y') ?? '—' }}</td>
                         <td class="px-3 py-3 whitespace-nowrap {{ $item->isOverdue() ? 'text-red-600 font-medium' : 'text-gray-600' }}">
-                            {{ $item->online_launch_date?->format('d M Y') ?? '—' }}
+                            {{ $item->launchLabel('d M Y, H:i') ?? '—' }}
                         </td>
                         <td class="px-3 py-3 text-gray-600">{{ $item->photoshoot_required ? 'Yes' : 'No' }}</td>
                         <td class="px-3 py-3">
@@ -280,7 +278,7 @@
                                 @elseif($days === 0)
                                     <span class="text-amber-600 font-medium">Launches today</span>
                                 @else
-                                    Online launch in {{ $days }} day(s)
+                                    Launch in {{ $days }} day(s)
                                 @endif
                                 &middot; {{ $item->brand }} / {{ $item->category }}
                             </p>

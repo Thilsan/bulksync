@@ -129,7 +129,7 @@
                         <th class="px-3 py-2.5 font-medium">My Task</th>
                         <th class="px-3 py-2.5 font-medium">My Deadline</th>
                         <th class="px-3 py-2.5 font-medium">Current Stage</th>
-                        <th class="px-3 py-2.5 font-medium">Online Launch</th>
+                        <th class="px-3 py-2.5 font-medium">Launch</th>
                         <th class="px-5 py-2.5 font-medium">Priority</th>
                     </tr>
                 </thead>
@@ -191,7 +191,7 @@
                                     <span class="text-gray-400">—</span>
                                 @else
                                     <span class="{{ $days < 0 ? 'text-red-600 font-medium' : ($days <= 3 ? 'text-amber-600 font-medium' : 'text-gray-600') }}">
-                                        {{ $item->online_launch_date->format('d M Y') }}
+                                        {{ $item->launchLabel('d M Y, H:i') }}
                                     </span>
                                     <p class="text-xs {{ $days < 0 ? 'text-red-500' : 'text-gray-400' }}">
                                         @if($days < 0) {{ abs($days) }}d overdue

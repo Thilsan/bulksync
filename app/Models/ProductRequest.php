@@ -298,8 +298,8 @@ class ProductRequest extends Model
     protected function casts(): array
     {
         return [
-            'store_launch_date'         => 'date',
-            'online_launch_date'        => 'date',
+            'store_launch_date'         => 'date',    // legacy: no longer collected
+            'online_launch_date'        => 'datetime',
             'photoshoot_scheduled_at'   => 'date',
             'supplier_images_available' => 'boolean',
             'photoshoot_required'       => 'boolean',
@@ -884,9 +884,20 @@ class ProductRequest extends Model
 
     public function isOverdue(): bool
     {
-        $days = $this->daysToOnlineLaunch();
+        if (!$this->online_launch_date) {
+            return false;
+        }
 
-        return $days !== null && $days < 0 && !in_array($this->status, [self::PUBLISHED, self::COMPLETED, self::CANCELLED], true);
+        // Compares the actual moment now that launches carry a time: a 09:00
+        // launch is late by lunchtime, not at midnight.
+        return $this->online_launch_date->isPast()
+            && !in_array($this->status, [self::PUBLISHED, self::COMPLETED, self::CANCELLED], true);
+    }
+
+    /** The launch moment, for display. */
+    public function launchLabel(string $format = 'd M Y, H:i'): ?string
+    {
+        return $this->online_launch_date?->format($format);
     }
 
     // ── Scopes ───────────────────────────────────────────────────────────────

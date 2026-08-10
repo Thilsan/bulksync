@@ -68,8 +68,7 @@ class ProductRequestTest extends TestCase
             'brand'                     => 'Samsonite',
             'category'                  => 'Luggage',
             'skus'                      => $skus,
-            'store_launch_date'         => now()->addDays(20)->toDateString(),
-            'online_launch_date'        => now()->addDays(18)->toDateString(),
+            'online_launch_date'        => now()->addDays(18)->format('Y-m-d H:i'),
             'supplier_images_available' => 0,
             'photoshoot_required'       => 1,
             'use_ai_content'            => 1,
@@ -131,8 +130,7 @@ class ProductRequestTest extends TestCase
             'brand'                     => 'Samsonite',
             'category'                  => 'Luggage',
             'skus'                      => 'Z-1',
-            'store_launch_date'         => now()->addDays(20)->toDateString(),
-            'online_launch_date'        => now()->addDays(18)->toDateString(),
+            'online_launch_date'        => now()->addDays(18)->format('Y-m-d H:i'),
             'supplier_images_available' => 0,
             'photoshoot_required'       => 1,
             'use_ai_content'            => 1,
@@ -152,8 +150,7 @@ class ProductRequestTest extends TestCase
             'brand'                     => 'Samsonite',
             'category'                  => 'Luggage',
             'skus'                      => 'Z-1',
-            'store_launch_date'         => now()->addDays(20)->toDateString(),
-            'online_launch_date'        => now()->addDays(18)->toDateString(),
+            'online_launch_date'        => now()->addDays(18)->format('Y-m-d H:i'),
             'supplier_images_available' => 0,
             'photoshoot_required'       => 1,
             'use_ai_content'            => 1,
@@ -173,8 +170,7 @@ class ProductRequestTest extends TestCase
             'brand'                     => 'Samsonite',
             'category'                  => 'Luggage',
             'skus'                      => '',
-            'store_launch_date'         => now()->addDays(20)->toDateString(),
-            'online_launch_date'        => now()->addDays(18)->toDateString(),
+            'online_launch_date'        => now()->addDays(18)->format('Y-m-d H:i'),
             'supplier_images_available' => 0,
             'photoshoot_required'       => 1,
             'use_ai_content'            => 1,
@@ -551,8 +547,7 @@ class ProductRequestTest extends TestCase
             'brand'                     => 'Samsonite',
             'category'                  => 'Luggage',
             'skus'                      => 'CS-1',
-            'store_launch_date'         => now()->addDays(20)->toDateString(),
-            'online_launch_date'        => now()->addDays(18)->toDateString(),
+            'online_launch_date'        => now()->addDays(18)->format('Y-m-d H:i'),
             'supplier_images_available' => 0,
             'photoshoot_required'       => 1,
             'use_ai_content'            => 0,
@@ -595,8 +590,7 @@ class ProductRequestTest extends TestCase
             'brand'                     => 'Samsonite',
             'category'                  => 'Luggage',
             'skus'                      => 'BIG-1',
-            'store_launch_date'         => now()->addDays(20)->toDateString(),
-            'online_launch_date'        => now()->addDays(18)->toDateString(),
+            'online_launch_date'        => now()->addDays(18)->format('Y-m-d H:i'),
             'supplier_images_available' => 0,
             'photoshoot_required'       => 1,
             'use_ai_content'            => 0,
@@ -623,8 +617,7 @@ class ProductRequestTest extends TestCase
             'brand'                     => 'Samsonite',
             'category'                  => 'Luggage',
             'skus'                      => 'CS-2',
-            'store_launch_date'         => now()->addDays(20)->toDateString(),
-            'online_launch_date'        => now()->addDays(18)->toDateString(),
+            'online_launch_date'        => now()->addDays(18)->format('Y-m-d H:i'),
             'supplier_images_available' => 0,
             'photoshoot_required'       => 1,
             'use_ai_content'            => 0,
@@ -1165,6 +1158,61 @@ class ProductRequestTest extends TestCase
         $this->assertNull($request->fresh()->qa_owner_id);
     }
 
+    public function test_the_launch_moment_keeps_its_time(): void
+    {
+        Notification::fake();
+
+        $user  = $this->brandManager();
+        $store = $this->mappingSite();
+        $user->stores()->sync([$store->id]);
+
+        $launch = now()->addDays(6)->setTime(9, 30);
+
+        $this->actingAs($user)->post(route('product-requests.store'), [
+            'store_id'                  => $store->id,
+            'request_type'              => 'new_brand',
+            'brand'                     => 'Samsonite',
+            'category'                  => 'Luggage',
+            'skus'                      => 'TIME-1',
+            'online_launch_date'        => $launch->format('Y-m-d H:i'),
+            'supplier_images_available' => 0,
+            'photoshoot_required'       => 1,
+            'use_ai_content'            => 1,
+            'priority'                  => 'high',
+        ])->assertRedirect();
+
+        $request = ProductRequest::first();
+
+        // A time, not just a date — a 09:30 launch is not the same as midnight.
+        $this->assertSame($launch->format('Y-m-d H:i'), $request->online_launch_date->format('Y-m-d H:i'));
+        $this->assertStringContainsString('09:30', $request->launchLabel());
+
+        // Day-level countdown still reads naturally.
+        $this->assertSame(6, $request->daysToOnlineLaunch());
+        $this->assertFalse($request->isOverdue());
+    }
+
+    public function test_a_launch_is_overdue_once_the_moment_passes_not_at_midnight(): void
+    {
+        Notification::fake();
+
+        $user    = $this->brandManager();
+        $request = $this->submitFor($user, $this->plainSite(), 'LATE-1');
+
+        // Earlier today: the launch window has gone, so it is late now — waiting
+        // for midnight to admit it would hide a whole day of slippage.
+        $request->update(['online_launch_date' => now()->subHours(2)]);
+        $this->assertTrue($request->fresh()->isOverdue());
+
+        // Later today is not late.
+        $request->update(['online_launch_date' => now()->addHours(2)]);
+        $this->assertFalse($request->fresh()->isOverdue());
+
+        // And a published request is never chased, whatever the clock says.
+        $request->update(['online_launch_date' => now()->subDays(3), 'status' => ProductRequest::PUBLISHED]);
+        $this->assertFalse($request->fresh()->isOverdue());
+    }
+
     public function test_a_request_is_listed_by_its_name_with_the_reference_kept(): void
     {
         Notification::fake();
@@ -1180,8 +1228,7 @@ class ProductRequestTest extends TestCase
             'brand'                     => 'New Balance',
             'category'                  => 'Footwear',
             'skus'                      => 'NB-1',
-            'store_launch_date'         => now()->addDays(20)->toDateString(),
-            'online_launch_date'        => now()->addDays(18)->toDateString(),
+            'online_launch_date'        => now()->addDays(18)->format('Y-m-d H:i'),
             'supplier_images_available' => 0,
             'photoshoot_required'       => 1,
             'use_ai_content'            => 1,
@@ -1393,8 +1440,7 @@ class ProductRequestTest extends TestCase
             'brand'                     => 'Samsonite',
             'category'                  => 'Luggage',
             'skus'                      => 'TEAM-1',
-            'store_launch_date'         => now()->addDays(20)->toDateString(),
-            'online_launch_date'        => now()->addDays(18)->toDateString(),
+            'online_launch_date'        => now()->addDays(18)->format('Y-m-d H:i'),
             'supplier_images_available' => 0,
             'photoshoot_required'       => 1,
             'use_ai_content'            => 1,
@@ -1457,8 +1503,7 @@ class ProductRequestTest extends TestCase
             'brand'                     => 'Samsonite',
             'category'                  => 'Luggage',
             'skus'                      => 'TASK-1',
-            'store_launch_date'         => now()->addDays(20)->toDateString(),
-            'online_launch_date'        => now()->addDays(18)->toDateString(),
+            'online_launch_date'        => now()->addDays(18)->format('Y-m-d H:i'),
             'supplier_images_available' => 0,
             'photoshoot_required'       => 1,
             'use_ai_content'            => 1,
@@ -1505,8 +1550,7 @@ class ProductRequestTest extends TestCase
             'brand'                     => 'Samsonite',
             'category'                  => 'Luggage',
             'skus'                      => 'DUP-1',
-            'store_launch_date'         => now()->addDays(20)->toDateString(),
-            'online_launch_date'        => now()->addDays(18)->toDateString(),
+            'online_launch_date'        => now()->addDays(18)->format('Y-m-d H:i'),
             'supplier_images_available' => 0,
             'photoshoot_required'       => 1,
             'use_ai_content'            => 1,

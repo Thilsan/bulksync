@@ -204,8 +204,7 @@
                         <th class="px-3 py-2.5 font-medium">Brand / Category</th>
                         <th class="px-3 py-2.5 font-medium text-right">SKUs</th>
                         <th class="px-3 py-2.5 font-medium">Mapping</th>
-                        <th class="px-3 py-2.5 font-medium">Store Launch</th>
-                        <th class="px-3 py-2.5 font-medium">Online Launch</th>
+                        <th class="px-3 py-2.5 font-medium">Launch</th>
                         <th class="px-3 py-2.5 font-medium">Status</th>
                         <th class="px-3 py-2.5 font-medium">Priority</th>
                         <th class="px-5 py-2.5 font-medium">Waiting On</th>
@@ -232,9 +231,11 @@
                                 <span class="inline-flex items-center gap-1" title="Not mapped"><span class="w-2 h-2 rounded-full bg-red-500"></span>{{ $item->not_mapped_skus }}</span>
                             </div>
                         </td>
-                        <td class="px-3 py-3 text-gray-600 whitespace-nowrap">{{ $item->store_launch_date?->format('d M Y') ?? '—' }}</td>
                         <td class="px-3 py-3 whitespace-nowrap {{ $item->isOverdue() ? 'text-red-600 font-medium' : 'text-gray-600' }}">
                             {{ $item->online_launch_date?->format('d M Y') ?? '—' }}
+                            @if($item->online_launch_date)
+                                <p class="text-xs {{ $item->isOverdue() ? 'text-red-500' : 'text-gray-400' }}">{{ $item->online_launch_date->format('H:i') }}</p>
+                            @endif
                         </td>
                         <td class="px-3 py-3">
                             <span class="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium border {{ $item->statusColor() }} whitespace-nowrap">

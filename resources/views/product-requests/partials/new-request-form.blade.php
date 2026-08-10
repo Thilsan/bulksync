@@ -29,12 +29,14 @@
                   skuInput: 'type',
                   useAi: '{{ old('use_ai_content', '1') }}',
                   photoshoot: '{{ old('photoshoot_required', '1') }}',
-                  storeDate: '{{ old('store_launch_date') }}',
                   onlineDate: '{{ old('online_launch_date') }}',
+                  todayIso: '{{ now()->format('Y-m-d\TH:i') }}',
+                  // Per-person deadlines are dates, the launch is a moment — so
+                  // cap them on the launch day, not the timestamp.
+                  get launchDay() { return this.onlineDate ? this.onlineDate.slice(0, 10) : ''; },
                   storeId: '{{ old('store_id', $stores->firstWhere('is_active', true)?->id ?? $stores->first()?->id) }}',
                   mappingSites: {{ Illuminate\Support\Js::from($stores->where('requires_sku_mapping', true)->pluck('id')->map(fn ($id) => (string) $id)->values()) }},
                   get usesMapping() { return this.mappingSites.includes(String(this.storeId)) },
-                  get dateWarning() { return this.storeDate && this.onlineDate && this.onlineDate < this.storeDate }
               }">
             @csrf
 
@@ -154,22 +156,21 @@
                     </p>
                 </section>
 
-                {{-- 3. Availability --}}
+                {{-- 3. Launch --}}
                 <section>
-                    <h3 class="text-sm font-semibold text-gray-800 mb-3">3. Store &amp; Online Availability</h3>
-                    <div class="grid grid-cols-2 gap-4">
+                    <h3 class="text-sm font-semibold text-gray-800 mb-3">3. Launch</h3>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
-                            <label class="block text-xs font-medium text-gray-600 mb-1.5">Expected Store Launch Date <span class="text-red-500">*</span></label>
-                            <input type="date" name="store_launch_date" x-model="storeDate" required
+                            <label class="block text-xs font-medium text-gray-600 mb-1.5">
+                                Launch Date &amp; Time <span class="text-red-500">*</span>
+                            </label>
+                            <input type="datetime-local" name="online_launch_date" x-model="onlineDate" required
                                    class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent">
-                        </div>
-                        <div>
-                            <label class="block text-xs font-medium text-gray-600 mb-1.5">Expected Online Launch Date <span class="text-red-500">*</span></label>
-                            <input type="date" name="online_launch_date" x-model="onlineDate" required
-                                   class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent">
-                            <p x-show="!dateWarning" class="text-xs text-gray-400 mt-1">Online date should not be before store date.</p>
-                            <p x-show="dateWarning" x-cloak class="text-xs text-amber-600 mt-1">
-                                Online launch is before the store launch date — allowed, but please confirm this is intentional.
+                            <p class="text-xs text-gray-400 mt-1">
+                                When these products should be live on the website. Every team's deadline works back from here.
+                            </p>
+                            <p x-show="onlineDate && onlineDate < todayIso" x-cloak class="text-xs text-amber-600 mt-1">
+                                That is in the past — please confirm it is intentional.
                             </p>
                         </div>
                     </div>
@@ -347,14 +348,14 @@
                                     <div>
                                         <label class="block text-xs text-gray-500 mb-1">
                                             Finish by
-                                            <span class="text-gray-400" x-show="onlineDate">(launch <span x-text="onlineDate"></span>)</span>
+                                            <span class="text-gray-400" x-show="launchDay">(launch <span x-text="launchDay"></span>)</span>
                                         </label>
                                         <input type="date" x-model="row.due" :name="`assignments[${i}][due_date]`" :disabled="!row.role"
-                                               :max="onlineDate || null"
+                                               :max="launchDay || null"
                                                class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-500 disabled:bg-gray-100">
-                                        <p x-show="row.due && onlineDate && row.due > onlineDate" x-cloak
+                                        <p x-show="row.due && launchDay && row.due > launchDay" x-cloak
                                            class="text-xs text-amber-600 mt-1">
-                                            That is after the online launch date.
+                                            That is after the launch date.
                                         </p>
                                     </div>
                                 </div>
