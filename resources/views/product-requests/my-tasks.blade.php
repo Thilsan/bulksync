@@ -139,7 +139,10 @@
                             <td class="px-5 py-3">
                                 <a href="{{ route('product-requests.show', $item) }}"
                                    class="text-brand-600 hover:text-brand-700 font-medium">{{ $item->displayName() }}</a>
-                                <p class="text-xs text-gray-400">{{ $item->reference }} &middot; {{ $item->store?->name }}</p>
+                                <p class="text-xs text-gray-400">
+                                    {{ $item->reference }} &middot; requested by
+                                    <span class="text-gray-600 font-medium">{{ $item->user?->name ?? 'Unknown' }}</span>
+                                </p>
                             </td>
                             <td class="px-3 py-3 text-gray-700">{{ $item->brand }} / {{ $item->category }}</td>
                             <td class="px-3 py-3">

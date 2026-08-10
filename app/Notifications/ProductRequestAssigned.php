@@ -24,6 +24,7 @@ class ProductRequestAssigned extends Notification implements ShouldQueue
         public readonly string $roleLabel,
         public readonly string $statusLabel,
         public readonly string $actorName,
+        public readonly string $requesterName = 'Unknown',
     ) {
         $this->onQueue('bulkupload');
     }
@@ -35,8 +36,9 @@ class ProductRequestAssigned extends Notification implements ShouldQueue
             reference:   $request->reference,
             brand:       $request->brand,
             roleLabel:   $roleLabel,
-            statusLabel: $request->statusLabel(),
-            actorName:   $actorName,
+            statusLabel:   $request->statusLabel(),
+            actorName:     $actorName,
+            requesterName: $request->user?->name ?? 'Unknown',
         );
     }
 
@@ -54,6 +56,7 @@ class ProductRequestAssigned extends Notification implements ShouldQueue
             ->greeting("Hello {$notifiable->name},")
             ->line("**{$this->actorName}** assigned you to product creation request **{$this->reference}** ({$this->brand}) as **{$this->roleLabel}**.")
             ->line("Current stage: {$this->statusLabel}")
+            ->line("Raised by: {$this->requesterName}")
             ->action('Open request', route('product-requests.show', $this->requestId))
             ->line('You can see everything assigned to you under Assigned to Me.');
     }
@@ -68,6 +71,7 @@ class ProductRequestAssigned extends Notification implements ShouldQueue
             'role'         => $this->roleLabel,
             'status_label' => $this->statusLabel,
             'actor'        => $this->actorName,
+            'requester'    => $this->requesterName,
         ];
     }
 }

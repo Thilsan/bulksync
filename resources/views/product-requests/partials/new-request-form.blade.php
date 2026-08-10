@@ -28,6 +28,7 @@
               x-data="{
                   skuInput: 'type',
                   useAi: '{{ old('use_ai_content', '1') }}',
+                  photoshoot: '{{ old('photoshoot_required', '1') }}',
                   storeDate: '{{ old('store_launch_date') }}',
                   onlineDate: '{{ old('online_launch_date') }}',
                   storeId: '{{ old('store_id', $stores->firstWhere('is_active', true)?->id ?? $stores->first()?->id) }}',
@@ -195,11 +196,11 @@
                             <label class="block text-xs font-medium text-gray-600 mb-2">Photoshoot Required? <span class="text-red-500">*</span></label>
                             <div class="flex gap-5">
                                 <label class="flex items-center gap-2 cursor-pointer">
-                                    <input type="radio" name="photoshoot_required" value="1" {{ old('photoshoot_required', '1') === '1' ? 'checked' : '' }} required class="text-brand-600 focus:ring-brand-500">
+                                    <input type="radio" name="photoshoot_required" value="1" x-model="photoshoot" required class="text-brand-600 focus:ring-brand-500">
                                     <span class="text-sm text-gray-700">Yes</span>
                                 </label>
                                 <label class="flex items-center gap-2 cursor-pointer">
-                                    <input type="radio" name="photoshoot_required" value="0" {{ old('photoshoot_required') === '0' ? 'checked' : '' }} class="text-brand-600 focus:ring-brand-500">
+                                    <input type="radio" name="photoshoot_required" value="0" x-model="photoshoot" class="text-brand-600 focus:ring-brand-500">
                                     <span class="text-sm text-gray-700">No</span>
                                 </label>
                             </div>
@@ -246,9 +247,46 @@
                     </div>
                 </section>
 
-                {{-- 6. Additional --}}
+                {{-- 6. Team --}}
                 <section>
-                    <h3 class="text-sm font-semibold text-gray-800 mb-3">6. Additional Information</h3>
+                    <h3 class="text-sm font-semibold text-gray-800 mb-1">6. Team Assignments</h3>
+                    <p class="text-xs text-gray-400 mb-3">
+                        Optional. Anyone you pick is notified straight away that
+                        <span class="font-medium text-gray-600">{{ auth()->user()->name }}</span> has given them this work.
+                        Leave blank and their team can claim it later.
+                    </p>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-3">
+                        @foreach(\App\Models\ProductRequest::ASSIGNMENT_ROLES as $field => $roleLabel)
+                            {{-- Only offer roles this request will actually use: no
+                                 photographer without a shoot, no supply chain on a
+                                 website that has no mapping step. --}}
+                            @php
+                                $showWhen = match ($field) {
+                                    'photographer_id' => 'photoshoot === \'1\'',
+                                    'supply_chain_id' => 'usesMapping',
+                                    default           => 'true',
+                                };
+                            @endphp
+                            <div x-show="{{ $showWhen }}" x-cloak>
+                                <label class="block text-xs font-medium text-gray-600 mb-1.5">{{ $roleLabel }}</label>
+                                <select name="{{ $field }}"
+                                        class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent">
+                                    <option value="">Leave unassigned</option>
+                                    @foreach($teamPool as $member)
+                                        <option value="{{ $member->id }}" @selected(old($field) == $member->id)>
+                                            {{ $member->name }}@if($member->pcr_role) — {{ $member->pcrRoleLabel() }}@endif
+                                        </option>
+                                    @endforeach
+                                </select>
+                            </div>
+                        @endforeach
+                    </div>
+                </section>
+
+                {{-- 7. Additional --}}
+                <section>
+                    <h3 class="text-sm font-semibold text-gray-800 mb-3">7. Additional Information</h3>
 
                     <label class="block text-xs font-medium text-gray-600 mb-2">Priority <span class="text-red-500">*</span></label>
                     <div class="flex gap-5 mb-4">

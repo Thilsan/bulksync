@@ -126,11 +126,13 @@ class ProductRequestController extends Controller implements HasMiddleware
             ->limit(6)
             ->get();
 
-        // Websites the requester can raise a request against.
-        $stores = Store::selectableFor($user);
+        // Websites the requester can raise a request against, and the people they
+        // can hand the work to at submission time.
+        $stores   = Store::selectableFor($user);
+        $teamPool = User::where('is_active', true)->orderBy('name')->get(['id', 'name', 'pcr_role']);
 
         return view('product-requests.index', compact(
-            'stats', 'breakdown', 'recent', 'deadlines', 'topBrands', 'activity', 'stores'
+            'stats', 'breakdown', 'recent', 'deadlines', 'topBrands', 'activity', 'stores', 'teamPool'
         ));
     }
 
@@ -431,6 +433,12 @@ class ProductRequestController extends Controller implements HasMiddleware
             'photoshoot_required'       => 'required|boolean',
             'use_ai_content'            => 'required|boolean',
             'priority'                  => 'required|in:high,medium,low',
+            'assigned_to'               => 'nullable|exists:users,id',
+            'supply_chain_id'           => 'nullable|exists:users,id',
+            'photographer_id'           => 'nullable|exists:users,id',
+            'image_editor_id'           => 'nullable|exists:users,id',
+            'content_owner_id'          => 'nullable|exists:users,id',
+            'qa_owner_id'               => 'nullable|exists:users,id',
             'notes'                     => 'nullable|string|max:5000',
             'content_sheet'             => 'nullable|file|mimes:csv,txt,xlsx,xls|max:' . $maxKb,
         ]);
@@ -475,7 +483,10 @@ class ProductRequestController extends Controller implements HasMiddleware
             'notes'                     => $data['notes'] ?? null,
             'validation_status'         => 'pending',
             'total_skus'                => count($skus),
-        ]);
+            // Whoever the requester nominated for each role, straight from the form.
+        ] + collect(array_keys(ProductRequest::ASSIGNMENT_ROLES))
+              ->mapWithKeys(fn ($field) => [$field => $data[$field] ?? null])
+              ->all());
 
         $this->mapping->syncSkus($productRequest, $skus);
 
@@ -491,11 +502,16 @@ class ProductRequestController extends Controller implements HasMiddleware
             remarks:     count($skus) . ' SKUs submitted',
         );
 
+        // Tell the people the requester just handed work to, naming the requester
+        // so the assignee knows who is waiting on them.
+        $assigned = $this->notifyInitialAssignees($productRequest, $user);
+
         ValidateProductRequestSkusJob::dispatch($productRequest->id, $user->id)->onQueue('bulkupload');
 
         return redirect()
             ->route('product-requests.show', $productRequest)
-            ->with('success', "Request {$productRequest->reference} submitted. SKU validation is running.");
+            ->with('success', "Request {$productRequest->reference} submitted. SKU validation is running."
+                . ($assigned > 0 ? " {$assigned} team " . str('member')->plural($assigned) . ' notified.' : ''));
     }
 
     // ── Detail ───────────────────────────────────────────────────────────────
@@ -970,6 +986,48 @@ class ProductRequestController extends Controller implements HasMiddleware
         }
 
         return back()->with('success', "Handed over to {$newOwner->name}.");
+    }
+
+    /**
+     * Notify everyone the requester assigned at submission time.
+     *
+     * @return int  people notified
+     */
+    private function notifyInitialAssignees(ProductRequest $productRequest, User $requester): int
+    {
+        $count = 0;
+
+        foreach (ProductRequest::ASSIGNMENT_ROLES as $field => $roleLabel) {
+            $assigneeId = $productRequest->{$field};
+
+            if (!$assigneeId || (int) $assigneeId === $requester->id) {
+                continue;   // assigning yourself needs no announcement
+            }
+
+            $assignee = User::find($assigneeId);
+
+            if (!$assignee?->is_active) {
+                continue;
+            }
+
+            try {
+                $assignee->notify(ProductRequestAssigned::forRequest($productRequest, $roleLabel, $requester->name));
+                $count++;
+            } catch (\Throwable $e) {
+                report($e);   // a failed notification must not lose the request
+            }
+        }
+
+        if ($count > 0) {
+            $this->workflow->log(
+                request:     $productRequest,
+                action:      'assigned',
+                description: "{$count} team " . str('member')->plural($count) . ' assigned on submission',
+                actor:       $requester,
+            );
+        }
+
+        return $count;
     }
 
     /**

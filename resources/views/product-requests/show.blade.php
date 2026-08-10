@@ -1076,6 +1076,10 @@
             <div class="bg-white rounded-xl border border-gray-200 shadow-sm">
                 <div class="px-5 py-3.5 border-b border-gray-100">
                     <h2 class="text-sm font-semibold text-gray-800">Team Assignments</h2>
+                    <p class="text-xs text-gray-400 mt-0.5">
+                        Requested by <span class="text-gray-600 font-medium">{{ $request->user?->name ?? 'Unknown' }}</span>
+                        &middot; {{ $request->created_at->format('d M Y') }}
+                    </p>
                 </div>
                 <form method="POST" action="{{ route('product-requests.assign', $request) }}" class="px-5 py-4 space-y-3">
                     @csrf

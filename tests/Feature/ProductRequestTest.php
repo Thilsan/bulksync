@@ -1166,6 +1166,56 @@ class ProductRequestTest extends TestCase
         $this->assertNotSame('low', $hidden->fresh()->priority);
     }
 
+    public function test_the_requester_can_assign_the_team_when_raising_the_request(): void
+    {
+        Notification::fake();
+
+        $requester = $this->brandManager();
+        $store     = $this->mappingSite();
+        $requester->stores()->sync([$store->id]);
+
+        $shooter = User::create(['name' => 'Shooter One', 'email' => 's1@example.test', 'password' => 'password',
+            'is_active' => true, 'perm_product_request' => true, 'pcr_role' => 'photographer']);
+        $qa = User::create(['name' => 'QA One', 'email' => 'q1@example.test', 'password' => 'password',
+            'is_active' => true, 'perm_product_request' => true, 'pcr_role' => 'qa']);
+
+        $this->actingAs($requester)->post(route('product-requests.store'), [
+            'store_id'                  => $store->id,
+            'request_type'              => 'new_brand',
+            'brand'                     => 'Samsonite',
+            'category'                  => 'Luggage',
+            'skus'                      => 'TEAM-1',
+            'store_launch_date'         => now()->addDays(20)->toDateString(),
+            'online_launch_date'        => now()->addDays(18)->toDateString(),
+            'supplier_images_available' => 0,
+            'photoshoot_required'       => 1,
+            'use_ai_content'            => 1,
+            'priority'                  => 'high',
+            'photographer_id'           => $shooter->id,
+            'qa_owner_id'               => $qa->id,
+            'assigned_to'               => $requester->id,   // themselves
+        ])->assertRedirect();
+
+        $request = ProductRequest::first();
+
+        $this->assertSame($shooter->id, $request->photographer_id);
+        $this->assertSame($qa->id, $request->qa_owner_id);
+
+        // Each assignee is told, and the message names who raised it.
+        Notification::assertSentTo($shooter, ProductRequestAssigned::class,
+            fn ($n) => $n->roleLabel === 'Photographer' && $n->requesterName === $requester->name);
+        Notification::assertSentTo($qa, ProductRequestAssigned::class);
+
+        // Assigning yourself is not announced to yourself.
+        Notification::assertNotSentTo($requester, ProductRequestAssigned::class);
+
+        // The assignee can see who wants it, from their own task list.
+        $this->actingAs($shooter)->get(route('product-requests.my-tasks'))
+            ->assertOk()
+            ->assertSee('requested by')
+            ->assertSee($requester->name);
+    }
+
     public function test_the_dashboard_explains_the_process_to_newcomers(): void
     {
         $user = $this->brandManager();
