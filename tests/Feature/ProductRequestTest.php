@@ -69,8 +69,7 @@ class ProductRequestTest extends TestCase
             'category'                  => 'Luggage',
             'skus'                      => $skus,
             'online_launch_date'        => now()->addDays(18)->format('Y-m-d H:i'),
-            'supplier_images_available' => 0,
-            'photoshoot_required'       => 1,
+            'image_source'              => ProductRequest::IMG_PHOTOSHOOT,
             'use_ai_content'            => 1,
             'priority'                  => 'high',
         ]);
@@ -131,8 +130,7 @@ class ProductRequestTest extends TestCase
             'category'                  => 'Luggage',
             'skus'                      => 'Z-1',
             'online_launch_date'        => now()->addDays(18)->format('Y-m-d H:i'),
-            'supplier_images_available' => 0,
-            'photoshoot_required'       => 1,
+            'image_source'              => ProductRequest::IMG_PHOTOSHOOT,
             'use_ai_content'            => 1,
             'priority'                  => 'high',
         ])->assertSessionHasErrors('store_id');
@@ -151,14 +149,13 @@ class ProductRequestTest extends TestCase
             'category'                  => 'Luggage',
             'skus'                      => 'Z-1',
             'online_launch_date'        => now()->addDays(18)->format('Y-m-d H:i'),
-            'supplier_images_available' => 0,
-            'photoshoot_required'       => 1,
+            'image_source'              => ProductRequest::IMG_PHOTOSHOOT,
             'use_ai_content'            => 1,
             'priority'                  => 'high',
         ])->assertSessionHasErrors('store_id');
     }
 
-    public function test_both_image_questions_must_actually_be_answered(): void
+    public function test_the_image_source_must_be_chosen(): void
     {
         $user  = $this->brandManager();
         $store = $this->mappingSite();
@@ -175,24 +172,23 @@ class ProductRequestTest extends TestCase
             'priority'           => 'high',
         ];
 
-        // The form used to pre-tick both of these, so a request could be saved
-        // carrying answers nobody chose — and they contradicted each other.
-        $this->actingAs($user)->post(route('product-requests.store'),
-            $base + ['photoshoot_required' => 0])
-            ->assertSessionHasErrors('supplier_images_available');
+        // This replaced two booleans that could contradict each other, so there
+        // is no default and no way to submit an incoherent combination.
+        $this->actingAs($user)->post(route('product-requests.store'), $base)
+            ->assertSessionHasErrors('image_source');
 
         $this->actingAs($user)->post(route('product-requests.store'),
-            $base + ['supplier_images_available' => 0])
-            ->assertSessionHasErrors('photoshoot_required');
+            $base + ['image_source' => 'something_else'])
+            ->assertSessionHasErrors('image_source');
 
         $this->assertSame(0, ProductRequest::count());
 
-        // Answered properly, it saves exactly what was chosen.
+        // The old booleans are kept in step, so anything still reading them works.
         $this->actingAs($user)->post(route('product-requests.store'),
-            $base + ['supplier_images_available' => 1, 'photoshoot_required' => 0])
-            ->assertRedirect();
+            $base + ['image_source' => ProductRequest::IMG_SUPPLIER])->assertRedirect();
 
         $request = ProductRequest::first();
+        $this->assertSame(ProductRequest::IMG_SUPPLIER, $request->image_source);
         $this->assertTrue($request->supplier_images_available);
         $this->assertFalse($request->photoshoot_required);
     }
@@ -210,8 +206,7 @@ class ProductRequestTest extends TestCase
             'category'                  => 'Luggage',
             'skus'                      => '',
             'online_launch_date'        => now()->addDays(18)->format('Y-m-d H:i'),
-            'supplier_images_available' => 0,
-            'photoshoot_required'       => 1,
+            'image_source'              => ProductRequest::IMG_PHOTOSHOOT,
             'use_ai_content'            => 1,
             'priority'                  => 'high',
         ])->assertSessionHasErrors('skus');
@@ -669,8 +664,7 @@ class ProductRequestTest extends TestCase
             'category'                  => 'Luggage',
             'skus'                      => 'CS-1',
             'online_launch_date'        => now()->addDays(18)->format('Y-m-d H:i'),
-            'supplier_images_available' => 0,
-            'photoshoot_required'       => 1,
+            'image_source'              => ProductRequest::IMG_PHOTOSHOOT,
             'use_ai_content'            => 0,
             'priority'                  => 'high',
             'content_sheet'             => UploadedFile::fake()->create('copy.csv', 12, 'text/csv'),
@@ -712,8 +706,7 @@ class ProductRequestTest extends TestCase
             'category'                  => 'Luggage',
             'skus'                      => 'BIG-1',
             'online_launch_date'        => now()->addDays(18)->format('Y-m-d H:i'),
-            'supplier_images_available' => 0,
-            'photoshoot_required'       => 1,
+            'image_source'              => ProductRequest::IMG_PHOTOSHOOT,
             'use_ai_content'            => 0,
             'priority'                  => 'high',
             'content_sheet'             => $tooBig,
@@ -739,8 +732,7 @@ class ProductRequestTest extends TestCase
             'category'                  => 'Luggage',
             'skus'                      => 'CS-2',
             'online_launch_date'        => now()->addDays(18)->format('Y-m-d H:i'),
-            'supplier_images_available' => 0,
-            'photoshoot_required'       => 1,
+            'image_source'              => ProductRequest::IMG_PHOTOSHOOT,
             'use_ai_content'            => 0,
             'priority'                  => 'high',
         ])->assertRedirect();
@@ -1143,7 +1135,7 @@ class ProductRequestTest extends TestCase
         $user    = $this->brandManager();
         $request = $this->submitFor($user, $this->plainSite(), 'NOEDIT-1');
 
-        $request->update(['photoshoot_required' => false, 'supplier_images_available' => true]);
+        $request->update(['image_source' => ProductRequest::IMG_SUPPLIER, 'photoshoot_required' => false, 'supplier_images_available' => true]);
         $request->refresh();
 
         $stages = $request->displayStages();
@@ -1166,23 +1158,39 @@ class ProductRequestTest extends TestCase
             ->assertDontSee('Image Editing');
     }
 
-    public function test_images_are_still_awaited_when_nobody_has_them_yet(): void
+    public function test_brand_website_images_are_collected_then_edited(): void
     {
         Notification::fake();
 
         $user    = $this->brandManager();
-        $request = $this->submitFor($user, $this->plainSite(), 'NOIMG-1');
+        $request = $this->submitFor($user, $this->plainSite(), 'WEB-1');
 
-        // No shoot booked, but the supplier has not sent anything either — the
-        // request still has to wait for images from somewhere.
-        $request->update(['photoshoot_required' => false, 'supplier_images_available' => false]);
+        $request->update([
+            'image_source'              => ProductRequest::IMG_BRAND_WEBSITE,
+            'photoshoot_required'       => false,
+            'supplier_images_available' => false,
+        ]);
         $request->refresh();
 
         $stages = $request->displayStages();
 
+        // Someone has to fetch them, and they need editing for our storefront —
+        // but there is no studio shoot.
         $this->assertContains(ProductRequest::WAITING_IMAGES, $stages);
-        $this->assertNotContains(ProductRequest::IMAGE_EDITING, $stages);
-        $this->assertSame(ProductRequest::WAITING_IMAGES, $request->suggestedNextStatus());
+        $this->assertContains(ProductRequest::IMAGE_EDITING, $stages);
+        $this->assertNotContains(ProductRequest::PHOTOSHOOT_SCHEDULED, $stages);
+        $this->assertNotContains(ProductRequest::PHOTOSHOOT_COMPLETED, $stages);
+
+        // The gathering stage says where to get them from.
+        $this->assertStringContainsString(
+            'brand website',
+            $request->guideFor(ProductRequest::WAITING_IMAGES)['what']
+        );
+
+        // Photo Editor is offered; Photographer is not.
+        $roles = $request->visibleAssignmentRoles();
+        $this->assertArrayHasKey('image_editor_id', $roles);
+        $this->assertArrayNotHasKey('photographer_id', $roles);
     }
 
     public function test_a_photoshoot_request_keeps_the_full_pipeline(): void
@@ -1209,7 +1217,7 @@ class ProductRequestTest extends TestCase
         $user    = $this->brandManager();
         $request = $this->submitFor($user, $this->plainSite(), 'NOSHOOT-1');
 
-        $request->update(['photoshoot_required' => false, 'supplier_images_available' => true]);
+        $request->update(['image_source' => ProductRequest::IMG_SUPPLIER, 'photoshoot_required' => false, 'supplier_images_available' => true]);
         $request->refresh();
 
         $roles = $request->visibleAssignmentRoles();
@@ -1236,7 +1244,7 @@ class ProductRequestTest extends TestCase
         $request = $this->submitFor($user, $this->plainSite(), 'REAPPEAR-1');
 
         // Someone already holds the role — hiding it would strand the assignment.
-        $request->update(['photoshoot_required' => false, 'image_editor_id' => $editor->id]);
+        $request->update(['image_source' => ProductRequest::IMG_SUPPLIER, 'photoshoot_required' => false, 'image_editor_id' => $editor->id]);
         $this->assertArrayHasKey('image_editor_id', $request->refresh()->visibleAssignmentRoles());
 
         // And it must be offered when it owns the stage the request is sitting at.
@@ -1298,8 +1306,7 @@ class ProductRequestTest extends TestCase
             'category'                  => 'Luggage',
             'skus'                      => 'TIME-1',
             'online_launch_date'        => $launch->format('Y-m-d H:i'),
-            'supplier_images_available' => 0,
-            'photoshoot_required'       => 1,
+            'image_source'              => ProductRequest::IMG_PHOTOSHOOT,
             'use_ai_content'            => 1,
             'priority'                  => 'high',
         ])->assertRedirect();
@@ -1352,8 +1359,7 @@ class ProductRequestTest extends TestCase
             'category'                  => 'Footwear',
             'skus'                      => 'NB-1',
             'online_launch_date'        => now()->addDays(18)->format('Y-m-d H:i'),
-            'supplier_images_available' => 0,
-            'photoshoot_required'       => 1,
+            'image_source'              => ProductRequest::IMG_PHOTOSHOOT,
             'use_ai_content'            => 1,
             'priority'                  => 'high',
         ])->assertRedirect();
@@ -1564,8 +1570,7 @@ class ProductRequestTest extends TestCase
             'category'                  => 'Luggage',
             'skus'                      => 'TEAM-1',
             'online_launch_date'        => now()->addDays(18)->format('Y-m-d H:i'),
-            'supplier_images_available' => 0,
-            'photoshoot_required'       => 1,
+            'image_source'              => ProductRequest::IMG_PHOTOSHOOT,
             'use_ai_content'            => 1,
             'priority'                  => 'high',
             'assignments'               => [
@@ -1627,8 +1632,7 @@ class ProductRequestTest extends TestCase
             'category'                  => 'Luggage',
             'skus'                      => 'TASK-1',
             'online_launch_date'        => now()->addDays(18)->format('Y-m-d H:i'),
-            'supplier_images_available' => 0,
-            'photoshoot_required'       => 1,
+            'image_source'              => ProductRequest::IMG_PHOTOSHOOT,
             'use_ai_content'            => 1,
             'priority'                  => 'high',
             'assignments'               => [
@@ -1674,8 +1678,7 @@ class ProductRequestTest extends TestCase
             'category'                  => 'Luggage',
             'skus'                      => 'DUP-1',
             'online_launch_date'        => now()->addDays(18)->format('Y-m-d H:i'),
-            'supplier_images_available' => 0,
-            'photoshoot_required'       => 1,
+            'image_source'              => ProductRequest::IMG_PHOTOSHOOT,
             'use_ai_content'            => 1,
             'priority'                  => 'high',
             'assignments'               => [
@@ -1785,7 +1788,7 @@ class ProductRequestTest extends TestCase
         $this->assertStringContainsString('Photographer', $html);
 
         // Tells them what the stage actually needs.
-        $this->assertStringContainsString('Gather the product images', $html);
+        $this->assertStringContainsString('samples into the studio', $html);
 
         // Branding: logo, wordmark and a working link back into the system.
         $this->assertStringContainsString('aih_logo-1.png', $html);

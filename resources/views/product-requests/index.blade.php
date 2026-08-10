@@ -139,7 +139,7 @@
                         <th class="px-3 py-2.5 font-medium">Brand / Category</th>
                         <th class="px-3 py-2.5 font-medium text-right">SKUs</th>
                         <th class="px-3 py-2.5 font-medium">Launch</th>
-                        <th class="px-3 py-2.5 font-medium">Photoshoot</th>
+                        <th class="px-3 py-2.5 font-medium">Images</th>
                         <th class="px-3 py-2.5 font-medium">Status</th>
                         <th class="px-3 py-2.5 font-medium">Priority</th>
                         <th class="px-5 py-2.5 font-medium">Requested By</th>
@@ -158,7 +158,7 @@
                         <td class="px-3 py-3 whitespace-nowrap {{ $item->isOverdue() ? 'text-red-600 font-medium' : 'text-gray-600' }}">
                             {{ $item->launchLabel('d M Y, H:i') ?? '—' }}
                         </td>
-                        <td class="px-3 py-3 text-gray-600">{{ $item->photoshoot_required ? 'Yes' : 'No' }}</td>
+                        <td class="px-3 py-3 text-gray-600 text-xs">{{ $item->imageSourceLabel() }}</td>
                         <td class="px-3 py-3">
                             <span class="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium border {{ $item->statusColor() }} whitespace-nowrap">
                                 {{ $item->statusLabel() }}

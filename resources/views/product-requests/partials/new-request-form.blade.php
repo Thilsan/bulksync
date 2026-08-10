@@ -28,8 +28,9 @@
               x-data="{
                   skuInput: 'type',
                   useAi: '{{ old('use_ai_content', '1') }}',
-                  photoshoot: '{{ old('photoshoot_required', '') }}',
-                  supplierImages: '{{ old('supplier_images_available', '') }}',
+                  imageSource: '{{ old('image_source', '') }}',
+                  get needsPhotoshoot() { return this.imageSource === '{{ \App\Models\ProductRequest::IMG_PHOTOSHOOT }}'; },
+                  get needsEditing() { return this.imageSource !== '' && this.imageSource !== '{{ \App\Models\ProductRequest::IMG_SUPPLIER }}'; },
                   onlineDate: '{{ old('online_launch_date') }}',
                   todayIso: '{{ now()->format('Y-m-d\TH:i') }}',
                   // Per-person deadlines are dates, the launch is a moment — so
@@ -179,55 +180,26 @@
 
                 {{-- 4. Images --}}
                 <section>
-                    <h3 class="text-sm font-semibold text-gray-800 mb-3">4. Images &amp; Photoshoot</h3>
-                    <div class="grid grid-cols-2 gap-4">
-                        <div>
-                            <label class="block text-xs font-medium text-gray-600 mb-2">Supplier Images Available? <span class="text-red-500">*</span></label>
-                            <div class="space-y-1.5">
-                                <label class="flex items-center gap-2 cursor-pointer">
-                                    <input type="radio" name="supplier_images_available" value="1" x-model="supplierImages" required class="text-brand-600 focus:ring-brand-500">
-                                    <span class="text-sm text-gray-700">Yes — the supplier has sent images</span>
-                                </label>
-                                <label class="flex items-center gap-2 cursor-pointer">
-                                    <input type="radio" name="supplier_images_available" value="0" x-model="supplierImages" class="text-brand-600 focus:ring-brand-500">
-                                    <span class="text-sm text-gray-700">No — not available</span>
-                                </label>
-                            </div>
-                        </div>
-                        <div>
-                            <label class="block text-xs font-medium text-gray-600 mb-2">Photoshoot Required? <span class="text-red-500">*</span></label>
-                            <div class="flex gap-5">
-                                <label class="flex items-center gap-2 cursor-pointer">
-                                    <input type="radio" name="photoshoot_required" value="1" x-model="photoshoot" required class="text-brand-600 focus:ring-brand-500">
-                                    <span class="text-sm text-gray-700">Yes</span>
-                                </label>
-                                <label class="flex items-center gap-2 cursor-pointer">
-                                    <input type="radio" name="photoshoot_required" value="0" x-model="photoshoot" class="text-brand-600 focus:ring-brand-500">
-                                    <span class="text-sm text-gray-700">No</span>
-                                </label>
-                            </div>
+                    <h3 class="text-sm font-semibold text-gray-800 mb-3">4. Product Images</h3>
 
-                            {{-- These two answers decide the whole middle of the workflow,
-                                 so say what each combination means before it is submitted. --}}
-                            <p x-show="supplierImages === '1' && photoshoot === '0'" x-cloak
-                               class="text-xs text-gray-500 mt-2">
-                                Supplier images will be used as they are — no photoshoot or editing stage.
-                            </p>
-                            <p x-show="supplierImages === '0' && photoshoot === '1'" x-cloak
-                               class="text-xs text-gray-500 mt-2">
-                                The products will be shot in the studio, then edited.
-                            </p>
-                            <p x-show="supplierImages === '1' && photoshoot === '1'" x-cloak
-                               class="text-xs text-gray-500 mt-2">
-                                Supplier images plus a photoshoot — the shoot and editing stages both apply.
-                            </p>
-                            <p x-show="supplierImages === '0' && photoshoot === '0'" x-cloak
-                               class="text-xs text-amber-600 mt-2">
-                                No images from the supplier and no photoshoot — the request will wait at
-                                <span class="font-medium">Waiting for Images</span> until someone provides them.
-                                If a shoot is needed, answer Yes above.
-                            </p>
-                        </div>
+                    <label class="block text-xs font-medium text-gray-600 mb-2">
+                        Where are the images coming from? <span class="text-red-500">*</span>
+                    </label>
+
+                    {{-- One answer, three real options. This used to be two yes/no
+                         questions that could contradict each other. --}}
+                    <div class="space-y-2">
+                        @foreach(\App\Models\ProductRequest::IMAGE_SOURCES as $value => $meta)
+                            <label class="flex items-start gap-2.5 cursor-pointer rounded-lg border px-3 py-2.5 transition-colors"
+                                   :class="imageSource === '{{ $value }}' ? 'border-brand-300 bg-brand-50/50' : 'border-gray-200 hover:bg-gray-50'">
+                                <input type="radio" name="image_source" value="{{ $value }}" x-model="imageSource" required
+                                       class="mt-0.5 text-brand-600 focus:ring-brand-500">
+                                <span>
+                                    <span class="text-sm text-gray-800">{{ $meta['label'] }}</span>
+                                    <span class="block text-xs text-gray-500 mt-0.5">{{ $meta['hint'] }}</span>
+                                </span>
+                            </label>
+                        @endforeach
                     </div>
                 </section>
 
@@ -290,9 +262,11 @@
                         // Only roles this request will actually use.
                         // Same rule as the request page: no shoot means no
                         // photographer and nothing to edit either.
+                        // Same rule as the request page, from the one image answer.
                         get activeRoles() {
                             return this.allRoles.filter(r =>
-                                (!['photographer_id', 'image_editor_id'].includes(r.key) || photoshoot === '1') &&
+                                (r.key !== 'photographer_id' || needsPhotoshoot) &&
+                                (r.key !== 'image_editor_id' || needsEditing) &&
                                 (r.key !== 'supply_chain_id' || usesMapping)
                             );
                         },
@@ -314,7 +288,7 @@
                             this.rows.forEach(r => { if (r.role && !ok.includes(r.role)) { r.role = ''; r.user = ''; r.due = ''; } });
                         },
                      }"
-                     x-effect="photoshoot; usesMapping; prune()"
+                     x-effect="imageSource; usesMapping; prune()"
                      x-init="$watch('rows', () => openNext(), { deep: true })">
 
                     <h3 class="text-sm font-semibold text-gray-800 mb-1">6. Team Assignments</h3>

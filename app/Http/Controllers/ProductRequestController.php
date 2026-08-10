@@ -407,8 +407,7 @@ class ProductRequestController extends Controller implements HasMiddleware
             'skus'                      => 'nullable|string',
             'sku_csv'                   => 'nullable|file|mimes:csv,txt|max:20480',
             'online_launch_date'        => 'required|date',
-            'supplier_images_available' => 'required|boolean',
-            'photoshoot_required'       => 'required|boolean',
+            'image_source'              => 'required|in:' . implode(',', array_keys(ProductRequest::IMAGE_SOURCES)),
             'use_ai_content'            => 'required|boolean',
             'priority'                  => 'required|in:high,medium,low',
             'assignments'               => 'nullable|array|max:' . count(ProductRequest::ASSIGNMENT_ROLES),
@@ -476,8 +475,11 @@ class ProductRequestController extends Controller implements HasMiddleware
             'status'                    => ProductRequest::SUBMITTED,
             'priority'                  => $data['priority'],
             'online_launch_date'        => $data['online_launch_date'],
-            'supplier_images_available' => (bool) $data['supplier_images_available'],
-            'photoshoot_required'       => (bool) $data['photoshoot_required'],
+            'image_source'              => $data['image_source'],
+            // Kept in step with image_source so historic rows and any code still
+            // reading these booleans stay correct.
+            'supplier_images_available' => $data['image_source'] === ProductRequest::IMG_SUPPLIER,
+            'photoshoot_required'       => $data['image_source'] === ProductRequest::IMG_PHOTOSHOOT,
             'use_ai_content'            => (bool) $data['use_ai_content'],
             'notes'                     => $data['notes'] ?? null,
             'validation_status'         => 'pending',
@@ -576,15 +578,17 @@ class ProductRequestController extends Controller implements HasMiddleware
             'department'                => 'nullable|string|max:255',
             'collection'                => 'nullable|string|max:255',
             'online_launch_date'        => 'required|date',
-            'supplier_images_available' => 'required|boolean',
-            'photoshoot_required'       => 'required|boolean',
+            'image_source'              => 'required|in:' . implode(',', array_keys(ProductRequest::IMAGE_SOURCES)),
             'photoshoot_scheduled_at'   => 'nullable|date',
             'use_ai_content'            => 'required|boolean',
             'priority'                  => 'required|in:high,medium,low',
             'notes'                     => 'nullable|string|max:5000',
         ]);
 
-        $productRequest->update($data);
+        $productRequest->update($data + [
+            'supplier_images_available' => $data['image_source'] === ProductRequest::IMG_SUPPLIER,
+            'photoshoot_required'       => $data['image_source'] === ProductRequest::IMG_PHOTOSHOOT,
+        ]);
 
         $this->workflow->log(
             request:     $productRequest,

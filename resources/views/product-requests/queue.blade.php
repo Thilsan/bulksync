@@ -114,9 +114,7 @@
                                         <span class="text-amber-600 font-medium">Shoot not scheduled</span>
                                     @endif
                                 </p>
-                                @if($item->supplier_images_available)
-                                    <p class="text-xs text-gray-400">Supplier images provided</p>
-                                @endif
+                                <p class="text-xs text-gray-400">{{ $item->imageSourceLabel() }}</p>
                             @endif
 
                             <div class="flex items-center justify-between gap-2 mt-2 pt-2 border-t border-gray-50">

@@ -188,6 +188,58 @@ class ProductRequest extends Model
         'qa_owner_id'      => 'qaOwner',
     ];
 
+    // ── Where the product images come from ───────────────────────────────────
+    public const IMG_SUPPLIER      = 'supplier';
+    public const IMG_PHOTOSHOOT    = 'photoshoot';
+    public const IMG_BRAND_WEBSITE = 'brand_website';
+
+    /**
+     * One answer that decides the whole middle of the workflow.
+     *
+     * Each source implies a different set of stages, which is why this replaced
+     * two booleans that could disagree with each other.
+     */
+    public const IMAGE_SOURCES = [
+        self::IMG_SUPPLIER => [
+            'label'  => 'Supplier has sent the images',
+            'hint'   => 'Used as they are — no photoshoot and no editing stage.',
+        ],
+        self::IMG_PHOTOSHOOT => [
+            'label'  => 'We are photographing the products',
+            'hint'   => 'Waits for samples, then the photoshoot and editing stages apply.',
+        ],
+        self::IMG_BRAND_WEBSITE => [
+            'label'  => 'Take the images from the brand website',
+            'hint'   => 'Someone collects them from the brand site, then they are edited for our site.',
+        ],
+    ];
+
+    public function imageSourceLabel(): string
+    {
+        return self::IMAGE_SOURCES[$this->image_source]['label'] ?? 'Not specified';
+    }
+
+    /** Only a studio shoot brings the photoshoot stages into play. */
+    public function needsPhotoshoot(): bool
+    {
+        return $this->image_source === self::IMG_PHOTOSHOOT;
+    }
+
+    /**
+     * Supplier images arrive ready to use. Anything we shoot or pull off the
+     * brand's site has to be edited for our own storefront.
+     */
+    public function needsImageEditing(): bool
+    {
+        return $this->image_source !== self::IMG_SUPPLIER;
+    }
+
+    /** Supplier images are already in hand; everything else has to be gathered. */
+    public function needsImagesGathered(): bool
+    {
+        return $this->image_source !== self::IMG_SUPPLIER;
+    }
+
     /**
      * The standing job description for each role.
      *
@@ -226,10 +278,10 @@ class ProductRequest extends Model
                 }
 
                 return match ($field) {
-                    // No shoot means no photographs, so nothing to shoot or edit.
-                    'photographer_id', 'image_editor_id' => (bool) $this->photoshoot_required,
-                    'supply_chain_id'                    => $this->requiresMapping(),
-                    default                              => true,
+                    'photographer_id' => $this->needsPhotoshoot(),
+                    'image_editor_id' => $this->needsImageEditing(),
+                    'supply_chain_id' => $this->requiresMapping(),
+                    default           => true,
                 };
             })
             ->all();
@@ -281,6 +333,7 @@ class ProductRequest extends Model
         'store_launch_date',
         'online_launch_date',
         'supplier_images_available',
+        'image_source',
         'photoshoot_required',
         'photoshoot_scheduled_at',
         'use_ai_content',
@@ -510,6 +563,15 @@ class ProductRequest extends Model
 
         // Waiting for mapping is the one stage that can be blocked on someone
         // outside the request's own assignment list.
+        // Gathering images means something different per source.
+        if ($stage === self::WAITING_IMAGES) {
+            $guide['what'] = match ($this->image_source) {
+                self::IMG_PHOTOSHOOT    => 'Get the samples into the studio, then book the shoot and set the date when you move the request on.',
+                self::IMG_BRAND_WEBSITE => 'Collect the product images from the brand website, then hand them over for editing.',
+                default                 => 'Chase the supplier for the product images, then hand them over for editing.',
+            };
+        }
+
         if ($stage === self::WAITING_MAPPING && $this->total_skus > 0) {
             $outstanding = $this->pending_skus + $this->not_mapped_skus;
             $guide['what'] = "{$outstanding} of {$this->total_skus} SKUs still need mapping. " . $guide['what'];
@@ -751,14 +813,14 @@ class ProductRequest extends Model
         return match ($stage) {
             self::WAITING_MAPPING => $this->requiresMapping(),
 
-            // Still needed when nobody has the images yet, even without a shoot.
-            self::WAITING_IMAGES => $this->photoshoot_required || !$this->supplier_images_available,
+            // Supplier images are already in hand; anything else must be gathered.
+            self::WAITING_IMAGES => $this->needsImagesGathered(),
 
-            self::PHOTOSHOOT_SCHEDULED, self::PHOTOSHOOT_COMPLETED => (bool) $this->photoshoot_required,
+            self::PHOTOSHOOT_SCHEDULED, self::PHOTOSHOOT_COMPLETED => $this->needsPhotoshoot(),
 
-            // No shoot means no raw images of ours to edit — supplier images
-            // arrive ready to use, so the editing step does not apply either.
-            self::IMAGE_EDITING => (bool) $this->photoshoot_required,
+            // Supplier images are used as they are. Ours, or the brand's, need
+            // editing for our own storefront.
+            self::IMAGE_EDITING => $this->needsImageEditing(),
 
             // Retired: publishing is the end, so there is no upload hand-off and
             // no separate completion. Only shown if a request is still sitting

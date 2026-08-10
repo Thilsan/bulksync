@@ -681,30 +681,22 @@
                             </div>
 
                             <div>
-                                <label class="block text-xs font-medium text-gray-500 mb-1">Supplier Images Available?</label>
+                                <label class="block text-xs font-medium text-gray-500 mb-1">Product Images</label>
                                 <template x-if="!editing">
-                                    <p class="text-sm text-gray-800 py-2">{{ $request->supplier_images_available ? 'Yes — supplier has sent images' : 'No — not available' }}</p>
+                                    <p class="text-sm text-gray-800 py-2">{{ $request->imageSourceLabel() }}</p>
                                 </template>
-                                <select x-show="editing" x-cloak name="supplier_images_available"
+                                <select x-show="editing" x-cloak name="image_source"
                                         class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
-                                    <option value="1" @selected($request->supplier_images_available)>Yes — supplier has sent images</option>
-                                    <option value="0" @selected(!$request->supplier_images_available)>No — not available</option>
+                                    @foreach(\App\Models\ProductRequest::IMAGE_SOURCES as $value => $meta)
+                                        <option value="{{ $value }}" @selected($request->image_source === $value)>{{ $meta['label'] }}</option>
+                                    @endforeach
                                 </select>
+                                <p class="text-xs text-gray-400 mt-1">
+                                    Changing this changes which stages apply.
+                                </p>
                             </div>
 
-                            <div>
-                                <label class="block text-xs font-medium text-gray-500 mb-1">Photoshoot Required?</label>
-                                <template x-if="!editing">
-                                    <p class="text-sm text-gray-800 py-2">{{ $request->photoshoot_required ? 'Yes' : 'No' }}</p>
-                                </template>
-                                <select x-show="editing" x-cloak name="photoshoot_required"
-                                        class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
-                                    <option value="1" @selected($request->photoshoot_required)>Yes</option>
-                                    <option value="0" @selected(!$request->photoshoot_required)>No</option>
-                                </select>
-                            </div>
-
-                            <div @class(['hidden' => !$request->photoshoot_required && !$request->photoshoot_scheduled_at])>
+                            <div @class(['hidden' => !$request->needsPhotoshoot() && !$request->photoshoot_scheduled_at])>
                                 <label class="block text-xs font-medium text-gray-500 mb-1">Photoshoot Scheduled On</label>
                                 <template x-if="!editing">
                                     <p class="text-sm text-gray-800 py-2">{{ $request->photoshoot_scheduled_at?->format('d M Y') ?? '—' }}</p>
@@ -1194,7 +1186,7 @@
                             @endforeach
                         </select>
                     </div>
-                    <div @class(['hidden' => !$request->photoshoot_required])>
+                    <div @class(['hidden' => !$request->needsPhotoshoot()])>
                         <label class="block text-xs font-medium text-gray-600 mb-1.5">Photoshoot Date <span class="text-gray-400 font-normal">(if scheduling)</span></label>
                         <input type="date" name="photoshoot_scheduled_at"
                                value="{{ $request->photoshoot_scheduled_at?->format('Y-m-d') }}"
