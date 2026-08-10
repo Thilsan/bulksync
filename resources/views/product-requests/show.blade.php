@@ -159,6 +159,24 @@
                     </div>
                 @endif
 
+                @if($request->awaitingImageLocation())
+                    <div class="mt-4 bg-amber-50 border border-amber-200 text-amber-900 rounded-lg px-4 py-2.5 text-sm">
+                        <span class="font-medium">Where are the supplier images?</span>
+                        Nobody has recorded a folder link or said they are in the PIM, so the next team has nothing to work from.
+                        <button type="button" @click="editing = true" class="underline font-medium">Add it now</button>
+                    </div>
+                @elseif($request->needsImageLocation() && $request->images_url)
+                    <div class="mt-4 bg-gray-50 border border-gray-200 rounded-lg px-4 py-2.5 text-sm">
+                        <span class="font-medium text-gray-700">Supplier images:</span>
+                        <a href="{{ $request->images_url }}" target="_blank" rel="noopener"
+                           class="text-brand-600 hover:text-brand-700 underline break-all">{{ $request->images_url }}</a>
+                    </div>
+                @elseif($request->imagesInPim())
+                    <div class="mt-4 bg-gray-50 border border-gray-200 rounded-lg px-4 py-2.5 text-sm text-gray-700">
+                        <span class="font-medium">Supplier images:</span> already in the PIM.
+                    </div>
+                @endif
+
                 @if($request->awaitingContentSheet())
                     <div class="mt-4 bg-amber-50 border border-amber-200 text-amber-900 rounded-lg px-4 py-2.5 text-sm">
                         <span class="font-medium">Awaiting content sheet.</span>
@@ -694,6 +712,36 @@
                                 <p class="text-xs text-gray-400 mt-1">
                                     Changing this changes which stages apply.
                                 </p>
+                            </div>
+
+                            {{-- Where the supplier images actually are. --}}
+                            <div @class(['hidden' => !$request->needsImageLocation()])>
+                                <label class="block text-xs font-medium text-gray-500 mb-1">Images Location</label>
+                                <template x-if="!editing">
+                                    <p class="text-sm text-gray-800 py-2 break-all">
+                                        @if($request->imagesInPim())
+                                            Already in the PIM
+                                        @elseif($request->images_url)
+                                            <a href="{{ $request->images_url }}" target="_blank" rel="noopener"
+                                               class="text-brand-600 hover:text-brand-700 underline">{{ $request->images_url }}</a>
+                                        @else
+                                            <span class="text-amber-600">Not recorded yet</span>
+                                        @endif
+                                    </p>
+                                </template>
+                                <div x-show="editing" x-cloak class="space-y-2">
+                                    <select name="images_location"
+                                            class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
+                                        <option value="">Not recorded</option>
+                                        @foreach(\App\Models\ProductRequest::IMAGE_LOCATIONS as $value => $label)
+                                            <option value="{{ $value }}" @selected($request->images_location === $value)>{{ $label }}</option>
+                                        @endforeach
+                                    </select>
+                                    <input type="url" name="images_url" maxlength="2048"
+                                           value="{{ old('images_url', $request->images_url) }}"
+                                           placeholder="https://… link to the folder"
+                                           class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
+                                </div>
                             </div>
 
                             <div @class(['hidden' => !$request->needsPhotoshoot() && !$request->photoshoot_scheduled_at])>

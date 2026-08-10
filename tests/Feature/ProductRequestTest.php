@@ -176,6 +176,139 @@ class ProductRequestTest extends TestCase
         ])->assertSessionHasErrors('store_id');
     }
 
+    public function test_supplier_images_must_say_where_they_are(): void
+    {
+        $user  = $this->brandManager();
+        $store = $this->mappingSite();
+        $user->stores()->sync([$store->id]);
+
+        $base = [
+            'store_id'           => $store->id,
+            'request_type'       => 'new_brand',
+            'brand'              => 'Samsonite',
+            'category'           => 'Luggage',
+            'skus'               => 'LOC-1',
+            'online_launch_date' => now()->addDays(18)->format('Y-m-d H:i'),
+            'use_ai_content'     => 1,
+            'priority'           => 'high',
+        ];
+
+        // "The supplier sent them" is useless without saying where.
+        $this->actingAs($user)->post(route('product-requests.store'),
+            $base + ['image_source' => ProductRequest::IMG_SUPPLIER])
+            ->assertSessionHasErrors('images_location');
+
+        // Choosing a link means there has to be one, and it has to be a URL.
+        $this->actingAs($user)->post(route('product-requests.store'),
+            $base + ['image_source' => ProductRequest::IMG_SUPPLIER, 'images_location' => ProductRequest::IMAGES_AT_URL])
+            ->assertSessionHasErrors('images_url');
+
+        $this->actingAs($user)->post(route('product-requests.store'),
+            $base + ['image_source' => ProductRequest::IMG_SUPPLIER,
+                     'images_location' => ProductRequest::IMAGES_AT_URL, 'images_url' => 'not-a-url'])
+            ->assertSessionHasErrors('images_url');
+
+        $this->assertSame(0, ProductRequest::count());
+
+        // A link is recorded and shown to whoever needs the files.
+        $this->actingAs($user)->post(route('product-requests.store'),
+            $base + ['image_source' => ProductRequest::IMG_SUPPLIER,
+                     'images_location' => ProductRequest::IMAGES_AT_URL,
+                     'images_url' => 'https://onedrive.example.com/folder/abc'])
+            ->assertRedirect();
+
+        $request = ProductRequest::first();
+
+        $this->assertSame('https://onedrive.example.com/folder/abc', $request->images_url);
+        $this->assertFalse($request->awaitingImageLocation());
+
+        $this->actingAs($user)->get(route('product-requests.show', $request))
+            ->assertOk()
+            ->assertSee('https://onedrive.example.com/folder/abc');
+    }
+
+    public function test_pim_needs_no_link_and_a_photoshoot_needs_no_location(): void
+    {
+        Notification::fake();
+
+        $user  = $this->brandManager();
+        $store = $this->mappingSite();
+        $user->stores()->sync([$store->id]);
+
+        $base = [
+            'store_id'           => $store->id,
+            'request_type'       => 'new_brand',
+            'brand'              => 'Samsonite',
+            'category'           => 'Luggage',
+            'skus'               => 'LOC-2',
+            'online_launch_date' => now()->addDays(18)->format('Y-m-d H:i'),
+            'use_ai_content'     => 1,
+            'priority'           => 'high',
+        ];
+
+        // PIM: no link required.
+        $this->actingAs($user)->post(route('product-requests.store'),
+            $base + ['image_source' => ProductRequest::IMG_SUPPLIER, 'images_location' => ProductRequest::IMAGES_AT_PIM])
+            ->assertRedirect();
+
+        $pim = ProductRequest::first();
+        $this->assertTrue($pim->imagesInPim());
+        $this->assertNull($pim->images_url);
+        $this->assertFalse($pim->awaitingImageLocation());
+        $this->assertSame('Already in the PIM', $pim->imageLocationLabel());
+
+        // A photoshoot has nothing to point at, so it is never asked.
+        $this->actingAs($user)->post(route('product-requests.store'),
+            $base + ['skus' => 'LOC-3', 'image_source' => ProductRequest::IMG_PHOTOSHOOT])
+            ->assertRedirect()->assertSessionHasNoErrors();
+
+        $shoot = ProductRequest::latest('id')->first();
+        $this->assertFalse($shoot->needsImageLocation());
+        $this->assertFalse($shoot->awaitingImageLocation());
+        $this->assertNull($shoot->imageLocationLabel());
+    }
+
+    public function test_switching_away_from_supplier_images_clears_the_location(): void
+    {
+        Notification::fake();
+
+        $user  = $this->brandManager();
+        $store = $this->mappingSite();
+        $user->stores()->sync([$store->id]);
+
+        $this->actingAs($user)->post(route('product-requests.store'), [
+            'store_id'           => $store->id,
+            'request_type'       => 'new_brand',
+            'brand'              => 'Samsonite',
+            'category'           => 'Luggage',
+            'skus'               => 'LOC-4',
+            'online_launch_date' => now()->addDays(18)->format('Y-m-d H:i'),
+            'use_ai_content'     => 1,
+            'priority'           => 'high',
+            'image_source'       => ProductRequest::IMG_SUPPLIER,
+            'images_location'    => ProductRequest::IMAGES_AT_URL,
+            'images_url'         => 'https://onedrive.example.com/folder/abc',
+        ])->assertRedirect();
+
+        $request = ProductRequest::first();
+
+        // Moving to a photoshoot leaves a link that describes nothing.
+        $this->actingAs($user)->put(route('product-requests.update', $request), [
+            'name'               => 'Switched',
+            'brand'              => 'Samsonite',
+            'category'           => 'Luggage',
+            'online_launch_date' => now()->addDays(18)->format('Y-m-d H:i'),
+            'image_source'       => ProductRequest::IMG_PHOTOSHOOT,
+            'use_ai_content'     => 1,
+            'priority'           => 'high',
+        ])->assertRedirect();
+
+        $request->refresh();
+
+        $this->assertNull($request->images_location);
+        $this->assertNull($request->images_url);
+    }
+
     public function test_the_image_source_must_be_chosen(): void
     {
         $user  = $this->brandManager();
@@ -206,7 +339,7 @@ class ProductRequestTest extends TestCase
 
         // The old booleans are kept in step, so anything still reading them works.
         $this->actingAs($user)->post(route('product-requests.store'),
-            $base + ['image_source' => ProductRequest::IMG_SUPPLIER])->assertRedirect();
+            $base + ['image_source' => ProductRequest::IMG_SUPPLIER, 'images_location' => ProductRequest::IMAGES_AT_PIM])->assertRedirect();
 
         $request = ProductRequest::first();
         $this->assertSame(ProductRequest::IMG_SUPPLIER, $request->image_source);

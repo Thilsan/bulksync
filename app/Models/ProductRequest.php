@@ -230,6 +230,48 @@ class ProductRequest extends Model
         return $options;
     }
 
+    public const IMAGES_AT_URL = 'url';
+    public const IMAGES_AT_PIM = 'pim';
+
+    public const IMAGE_LOCATIONS = [
+        self::IMAGES_AT_URL => 'A link to the folder',
+        self::IMAGES_AT_PIM => 'Already in the PIM',
+    ];
+
+    /** Only supplier images need a location recorded — the rest we produce. */
+    public function needsImageLocation(): bool
+    {
+        return $this->image_source === self::IMG_SUPPLIER;
+    }
+
+    /** Where the supplier images are, in words. */
+    public function imageLocationLabel(): ?string
+    {
+        if (!$this->needsImageLocation() || !$this->images_location) {
+            return null;
+        }
+
+        return $this->images_location === self::IMAGES_AT_PIM
+            ? 'Already in the PIM'
+            : ($this->images_url ?: 'Link not recorded');
+    }
+
+    public function imagesInPim(): bool
+    {
+        return $this->images_location === self::IMAGES_AT_PIM;
+    }
+
+    /** Supplier images were promised but nobody said where they are. */
+    public function awaitingImageLocation(): bool
+    {
+        if (!$this->needsImageLocation() || $this->isClosed()) {
+            return false;
+        }
+
+        return $this->images_location === null
+            || ($this->images_location === self::IMAGES_AT_URL && blank($this->images_url));
+    }
+
     public function imageSourceLabel(): string
     {
         return self::IMAGE_SOURCES[$this->image_source]['label'] ?? 'Not specified';
@@ -373,6 +415,8 @@ class ProductRequest extends Model
         'online_launch_date',
         'supplier_images_available',
         'image_source',
+        'images_location',
+        'images_url',
         'photoshoot_required',
         'photoshoot_scheduled_at',
         'use_ai_content',

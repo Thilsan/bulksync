@@ -25,12 +25,21 @@
 
         <form method="POST" action="{{ route('product-requests.store') }}" enctype="multipart/form-data"
               class="flex-1 flex flex-col overflow-hidden"
+              x-init="$watch('imageSource', () => clearLocationIfNotSupplier())"
               x-data="{
                   skuInput: 'type',
                   useAi: '{{ old('use_ai_content', '1') }}',
                   imageSource: '{{ old('image_source', '') }}',
+                  imagesAt: '{{ old('images_location', '') }}',
+                  imagesUrl: '{{ old('images_url', '') }}',
                   get needsPhotoshoot() { return this.imageSource === '{{ \App\Models\ProductRequest::IMG_PHOTOSHOOT }}'; },
                   get needsEditing() { return this.imageSource !== '' && this.imageSource !== '{{ \App\Models\ProductRequest::IMG_SUPPLIER }}'; },
+                  clearLocationIfNotSupplier() {
+                      if (this.imageSource !== '{{ \App\Models\ProductRequest::IMG_SUPPLIER }}') {
+                          this.imagesAt = '';
+                          this.imagesUrl = '';
+                      }
+                  },
                   onlineDate: '{{ old('online_launch_date') }}',
                   todayIso: '{{ now()->format('Y-m-d\TH:i') }}',
                   // Per-person deadlines are dates, the launch is a moment — so
@@ -200,6 +209,39 @@
                                 </span>
                             </label>
                         @endforeach
+                    </div>
+
+                    {{-- Only supplier images have a location to record — a photoshoot
+                         has nothing to point at until it has happened. --}}
+                    <div x-show="imageSource === '{{ \App\Models\ProductRequest::IMG_SUPPLIER }}'" x-cloak
+                         class="mt-3 rounded-lg border border-gray-200 bg-gray-50/60 px-3 py-3">
+                        <label class="block text-xs font-medium text-gray-600 mb-2">
+                            Where are the images? <span class="text-red-500">*</span>
+                        </label>
+
+                        <div class="flex flex-wrap gap-4">
+                            @foreach(\App\Models\ProductRequest::IMAGE_LOCATIONS as $value => $label)
+                                <label class="flex items-center gap-2 cursor-pointer">
+                                    <input type="radio" name="images_location" value="{{ $value }}" x-model="imagesAt"
+                                           class="text-brand-600 focus:ring-brand-500">
+                                    <span class="text-sm text-gray-700">{{ $label }}</span>
+                                </label>
+                            @endforeach
+                        </div>
+
+                        <div x-show="imagesAt === '{{ \App\Models\ProductRequest::IMAGES_AT_URL }}'" x-cloak class="mt-2.5">
+                            <input type="url" name="images_url" x-model="imagesUrl" maxlength="2048"
+                                   placeholder="https://… link to the folder the supplier sent"
+                                   class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent">
+                            <p class="text-xs text-gray-400 mt-1">
+                                OneDrive, Drive, Dropbox — anywhere the team can open it. Shown on the request so nobody has to ask.
+                            </p>
+                        </div>
+
+                        <p x-show="imagesAt === '{{ \App\Models\ProductRequest::IMAGES_AT_PIM }}'" x-cloak
+                           class="text-xs text-gray-500 mt-2">
+                            The team will take them from the PIM — no link needed.
+                        </p>
                     </div>
                 </section>
 

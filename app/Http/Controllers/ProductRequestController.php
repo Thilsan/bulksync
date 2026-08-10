@@ -400,6 +400,10 @@ class ProductRequestController extends Controller implements HasMiddleware
             'sku_csv'                   => 'nullable|file|mimes:csv,txt|max:20480',
             'online_launch_date'        => 'required|date',
             'image_source'              => 'required|in:' . implode(',', array_keys(ProductRequest::selectableImageSources())),
+            // Only asked for when the supplier sent them; a photoshoot produces
+            // its own images and has nowhere to point at yet.
+            'images_location'           => 'nullable|required_if:image_source,' . ProductRequest::IMG_SUPPLIER . '|in:' . implode(',', array_keys(ProductRequest::IMAGE_LOCATIONS)),
+            'images_url'                => 'nullable|required_if:images_location,' . ProductRequest::IMAGES_AT_URL . '|url|max:2048',
             'use_ai_content'            => 'required|boolean',
             'priority'                  => 'required|in:high,medium,low',
             'assignments'               => 'nullable|array|max:' . count(ProductRequest::ASSIGNMENT_ROLES),
@@ -468,6 +472,8 @@ class ProductRequestController extends Controller implements HasMiddleware
             'priority'                  => $data['priority'],
             'online_launch_date'        => $data['online_launch_date'],
             'image_source'              => $data['image_source'],
+            'images_location'           => $data['image_source'] === ProductRequest::IMG_SUPPLIER ? ($data['images_location'] ?? null) : null,
+            'images_url'                => ($data['images_location'] ?? null) === ProductRequest::IMAGES_AT_URL ? ($data['images_url'] ?? null) : null,
             // Kept in step with image_source so historic rows and any code still
             // reading these booleans stay correct.
             'supplier_images_available' => $data['image_source'] === ProductRequest::IMG_SUPPLIER,
@@ -571,15 +577,24 @@ class ProductRequestController extends Controller implements HasMiddleware
             'collection'                => 'nullable|string|max:255',
             'online_launch_date'        => 'required|date',
             'image_source'              => 'required|in:' . implode(',', array_keys(ProductRequest::IMAGE_SOURCES)),
+            'images_location'           => 'nullable|in:' . implode(',', array_keys(ProductRequest::IMAGE_LOCATIONS)),
+            'images_url'                => 'nullable|required_if:images_location,' . ProductRequest::IMAGES_AT_URL . '|url|max:2048',
             'photoshoot_scheduled_at'   => 'nullable|date',
             'use_ai_content'            => 'required|boolean',
             'priority'                  => 'required|in:high,medium,low',
             'notes'                     => 'nullable|string|max:5000',
         ]);
 
+        $isSupplier = $data['image_source'] === ProductRequest::IMG_SUPPLIER;
+
         $productRequest->update($data + [
-            'supplier_images_available' => $data['image_source'] === ProductRequest::IMG_SUPPLIER,
+            'supplier_images_available' => $isSupplier,
             'photoshoot_required'       => $data['image_source'] === ProductRequest::IMG_PHOTOSHOOT,
+            // Switching away from supplier images clears a location that no
+            // longer describes anything.
+            'images_location'           => $isSupplier ? ($data['images_location'] ?? null) : null,
+            'images_url'                => $isSupplier && ($data['images_location'] ?? null) === ProductRequest::IMAGES_AT_URL
+                                              ? ($data['images_url'] ?? null) : null,
         ]);
 
         $this->workflow->log(
