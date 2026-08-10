@@ -1030,7 +1030,7 @@
                         'Request Name'  => $request->displayName(),
                         'Request ID'    => $request->reference,
                         'Requested By'  => $request->user?->name ?? '—',
-                        'Request Type'  => $request->request_type === 'new_brand' ? 'New Brand' : 'Existing Brand / New Category',
+                        'Request Type'  => $request->request_type === 'new_brand' ? 'New Brand' : 'Existing Brand',
                         'Store'         => $request->store?->name ?? '—',
                         'Created On'    => $request->created_at->format('d M Y, h:i A'),
                         'Last Updated'  => $request->updated_at->format('d M Y, h:i A'),

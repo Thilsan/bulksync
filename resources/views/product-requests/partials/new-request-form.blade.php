@@ -80,7 +80,7 @@
                     <div class="mb-4">
                         <label class="block text-xs font-medium text-gray-600 mb-1.5">Request Type <span class="text-red-500">*</span></label>
                         <div class="flex gap-5">
-                            @foreach(['new_brand' => 'New Brand', 'existing_brand' => 'Existing Brand / New Category'] as $value => $label)
+                            @foreach(['new_brand' => 'New Brand', 'existing_brand' => 'Existing Brand'] as $value => $label)
                                 <label class="flex items-center gap-2 cursor-pointer">
                                     <input type="radio" name="request_type" value="{{ $value }}"
                                            {{ old('request_type', 'new_brand') === $value ? 'checked' : '' }}
