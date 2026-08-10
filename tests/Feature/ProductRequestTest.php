@@ -1191,9 +1191,12 @@ class ProductRequestTest extends TestCase
             'photoshoot_required'       => 1,
             'use_ai_content'            => 1,
             'priority'                  => 'high',
-            'photographer_id'           => $shooter->id,
-            'qa_owner_id'               => $qa->id,
-            'assigned_to'               => $requester->id,   // themselves
+            'assignments'               => [
+                ['role' => 'photographer_id', 'user_id' => $shooter->id],
+                ['role' => 'qa_owner_id',     'user_id' => $qa->id],
+                ['role' => 'assigned_to',     'user_id' => $requester->id],   // themselves
+                ['role' => '',                'user_id' => ''],               // untouched row
+            ],
         ])->assertRedirect();
 
         $request = ProductRequest::first();
@@ -1214,6 +1217,41 @@ class ProductRequestTest extends TestCase
             ->assertOk()
             ->assertSee('requested by')
             ->assertSee($requester->name);
+    }
+
+    public function test_a_role_cannot_be_given_to_two_people_at_once(): void
+    {
+        Notification::fake();
+
+        $requester = $this->brandManager();
+        $store     = $this->mappingSite();
+        $requester->stores()->sync([$store->id]);
+
+        $a = User::create(['name' => 'Shooter A', 'email' => 'sa@example.test', 'password' => 'password',
+            'is_active' => true, 'perm_product_request' => true, 'pcr_role' => 'photographer']);
+        $b = User::create(['name' => 'Shooter B', 'email' => 'sb@example.test', 'password' => 'password',
+            'is_active' => true, 'perm_product_request' => true, 'pcr_role' => 'photographer']);
+
+        $this->actingAs($requester)->post(route('product-requests.store'), [
+            'store_id'                  => $store->id,
+            'request_type'              => 'new_brand',
+            'brand'                     => 'Samsonite',
+            'category'                  => 'Luggage',
+            'skus'                      => 'DUP-1',
+            'store_launch_date'         => now()->addDays(20)->toDateString(),
+            'online_launch_date'        => now()->addDays(18)->toDateString(),
+            'supplier_images_available' => 0,
+            'photoshoot_required'       => 1,
+            'use_ai_content'            => 1,
+            'priority'                  => 'high',
+            'assignments'               => [
+                ['role' => 'photographer_id', 'user_id' => $a->id],
+                ['role' => 'photographer_id', 'user_id' => $b->id],
+            ],
+        ])->assertSessionHasErrors('assignments');
+
+        // Rejected outright rather than silently keeping whichever came last.
+        $this->assertSame(0, ProductRequest::count());
     }
 
     public function test_the_dashboard_explains_the_process_to_newcomers(): void

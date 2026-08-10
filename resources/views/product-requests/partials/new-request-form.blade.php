@@ -248,40 +248,88 @@
                 </section>
 
                 {{-- 6. Team --}}
-                <section>
+                <section x-data="{
+                        rows: [{ role: '', user: '' }],
+                        allRoles: {{ Illuminate\Support\Js::from(collect(\App\Models\ProductRequest::ASSIGNMENT_ROLES)->map(fn ($label, $key) => ['key' => $key, 'label' => $label])->values()) }},
+                        // Only roles this request will actually use.
+                        get activeRoles() {
+                            return this.allRoles.filter(r =>
+                                (r.key !== 'photographer_id' || photoshoot === '1') &&
+                                (r.key !== 'supply_chain_id' || usesMapping)
+                            );
+                        },
+                        // A role already given out isn't offered again.
+                        optionsFor(i) {
+                            const taken = this.rows.filter((_, j) => j !== i).map(r => r.role).filter(Boolean);
+                            return this.activeRoles.filter(r => !taken.includes(r.key));
+                        },
+                        get canAdd() { return this.rows.length < this.activeRoles.length; },
+                        add() { if (this.canAdd) this.rows.push({ role: '', user: '' }); },
+                        remove(i) {
+                            this.rows.splice(i, 1);
+                            if (!this.rows.length) this.add();
+                        },
+                        // Turning off the photoshoot must not leave a photographer
+                        // assigned to work that no longer exists.
+                        prune() {
+                            const ok = this.activeRoles.map(r => r.key);
+                            this.rows.forEach(r => { if (r.role && !ok.includes(r.role)) { r.role = ''; r.user = ''; } });
+                        },
+                     }"
+                     x-effect="photoshoot; usesMapping; prune()">
+
                     <h3 class="text-sm font-semibold text-gray-800 mb-1">6. Team Assignments</h3>
                     <p class="text-xs text-gray-400 mb-3">
-                        Optional. Anyone you pick is notified straight away that
+                        Optional. Choose a role, then who does it — add a row for each one you know.
+                        Anyone you pick is notified that
                         <span class="font-medium text-gray-600">{{ auth()->user()->name }}</span> has given them this work.
-                        Leave blank and their team can claim it later.
+                        Leave it empty and each team can claim their own stage later.
                     </p>
 
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-3">
-                        @foreach(\App\Models\ProductRequest::ASSIGNMENT_ROLES as $field => $roleLabel)
-                            {{-- Only offer roles this request will actually use: no
-                                 photographer without a shoot, no supply chain on a
-                                 website that has no mapping step. --}}
-                            @php
-                                $showWhen = match ($field) {
-                                    'photographer_id' => 'photoshoot === \'1\'',
-                                    'supply_chain_id' => 'usesMapping',
-                                    default           => 'true',
-                                };
-                            @endphp
-                            <div x-show="{{ $showWhen }}" x-cloak>
-                                <label class="block text-xs font-medium text-gray-600 mb-1.5">{{ $roleLabel }}</label>
-                                <select name="{{ $field }}"
-                                        class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent">
-                                    <option value="">Leave unassigned</option>
-                                    @foreach($teamPool as $member)
-                                        <option value="{{ $member->id }}" @selected(old($field) == $member->id)>
-                                            {{ $member->name }}@if($member->pcr_role) — {{ $member->pcrRoleLabel() }}@endif
-                                        </option>
-                                    @endforeach
-                                </select>
+                    <div class="space-y-2">
+                        <template x-for="(row, i) in rows" :key="i">
+                            <div class="flex items-start gap-2">
+                                <div class="flex-1 min-w-0">
+                                    <label class="block text-xs font-medium text-gray-500 mb-1" x-show="i === 0">Role</label>
+                                    <select x-model="row.role" :name="`assignments[${i}][role]`"
+                                            class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent">
+                                        <option value="">Select a role…</option>
+                                        <template x-for="r in optionsFor(i)" :key="r.key">
+                                            <option :value="r.key" x-text="r.label"></option>
+                                        </template>
+                                    </select>
+                                </div>
+
+                                <div class="flex-1 min-w-0">
+                                    <label class="block text-xs font-medium text-gray-500 mb-1" x-show="i === 0">Person</label>
+                                    <select x-model="row.user" :name="`assignments[${i}][user_id]`" :disabled="!row.role"
+                                            class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent disabled:bg-gray-50 disabled:text-gray-400">
+                                        <option value="">Select a person…</option>
+                                        @foreach($teamPool as $member)
+                                            <option value="{{ $member->id }}">{{ $member->name }}@if($member->pcr_role) — {{ $member->pcrRoleLabel() }}@endif</option>
+                                        @endforeach
+                                    </select>
+                                </div>
+
+                                <button type="button" @click="remove(i)"
+                                        class="shrink-0 text-gray-400 hover:text-red-600 transition-colors p-2"
+                                        :class="i === 0 && 'mt-5'"
+                                        title="Remove this row">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                                    </svg>
+                                </button>
                             </div>
-                        @endforeach
+                        </template>
                     </div>
+
+                    <button type="button" @click="add()" x-show="canAdd"
+                            class="mt-2.5 inline-flex items-center gap-1.5 text-xs font-medium text-brand-600 hover:text-brand-700">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+                        </svg>
+                        Add another role
+                    </button>
                 </section>
 
                 {{-- 7. Additional --}}

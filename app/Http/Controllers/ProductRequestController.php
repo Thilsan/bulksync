@@ -433,12 +433,9 @@ class ProductRequestController extends Controller implements HasMiddleware
             'photoshoot_required'       => 'required|boolean',
             'use_ai_content'            => 'required|boolean',
             'priority'                  => 'required|in:high,medium,low',
-            'assigned_to'               => 'nullable|exists:users,id',
-            'supply_chain_id'           => 'nullable|exists:users,id',
-            'photographer_id'           => 'nullable|exists:users,id',
-            'image_editor_id'           => 'nullable|exists:users,id',
-            'content_owner_id'          => 'nullable|exists:users,id',
-            'qa_owner_id'               => 'nullable|exists:users,id',
+            'assignments'               => 'nullable|array|max:' . count(ProductRequest::ASSIGNMENT_ROLES),
+            'assignments.*.role'        => 'nullable|in:' . implode(',', array_keys(ProductRequest::ASSIGNMENT_ROLES)),
+            'assignments.*.user_id'     => 'nullable|exists:users,id',
             'notes'                     => 'nullable|string|max:5000',
             'content_sheet'             => 'nullable|file|mimes:csv,txt,xlsx,xls|max:' . $maxKb,
         ]);
@@ -448,6 +445,27 @@ class ProductRequestController extends Controller implements HasMiddleware
 
         if (!$store) {
             return back()->withInput()->withErrors(['store_id' => 'You do not have access to that website.']);
+        }
+
+        // Role/person pairs, collapsed to one entry per role.
+        $assignments = [];
+
+        foreach ($data['assignments'] ?? [] as $row) {
+            $role   = $row['role'] ?? null;
+            $userId = $row['user_id'] ?? null;
+
+            if (!$role || !$userId) {
+                continue;   // a half-filled row is just an unused slot
+            }
+
+            if (isset($assignments[$role])) {
+                return back()->withInput()->withErrors([
+                    'assignments' => 'Each role can only be given to one person. "'
+                        . ProductRequest::ASSIGNMENT_ROLES[$role] . '" is listed twice.',
+                ]);
+            }
+
+            $assignments[$role] = (int) $userId;
         }
 
         $skus = $this->parseSkus($request);
@@ -484,9 +502,7 @@ class ProductRequestController extends Controller implements HasMiddleware
             'validation_status'         => 'pending',
             'total_skus'                => count($skus),
             // Whoever the requester nominated for each role, straight from the form.
-        ] + collect(array_keys(ProductRequest::ASSIGNMENT_ROLES))
-              ->mapWithKeys(fn ($field) => [$field => $data[$field] ?? null])
-              ->all());
+        ] + $assignments);
 
         $this->mapping->syncSkus($productRequest, $skus);
 
