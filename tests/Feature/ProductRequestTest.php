@@ -8,6 +8,7 @@ use App\Models\Store;
 use App\Models\User;
 use App\Notifications\ProductRequestAssigned;
 use App\Notifications\ProductRequestCommented;
+use App\Notifications\ProductRequestHandedOff;
 use App\Notifications\ProductRequestReminder;
 use App\Notifications\ProductRequestHoldChanged;
 use App\Notifications\ProductRequestStatusChanged;
@@ -864,6 +865,65 @@ class ProductRequestTest extends TestCase
         ])->assertSessionHasErrors('hold_reason');
 
         $this->assertFalse($request->fresh()->isOnHold());
+    }
+
+    public function test_a_handover_emails_both_the_new_and_the_previous_owner(): void
+    {
+        Notification::fake();
+
+        $requester = $this->brandManager();
+        $request   = $this->submitFor($requester, $this->plainSite(), 'HANDMAIL-1');
+
+        $first  = User::create(['name' => 'First Owner', 'email' => 'fo@example.test', 'password' => 'password',
+            'is_active' => true, 'perm_product_request' => true, 'pcr_role' => 'ecommerce']);
+        $second = User::create(['name' => 'Second Owner', 'email' => 'so@example.test', 'password' => 'password',
+            'is_active' => true, 'perm_product_request' => true, 'pcr_role' => 'ecommerce']);
+
+        $workflow = app(ProductRequestWorkflow::class);
+        $workflow->assignRole($request, 'assigned_to', $first->id, $requester);
+
+        Notification::fake();   // only look at the handover itself
+
+        $this->actingAs($requester)->post(route('product-requests.reassign', $request->refresh()), [
+            'user_id' => $second->id,
+        ])->assertRedirect();
+
+        // The new owner is told, and told it was a handover, not a fresh assignment.
+        Notification::assertSentTo($second, ProductRequestAssigned::class,
+            fn ($n) => $n->handedOverFrom === 'First Owner');
+
+        // The previous owner is told they are off it — otherwise they keep working.
+        Notification::assertSentTo($first, ProductRequestHandedOff::class,
+            fn ($n) => $n->newOwnerName === 'Second Owner' && $n->roleLabel === 'E-Commerce Team');
+
+        $this->assertSame($second->id, $request->fresh()->assigned_to);
+    }
+
+    public function test_the_handover_emails_render(): void
+    {
+        $requester = $this->brandManager();
+        $request   = $this->submitFor($requester, $this->plainSite(), 'HANDRENDER-1');
+
+        $to = User::create(['name' => 'New Owner', 'email' => 'no@example.test', 'password' => 'password',
+            'is_active' => true, 'perm_product_request' => true, 'pcr_role' => 'ecommerce']);
+
+        // New owner's copy reads as a handover.
+        $mail = ProductRequestAssigned::forRequest($request, 'E-Commerce Team', $requester->name, 'Old Owner')
+            ->toMail($to);
+        $html = $mail->render();
+
+        $this->assertStringContainsString('handed this task over to you', $html);
+        $this->assertStringContainsString('Old Owner', $html);
+        $this->assertStringContainsString('handed over to you', $mail->subject);
+
+        // Previous owner's copy tells them to stop.
+        $off = ProductRequestHandedOff::forRequest($request, 'E-Commerce Team', 'New Owner', $requester->name)
+            ->toMail($to);
+        $offHtml = $off->render();
+
+        $this->assertStringContainsString('No longer with you', $offHtml);
+        $this->assertStringContainsString('New Owner', $offHtml);
+        $this->assertStringContainsString('aih_logo-1.png', $offHtml);
     }
 
     public function test_a_task_can_be_handed_to_someone_else(): void

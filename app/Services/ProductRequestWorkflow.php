@@ -6,6 +6,7 @@ use App\Models\ProductRequest;
 use App\Models\ProductRequestActivity;
 use App\Models\User;
 use App\Notifications\ProductRequestAssigned;
+use App\Notifications\ProductRequestHandedOff;
 use App\Notifications\ProductRequestStatusChanged;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
@@ -207,14 +208,29 @@ class ProductRequestWorkflow
             remarks:     $this->briefRemark($title, $dueDate),
         );
 
-        // Don't announce your own name to yourself, or a brief-only tweak.
-        if ($notify && $assignee && !$detailOnly && $assignee->id !== $actor?->id) {
+        // Anyone losing the task needs telling as much as the person gaining it —
+        // otherwise the previous owner carries on thinking it is still theirs.
+        $previousUser = $previous && $previous !== $userId ? User::find($previous) : null;
+
+        if ($notify && !$detailOnly) {
             try {
-                $assignee->notify(ProductRequestAssigned::forRequest(
-                    $request,
-                    $roleLabel,
-                    $actor?->name ?? 'System',
-                ));
+                if ($assignee && $assignee->id !== $actor?->id) {
+                    $assignee->notify(ProductRequestAssigned::forRequest(
+                        $request,
+                        $roleLabel,
+                        $actor?->name ?? 'System',
+                        handedOverFrom: $previousUser?->name,
+                    ));
+                }
+
+                if ($previousUser?->is_active && $previousUser->id !== $actor?->id) {
+                    $previousUser->notify(ProductRequestHandedOff::forRequest(
+                        $request,
+                        $roleLabel,
+                        $assignee?->name ?? 'nobody',
+                        $actor?->name ?? 'System',
+                    ));
+                }
             } catch (\Throwable $e) {
                 Log::error("ProductRequestWorkflow: assign notification failed for request {$request->id}: " . $e->getMessage());
             }

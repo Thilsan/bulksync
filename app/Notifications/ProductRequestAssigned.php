@@ -27,12 +27,17 @@ class ProductRequestAssigned extends Notification implements ShouldQueue
         public readonly string $statusLabel,
         public readonly string $actorName,
         public readonly string $requesterName = 'Unknown',
+        public readonly ?string $handedOverFrom = null,
     ) {
         $this->onQueue('bulkupload');
     }
 
-    public static function forRequest(ProductRequest $request, string $roleLabel, string $actorName): self
-    {
+    public static function forRequest(
+        ProductRequest $request,
+        string $roleLabel,
+        string $actorName,
+        ?string $handedOverFrom = null,
+    ): self {
         return new self(
             requestId:   $request->id,
             reference:   $request->reference,
@@ -42,6 +47,7 @@ class ProductRequestAssigned extends Notification implements ShouldQueue
             statusLabel:   $request->statusLabel(),
             actorName:     $actorName,
             requesterName: $request->user?->name ?? 'Unknown',
+            handedOverFrom: $handedOverFrom,
         );
     }
 
@@ -57,7 +63,9 @@ class ProductRequestAssigned extends Notification implements ShouldQueue
         $request = $this->requestForEmail($this->requestId);
         $brief    = $request?->assignmentFor($this->roleField);
 
-        $subject = "[{$this->reference}] You are the {$this->roleLabel} — {$this->brand}";
+        $subject = $this->handedOverFrom
+            ? "[{$this->reference}] {$this->roleLabel} handed over to you"
+            : "[{$this->reference}] You are the {$this->roleLabel} — {$this->brand}";
 
         // The task box: their own brief and deadline if the requester set one,
         // otherwise the role itself so the box is never empty.
@@ -93,8 +101,11 @@ class ProductRequestAssigned extends Notification implements ShouldQueue
                 'stageGuide'      => $this->stageGuide($request),
                 'rows'            => $this->summaryRows($request),
                 'url'             => $this->requestUrl($this->requestId),
+                'handedOverFrom'  => $this->handedOverFrom,
                 'mentionSubject'  => $subject,
-                'preheader'       => "{$this->actorName} assigned you as {$this->roleLabel} on {$this->reference}.",
+                'preheader'       => $this->handedOverFrom
+                    ? "{$this->actorName} handed this over to you from {$this->handedOverFrom}."
+                    : "{$this->actorName} assigned you as {$this->roleLabel} on {$this->reference}.",
             ]);
     }
 
@@ -109,6 +120,7 @@ class ProductRequestAssigned extends Notification implements ShouldQueue
             'status_label' => $this->statusLabel,
             'actor'        => $this->actorName,
             'requester'    => $this->requesterName,
+            'handed_over_from' => $this->handedOverFrom,
         ];
     }
 }

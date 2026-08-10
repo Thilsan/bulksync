@@ -6,10 +6,17 @@
 @section('content')
     <p style="margin:0 0 14px 0; font-size:16px; color:#111827;">Hello {{ $recipientName }},</p>
 
-    <p style="margin:0 0 4px 0;">
-        <strong>{{ $actorName }}</strong> has assigned you to a product creation request as
-        <strong style="color:#1d5a74;">{{ $roleLabel }}</strong>.
-    </p>
+    @if($handedOverFrom)
+        <p style="margin:0 0 4px 0;">
+            <strong>{{ $actorName }}</strong> has handed this task over to you as
+            <strong style="color:#1d5a74;">{{ $roleLabel }}</strong>, previously with {{ $handedOverFrom }}.
+        </p>
+    @else
+        <p style="margin:0 0 4px 0;">
+            <strong>{{ $actorName }}</strong> has assigned you to a product creation request as
+            <strong style="color:#1d5a74;">{{ $roleLabel }}</strong>.
+        </p>
+    @endif
 
     @include('emails.partials.callout', [
         'tone'    => $dueTone,
