@@ -404,6 +404,38 @@ class ProductRequestTest extends TestCase
         $this->assertNotNull($request->completed_at);
     }
 
+    public function test_a_closed_request_shows_every_phase_as_done(): void
+    {
+        Notification::fake();
+
+        $user    = $this->brandManager();
+        $request = $this->submitFor($user, $this->plainSite(), 'PHASE-1');
+
+        // Mid-flight: the phase being worked reads as in progress.
+        $request->update(['status' => ProductRequest::QA_REVIEW]);
+        $states = collect($request->refresh()->phaseProgress())->pluck('state', 'label');
+        $this->assertSame('current', $states['Review & Launch']);
+
+        // Closed: sitting on the final stage is finished, not still running —
+        // a 100% request reading "In Progress" is a contradiction.
+        foreach ([ProductRequest::PUBLISHED, ProductRequest::COMPLETED] as $closed) {
+            $request->update(['status' => $closed]);
+            $request->refresh();
+
+            $this->assertTrue($request->isClosed());
+            $this->assertSame(100, $request->progressPercent());
+
+            foreach ($request->phaseProgress() as $phase) {
+                $this->assertSame('done', $phase['state'],
+                    "Phase {$phase['label']} should be done on a {$closed} request");
+            }
+        }
+
+        $this->actingAs($user)->get(route('product-requests.show', $request))
+            ->assertOk()
+            ->assertDontSee('In Progress');
+    }
+
     public function test_a_request_left_on_a_retired_stage_still_works(): void
     {
         Notification::fake();

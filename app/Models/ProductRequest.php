@@ -796,8 +796,15 @@ class ProductRequest extends Model
                 'label'  => $label,
                 'stages' => $stages,
                 'start'  => $offset,
-                'state'  => $current < 0 ? 'upcoming'
-                    : ($current > $end ? 'done' : ($current >= $offset ? 'current' : 'upcoming')),
+                'state'  => match (true) {
+                    $current < 0        => 'upcoming',
+                    $current > $end     => 'done',
+                    // Sitting on the final stage of a closed request means the
+                    // phase is finished, not still running — otherwise a
+                    // published request reads "In Progress" at 100%.
+                    $current >= $offset => $this->isClosed() ? 'done' : 'current',
+                    default             => 'upcoming',
+                },
             ];
 
             $offset += count($stages);
