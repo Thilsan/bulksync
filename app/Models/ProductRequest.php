@@ -214,6 +214,7 @@ class ProductRequest extends Model
         'photoshoot_required',
         'photoshoot_scheduled_at',
         'use_ai_content',
+        'ai_content_session_id',
         'notes',
         'validation_status',
         'total_skus',
@@ -311,6 +312,27 @@ class ProductRequest extends Model
     public function attachments(): HasMany
     {
         return $this->hasMany(ProductRequestAttachment::class);
+    }
+
+    /** The AI Content Generator run this request kicked off, if any. */
+    public function aiContentSession(): BelongsTo
+    {
+        return $this->belongsTo(\App\Models\AiContentSession::class, 'ai_content_session_id');
+    }
+
+    /**
+     * AI generation needs products that already exist in Shopify — it reads
+     * their images. For brand-new products that is only true once they have
+     * been uploaded, so the button is offered from the content stage onward and
+     * only when something is actually there to work with.
+     */
+    public function canGenerateAiContent(): bool
+    {
+        if (!$this->use_ai_content || $this->isClosed()) {
+            return false;
+        }
+
+        return $this->skus()->where('in_shopify', true)->exists();
     }
 
     /** Mood boards and reference shots supplied with the request. */

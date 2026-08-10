@@ -5,7 +5,17 @@
 
 @section('content')
 {{-- Same slide-over as the dashboard; re-opens itself if submission failed. --}}
-<div class="space-y-5" x-data="{ newRequestOpen: {{ $errors->any() && old('brand') ? 'true' : 'false' }} }">
+<div class="space-y-5"
+     x-data="{
+        newRequestOpen: {{ $errors->any() && old('brand') ? 'true' : 'false' }},
+        picked: [],
+        allOnPage: false,
+        toggleAll() {
+            this.picked = this.allOnPage
+                ? Array.from($root.querySelectorAll('[data-request-id]')).map(el => el.dataset.requestId)
+                : [];
+        },
+     }">
 
     <div class="flex items-center justify-between">
         <div>
@@ -79,6 +89,94 @@
         </div>
     </form>
 
+    {{-- Bulk action bar — appears only when something is selected. --}}
+    <div x-show="picked.length" x-cloak
+         class="sticky top-2 z-30 bg-white rounded-xl border-2 border-brand-300 shadow-lg px-5 py-3">
+        <form method="POST" action="{{ route('product-requests.bulk') }}"
+              x-data="{ action: 'assign' }"
+              @submit="if (!confirm(`Apply this to ${picked.length} request(s)?`)) $event.preventDefault()">
+            @csrf
+            <template x-for="id in picked" :key="id">
+                <input type="hidden" name="ids[]" :value="id">
+            </template>
+
+            <div class="flex flex-wrap items-end gap-3">
+                <div>
+                    <p class="text-xs text-gray-500">Selected</p>
+                    <p class="text-lg font-semibold text-brand-700 leading-tight"><span x-text="picked.length"></span></p>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-medium text-gray-600 mb-1">Action</label>
+                    <select name="action" x-model="action"
+                            class="rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
+                        <option value="assign">Assign someone</option>
+                        <option value="priority">Set priority</option>
+                        <option value="status">Move stage</option>
+                    </select>
+                </div>
+
+                <div x-show="action === 'assign'" class="flex items-end gap-2">
+                    <div>
+                        <label class="block text-xs font-medium text-gray-600 mb-1">Role</label>
+                        <select name="field" class="rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
+                            @foreach(\App\Models\ProductRequest::ASSIGNMENT_ROLES as $field => $label)
+                                <option value="{{ $field }}">{{ $label }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-gray-600 mb-1">Person</label>
+                        <select name="user_id" class="rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
+                            @foreach($teamPool as $member)
+                                <option value="{{ $member->id }}">{{ $member->name }}@if($member->pcr_role) — {{ $member->pcrRoleLabel() }}@endif</option>
+                            @endforeach
+                        </select>
+                    </div>
+                </div>
+
+                <div x-show="action === 'priority'" x-cloak>
+                    <label class="block text-xs font-medium text-gray-600 mb-1">Priority</label>
+                    <select name="priority" class="rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
+                        @foreach(\App\Models\ProductRequest::PRIORITIES as $value => $label)
+                            <option value="{{ $value }}">{{ $label }}</option>
+                        @endforeach
+                    </select>
+                </div>
+
+                <div x-show="action === 'status'" x-cloak class="flex items-end gap-2">
+                    <div>
+                        <label class="block text-xs font-medium text-gray-600 mb-1">Move to</label>
+                        <select name="to_status" class="rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
+                            @foreach(\App\Models\ProductRequest::STATUS_LABELS as $value => $label)
+                                @continue($value === \App\Models\ProductRequest::CANCELLED)
+                                <option value="{{ $value }}">{{ $label }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-gray-600 mb-1">Remark</label>
+                        <input type="text" name="remarks" maxlength="255" placeholder="Optional"
+                               class="rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
+                    </div>
+                </div>
+
+                <div class="flex-1"></div>
+
+                <button type="button" @click="picked = []; allOnPage = false"
+                        class="text-xs text-gray-500 hover:text-gray-700 px-3 py-2">Clear</button>
+                <button type="submit"
+                        class="bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
+                    Apply
+                </button>
+            </div>
+
+            <p x-show="action === 'status'" x-cloak class="text-xs text-gray-400 mt-2">
+                Requests where that move isn't allowed from their current stage are skipped, and counted in the result.
+            </p>
+        </form>
+    </div>
+
     {{-- Results --}}
     <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
         @if($requests->isEmpty())
@@ -97,6 +195,11 @@
             <table class="w-full text-sm">
                 <thead>
                     <tr class="text-left text-xs text-gray-500 border-b border-gray-100 bg-gray-50/60">
+                        <th class="px-3 py-2.5 w-8">
+                            <input type="checkbox" x-model="allOnPage" @change="toggleAll()"
+                                   title="Select the requests on this page"
+                                   class="rounded border-gray-300 text-brand-600 focus:ring-brand-500">
+                        </th>
                         <th class="px-5 py-2.5 font-medium">Request</th>
                         <th class="px-3 py-2.5 font-medium">Brand / Category</th>
                         <th class="px-3 py-2.5 font-medium text-right">SKUs</th>
@@ -110,7 +213,11 @@
                 </thead>
                 <tbody class="divide-y divide-gray-50">
                     @foreach($requests as $item)
-                    <tr class="hover:bg-gray-50/70 transition-colors">
+                    <tr class="hover:bg-gray-50/70 transition-colors" :class="picked.includes('{{ $item->id }}') && 'bg-brand-50/50'">
+                        <td class="px-3 py-3">
+                            <input type="checkbox" data-request-id="{{ $item->id }}" value="{{ $item->id }}" x-model="picked"
+                                   class="rounded border-gray-300 text-brand-600 focus:ring-brand-500">
+                        </td>
                         <td class="px-5 py-3">
                             <a href="{{ route('product-requests.show', $item) }}"
                                class="text-brand-600 hover:text-brand-700 font-medium">{{ $item->displayName() }}</a>

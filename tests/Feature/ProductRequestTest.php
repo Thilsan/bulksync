@@ -7,6 +7,8 @@ use App\Models\ProductRequestActivity;
 use App\Models\Store;
 use App\Models\User;
 use App\Notifications\ProductRequestAssigned;
+use App\Notifications\ProductRequestCommented;
+use App\Notifications\ProductRequestReminder;
 use App\Notifications\ProductRequestHoldChanged;
 use App\Notifications\ProductRequestStatusChanged;
 use App\Services\ProductRequestWorkflow;
@@ -213,6 +215,32 @@ class ProductRequestTest extends TestCase
         $this->assertSame('Mapped in Cegid by Supply Chain', $row->mapping_note);
 
         Notification::assertSentTo($user, ProductRequestStatusChanged::class);
+    }
+
+    public function test_mapping_can_be_applied_to_the_whole_request_not_just_one_page(): void
+    {
+        Notification::fake();
+
+        $user = $this->brandManager();
+
+        // More SKUs than the 50-per-page table shows, so a page-scoped
+        // "select all" would silently leave the rest untouched.
+        $skus    = collect(range(1, 60))->map(fn ($i) => "PAGE-{$i}")->implode("\n");
+        $request = $this->submitFor($user, $this->mappingSite(), $skus);
+
+        $this->assertSame(60, $request->skus()->count());
+        $this->assertSame(ProductRequest::WAITING_MAPPING, $request->status);
+
+        $this->actingAs($user)->post(route('product-requests.skus.mapping', $request), [
+            'scope'          => 'all',
+            'mapping_status' => ProductRequest::MAP_MAPPED,
+        ])->assertRedirect();
+
+        $request->refresh();
+
+        $this->assertSame(60, $request->mapped_skus);
+        $this->assertSame(0, $request->pending_skus);
+        $this->assertSame(ProductRequest::SKU_VERIFIED, $request->status);
     }
 
     public function test_the_automatic_check_never_overwrites_supply_chains_entry(): void
@@ -980,6 +1008,162 @@ class ProductRequestTest extends TestCase
         $this->actingAs($user)->get(route('product-requests.list'))
             ->assertOk()
             ->assertSee('Samsonite · Luggage', false);
+    }
+
+    // ── Comments, reminders, AI content, bulk actions ────────────────────────
+
+    public function test_a_comment_notifies_the_people_on_the_request(): void
+    {
+        Notification::fake();
+
+        $author  = $this->brandManager();
+        $request = $this->submitFor($author, $this->plainSite(), 'CMT-1');
+
+        $qa = User::create([
+            'name' => 'Qadir Ahmed', 'email' => 'qa2@example.test', 'password' => 'password',
+            'is_active' => true, 'perm_product_request' => true, 'pcr_role' => 'qa',
+        ]);
+        $request->update(['qa_owner_id' => $qa->id]);
+
+        $this->actingAs($author)->post(route('product-requests.comment', $request), [
+            'remarks' => '@Qadir can you check the sizing copy?',
+        ])->assertRedirect();
+
+        Notification::assertSentTo($qa, ProductRequestCommented::class,
+            fn ($n) => $n->mentioned === true && str_contains($n->body, 'sizing copy'));
+
+        // The author isn't notified about their own comment.
+        Notification::assertNotSentTo($author, ProductRequestCommented::class);
+    }
+
+    public function test_the_reminder_digest_finds_stalled_blocked_and_due_work(): void
+    {
+        Notification::fake();
+
+        $user  = $this->brandManager();
+        $store = $this->plainSite();
+
+        $make = function (string $brand, array $attrs) use ($user, $store) {
+            return ProductRequest::create(array_merge([
+                'reference'         => ProductRequest::nextReference(),
+                'user_id'           => $user->id,
+                'store_id'          => $store->id,
+                'request_type'      => 'new_brand',
+                'brand'             => $brand,
+                'category'          => 'X',
+                'status'            => ProductRequest::SKU_VERIFIED,
+                'priority'          => 'medium',
+                'assigned_to'       => $user->id,
+                'online_launch_date'=> now()->addDays(30),
+            ], $attrs));
+        };
+
+        $stale = $make('Stale', []);
+        ProductRequest::where('id', $stale->id)->update(['updated_at' => now()->subDays(6)]);
+        $make('DueSoon', ['online_launch_date' => now()->addDays(1)]);
+        $make('Blocked', ['on_hold' => true, 'hold_reason' => 'Samples not received at studio',
+                          'hold_since' => now()->subDays(4), 'hold_by' => $user->id]);
+        $make('Healthy', []);   // must NOT be chased
+
+        $this->artisan('product-requests:remind')->assertSuccessful();
+
+        Notification::assertSentTo($user, ProductRequestReminder::class, function ($n) {
+            $refs = collect($n->items)->pluck('reason')->implode(' | ');
+
+            return count($n->items) === 3                       // Healthy excluded
+                && str_contains($refs, 'no movement')
+                && str_contains($refs, 'launches in 1 day')
+                && str_contains($refs, 'blocked 4 days');
+        });
+    }
+
+    public function test_ai_content_needs_skus_that_exist_in_shopify(): void
+    {
+        Notification::fake();
+
+        $user    = $this->brandManager();
+        $request = $this->submitFor($user, $this->plainSite(), "AI-1\nAI-2");
+
+        // Nothing is live yet, so there are no images to generate from.
+        $this->assertFalse($request->canGenerateAiContent());
+
+        $this->actingAs($user)->post(route('product-requests.ai-content', $request))
+            ->assertSessionHasErrors('ai');
+
+        $this->assertNull($request->fresh()->ai_content_session_id);
+
+        // One SKU goes live — generate for that one and skip the other.
+        $request->skus()->limit(1)->update(['in_shopify' => true]);
+        $request->refresh();
+
+        $this->assertTrue($request->canGenerateAiContent());
+
+        $this->actingAs($user)->post(route('product-requests.ai-content', $request))->assertRedirect();
+
+        $request->refresh();
+        $this->assertNotNull($request->ai_content_session_id);
+        $this->assertSame(1, $request->aiContentSession->total_items);
+    }
+
+    public function test_bulk_actions_apply_to_many_requests_and_skip_what_cannot_change(): void
+    {
+        Notification::fake();
+
+        $user  = $this->brandManager();
+        $store = $this->plainSite();
+
+        $a = $this->submitFor($user, $store, 'BULK-1');
+        $b = $this->submitFor($user, $store, 'BULK-2');
+        $closed = $this->submitFor($user, $store, 'BULK-3');
+        $closed->update(['status' => ProductRequest::COMPLETED]);
+
+        $this->actingAs($user)->post(route('product-requests.bulk'), [
+            'action'   => 'priority',
+            'ids'      => [$a->id, $b->id, $closed->id],
+            'priority' => 'low',
+        ])->assertRedirect();
+
+        $this->assertSame('low', $a->fresh()->priority);
+        $this->assertSame('low', $b->fresh()->priority);
+        $this->assertNotSame('low', $closed->fresh()->priority);   // closed is skipped
+
+        // Assignment in bulk notifies each new owner.
+        $editor = User::create([
+            'name' => 'Bulk Editor', 'email' => 'be@example.test', 'password' => 'password',
+            'is_active' => true, 'perm_product_request' => true, 'pcr_role' => 'image_editor',
+        ]);
+
+        $this->actingAs($user)->post(route('product-requests.bulk'), [
+            'action'  => 'assign',
+            'ids'     => [$a->id, $b->id],
+            'field'   => 'image_editor_id',
+            'user_id' => $editor->id,
+        ])->assertRedirect();
+
+        $this->assertSame($editor->id, $a->fresh()->image_editor_id);
+        $this->assertSame($editor->id, $b->fresh()->image_editor_id);
+        Notification::assertSentTo($editor, ProductRequestAssigned::class);
+    }
+
+    public function test_bulk_actions_cannot_touch_requests_you_cannot_see(): void
+    {
+        Notification::fake();
+
+        $owner  = $this->brandManager();
+        $hidden = $this->submitFor($owner, $this->plainSite(), 'HIDDEN-1');
+
+        $outsider = User::create([
+            'name' => 'Outsider', 'email' => 'out@example.test', 'password' => 'password',
+            'is_active' => true, 'perm_product_request' => true, 'pcr_role' => null,
+        ]);
+
+        $this->actingAs($outsider)->post(route('product-requests.bulk'), [
+            'action'   => 'priority',
+            'ids'      => [$hidden->id],
+            'priority' => 'low',
+        ])->assertRedirect();
+
+        $this->assertNotSame('low', $hidden->fresh()->priority);
     }
 
     public function test_the_dashboard_explains_the_process_to_newcomers(): void

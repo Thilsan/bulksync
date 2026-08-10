@@ -111,3 +111,12 @@ $pruneProductRequestData = function () {
 };
 
 Schedule::call($pruneProductRequestData)->daily()->name('prune-product-request-data')->withoutOverlapping();
+
+// Chase requests that have gone quiet. Once each weekday morning: a digest is
+// only useful if it arrives when someone can act on it, and daily-including-
+// weekends would train people to ignore it.
+Schedule::command('product-requests:remind')
+    ->weekdays()
+    ->at('08:30')
+    ->name('product-request-reminders')
+    ->withoutOverlapping();

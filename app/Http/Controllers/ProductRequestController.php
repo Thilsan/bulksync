@@ -2,7 +2,9 @@
 
 namespace App\Http\Controllers;
 
+use App\Jobs\GenerateAiContentJob;
 use App\Jobs\ValidateProductRequestSkusJob;
+use App\Models\AiContentSession;
 use App\Models\ProductRequest;
 use App\Models\ProductRequestActivity;
 use App\Models\ProductRequestAttachment;
@@ -10,6 +12,7 @@ use App\Models\ProductRequestSku;
 use App\Models\Store;
 use App\Models\User;
 use App\Notifications\ProductRequestAssigned;
+use App\Notifications\ProductRequestCommented;
 use App\Notifications\ProductRequestHoldChanged;
 use App\Services\ProductRequestWorkflow;
 use App\Services\SkuMappingService;
@@ -168,9 +171,111 @@ class ProductRequestController extends Controller implements HasMiddleware
 
         // The New Request slide-over lives on this page too, and needs the
         // websites this user may file against.
-        $stores = Store::selectableFor($user);
+        $stores   = Store::selectableFor($user);
+        $teamPool = User::where('is_active', true)->orderBy('name')->get(['id', 'name', 'pcr_role']);
 
-        return view('product-requests.list', compact('requests', 'brands', 'stores'));
+        return view('product-requests.list', compact('requests', 'brands', 'stores', 'teamPool'));
+    }
+
+    /**
+     * Apply one change to several requests at once. At 50+ open requests,
+     * re-assigning a departed photographer one page at a time is the kind of
+     * chore that quietly pushes people back to spreadsheets.
+     *
+     * Anything not permitted on a given request is skipped and counted rather
+     * than failing the whole batch — a partial result the user can see beats an
+     * all-or-nothing error.
+     */
+    public function bulk(Request $request, #[CurrentUser] User $user): RedirectResponse
+    {
+        $data = $request->validate([
+            'action'    => 'required|in:assign,priority,status',
+            'ids'       => 'required|array|min:1',
+            'ids.*'     => 'integer',
+            'field'     => 'required_if:action,assign|nullable|in:' . implode(',', array_keys(ProductRequest::ASSIGNMENT_ROLES)),
+            'user_id'   => 'required_if:action,assign|nullable|exists:users,id',
+            'priority'  => 'required_if:action,priority|nullable|in:high,medium,low',
+            'to_status' => 'required_if:action,status|nullable|string',
+            'remarks'   => 'nullable|string|max:255',
+        ]);
+
+        // visibleTo means a bulk post can never touch a request the user
+        // couldn't have opened individually.
+        $requests = ProductRequest::query()
+            ->visibleTo($user)
+            ->whereIn('id', $data['ids'])
+            ->get();
+
+        $done = 0;
+        $skipped = 0;
+
+        foreach ($requests as $productRequest) {
+            $changed = match ($data['action']) {
+                'assign'   => $this->bulkAssign($productRequest, $data['field'], (int) $data['user_id'], $user),
+                'priority' => $this->bulkPriority($productRequest, $data['priority'], $user),
+                'status'   => $this->workflow->transition($productRequest, $data['to_status'], $user, $data['remarks'] ?? null),
+                default    => false,
+            };
+
+            $changed ? $done++ : $skipped++;
+        }
+
+        $message = "{$done} " . str('request')->plural($done) . ' updated.';
+
+        if ($skipped > 0) {
+            $message .= " {$skipped} skipped — the change did not apply at their current stage.";
+        }
+
+        return back()->with($done > 0 ? 'success' : 'warning', $message);
+    }
+
+    private function bulkAssign(ProductRequest $productRequest, string $field, int $userId, User $actor): bool
+    {
+        if ($productRequest->isClosed() || (int) $productRequest->{$field} === $userId) {
+            return false;
+        }
+
+        $assignee = User::find($userId);
+
+        if (!$assignee?->is_active) {
+            return false;
+        }
+
+        $productRequest->update([$field => $assignee->id]);
+
+        $role = ProductRequest::ASSIGNMENT_ROLES[$field];
+
+        $this->workflow->log(
+            request:     $productRequest,
+            action:      'assigned',
+            description: "{$assignee->name} assigned as {$role}",
+            actor:       $actor,
+        );
+
+        if ($assignee->id !== $actor->id) {
+            $assignee->notify(ProductRequestAssigned::forRequest($productRequest, $role, $actor->name));
+        }
+
+        return true;
+    }
+
+    private function bulkPriority(ProductRequest $productRequest, string $priority, User $actor): bool
+    {
+        if ($productRequest->isClosed() || $productRequest->priority === $priority) {
+            return false;
+        }
+
+        $was = $productRequest->priorityLabel();
+        $productRequest->update(['priority' => $priority]);
+
+        $this->workflow->log(
+            request:     $productRequest,
+            action:      'updated',
+            description: "Priority changed from {$was} to " . $productRequest->priorityLabel(),
+            actor:       $actor,
+        );
+
+        return true;
     }
 
     /** Everything currently sitting with this user, in any of the four roles. */
@@ -400,7 +505,7 @@ class ProductRequestController extends Controller implements HasMiddleware
         $this->authorizeView($productRequest, $user);
 
         $productRequest->load([
-            'user', 'store', 'assignee', 'supplyChainOwner', 'photographer', 'imageEditor', 'contentOwner', 'qaOwner', 'attachments.user',
+            'user', 'store', 'assignee', 'supplyChainOwner', 'photographer', 'imageEditor', 'contentOwner', 'qaOwner', 'attachments.user', 'aiContentSession',
         ]);
 
         $skus       = $productRequest->skus()->with('mappedBy')->orderBy('id')->paginate(50, ['*'], 'skus');
@@ -867,6 +972,46 @@ class ProductRequestController extends Controller implements HasMiddleware
         return back()->with('success', "Handed over to {$newOwner->name}.");
     }
 
+    /**
+     * Tell everyone on the request about a comment. @mentions are singled out so
+     * a direct question reads differently from general chatter.
+     *
+     * @return int  people notified
+     */
+    private function notifyComment(ProductRequest $productRequest, string $body, User $actor): int
+    {
+        try {
+            // @Name / @name.surname — matched against active users on this request
+            // and anyone holding a workflow role.
+            preg_match_all('/@([\p{L}][\p{L}0-9._-]{1,60})/u', $body, $matches);
+            $handles = collect($matches[1])->map(fn ($h) => strtolower(str_replace(['.', '_', '-'], ' ', $h)));
+
+            $recipients = $this->workflow->recipients($productRequest)
+                ->reject(fn (User $u) => $u->id === $actor->id);   // don't ping yourself
+
+            if ($recipients->isEmpty()) {
+                return 0;
+            }
+
+            foreach ($recipients as $recipient) {
+                $name      = strtolower($recipient->name);
+                $firstName = strtolower(strtok($recipient->name, ' '));
+
+                $mentioned = $handles->contains(fn ($h) => $h === $name || $h === $firstName);
+
+                $recipient->notify(
+                    ProductRequestCommented::forRequest($productRequest, $body, $actor->name, $mentioned)
+                );
+            }
+
+            return $recipients->count();
+        } catch (\Throwable $e) {
+            // A failed notification must never lose the comment itself.
+            report($e);
+            return 0;
+        }
+    }
+
     private function notifyHold(ProductRequest $productRequest, User $actor): void
     {
         try {
@@ -884,6 +1029,60 @@ class ProductRequestController extends Controller implements HasMiddleware
         }
     }
 
+    /**
+     * Kick off the AI Content Generator for this request's SKUs.
+     *
+     * Generation reads product images from Shopify, so only SKUs already live
+     * there can be processed — for a brand-new product that means after upload.
+     * Rather than failing on the rest, we generate for what exists and say
+     * plainly how many were skipped and why.
+     */
+    public function generateAiContent(ProductRequest $productRequest, #[CurrentUser] User $user): RedirectResponse
+    {
+        $this->authorizeView($productRequest, $user);
+
+        if (!$productRequest->use_ai_content) {
+            return back()->withErrors(['ai' => 'This request is set to use content supplied by the brand team.']);
+        }
+
+        abort_if($productRequest->isClosed(), 403, 'This request is closed.');
+
+        $eligible = $productRequest->skus()->where('in_shopify', true)->pluck('sku');
+        $skipped  = $productRequest->total_skus - $eligible->count();
+
+        if ($eligible->isEmpty()) {
+            return back()->withErrors([
+                'ai' => 'None of these SKUs exist in Shopify yet. AI content is generated from the live product images, '
+                      . 'so upload the products first (or re-run SKU validation if they are already there).',
+            ]);
+        }
+
+        $session = AiContentSession::create([
+            'user_id'    => $user->id,
+            'store_id'   => $productRequest->store_id,
+            'input_type' => 'sku_list',
+            'sku_raw'    => $eligible->implode("\n"),
+            'status'     => 'pending',
+            'total_items'=> $eligible->count(),
+        ]);
+
+        $productRequest->update(['ai_content_session_id' => $session->id]);
+
+        GenerateAiContentJob::dispatch($session->id)->onQueue('bulkupload');
+
+        $this->workflow->log(
+            request:     $productRequest,
+            action:      'ai_content',
+            description: "AI content generation started for {$eligible->count()} SKU(s)",
+            actor:       $user,
+            remarks:     $skipped > 0 ? "{$skipped} SKU(s) skipped — not in Shopify yet" : null,
+        );
+
+        return back()->with('success', $skipped > 0
+            ? "AI content generation started for {$eligible->count()} SKU(s). {$skipped} skipped — not in Shopify yet."
+            : "AI content generation started for {$eligible->count()} SKU(s).");
+    }
+
     public function comment(Request $request, ProductRequest $productRequest, #[CurrentUser] User $user): RedirectResponse
     {
         $this->authorizeView($productRequest, $user);
@@ -898,7 +1097,11 @@ class ProductRequestController extends Controller implements HasMiddleware
             remarks:     $data['remarks'],
         );
 
-        return back()->with('success', 'Comment added.');
+        $told = $this->notifyComment($productRequest, $data['remarks'], $user);
+
+        return back()->with('success', $told > 0
+            ? "Comment added. {$told} " . str('person')->plural($told) . ' notified.'
+            : 'Comment added.');
     }
 
     public function cancel(Request $request, ProductRequest $productRequest, #[CurrentUser] User $user): RedirectResponse

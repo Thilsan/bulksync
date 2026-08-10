@@ -525,6 +525,86 @@
                 </div>
             </div>
 
+            {{-- AI content: only meaningful once the request reaches the content leg. --}}
+            @php
+                $atContent = in_array($request->status, [
+                    \App\Models\ProductRequest::IMAGE_EDITING,
+                    \App\Models\ProductRequest::AI_CONTENT,
+                    \App\Models\ProductRequest::QA_REVIEW,
+                ], true);
+                $aiSession = $request->aiContentSession;
+            @endphp
+            @if($request->use_ai_content && ($atContent || $aiSession))
+            <div class="bg-white rounded-xl border border-gray-200 shadow-sm">
+                <div class="px-5 py-3.5 border-b border-gray-100 flex items-center justify-between gap-3">
+                    <div>
+                        <h2 class="text-sm font-semibold text-gray-800">AI Content</h2>
+                        <p class="text-xs text-gray-400 mt-0.5">
+                            Descriptions, meta titles and meta descriptions, generated from the live product images.
+                        </p>
+                    </div>
+                    @unless($request->isClosed())
+                    <form method="POST" action="{{ route('product-requests.ai-content', $request) }}" class="shrink-0">
+                        @csrf
+                        <button type="submit"
+                                class="inline-flex items-center gap-1.5 bg-brand-600 hover:bg-brand-700 text-white text-xs font-medium px-3 py-1.5 rounded-lg transition-colors">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+                            </svg>
+                            {{ $aiSession ? 'Run again' : 'Generate AI content' }}
+                        </button>
+                    </form>
+                    @endunless
+                </div>
+
+                <div class="px-5 py-4">
+                    @php $eligible = $request->skus()->where('in_shopify', true)->count(); @endphp
+
+                    @if($aiSession)
+                        <div class="flex flex-wrap items-center gap-x-6 gap-y-2">
+                            <div>
+                                <p class="text-xs text-gray-500">Status</p>
+                                <p class="text-sm font-medium text-gray-800">{{ ucfirst($aiSession->status) }}</p>
+                            </div>
+                            <div>
+                                <p class="text-xs text-gray-500">Progress</p>
+                                <p class="text-sm font-medium text-gray-800">
+                                    {{ $aiSession->processed_items }} / {{ $aiSession->total_items }}
+                                </p>
+                            </div>
+                            <div class="flex-1 min-w-[8rem]">
+                                <div class="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                                    <div class="h-full bg-brand-600 rounded-full" style="width: {{ $aiSession->progressPercent() }}%"></div>
+                                </div>
+                            </div>
+                            <a href="{{ route('ai-content.show', $aiSession) }}"
+                               class="text-xs text-brand-600 hover:text-brand-700 font-medium shrink-0">
+                                Open in AI Content Generator &rarr;
+                            </a>
+                        </div>
+                        @if($aiSession->error_message)
+                            <p class="text-xs text-red-600 mt-2">{{ $aiSession->error_message }}</p>
+                        @endif
+                    @elseif($eligible === 0)
+                        <div class="bg-amber-50 border border-amber-200 text-amber-900 rounded-lg px-4 py-3 text-sm">
+                            <p class="font-medium">No SKUs are in Shopify yet.</p>
+                            <p class="text-xs mt-0.5">
+                                AI content is generated from the live product images, so the products need to exist online first.
+                                Upload them, then re-run SKU validation and come back here.
+                            </p>
+                        </div>
+                    @else
+                        <p class="text-sm text-gray-600">
+                            <span class="font-medium">{{ $eligible }}</span> of {{ $request->total_skus }} SKUs are live in Shopify and ready for generation.
+                            @if($eligible < $request->total_skus)
+                                <span class="text-amber-600">The rest are skipped until they exist online.</span>
+                            @endif
+                        </p>
+                    @endif
+                </div>
+            </div>
+            @endif
+
             {{-- Tabs --}}
             <div class="bg-white rounded-xl border border-gray-200 shadow-sm">
                 <div class="px-5 border-b border-gray-100 flex gap-1">
@@ -675,7 +755,16 @@
                 </div>
 
                 {{-- Tab: SKUs --}}
-                <div x-show="tab === 'skus'" x-cloak class="px-5 py-5" x-data="{ selected: [], selectAll: false }">
+                <div x-show="tab === 'skus'" x-cloak class="px-5 py-5"
+                     x-data="{
+                        selected: [],
+                        selectAll: false,
+                        applyToAll: false,
+                        pageCount: {{ $skus->count() }},
+                        totalCount: {{ $skus->total() }},
+                        get onePageOnly() { return this.pageCount >= this.totalCount },
+                        get affected() { return this.applyToAll ? this.totalCount : this.selected.length },
+                     }">
 
                     @unless($request->isClosed())
                     <form method="POST" action="{{ route('product-requests.skus.add', $request) }}" enctype="multipart/form-data" class="mb-5 pb-5 border-b border-gray-100">
@@ -696,27 +785,45 @@
                     @if($usesMapping)
                     <form method="POST" action="{{ route('product-requests.skus.mapping', $request) }}" class="mb-4">
                         @csrf
+                        <input type="hidden" name="scope" :value="applyToAll ? 'all' : 'selected'">
                         <template x-for="id in selected" :key="id">
                             <input type="hidden" name="sku_ids[]" :value="id">
                         </template>
                         <div class="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2.5">
                             <div class="flex flex-wrap items-center gap-2">
                                 <span class="text-xs font-medium text-gray-600">Supply Chain — update mapping status</span>
-                                <span class="text-xs text-gray-500">(<span x-text="selected.length"></span> selected)</span>
+                                <span class="text-xs text-gray-500">
+                                    (<span x-text="affected"></span>
+                                    <span x-text="applyToAll ? 'SKUs — the whole request' : 'selected'"></span>)
+                                </span>
                                 <div class="flex-1"></div>
-                                <button type="submit" name="mapping_status" value="{{ \App\Models\ProductRequest::MAP_MAPPED }}" :disabled="!selected.length"
+                                <button type="submit" name="mapping_status" value="{{ \App\Models\ProductRequest::MAP_MAPPED }}" :disabled="!affected"
                                         class="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors bg-green-600 hover:bg-green-700 text-white disabled:opacity-40 disabled:cursor-not-allowed">
                                     <span class="w-1.5 h-1.5 rounded-full bg-white"></span> Mapped
                                 </button>
-                                <button type="submit" name="mapping_status" value="{{ \App\Models\ProductRequest::MAP_PENDING }}" :disabled="!selected.length"
+                                <button type="submit" name="mapping_status" value="{{ \App\Models\ProductRequest::MAP_PENDING }}" :disabled="!affected"
                                         class="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors bg-amber-500 hover:bg-amber-600 text-white disabled:opacity-40 disabled:cursor-not-allowed">
                                     <span class="w-1.5 h-1.5 rounded-full bg-white"></span> Pending
                                 </button>
-                                <button type="submit" name="mapping_status" value="{{ \App\Models\ProductRequest::MAP_NOT_MAPPED }}" :disabled="!selected.length"
+                                <button type="submit" name="mapping_status" value="{{ \App\Models\ProductRequest::MAP_NOT_MAPPED }}" :disabled="!affected"
                                         class="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors bg-red-600 hover:bg-red-700 text-white disabled:opacity-40 disabled:cursor-not-allowed">
                                     <span class="w-1.5 h-1.5 rounded-full bg-white"></span> Not Mapped
                                 </button>
                             </div>
+                            {{-- Ticking the header box only reaches the rows on screen. When the
+                                 table spans pages, offer the whole request explicitly rather than
+                                 letting "select all" quietly mean "select this page". --}}
+                            <template x-if="!onePageOnly">
+                                <label class="flex items-center gap-2 mt-2 cursor-pointer">
+                                    <input type="checkbox" x-model="applyToAll"
+                                           class="rounded border-gray-300 text-brand-600 focus:ring-brand-500">
+                                    <span class="text-xs text-gray-700">
+                                        Apply to <span class="font-semibold" x-text="totalCount"></span> SKUs — the whole request,
+                                        not just this page
+                                    </span>
+                                </label>
+                            </template>
+
                             <input type="text" name="mapping_note" maxlength="255" placeholder="Optional note — e.g. awaiting supplier article code"
                                    class="w-full mt-2 rounded-lg border border-gray-300 px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500">
                         </div>
@@ -737,9 +844,10 @@
                                 <tr class="text-left text-xs text-gray-500 border-b border-gray-100">
                                     @if(!$request->isClosed() && $usesMapping)
                                     <th class="py-2 pr-3 w-8">
-                                        <input type="checkbox" x-model="selectAll"
-                                               @change="selected = selectAll ? Array.from(document.querySelectorAll('[data-sku-id]')).map(el => el.dataset.skuId) : []"
-                                               class="rounded border-gray-300 text-brand-600 focus:ring-brand-500">
+                                        <input type="checkbox" x-model="selectAll" :disabled="applyToAll"
+                                               title="Selects the rows on this page"
+                                               @change="selected = selectAll ? Array.from($root.querySelectorAll('[data-sku-id]')).map(el => el.dataset.skuId) : []"
+                                               class="rounded border-gray-300 text-brand-600 focus:ring-brand-500 disabled:opacity-40">
                                     </th>
                                     @endif
                                     <th class="py-2 pr-3 font-medium">SKU</th>
