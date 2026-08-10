@@ -199,7 +199,7 @@ class ProductRequest extends Model
     /** The people a request can be assigned to, and what to call each. */
     public const ASSIGNMENT_ROLES = [
         'brand_manager_id' => 'Brand Manager',
-        'assigned_to'      => 'E-Commerce Owner',
+        'assigned_to'      => 'E-Commerce Team',
         'supply_chain_id'  => 'Supply Chain',
         'photographer_id'  => 'Photographer',
         'image_editor_id'  => 'Photo Editor',

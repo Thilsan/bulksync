@@ -688,7 +688,7 @@ class ProductRequestTest extends TestCase
         $user    = $this->brandManager();
         $request = $this->submitFor($user, $this->plainSite(), 'GUIDE-1');
 
-        // Sitting at SKU Verified, which the E-Commerce owner drives.
+        // Sitting at SKU Verified, which the E-Commerce team drives.
         $request->update(['assigned_to' => $user->id]);
         $request->refresh();
 
@@ -933,7 +933,7 @@ class ProductRequestTest extends TestCase
         $this->assertSame('mine', $request->ownershipFor($supply));
         Notification::assertSentTo($supply, ProductRequestAssigned::class);
 
-        // Image Editing belongs to the editor, not the E-Commerce owner.
+        // Image Editing belongs to the editor, not the E-Commerce team.
         $request->update(['status' => ProductRequest::IMAGE_EDITING]);
         $request->refresh();
 
