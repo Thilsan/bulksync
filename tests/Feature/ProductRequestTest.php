@@ -1192,7 +1192,8 @@ class ProductRequestTest extends TestCase
             'use_ai_content'            => 1,
             'priority'                  => 'high',
             'assignments'               => [
-                ['role' => 'photographer_id', 'user_id' => $shooter->id],
+                ['role' => 'photographer_id', 'user_id' => $shooter->id,
+                 'title' => 'Shoot 45 SKUs on white', 'due_date' => now()->addDays(6)->toDateString()],
                 ['role' => 'qa_owner_id',     'user_id' => $qa->id],
                 ['role' => 'assigned_to',     'user_id' => $requester->id],   // themselves
                 ['role' => '',                'user_id' => ''],               // untouched row
@@ -1217,6 +1218,17 @@ class ProductRequestTest extends TestCase
             ->assertOk()
             ->assertSee('requested by')
             ->assertSee($requester->name);
+
+        // Each person's own brief and deadline are stored alongside the role.
+        $brief = $request->assignmentFor('photographer_id');
+        $this->assertNotNull($brief);
+        $this->assertSame('Shoot 45 SKUs on white', $brief->title);
+        $this->assertSame(now()->addDays(6)->toDateString(), $brief->due_date->toDateString());
+        $this->assertSame($requester->id, $brief->assigned_by);
+        $this->assertSame(6, $brief->daysLeft());
+
+        // A role given without a deadline simply has none.
+        $this->assertNull($request->assignmentFor('qa_owner_id')->due_date);
     }
 
     public function test_a_role_cannot_be_given_to_two_people_at_once(): void
@@ -1252,6 +1264,72 @@ class ProductRequestTest extends TestCase
 
         // Rejected outright rather than silently keeping whichever came last.
         $this->assertSame(0, ProductRequest::count());
+    }
+
+    public function test_a_personal_deadline_is_tracked_and_chased(): void
+    {
+        Notification::fake();
+
+        $requester = $this->brandManager();
+        $request   = $this->submitFor($requester, $this->plainSite(), 'DUE-1');
+
+        $shooter = User::create(['name' => 'Late Shooter', 'email' => 'late@example.test', 'password' => 'password',
+            'is_active' => true, 'perm_product_request' => true, 'pcr_role' => 'photographer']);
+
+        $request->update(['status' => ProductRequest::WAITING_IMAGES]);
+
+        // Assign with a deadline that has already passed.
+        app(ProductRequestWorkflow::class)->assignRole(
+            request: $request->refresh(),
+            field:   'photographer_id',
+            userId:  $shooter->id,
+            actor:   $requester,
+            title:   'Shoot the samples',
+            dueDate: now()->subDays(2)->toDateString(),
+        );
+
+        $brief = $request->refresh()->assignmentFor('photographer_id');
+
+        $this->assertTrue($brief->isOverdue());
+        $this->assertSame(-2, $brief->daysLeft());
+        $this->assertStringContainsString('overdue', $brief->dueLabel());
+
+        // The owner column and the brief agree — nothing drifted.
+        $this->assertSame($shooter->id, $request->photographer_id);
+        $this->assertSame($shooter->id, $brief->user_id);
+
+        // The digest chases the person by name, quoting their own task.
+        $this->artisan('product-requests:remind')->assertSuccessful();
+
+        Notification::assertSentTo($shooter, ProductRequestReminder::class, function ($n) {
+            return str_contains(collect($n->items)->pluck('reason')->implode(' '), 'Shoot the samples');
+        });
+
+        // Finished work stops being chased even though the date has passed.
+        $brief->update(['completed_at' => now()]);
+        $this->assertFalse($brief->fresh()->isOverdue());
+    }
+
+    public function test_unassigning_a_role_removes_its_brief(): void
+    {
+        Notification::fake();
+
+        $requester = $this->brandManager();
+        $request   = $this->submitFor($requester, $this->plainSite(), 'UNASSIGN-1');
+
+        $editor = User::create(['name' => 'Ed', 'email' => 'ed2@example.test', 'password' => 'password',
+            'is_active' => true, 'perm_product_request' => true, 'pcr_role' => 'image_editor']);
+
+        $workflow = app(ProductRequestWorkflow::class);
+
+        $workflow->assignRole($request, 'image_editor_id', $editor->id, $requester, 'Edit the images', now()->addDays(3)->toDateString());
+        $this->assertNotNull($request->refresh()->assignmentFor('image_editor_id'));
+
+        $workflow->assignRole($request, 'image_editor_id', null, $requester);
+
+        $request->refresh();
+        $this->assertNull($request->image_editor_id);
+        $this->assertNull($request->assignmentFor('image_editor_id'));   // no orphan brief left behind
     }
 
     public function test_the_dashboard_explains_the_process_to_newcomers(): void

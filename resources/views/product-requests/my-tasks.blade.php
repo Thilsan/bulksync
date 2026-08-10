@@ -126,7 +126,8 @@
                     <tr class="text-left text-xs text-gray-500 border-b border-gray-100 bg-gray-50/60">
                         <th class="px-5 py-2.5 font-medium">Request</th>
                         <th class="px-3 py-2.5 font-medium">Brand / Category</th>
-                        <th class="px-3 py-2.5 font-medium">My Role</th>
+                        <th class="px-3 py-2.5 font-medium">My Task</th>
+                        <th class="px-3 py-2.5 font-medium">My Deadline</th>
                         <th class="px-3 py-2.5 font-medium">Current Stage</th>
                         <th class="px-3 py-2.5 font-medium">Online Launch</th>
                         <th class="px-5 py-2.5 font-medium">Priority</th>
@@ -145,14 +146,37 @@
                                 </p>
                             </td>
                             <td class="px-3 py-3 text-gray-700">{{ $item->brand }} / {{ $item->category }}</td>
+                            @php $mine = $item->assignments->where('user_id', $me->id); @endphp
                             <td class="px-3 py-3">
-                                <div class="flex flex-wrap gap-1">
-                                    @foreach($item->rolesFor($me) as $role)
-                                        <span class="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-brand-50 text-brand-700 border border-brand-100 whitespace-nowrap">
-                                            {{ $role }}
-                                        </span>
-                                    @endforeach
+                                <div class="space-y-1">
+                                    @forelse($mine as $brief)
+                                        <div>
+                                            <span class="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-brand-50 text-brand-700 border border-brand-100 whitespace-nowrap">
+                                                {{ $brief->roleLabel() }}
+                                            </span>
+                                            @if($brief->title)
+                                                <p class="text-xs text-gray-600 mt-0.5">{{ $brief->title }}</p>
+                                            @endif
+                                        </div>
+                                    @empty
+                                        @foreach($item->rolesFor($me) as $role)
+                                            <span class="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-brand-50 text-brand-700 border border-brand-100 whitespace-nowrap">
+                                                {{ $role }}
+                                            </span>
+                                        @endforeach
+                                    @endforelse
                                 </div>
+                            </td>
+                            <td class="px-3 py-3">
+                                @php $withDates = $mine->filter->due_date; @endphp
+                                @forelse($withDates as $brief)
+                                    <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold {{ $brief->dueTone() }}">
+                                        {{ $brief->dueLabel() }}
+                                    </span>
+                                    <p class="text-xs text-gray-400">{{ $brief->due_date->format('d M Y') }}</p>
+                                @empty
+                                    <span class="text-gray-300 text-xs">—</span>
+                                @endforelse
                             </td>
                             <td class="px-3 py-3">
                                 <span class="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium border whitespace-nowrap {{ $item->statusColor() }}">

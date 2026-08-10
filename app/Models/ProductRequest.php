@@ -335,6 +335,34 @@ class ProductRequest extends Model
         return $this->skus()->where('in_shopify', true)->exists();
     }
 
+    /** Per-person brief and deadline, one row per assigned role. */
+    public function assignments(): HasMany
+    {
+        return $this->hasMany(ProductRequestAssignment::class);
+    }
+
+    /** The brief for one role, if the requester gave one. */
+    public function assignmentFor(string $role): ?ProductRequestAssignment
+    {
+        return $this->assignments->firstWhere('role', $role);
+    }
+
+    /** The brief attached to the stage the request is sitting at. */
+    public function currentAssignment(): ?ProductRequestAssignment
+    {
+        $field = $this->currentGuide()['field'];
+
+        return $field ? $this->assignmentFor($field) : null;
+    }
+
+    /** Assignments this user holds that are past their own deadline. */
+    public function overdueAssignmentsFor(User $user)
+    {
+        return $this->assignments
+            ->where('user_id', $user->id)
+            ->filter(fn ($a) => $a->isOverdue());
+    }
+
     /** Mood boards and reference shots supplied with the request. */
     public function referenceImages(): HasMany
     {

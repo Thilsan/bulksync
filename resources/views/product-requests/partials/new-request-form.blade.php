@@ -249,7 +249,7 @@
 
                 {{-- 6. Team --}}
                 <section x-data="{
-                        rows: [{ role: '', user: '' }],
+                        rows: [{ role: '', user: '', title: '', due: '' }],
                         allRoles: {{ Illuminate\Support\Js::from(collect(\App\Models\ProductRequest::ASSIGNMENT_ROLES)->map(fn ($label, $key) => ['key' => $key, 'label' => $label])->values()) }},
                         // Only roles this request will actually use.
                         get activeRoles() {
@@ -264,7 +264,7 @@
                             return this.activeRoles.filter(r => !taken.includes(r.key));
                         },
                         get canAdd() { return this.rows.length < this.activeRoles.length; },
-                        add() { if (this.canAdd) this.rows.push({ role: '', user: '' }); },
+                        add() { if (this.canAdd) this.rows.push({ role: '', user: '', title: '', due: '' }); },
                         remove(i) {
                             this.rows.splice(i, 1);
                             if (!this.rows.length) this.add();
@@ -273,14 +273,15 @@
                         // assigned to work that no longer exists.
                         prune() {
                             const ok = this.activeRoles.map(r => r.key);
-                            this.rows.forEach(r => { if (r.role && !ok.includes(r.role)) { r.role = ''; r.user = ''; } });
+                            this.rows.forEach(r => { if (r.role && !ok.includes(r.role)) { r.role = ''; r.user = ''; r.title = ''; r.due = ''; } });
                         },
                      }"
                      x-effect="photoshoot; usesMapping; prune()">
 
                     <h3 class="text-sm font-semibold text-gray-800 mb-1">6. Team Assignments</h3>
                     <p class="text-xs text-gray-400 mb-3">
-                        Optional. Choose a role, then who does it — add a row for each one you know.
+                        Optional. Choose a role, who does it, what they need to deliver and by when —
+                        one row for each. Their deadline is their own, ahead of the launch date.
                         Anyone you pick is notified that
                         <span class="font-medium text-gray-600">{{ auth()->user()->name }}</span> has given them this work.
                         Leave it empty and each team can claim their own stage later.
@@ -288,37 +289,63 @@
 
                     <div class="space-y-2">
                         <template x-for="(row, i) in rows" :key="i">
-                            <div class="flex items-start gap-2">
-                                <div class="flex-1 min-w-0">
-                                    <label class="block text-xs font-medium text-gray-500 mb-1" x-show="i === 0">Role</label>
-                                    <select x-model="row.role" :name="`assignments[${i}][role]`"
-                                            class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent">
-                                        <option value="">Select a role…</option>
-                                        <template x-for="r in optionsFor(i)" :key="r.key">
-                                            <option :value="r.key" x-text="r.label"></option>
-                                        </template>
-                                    </select>
+                            <div class="rounded-lg border border-gray-200 bg-gray-50/60 px-3 py-3">
+                                <div class="flex items-center justify-between mb-2">
+                                    <span class="text-xs font-semibold text-gray-500">
+                                        Assignment <span x-text="i + 1"></span>
+                                    </span>
+                                    <button type="button" @click="remove(i)"
+                                            class="text-gray-400 hover:text-red-600 transition-colors" title="Remove">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                                        </svg>
+                                    </button>
                                 </div>
 
-                                <div class="flex-1 min-w-0">
-                                    <label class="block text-xs font-medium text-gray-500 mb-1" x-show="i === 0">Person</label>
-                                    <select x-model="row.user" :name="`assignments[${i}][user_id]`" :disabled="!row.role"
-                                            class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent disabled:bg-gray-50 disabled:text-gray-400">
-                                        <option value="">Select a person…</option>
-                                        @foreach($teamPool as $member)
-                                            <option value="{{ $member->id }}">{{ $member->name }}@if($member->pcr_role) — {{ $member->pcrRoleLabel() }}@endif</option>
-                                        @endforeach
-                                    </select>
-                                </div>
+                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                    <div>
+                                        <label class="block text-xs text-gray-500 mb-1">Role</label>
+                                        <select x-model="row.role" :name="`assignments[${i}][role]`"
+                                                class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-500">
+                                            <option value="">Select a role…</option>
+                                            <template x-for="r in optionsFor(i)" :key="r.key">
+                                                <option :value="r.key" x-text="r.label"></option>
+                                            </template>
+                                        </select>
+                                    </div>
 
-                                <button type="button" @click="remove(i)"
-                                        class="shrink-0 text-gray-400 hover:text-red-600 transition-colors p-2"
-                                        :class="i === 0 && 'mt-5'"
-                                        title="Remove this row">
-                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-                                    </svg>
-                                </button>
+                                    <div>
+                                        <label class="block text-xs text-gray-500 mb-1">Person</label>
+                                        <select x-model="row.user" :name="`assignments[${i}][user_id]`" :disabled="!row.role"
+                                                class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-500 disabled:bg-gray-100 disabled:text-gray-400">
+                                            <option value="">Select a person…</option>
+                                            @foreach($teamPool as $member)
+                                                <option value="{{ $member->id }}">{{ $member->name }}@if($member->pcr_role) — {{ $member->pcrRoleLabel() }}@endif</option>
+                                            @endforeach
+                                        </select>
+                                    </div>
+
+                                    <div>
+                                        <label class="block text-xs text-gray-500 mb-1">Task</label>
+                                        <input type="text" x-model="row.title" :name="`assignments[${i}][title]`" :disabled="!row.role"
+                                               maxlength="255" placeholder="e.g. Shoot 45 SKUs on white background"
+                                               class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-500 disabled:bg-gray-100">
+                                    </div>
+
+                                    <div>
+                                        <label class="block text-xs text-gray-500 mb-1">
+                                            Finish by
+                                            <span class="text-gray-400" x-show="onlineDate">(launch <span x-text="onlineDate"></span>)</span>
+                                        </label>
+                                        <input type="date" x-model="row.due" :name="`assignments[${i}][due_date]`" :disabled="!row.role"
+                                               :max="onlineDate || null"
+                                               class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-500 disabled:bg-gray-100">
+                                        <p x-show="row.due && onlineDate && row.due > onlineDate" x-cloak
+                                           class="text-xs text-amber-600 mt-1">
+                                            That is after the online launch date.
+                                        </p>
+                                    </div>
+                                </div>
                             </div>
                         </template>
                     </div>

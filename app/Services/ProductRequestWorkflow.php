@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\ProductRequest;
 use App\Models\ProductRequestActivity;
 use App\Models\User;
+use App\Notifications\ProductRequestAssigned;
 use App\Notifications\ProductRequestStatusChanged;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
@@ -123,6 +124,109 @@ class ProductRequestWorkflow
 
             $this->transition($request, ProductRequest::SKU_VERIFIED, $actor, $remarks);
         }
+    }
+
+    /**
+     * Give a role to someone, with an optional brief and deadline.
+     *
+     * Single entry point for every assign path — submission, the assignments
+     * panel, bulk actions, claiming and handover all came through here so the
+     * owner column, the brief row, the audit trail and the notification can
+     * never disagree with each other.
+     *
+     * @return bool  false when nothing changed
+     */
+    public function assignRole(
+        ProductRequest $request,
+        string $field,
+        ?int $userId,
+        ?User $actor = null,
+        ?string $title = null,
+        ?string $dueDate = null,
+        bool $notify = true,
+        ?string $description = null,
+    ): bool {
+        if (!array_key_exists($field, ProductRequest::ASSIGNMENT_ROLES)) {
+            return false;
+        }
+
+        $roleLabel = ProductRequest::ASSIGNMENT_ROLES[$field];
+        $previous  = $request->{$field} ? (int) $request->{$field} : null;
+        $assignee  = $userId ? User::find($userId) : null;
+
+        if ($userId && !$assignee?->is_active) {
+            return false;   // never hand work to a disabled account
+        }
+
+        $existing   = $request->assignments()->where('role', $field)->first();
+        $detailOnly = $previous === $userId
+            && ($title !== null || $dueDate !== null)
+            && ($existing?->title !== $title || (string) $existing?->due_date?->toDateString() !== (string) $dueDate);
+
+        // Same person, no new brief — nothing to record.
+        if ($previous === $userId && !$detailOnly) {
+            return false;
+        }
+
+        $request->update([$field => $assignee?->id]);
+
+        if ($assignee) {
+            $request->assignments()->updateOrCreate(
+                ['role' => $field],
+                array_filter([
+                    'user_id'     => $assignee->id,
+                    'assigned_by' => $actor?->id,
+                    'title'       => $title,
+                    'due_date'    => $dueDate,
+                ], fn ($v, $k) => $v !== null || in_array($k, ['title', 'due_date'], true), ARRAY_FILTER_USE_BOTH)
+            );
+        } else {
+            // Unassigned: drop the brief with it rather than leaving an orphan.
+            $request->assignments()->where('role', $field)->delete();
+        }
+
+        $request->load('assignments');
+
+        // Callers may phrase it better — a self-claim reads as "took this task",
+        // which says more in the audit trail than "assigned as".
+        $description ??= match (true) {
+            !$assignee  => "{$roleLabel} unassigned",
+            $detailOnly => "{$roleLabel} brief updated for {$assignee->name}",
+            default     => "{$assignee->name} assigned as {$roleLabel}",
+        };
+
+        $this->log(
+            request:     $request,
+            action:      'assigned',
+            description: $description,
+            actor:       $actor,
+            remarks:     $this->briefRemark($title, $dueDate),
+        );
+
+        // Don't announce your own name to yourself, or a brief-only tweak.
+        if ($notify && $assignee && !$detailOnly && $assignee->id !== $actor?->id) {
+            try {
+                $assignee->notify(ProductRequestAssigned::forRequest(
+                    $request,
+                    $roleLabel,
+                    $actor?->name ?? 'System',
+                ));
+            } catch (\Throwable $e) {
+                Log::error("ProductRequestWorkflow: assign notification failed for request {$request->id}: " . $e->getMessage());
+            }
+        }
+
+        return true;
+    }
+
+    private function briefRemark(?string $title, ?string $dueDate): ?string
+    {
+        $parts = array_filter([
+            $title   ? "Task: {$title}" : null,
+            $dueDate ? 'Due ' . \Illuminate\Support\Carbon::parse($dueDate)->format('d M Y') : null,
+        ]);
+
+        return $parts ? implode(' · ', $parts) : null;
     }
 
     public function log(

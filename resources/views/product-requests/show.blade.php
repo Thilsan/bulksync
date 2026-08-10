@@ -246,6 +246,22 @@
                             Current stage: <span class="font-medium">{{ $request->statusLabel() }}</span>
                         </p>
 
+                            @php $myBrief = $request->currentAssignment(); @endphp
+                        @if($myBrief && ($myBrief->title || $myBrief->due_date))
+                            <div class="mt-2 rounded-lg bg-white/70 border border-gray-200 px-3 py-2">
+                                <p class="text-xs text-gray-500">Agreed for this stage</p>
+                                <p class="text-sm text-gray-800">{{ $myBrief->taskTitle() }}</p>
+                                @if($myBrief->due_date)
+                                    <p class="mt-1">
+                                        <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold {{ $myBrief->dueTone() }}">
+                                            {{ $myBrief->dueLabel() }}
+                                        </span>
+                                        <span class="text-[10px] text-gray-400 ml-1">by {{ $myBrief->due_date->format('d M Y') }}</span>
+                                    </p>
+                                @endif
+                            </div>
+                        @endif
+
                         {{-- Time left to the online launch. Colour escalates as it
                              closes in, so urgency is visible without doing the maths. --}}
                         @php
@@ -1121,6 +1137,27 @@
                                     </option>
                                 @endforeach
                             </select>
+
+                            @php $brief = $request->assignmentFor($field); @endphp
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-1.5">
+                                <input type="text" name="titles[{{ $field }}]" maxlength="255"
+                                       value="{{ $brief?->title }}" placeholder="Task (optional)"
+                                       {{ $request->isClosed() ? 'disabled' : '' }}
+                                       class="w-full rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500 disabled:bg-gray-50">
+                                <input type="date" name="due_dates[{{ $field }}]"
+                                       value="{{ $brief?->due_date?->format('Y-m-d') }}"
+                                       {{ $request->isClosed() ? 'disabled' : '' }}
+                                       class="w-full rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500 disabled:bg-gray-50">
+                            </div>
+
+                            @if($brief?->due_date)
+                                <p class="mt-1">
+                                    <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold {{ $brief->dueTone() }}">
+                                        {{ $brief->dueLabel() }}
+                                    </span>
+                                    <span class="text-[10px] text-gray-400 ml-1">{{ $brief->due_date->format('d M Y') }}</span>
+                                </p>
+                            @endif
                         </div>
                     @endforeach
 

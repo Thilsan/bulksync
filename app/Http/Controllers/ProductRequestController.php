@@ -142,7 +142,7 @@ class ProductRequestController extends Controller implements HasMiddleware
         // All four owner relations are eager-loaded: the "Waiting On" column
         // resolves whichever one the current stage belongs to, per row.
         $query = ProductRequest::query()->visibleTo($user)
-            ->with(['user', 'assignee', 'supplyChainOwner', 'photographer', 'imageEditor', 'contentOwner', 'qaOwner']);
+            ->with(['user', 'assignee', 'supplyChainOwner', 'photographer', 'imageEditor', 'contentOwner', 'qaOwner', 'assignments']);
 
         if ($request->filled('status')) {
             $query->where('status', $request->string('status'));
@@ -198,6 +198,7 @@ class ProductRequestController extends Controller implements HasMiddleware
             'user_id'   => 'required_if:action,assign|nullable|exists:users,id',
             'priority'  => 'required_if:action,priority|nullable|in:high,medium,low',
             'to_status' => 'required_if:action,status|nullable|string',
+            'due_date'  => 'nullable|date',
             'remarks'   => 'nullable|string|max:255',
         ]);
 
@@ -213,7 +214,13 @@ class ProductRequestController extends Controller implements HasMiddleware
 
         foreach ($requests as $productRequest) {
             $changed = match ($data['action']) {
-                'assign'   => $this->bulkAssign($productRequest, $data['field'], (int) $data['user_id'], $user),
+                'assign'   => $this->workflow->assignRole(
+                                  request: $productRequest,
+                                  field:   $data['field'],
+                                  userId:  (int) $data['user_id'],
+                                  actor:   $user,
+                                  dueDate: $data['due_date'] ?? null,
+                              ),
                 'priority' => $this->bulkPriority($productRequest, $data['priority'], $user),
                 'status'   => $this->workflow->transition($productRequest, $data['to_status'], $user, $data['remarks'] ?? null),
                 default    => false,
@@ -229,36 +236,6 @@ class ProductRequestController extends Controller implements HasMiddleware
         }
 
         return back()->with($done > 0 ? 'success' : 'warning', $message);
-    }
-
-    private function bulkAssign(ProductRequest $productRequest, string $field, int $userId, User $actor): bool
-    {
-        if ($productRequest->isClosed() || (int) $productRequest->{$field} === $userId) {
-            return false;
-        }
-
-        $assignee = User::find($userId);
-
-        if (!$assignee?->is_active) {
-            return false;
-        }
-
-        $productRequest->update([$field => $assignee->id]);
-
-        $role = ProductRequest::ASSIGNMENT_ROLES[$field];
-
-        $this->workflow->log(
-            request:     $productRequest,
-            action:      'assigned',
-            description: "{$assignee->name} assigned as {$role}",
-            actor:       $actor,
-        );
-
-        if ($assignee->id !== $actor->id) {
-            $assignee->notify(ProductRequestAssigned::forRequest($productRequest, $role, $actor->name));
-        }
-
-        return true;
     }
 
     private function bulkPriority(ProductRequest $productRequest, string $priority, User $actor): bool
@@ -285,7 +262,7 @@ class ProductRequestController extends Controller implements HasMiddleware
     {
         $query = ProductRequest::query()
             ->assignedTo($user)
-            ->with(['user', 'store', 'assignee', 'supplyChainOwner', 'photographer', 'imageEditor', 'contentOwner', 'qaOwner']);
+            ->with(['user', 'store', 'assignee', 'supplyChainOwner', 'photographer', 'imageEditor', 'contentOwner', 'qaOwner', 'assignments']);
 
         // Closed work is hidden by default — this is a to-do list, not history.
         if (!$request->boolean('include_closed')) {
@@ -436,6 +413,8 @@ class ProductRequestController extends Controller implements HasMiddleware
             'assignments'               => 'nullable|array|max:' . count(ProductRequest::ASSIGNMENT_ROLES),
             'assignments.*.role'        => 'nullable|in:' . implode(',', array_keys(ProductRequest::ASSIGNMENT_ROLES)),
             'assignments.*.user_id'     => 'nullable|exists:users,id',
+            'assignments.*.title'       => 'nullable|string|max:255',
+            'assignments.*.due_date'    => 'nullable|date',
             'notes'                     => 'nullable|string|max:5000',
             'content_sheet'             => 'nullable|file|mimes:csv,txt,xlsx,xls|max:' . $maxKb,
         ]);
@@ -465,7 +444,11 @@ class ProductRequestController extends Controller implements HasMiddleware
                 ]);
             }
 
-            $assignments[$role] = (int) $userId;
+            $assignments[$role] = [
+                'user_id'  => (int) $userId,
+                'title'    => $row['title'] ?? null,
+                'due_date' => $row['due_date'] ?? null,
+            ];
         }
 
         $skus = $this->parseSkus($request);
@@ -501,8 +484,7 @@ class ProductRequestController extends Controller implements HasMiddleware
             'notes'                     => $data['notes'] ?? null,
             'validation_status'         => 'pending',
             'total_skus'                => count($skus),
-            // Whoever the requester nominated for each role, straight from the form.
-        ] + $assignments);
+        ]);
 
         $this->mapping->syncSkus($productRequest, $skus);
 
@@ -518,9 +500,22 @@ class ProductRequestController extends Controller implements HasMiddleware
             remarks:     count($skus) . ' SKUs submitted',
         );
 
-        // Tell the people the requester just handed work to, naming the requester
-        // so the assignee knows who is waiting on them.
-        $assigned = $this->notifyInitialAssignees($productRequest, $user);
+        // Apply each role the requester filled in. assignRole writes the owner
+        // column, the brief, the audit entry and the notification together.
+        $assigned = 0;
+
+        foreach ($assignments as $field => $detail) {
+            if ($this->workflow->assignRole(
+                request:  $productRequest,
+                field:    $field,
+                userId:   $detail['user_id'],
+                actor:    $user,
+                title:    $detail['title'],
+                dueDate:  $detail['due_date'],
+            )) {
+                $assigned++;
+            }
+        }
 
         ValidateProductRequestSkusJob::dispatch($productRequest->id, $user->id)->onQueue('bulkupload');
 
@@ -537,7 +532,7 @@ class ProductRequestController extends Controller implements HasMiddleware
         $this->authorizeView($productRequest, $user);
 
         $productRequest->load([
-            'user', 'store', 'assignee', 'supplyChainOwner', 'photographer', 'imageEditor', 'contentOwner', 'qaOwner', 'attachments.user', 'aiContentSession',
+            'user', 'store', 'assignee', 'supplyChainOwner', 'photographer', 'imageEditor', 'contentOwner', 'qaOwner', 'attachments.user', 'aiContentSession', 'assignments.user', 'assignments.assignedBy',
         ]);
 
         $skus       = $productRequest->skus()->with('mappedBy')->orderBy('id')->paginate(50, ['*'], 'skus');
@@ -811,52 +806,36 @@ class ProductRequestController extends Controller implements HasMiddleware
     {
         $this->authorizeView($productRequest, $user);
 
-        // Every assignable role, straight from the model, so adding a role never
-        // means remembering to update a second list here.
+        $fields = array_keys(ProductRequest::ASSIGNMENT_ROLES);
+
         $data = $request->validate(
-            collect(array_keys(ProductRequest::ASSIGNMENT_ROLES))
-                ->mapWithKeys(fn ($field) => [$field => 'nullable|exists:users,id'])
+            collect($fields)
+                ->mapWithKeys(fn ($f) => [
+                    $f              => 'nullable|exists:users,id',
+                    "titles.{$f}"   => 'nullable|string|max:255',
+                    "due_dates.{$f}"=> 'nullable|date',
+                ])
                 ->all()
         );
 
-        $before = $productRequest->only(array_keys(ProductRequest::ASSIGNMENT_ROLES));
+        $changed = 0;
 
-        $productRequest->update($data);
-
-        // Tell people they personally have work — a team-wide status notice
-        // doesn't tell anyone that THEY are the one who has to act.
-        $notified = [];
-
-        foreach (ProductRequest::ASSIGNMENT_ROLES as $field => $roleLabel) {
-            $assigneeId = $productRequest->{$field};
-
-            if (!$assigneeId || $assigneeId == ($before[$field] ?? null)) {
-                continue;
-            }
-
-            // No point pinging yourself about your own action.
-            if ((int) $assigneeId === $user->id) {
-                continue;
-            }
-
-            $assignee = User::find($assigneeId);
-
-            if ($assignee?->is_active) {
-                $assignee->notify(ProductRequestAssigned::forRequest($productRequest, $roleLabel, $user->name));
-                $notified[] = "{$assignee->name} ({$roleLabel})";
+        foreach ($fields as $field) {
+            if ($this->workflow->assignRole(
+                request: $productRequest,
+                field:   $field,
+                userId:  isset($data[$field]) ? (int) $data[$field] : null,
+                actor:   $user,
+                title:   $request->input("titles.{$field}"),
+                dueDate: $request->input("due_dates.{$field}"),
+            )) {
+                $changed++;
             }
         }
 
-        $this->workflow->log(
-            request:     $productRequest,
-            action:      'assigned',
-            description: 'Team assignments updated',
-            actor:       $user,
-            remarks:     $notified ? 'Notified: ' . implode(', ', $notified) : null,
-        );
-
-        return back()->with('success', 'Team assignments updated.'
-            . ($notified ? ' ' . count($notified) . ' person(s) notified.' : ''));
+        return back()->with($changed > 0 ? 'success' : 'warning', $changed > 0
+            ? "{$changed} " . str('assignment')->plural($changed) . ' updated.'
+            : 'Nothing changed.');
     }
 
     /**
@@ -875,15 +854,15 @@ class ProductRequestController extends Controller implements HasMiddleware
         }
 
         $guide = $productRequest->currentGuide();
-        $field = $guide['field'];
 
-        $productRequest->update([$field => $user->id]);
-
-        $this->workflow->log(
+        // notify: false — you don't need telling about your own action.
+        $this->workflow->assignRole(
             request:     $productRequest,
-            action:      'assigned',
-            description: "{$user->name} took this task as {$guide['role']}",
+            field:       $guide['field'],
+            userId:      $user->id,
             actor:       $user,
+            notify:      false,
+            description: "{$user->name} took this task as {$guide['role']}",
         );
 
         return back()->with('success', "You are now the {$guide['role']} on this request.");
@@ -988,62 +967,16 @@ class ProductRequestController extends Controller implements HasMiddleware
             return back()->withErrors(['user_id' => 'That user is not active.']);
         }
 
-        $productRequest->update([$field => $newOwner->id]);
-
-        $this->workflow->log(
+        // Keeps whatever brief and deadline the role already carried.
+        $this->workflow->assignRole(
             request:     $productRequest,
-            action:      'assigned',
-            description: "Handed over to {$newOwner->name} as {$guide['role']}",
+            field:       $field,
+            userId:      $newOwner->id,
             actor:       $user,
+            description: "Handed over to {$newOwner->name} as {$guide['role']}",
         );
 
-        if ($newOwner->id !== $user->id) {
-            $newOwner->notify(ProductRequestAssigned::forRequest($productRequest, $guide['role'], $user->name));
-        }
-
         return back()->with('success', "Handed over to {$newOwner->name}.");
-    }
-
-    /**
-     * Notify everyone the requester assigned at submission time.
-     *
-     * @return int  people notified
-     */
-    private function notifyInitialAssignees(ProductRequest $productRequest, User $requester): int
-    {
-        $count = 0;
-
-        foreach (ProductRequest::ASSIGNMENT_ROLES as $field => $roleLabel) {
-            $assigneeId = $productRequest->{$field};
-
-            if (!$assigneeId || (int) $assigneeId === $requester->id) {
-                continue;   // assigning yourself needs no announcement
-            }
-
-            $assignee = User::find($assigneeId);
-
-            if (!$assignee?->is_active) {
-                continue;
-            }
-
-            try {
-                $assignee->notify(ProductRequestAssigned::forRequest($productRequest, $roleLabel, $requester->name));
-                $count++;
-            } catch (\Throwable $e) {
-                report($e);   // a failed notification must not lose the request
-            }
-        }
-
-        if ($count > 0) {
-            $this->workflow->log(
-                request:     $productRequest,
-                action:      'assigned',
-                description: "{$count} team " . str('member')->plural($count) . ' assigned on submission',
-                actor:       $requester,
-            );
-        }
-
-        return $count;
     }
 
     /**
