@@ -960,6 +960,72 @@ class ProductRequestTest extends TestCase
         $this->assertCount(count(ProductRequest::ASSIGNMENT_ROLES), $request->visibleAssignmentRoles());
     }
 
+    public function test_image_editing_is_dropped_when_there_is_no_photoshoot(): void
+    {
+        Notification::fake();
+
+        $user    = $this->brandManager();
+        $request = $this->submitFor($user, $this->plainSite(), 'NOEDIT-1');
+
+        $request->update(['photoshoot_required' => false, 'supplier_images_available' => true]);
+        $request->refresh();
+
+        $stages = $request->displayStages();
+
+        // Nothing of ours was shot, so there is nothing of ours to edit.
+        $this->assertNotContains(ProductRequest::IMAGE_EDITING, $stages);
+        $this->assertNotContains(ProductRequest::PHOTOSHOOT_SCHEDULED, $stages);
+        $this->assertNotContains(ProductRequest::WAITING_IMAGES, $stages);
+        $this->assertContains(ProductRequest::AI_CONTENT, $stages);
+        $this->assertCount(7, $stages);
+
+        // The suggestion must land on a stage this request actually has.
+        $this->assertSame(ProductRequest::AI_CONTENT, $request->suggestedNextStatus());
+
+        // And the Move Stage dropdown must not offer it either.
+        $this->assertNotContains(ProductRequest::IMAGE_EDITING, $request->allowedTransitions());
+
+        $this->actingAs($user)->get(route('product-requests.show', $request))
+            ->assertOk()
+            ->assertDontSee('Image Editing');
+    }
+
+    public function test_images_are_still_awaited_when_nobody_has_them_yet(): void
+    {
+        Notification::fake();
+
+        $user    = $this->brandManager();
+        $request = $this->submitFor($user, $this->plainSite(), 'NOIMG-1');
+
+        // No shoot booked, but the supplier has not sent anything either — the
+        // request still has to wait for images from somewhere.
+        $request->update(['photoshoot_required' => false, 'supplier_images_available' => false]);
+        $request->refresh();
+
+        $stages = $request->displayStages();
+
+        $this->assertContains(ProductRequest::WAITING_IMAGES, $stages);
+        $this->assertNotContains(ProductRequest::IMAGE_EDITING, $stages);
+        $this->assertSame(ProductRequest::WAITING_IMAGES, $request->suggestedNextStatus());
+    }
+
+    public function test_a_photoshoot_request_keeps_the_full_pipeline(): void
+    {
+        Notification::fake();
+
+        $user    = $this->brandManager();
+        $request = $this->submitFor($user, $this->plainSite(), 'FULL-1');   // photoshoot required
+
+        $stages = $request->displayStages();
+
+        foreach ([ProductRequest::WAITING_IMAGES, ProductRequest::PHOTOSHOOT_SCHEDULED,
+                  ProductRequest::PHOTOSHOOT_COMPLETED, ProductRequest::IMAGE_EDITING] as $stage) {
+            $this->assertContains($stage, $stages);
+        }
+
+        $this->assertCount(11, $stages);
+    }
+
     public function test_photography_roles_are_hidden_when_there_is_no_photoshoot(): void
     {
         Notification::fake();

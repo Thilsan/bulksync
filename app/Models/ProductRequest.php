@@ -741,6 +741,10 @@ class ProductRequest extends Model
 
             self::PHOTOSHOOT_SCHEDULED, self::PHOTOSHOOT_COMPLETED => (bool) $this->photoshoot_required,
 
+            // No shoot means no raw images of ours to edit — supplier images
+            // arrive ready to use, so the editing step does not apply either.
+            self::IMAGE_EDITING => (bool) $this->photoshoot_required,
+
             default => true,
         };
     }
@@ -807,32 +811,26 @@ class ProductRequest extends Model
 
     /**
      * The stage that naturally follows the current one for THIS request.
-     * Branches on the two questions the form asks: is mapping outstanding, and
-     * do we need a photoshoot at all.
+     *
+     * Read off displayStages() rather than hard-coded per status, so a request
+     * that skips the photoshoot leg is never pointed at a stage it does not
+     * have. Only the mapping gate needs special handling, because a fully
+     * mapped request jumps straight past Waiting for Mapping.
      */
     public function suggestedNextStatus(): ?string
     {
-        return match ($this->status) {
-            self::SUBMITTED => $this->isFullyMapped() ? self::SKU_VERIFIED : self::WAITING_MAPPING,
+        if ($this->status === self::SUBMITTED) {
+            return $this->isFullyMapped() ? self::SKU_VERIFIED : self::WAITING_MAPPING;
+        }
 
-            self::WAITING_MAPPING => $this->isFullyMapped() ? self::SKU_VERIFIED : null,
+        if ($this->status === self::WAITING_MAPPING) {
+            return $this->isFullyMapped() ? self::SKU_VERIFIED : null;
+        }
 
-            // Supplier already sent images → straight to editing, no photoshoot leg.
-            self::SKU_VERIFIED => $this->photoshoot_required
-                ? self::WAITING_IMAGES
-                : ($this->supplier_images_available ? self::IMAGE_EDITING : self::WAITING_IMAGES),
+        $stages = $this->displayStages();
+        $index  = $this->displayStageIndex();
 
-            self::WAITING_IMAGES       => $this->photoshoot_required ? self::PHOTOSHOOT_SCHEDULED : self::IMAGE_EDITING,
-            self::PHOTOSHOOT_SCHEDULED => self::PHOTOSHOOT_COMPLETED,
-            self::PHOTOSHOOT_COMPLETED => self::IMAGE_EDITING,
-            self::IMAGE_EDITING        => self::AI_CONTENT,
-            self::AI_CONTENT           => self::QA_REVIEW,
-            self::QA_REVIEW            => self::READY_FOR_UPLOAD,
-            self::READY_FOR_UPLOAD     => self::PUBLISHED,
-            self::PUBLISHED            => self::COMPLETED,
-
-            default => null,
-        };
+        return $index >= 0 ? ($stages[$index + 1] ?? null) : null;
     }
 
     /**
