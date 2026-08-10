@@ -189,7 +189,7 @@
                     {{-- One answer, three real options. This used to be two yes/no
                          questions that could contradict each other. --}}
                     <div class="space-y-2">
-                        @foreach(\App\Models\ProductRequest::IMAGE_SOURCES as $value => $meta)
+                        @foreach(\App\Models\ProductRequest::selectableImageSources() as $value => $meta)
                             <label class="flex items-start gap-2.5 cursor-pointer rounded-lg border px-3 py-2.5 transition-colors"
                                    :class="imageSource === '{{ $value }}' ? 'border-brand-300 bg-brand-50/50' : 'border-gray-200 hover:bg-gray-50'">
                                 <input type="radio" name="image_source" value="{{ $value }}" x-model="imageSource" required

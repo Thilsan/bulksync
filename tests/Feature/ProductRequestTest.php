@@ -1251,7 +1251,34 @@ class ProductRequestTest extends TestCase
             ->assertDontSee('Image Editing');
     }
 
-    public function test_brand_website_images_are_collected_then_edited(): void
+    public function test_the_brand_website_option_is_retired_but_legacy_requests_keep_working(): void
+    {
+        Notification::fake();
+
+        // Not offered any more…
+        $this->assertArrayNotHasKey(ProductRequest::IMG_BRAND_WEBSITE, ProductRequest::selectableImageSources());
+        $this->assertCount(2, ProductRequest::selectableImageSources());
+
+        $user  = $this->brandManager();
+        $store = $this->mappingSite();
+        $user->stores()->sync([$store->id]);
+
+        $this->actingAs($user)->post(route('product-requests.store'), [
+            'store_id'           => $store->id,
+            'request_type'       => 'new_brand',
+            'brand'              => 'Samsonite',
+            'category'           => 'Luggage',
+            'skus'               => 'RETIRED-1',
+            'online_launch_date' => now()->addDays(18)->format('Y-m-d H:i'),
+            'image_source'       => ProductRequest::IMG_BRAND_WEBSITE,
+            'use_ai_content'     => 1,
+            'priority'           => 'high',
+        ])->assertSessionHasErrors('image_source');
+
+        $this->assertSame(0, ProductRequest::count());
+    }
+
+    public function test_a_legacy_brand_website_request_keeps_its_stages_and_can_be_changed(): void
     {
         Notification::fake();
 
@@ -1284,6 +1311,14 @@ class ProductRequestTest extends TestCase
         $roles = $request->visibleAssignmentRoles();
         $this->assertArrayHasKey('image_editor_id', $roles);
         $this->assertArrayNotHasKey('photographer_id', $roles);
+
+        // The edit form still shows its current value, so it is not stuck on a
+        // setting nobody can see or change.
+        $this->assertArrayHasKey(ProductRequest::IMG_BRAND_WEBSITE, $request->imageSourceOptions());
+
+        $this->actingAs($user)->get(route('product-requests.show', $request))
+            ->assertOk()
+            ->assertSee('Take the images from the brand website');
     }
 
     public function test_a_photoshoot_request_keeps_the_full_pipeline(): void

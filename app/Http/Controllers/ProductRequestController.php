@@ -399,7 +399,7 @@ class ProductRequestController extends Controller implements HasMiddleware
             'skus'                      => 'nullable|string',
             'sku_csv'                   => 'nullable|file|mimes:csv,txt|max:20480',
             'online_launch_date'        => 'required|date',
-            'image_source'              => 'required|in:' . implode(',', array_keys(ProductRequest::IMAGE_SOURCES)),
+            'image_source'              => 'required|in:' . implode(',', array_keys(ProductRequest::selectableImageSources())),
             'use_ai_content'            => 'required|boolean',
             'priority'                  => 'required|in:high,medium,low',
             'assignments'               => 'nullable|array|max:' . count(ProductRequest::ASSIGNMENT_ROLES),

@@ -203,6 +203,33 @@ class ProductRequest extends Model
         ],
     ];
 
+    /**
+     * No longer offered. Kept so a request already set to it keeps its label and
+     * its stages, and can be changed away from it — deleting the option outright
+     * would leave such a request reading "Not specified".
+     */
+    public const RETIRED_IMAGE_SOURCES = [self::IMG_BRAND_WEBSITE];
+
+    /** Options offered when raising or editing a request. */
+    public static function selectableImageSources(): array
+    {
+        return collect(self::IMAGE_SOURCES)
+            ->reject(fn ($meta, $key) => in_array($key, self::RETIRED_IMAGE_SOURCES, true))
+            ->all();
+    }
+
+    /** Selectable options, plus whatever this request is already set to. */
+    public function imageSourceOptions(): array
+    {
+        $options = self::selectableImageSources();
+
+        if ($this->image_source && !isset($options[$this->image_source])) {
+            $options[$this->image_source] = self::IMAGE_SOURCES[$this->image_source];
+        }
+
+        return $options;
+    }
+
     public function imageSourceLabel(): string
     {
         return self::IMAGE_SOURCES[$this->image_source]['label'] ?? 'Not specified';

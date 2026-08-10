@@ -687,7 +687,7 @@
                                 </template>
                                 <select x-show="editing" x-cloak name="image_source"
                                         class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
-                                    @foreach(\App\Models\ProductRequest::IMAGE_SOURCES as $value => $meta)
+                                    @foreach($request->imageSourceOptions() as $value => $meta)
                                         <option value="{{ $value }}" @selected($request->image_source === $value)>{{ $meta['label'] }}</option>
                                     @endforeach
                                 </select>
