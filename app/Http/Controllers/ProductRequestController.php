@@ -303,7 +303,7 @@ class ProductRequestController extends Controller implements HasMiddleware
 
     public function store(Request $request, #[CurrentUser] User $user): RedirectResponse
     {
-        if ($problem = $this->rejectedUpload($request, ['reference_images', 'content_sheet', 'sku_csv'])) {
+        if ($problem = $this->rejectedUpload($request, ['content_sheet', 'sku_csv'])) {
             return back()->withInput()->withErrors(['content_sheet' => $problem]);
         }
 
@@ -327,8 +327,6 @@ class ProductRequestController extends Controller implements HasMiddleware
             'use_ai_content'            => 'required|boolean',
             'priority'                  => 'required|in:high,medium,low',
             'notes'                     => 'nullable|string|max:5000',
-            'reference_images'          => 'nullable|array|max:10',
-            'reference_images.*'        => 'file|mimes:jpg,jpeg,png,pdf|max:' . $maxKb,
             'content_sheet'             => 'nullable|file|mimes:csv,txt,xlsx,xls|max:' . $maxKb,
         ]);
 
@@ -375,7 +373,8 @@ class ProductRequestController extends Controller implements HasMiddleware
         ]);
 
         $this->mapping->syncSkus($productRequest, $skus);
-        $this->storeAttachments($request, $productRequest, $user);
+
+        // Reference images are attached from the request page, not at submission.
         $this->storeAttachments($request, $productRequest, $user, 'content_sheet', ProductRequestAttachment::KIND_CONTENT);
 
         $this->workflow->log(

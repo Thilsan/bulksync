@@ -203,11 +203,6 @@
                                     <span class="text-sm text-gray-700">No</span>
                                 </label>
                             </div>
-
-                            <label class="block text-xs font-medium text-gray-600 mb-1.5 mt-4">Reference Images / Notes</label>
-                            <input type="file" name="reference_images[]" multiple accept=".jpg,.jpeg,.png,.pdf"
-                                   class="w-full text-sm text-gray-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-medium file:bg-brand-50 file:text-brand-700 hover:file:bg-brand-100 cursor-pointer">
-                            <p class="text-xs text-gray-400 mt-1">JPG, PNG, PDF up to {{ \App\Models\ProductRequestAttachment::maxUploadLabel() }} each (max 10 files).</p>
                         </div>
                     </div>
                 </section>
