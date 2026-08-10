@@ -10,6 +10,18 @@ use Illuminate\Support\Facades\Log;
 
 class OneDriveService
 {
+    /**
+     * Files.Read covers only the signed-in account's OWN files, which is not
+     * enough for a folder someone else shared with us — Graph answers 403 on
+     * their link. Files.Read.All is "everything this account can already
+     * reach", which is what a share link is. It grants no more than the
+     * person could open in a browser themselves, and needs no admin consent.
+     *
+     * Both the initial consent and every token refresh must ask for the same
+     * scopes, so they live here rather than in two places that can drift.
+     */
+    public const SCOPES = 'Files.Read.All offline_access User.Read';
+
     private Client $http;
     private ?string $accessToken   = null;
     private float   $tokenExpiry   = 0.0;
@@ -202,11 +214,12 @@ class OneDriveService
         $items = $data['value'] ?? [];
 
         foreach ($items as $item) {
-            if (isset($item['folder'])) {
+            ['driveId' => $driveId, 'itemId' => $itemId] = self::locateItem($item);
+
+            if (isset($item['folder']) || isset($item['remoteItem']['folder'])) {
                 // Recurse into sub-folders, passing the folder name as the SKU context
-                if (isset($item['id'], $item['parentReference']['driveId'])) {
-                    $driveId  = $item['parentReference']['driveId'];
-                    $childUrl = "https://graph.microsoft.com/v1.0/drives/{$driveId}/items/{$item['id']}/children?\$top=200";
+                if ($itemId && $driveId) {
+                    $childUrl = "https://graph.microsoft.com/v1.0/drives/{$driveId}/items/{$itemId}/children?\$top=200";
                     // Use this folder's name as the SKU for files inside it
                     $childFolderName = $folderName ?: $item['name'];
                     try {
@@ -225,15 +238,11 @@ class OneDriveService
                 continue;
             }
 
-            $driveId = $item['parentReference']['driveId']
-                ?? $item['remoteItem']['parentReference']['driveId']
-                ?? '';
-
             $callback([
                 'filename'     => $name,
                 'folder_name'  => $folderName,
                 'drive_id'     => $driveId,
-                'item_id'      => $item['id'] ?? '',
+                'item_id'      => $itemId,
                 'size_bytes'   => $item['size'] ?? 0,
                 'download_url' => $item['@microsoft.graph.downloadUrl'] ?? '',
             ]);
@@ -244,6 +253,27 @@ class OneDriveService
             $token = $this->getAccessToken();
             $this->streamPage($data['@odata.nextLink'], $token, $callback, $folderName);
         }
+    }
+
+    /**
+     * Work out which drive an item really lives in, and its id there.
+     *
+     * Anything reached through a share appears as a remoteItem: the outer id
+     * and parentReference describe the shortcut sitting in our own drive,
+     * while the file itself lives in the sender's. Following the outer pair
+     * would ask our drive for an id it has never heard of, so when there is a
+     * remoteItem it is the only pair worth reading — never a mix of the two.
+     *
+     * @return array{driveId: string, itemId: string}
+     */
+    public static function locateItem(array $item): array
+    {
+        $source = isset($item['remoteItem']) ? $item['remoteItem'] : $item;
+
+        return [
+            'driveId' => $source['parentReference']['driveId'] ?? '',
+            'itemId'  => $source['id'] ?? '',
+        ];
     }
 
     private function getAccessToken(): string
@@ -285,7 +315,7 @@ class OneDriveService
                     'client_id'     => $clientId,
                     'client_secret' => $clientSecret,
                     'refresh_token' => $refreshToken,
-                    'scope'         => 'Files.Read offline_access User.Read',
+                    'scope'         => self::SCOPES,
                 ],
             ]
         );

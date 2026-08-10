@@ -3,13 +3,14 @@
 namespace App\Http\Controllers;
 
 use App\Models\Setting;
+use App\Services\OneDriveService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 
 class OneDriveAuthController extends Controller
 {
-    private const SCOPES = 'Files.Read offline_access User.Read';
+    private const SCOPES = OneDriveService::SCOPES;
 
     public function redirect()
     {
