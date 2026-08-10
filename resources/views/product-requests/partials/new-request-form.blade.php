@@ -249,8 +249,21 @@
 
                 {{-- 6. Team --}}
                 <section x-data="{
-                        rows: [{ role: '', user: '', title: '', due: '' }],
-                        allRoles: {{ Illuminate\Support\Js::from(collect(\App\Models\ProductRequest::ASSIGNMENT_ROLES)->map(fn ($label, $key) => ['key' => $key, 'label' => $label])->values()) }},
+                        rows: [{ role: '', user: '', due: '' }],
+                        allRoles: {{ Illuminate\Support\Js::from(collect(\App\Models\ProductRequest::ASSIGNMENT_ROLES)->map(fn ($label, $key) => ['key' => $key, 'label' => $label, 'task' => \App\Models\ProductRequest::taskForRole($key)])->values()) }},
+                        taskFor(role) {
+                            const found = this.allRoles.find(r => r.key === role);
+                            return found ? found.task : '';
+                        },
+                        get complete() { return this.rows.filter(r => r.role && r.user).length; },
+                        // A finished row opens the next one, so the form leads you
+                        // through the team instead of showing six empty slots.
+                        openNext() {
+                            const last = this.rows[this.rows.length - 1];
+                            if (last && last.role && last.user && this.canAdd) {
+                                this.rows.push({ role: '', user: '', due: '' });
+                            }
+                        },
                         // Only roles this request will actually use.
                         get activeRoles() {
                             return this.allRoles.filter(r =>
@@ -264,7 +277,7 @@
                             return this.activeRoles.filter(r => !taken.includes(r.key));
                         },
                         get canAdd() { return this.rows.length < this.activeRoles.length; },
-                        add() { if (this.canAdd) this.rows.push({ role: '', user: '', title: '', due: '' }); },
+                        add() { if (this.canAdd) this.rows.push({ role: '', user: '', due: '' }); },
                         remove(i) {
                             this.rows.splice(i, 1);
                             if (!this.rows.length) this.add();
@@ -273,15 +286,17 @@
                         // assigned to work that no longer exists.
                         prune() {
                             const ok = this.activeRoles.map(r => r.key);
-                            this.rows.forEach(r => { if (r.role && !ok.includes(r.role)) { r.role = ''; r.user = ''; r.title = ''; r.due = ''; } });
+                            this.rows.forEach(r => { if (r.role && !ok.includes(r.role)) { r.role = ''; r.user = ''; r.due = ''; } });
                         },
                      }"
-                     x-effect="photoshoot; usesMapping; prune()">
+                     x-effect="photoshoot; usesMapping; prune()"
+                     x-init="$watch('rows', () => openNext(), { deep: true })">
 
                     <h3 class="text-sm font-semibold text-gray-800 mb-1">6. Team Assignments</h3>
                     <p class="text-xs text-gray-400 mb-3">
-                        Optional. Choose a role, who does it, what they need to deliver and by when —
-                        one row for each. Their deadline is their own, ahead of the launch date.
+                        Optional. Choose a role and who does it — the task is set by the workflow.
+                        Add a deadline if that person needs to finish before the launch date.
+                        The next row opens as you complete each one.
                         Anyone you pick is notified that
                         <span class="font-medium text-gray-600">{{ auth()->user()->name }}</span> has given them this work.
                         Leave it empty and each team can claim their own stage later.
@@ -293,6 +308,8 @@
                                 <div class="flex items-center justify-between mb-2">
                                     <span class="text-xs font-semibold text-gray-500">
                                         Assignment <span x-text="i + 1"></span>
+                                        <span x-show="row.role && row.user" x-cloak
+                                              class="ml-1 text-green-600 font-normal">&check; set</span>
                                     </span>
                                     <button type="button" @click="remove(i)"
                                             class="text-gray-400 hover:text-red-600 transition-colors" title="Remove">
@@ -326,13 +343,6 @@
                                     </div>
 
                                     <div>
-                                        <label class="block text-xs text-gray-500 mb-1">Task</label>
-                                        <input type="text" x-model="row.title" :name="`assignments[${i}][title]`" :disabled="!row.role"
-                                               maxlength="255" placeholder="e.g. Shoot 45 SKUs on white background"
-                                               class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-500 disabled:bg-gray-100">
-                                    </div>
-
-                                    <div>
                                         <label class="block text-xs text-gray-500 mb-1">
                                             Finish by
                                             <span class="text-gray-400" x-show="onlineDate">(launch <span x-text="onlineDate"></span>)</span>
@@ -346,9 +356,19 @@
                                         </p>
                                     </div>
                                 </div>
+
+                                {{-- The task is dictated by the workflow, so it is shown, not typed. --}}
+                                <div x-show="row.role" x-cloak class="mt-2 rounded-lg bg-white border border-gray-200 px-3 py-2">
+                                    <p class="text-[11px] uppercase tracking-wide font-semibold text-gray-400">Their task</p>
+                                    <p class="text-xs text-gray-700 mt-0.5" x-text="taskFor(row.role)"></p>
+                                </div>
                             </div>
                         </template>
                     </div>
+
+                    <p x-show="complete" x-cloak class="text-xs text-gray-400 mt-2">
+                        <span x-text="complete"></span> of <span x-text="activeRoles.length"></span> roles assigned.
+                    </p>
 
                     <button type="button" @click="add()" x-show="canAdd"
                             class="mt-2.5 inline-flex items-center gap-1.5 text-xs font-medium text-brand-600 hover:text-brand-700">

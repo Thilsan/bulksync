@@ -151,6 +151,10 @@ class ProductRequestWorkflow
         }
 
         $roleLabel = ProductRequest::ASSIGNMENT_ROLES[$field];
+
+        // The task comes from the workflow, not from whoever filled in the form —
+        // same wording on every request, and nothing to mistype.
+        $title ??= ProductRequest::taskForRole($field);
         $previous  = $request->{$field} ? (int) $request->{$field} : null;
         $assignee  = $userId ? User::find($userId) : null;
 

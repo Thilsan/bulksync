@@ -164,6 +164,7 @@ class ProductRequest extends Model
 
     /** Which relation holds the owner for each assignment column. */
     private const OWNER_RELATIONS = [
+        'brand_manager_id' => 'brandManager',
         'assigned_to'      => 'assignee',
         'supply_chain_id'  => 'supplyChainOwner',
         'photographer_id'  => 'photographer',
@@ -172,8 +173,32 @@ class ProductRequest extends Model
         'qa_owner_id'      => 'qaOwner',
     ];
 
-    /** The four people a request can be assigned to, and what to call each. */
+    /**
+     * The standing job description for each role.
+     *
+     * The task is dictated by the workflow, not written by whoever raises the
+     * request — so it reads the same on every request and nobody has to invent
+     * wording for work the system already understands.
+     */
+    public const ROLE_TASKS = [
+        'brand_manager_id' => 'Supply the product information and samples, answer queries from the teams, and approve the content before launch.',
+        'assigned_to'      => 'Own this request end to end: check the SKU validation, move it through each stage, then upload and publish the products for the launch date.',
+        'supply_chain_id'  => 'Map the SKUs in Cegid, then record the outcome on the SKUs tab so the request can continue.',
+        'photographer_id'  => 'Photograph the products once the samples arrive, then hand the images over for editing.',
+        'image_editor_id'  => 'Edit, crop and optimise the product images so they are ready for the website.',
+        'content_owner_id' => 'Produce the product copy — descriptions, meta titles and meta descriptions — and apply it to the products.',
+        'qa_owner_id'      => 'Review the images, copy and product data before anything goes live, and send it back a stage if something needs rework.',
+    ];
+
+    /** What we are asking of someone in this role. */
+    public static function taskForRole(string $field): ?string
+    {
+        return self::ROLE_TASKS[$field] ?? null;
+    }
+
+    /** The people a request can be assigned to, and what to call each. */
     public const ASSIGNMENT_ROLES = [
+        'brand_manager_id' => 'Brand Manager',
         'assigned_to'      => 'E-Commerce Owner',
         'supply_chain_id'  => 'Supply Chain',
         'photographer_id'  => 'Photographer',
@@ -223,6 +248,7 @@ class ProductRequest extends Model
         'not_mapped_skus',
         'validated_at',
         'validation_error',
+        'brand_manager_id',
         'assigned_to',
         'supply_chain_id',
         'photographer_id',
@@ -272,6 +298,11 @@ class ProductRequest extends Model
     public function assignee(): BelongsTo
     {
         return $this->belongsTo(User::class, 'assigned_to');
+    }
+
+    public function brandManager(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'brand_manager_id');
     }
 
     public function supplyChainOwner(): BelongsTo

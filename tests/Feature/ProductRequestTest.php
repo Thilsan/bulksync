@@ -1193,7 +1193,7 @@ class ProductRequestTest extends TestCase
             'priority'                  => 'high',
             'assignments'               => [
                 ['role' => 'photographer_id', 'user_id' => $shooter->id,
-                 'title' => 'Shoot 45 SKUs on white', 'due_date' => now()->addDays(6)->toDateString()],
+                 'due_date' => now()->addDays(6)->toDateString()],
                 ['role' => 'qa_owner_id',     'user_id' => $qa->id],
                 ['role' => 'assigned_to',     'user_id' => $requester->id],   // themselves
                 ['role' => '',                'user_id' => ''],               // untouched row
@@ -1219,16 +1219,63 @@ class ProductRequestTest extends TestCase
             ->assertSee('requested by')
             ->assertSee($requester->name);
 
-        // Each person's own brief and deadline are stored alongside the role.
+        // The task is taken from the workflow, not typed by the requester.
         $brief = $request->assignmentFor('photographer_id');
         $this->assertNotNull($brief);
-        $this->assertSame('Shoot 45 SKUs on white', $brief->title);
+        $this->assertSame(ProductRequest::taskForRole('photographer_id'), $brief->title);
+        $this->assertStringContainsString('Photograph the products', $brief->title);
         $this->assertSame(now()->addDays(6)->toDateString(), $brief->due_date->toDateString());
         $this->assertSame($requester->id, $brief->assigned_by);
         $this->assertSame(6, $brief->daysLeft());
 
         // A role given without a deadline simply has none.
         $this->assertNull($request->assignmentFor('qa_owner_id')->due_date);
+    }
+
+    public function test_the_task_comes_from_the_workflow_not_the_form(): void
+    {
+        Notification::fake();
+
+        $requester = $this->brandManager();
+        $store     = $this->mappingSite();
+        $requester->stores()->sync([$store->id]);
+
+        $qa = User::create(['name' => 'QA Person', 'email' => 'qat@example.test', 'password' => 'password',
+            'is_active' => true, 'perm_product_request' => true, 'pcr_role' => 'qa']);
+
+        $this->actingAs($requester)->post(route('product-requests.store'), [
+            'store_id'                  => $store->id,
+            'request_type'              => 'new_brand',
+            'brand'                     => 'Samsonite',
+            'category'                  => 'Luggage',
+            'skus'                      => 'TASK-1',
+            'store_launch_date'         => now()->addDays(20)->toDateString(),
+            'online_launch_date'        => now()->addDays(18)->toDateString(),
+            'supplier_images_available' => 0,
+            'photoshoot_required'       => 1,
+            'use_ai_content'            => 1,
+            'priority'                  => 'high',
+            'assignments'               => [
+                // A hand-crafted task is ignored: the workflow decides the wording.
+                ['role' => 'qa_owner_id', 'user_id' => $qa->id, 'title' => 'do whatever you like'],
+            ],
+        ])->assertRedirect();
+
+        $brief = ProductRequest::first()->assignmentFor('qa_owner_id');
+
+        $this->assertSame(ProductRequest::taskForRole('qa_owner_id'), $brief->title);
+        $this->assertStringNotContainsString('whatever you like', $brief->title);
+    }
+
+    public function test_every_assignable_role_has_a_task_description(): void
+    {
+        // A role with no job description would show an empty box on the form.
+        foreach (ProductRequest::ASSIGNMENT_ROLES as $field => $label) {
+            $this->assertNotEmpty(
+                ProductRequest::taskForRole($field),
+                "Role {$label} ({$field}) has no task description"
+            );
+        }
     }
 
     public function test_a_role_cannot_be_given_to_two_people_at_once(): void

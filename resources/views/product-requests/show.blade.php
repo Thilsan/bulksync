@@ -1139,23 +1139,25 @@
                             </select>
 
                             @php $brief = $request->assignmentFor($field); @endphp
-                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-1.5">
-                                <input type="text" name="titles[{{ $field }}]" maxlength="255"
-                                       value="{{ $brief?->title }}" placeholder="Task (optional)"
-                                       {{ $request->isClosed() ? 'disabled' : '' }}
-                                       class="w-full rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500 disabled:bg-gray-50">
+
+                            {{-- Deadline is a decision; the task is not — it comes from
+                                 the workflow, so it is shown rather than edited. --}}
+                            <div class="flex items-center gap-2 mt-1.5">
                                 <input type="date" name="due_dates[{{ $field }}]"
                                        value="{{ $brief?->due_date?->format('Y-m-d') }}"
+                                       max="{{ $request->online_launch_date?->format('Y-m-d') }}"
                                        {{ $request->isClosed() ? 'disabled' : '' }}
-                                       class="w-full rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500 disabled:bg-gray-50">
-                            </div>
-
-                            @if($brief?->due_date)
-                                <p class="mt-1">
-                                    <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold {{ $brief->dueTone() }}">
+                                       class="flex-1 rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500 disabled:bg-gray-50">
+                                @if($brief?->due_date)
+                                    <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold shrink-0 {{ $brief->dueTone() }}">
                                         {{ $brief->dueLabel() }}
                                     </span>
-                                    <span class="text-[10px] text-gray-400 ml-1">{{ $brief->due_date->format('d M Y') }}</span>
+                                @endif
+                            </div>
+
+                            @if($request->{$field})
+                                <p class="text-[11px] text-gray-400 mt-1 leading-snug">
+                                    {{ \App\Models\ProductRequest::taskForRole($field) }}
                                 </p>
                             @endif
                         </div>

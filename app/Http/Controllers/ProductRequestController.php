@@ -413,7 +413,6 @@ class ProductRequestController extends Controller implements HasMiddleware
             'assignments'               => 'nullable|array|max:' . count(ProductRequest::ASSIGNMENT_ROLES),
             'assignments.*.role'        => 'nullable|in:' . implode(',', array_keys(ProductRequest::ASSIGNMENT_ROLES)),
             'assignments.*.user_id'     => 'nullable|exists:users,id',
-            'assignments.*.title'       => 'nullable|string|max:255',
             'assignments.*.due_date'    => 'nullable|date',
             'notes'                     => 'nullable|string|max:5000',
             'content_sheet'             => 'nullable|file|mimes:csv,txt,xlsx,xls|max:' . $maxKb,
@@ -446,7 +445,6 @@ class ProductRequestController extends Controller implements HasMiddleware
 
             $assignments[$role] = [
                 'user_id'  => (int) $userId,
-                'title'    => $row['title'] ?? null,
                 'due_date' => $row['due_date'] ?? null,
             ];
         }
@@ -510,7 +508,6 @@ class ProductRequestController extends Controller implements HasMiddleware
                 field:    $field,
                 userId:   $detail['user_id'],
                 actor:    $user,
-                title:    $detail['title'],
                 dueDate:  $detail['due_date'],
             )) {
                 $assigned++;
@@ -811,9 +808,8 @@ class ProductRequestController extends Controller implements HasMiddleware
         $data = $request->validate(
             collect($fields)
                 ->mapWithKeys(fn ($f) => [
-                    $f              => 'nullable|exists:users,id',
-                    "titles.{$f}"   => 'nullable|string|max:255',
-                    "due_dates.{$f}"=> 'nullable|date',
+                    $f               => 'nullable|exists:users,id',
+                    "due_dates.{$f}" => 'nullable|date',
                 ])
                 ->all()
         );
@@ -826,7 +822,6 @@ class ProductRequestController extends Controller implements HasMiddleware
                 field:   $field,
                 userId:  isset($data[$field]) ? (int) $data[$field] : null,
                 actor:   $user,
-                title:   $request->input("titles.{$field}"),
                 dueDate: $request->input("due_dates.{$field}"),
             )) {
                 $changed++;
