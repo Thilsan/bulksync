@@ -145,6 +145,161 @@
     </div>
     @endif
 
+    {{-- Mail / SMTP — super admin only --}}
+    @if(auth()->user()->is_super_admin)
+    <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+        <div class="px-6 py-4 border-b border-gray-100 flex items-start gap-3">
+            <div class="w-9 h-9 rounded-lg bg-brand-50 text-brand-600 flex items-center justify-center shrink-0">
+                <svg class="w-4.5 h-4.5" style="width:1.125rem;height:1.125rem" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+                </svg>
+            </div>
+            <div>
+                <h2 class="text-base font-semibold text-gray-800">Mail (SMTP)</h2>
+                <p class="text-sm text-gray-500 mt-0.5">
+                    Used for every product creation request notification — assignments, deadlines, blockers and the daily digest.
+                </p>
+            </div>
+        </div>
+
+        <div class="px-6 py-5">
+
+            {{-- What the app is actually using right now --}}
+            <div class="rounded-lg border px-4 py-3 mb-5
+                        {{ $mailState['sending'] ? 'border-green-200 bg-green-50/60' : 'border-amber-200 bg-amber-50/60' }}">
+                <div class="flex items-start gap-2.5">
+                    <span class="w-2 h-2 rounded-full mt-1.5 shrink-0 {{ $mailState['sending'] ? 'bg-green-500' : 'bg-amber-500' }}"></span>
+                    <div class="text-sm">
+                        @if($mailState['sending'])
+                            <p class="font-medium text-green-900">Emails are being sent.</p>
+                            <p class="text-xs text-green-800 mt-0.5">
+                                {{ $mailState['host'] ?: 'no host' }}:{{ $mailState['port'] }}
+                                &middot; from {{ $mailState['from'] }}
+                                &middot; source: <span class="font-medium">{{ $mailState['source'] }}</span>
+                            </p>
+                        @else
+                            <p class="font-medium text-amber-900">Emails are not being sent.</p>
+                            <p class="text-xs text-amber-800 mt-0.5">
+                                The mailer is set to <code class="bg-white px-1 rounded">log</code>, so notifications only appear in the
+                                bell inside the app. Fill in the SMTP details below and tick "Send email through these settings".
+                            </p>
+                        @endif
+                    </div>
+                </div>
+            </div>
+
+            <form method="POST" action="{{ route('settings.mail.update') }}" class="space-y-4" x-data="{ on: {{ $mail['mail_enabled'] ? 'true' : 'false' }} }">
+                @csrf
+                @method('PUT')
+
+                <label class="flex items-start gap-2.5 cursor-pointer select-none">
+                    <input type="checkbox" name="mail_enabled" value="1" x-model="on"
+                        class="w-4 h-4 mt-0.5 rounded border-gray-300 text-brand-600 focus:ring-brand-500">
+                    <span>
+                        <span class="text-sm text-gray-700">Send email through these settings</span>
+                        <span class="block text-xs text-gray-400">
+                            Leave unticked to use the server's <code class="bg-gray-100 px-1 rounded">.env</code> values instead.
+                        </span>
+                    </span>
+                </label>
+
+                <div x-show="on" x-cloak class="space-y-4 pt-1">
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <div class="sm:col-span-2">
+                            <label class="block text-sm font-medium text-gray-700 mb-1.5">SMTP Host</label>
+                            <input type="text" name="mail_host" value="{{ old('mail_host', $mail['mail_host']) }}"
+                                placeholder="send.smtp.com"
+                                class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1.5">Port</label>
+                            <input type="number" name="mail_port" value="{{ old('mail_port', $mail['mail_port'] ?: 587) }}"
+                                placeholder="587"
+                                class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent">
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1.5">Username</label>
+                            <input type="text" name="mail_username" value="{{ old('mail_username', $mail['mail_username']) }}"
+                                placeholder="ecommerce@abuissa.com" autocomplete="off"
+                                class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent">
+                        </div>
+                        <div x-data="{ show: false }">
+                            <label class="block text-sm font-medium text-gray-700 mb-1.5">Password</label>
+                            <div class="relative">
+                                <input :type="show ? 'text' : 'password'" name="mail_password" value="" autocomplete="new-password"
+                                    placeholder="{{ $mail['mail_password_set'] ? 'Saved — leave blank to keep it' : 'SMTP password' }}"
+                                    class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm pr-10 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent">
+                                <button type="button" @click="show = !show"
+                                    class="absolute right-3 top-2.5 text-gray-400 hover:text-gray-600">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                            d="M15 12a3 3 0 11-6 0 3 3 0 016 0zM2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+                                    </svg>
+                                </button>
+                            </div>
+                            <p class="text-xs text-gray-400 mt-1">Never shown back for safety — blank keeps the saved one.</p>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1.5">Encryption</label>
+                            <select name="mail_scheme"
+                                class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
+                                <option value="auto" @selected($mail['mail_scheme'] !== 'smtps')>STARTTLS / automatic</option>
+                                <option value="smtps" @selected($mail['mail_scheme'] === 'smtps')>SSL (port 465)</option>
+                            </select>
+                            <p class="text-xs text-gray-400 mt-1">Use automatic for ports 587 and 2525.</p>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1.5">From Address</label>
+                            <input type="email" name="mail_from_address" value="{{ old('mail_from_address', $mail['mail_from_address']) }}"
+                                placeholder="ecommerce@abuissa.com"
+                                class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1.5">From Name</label>
+                            <input type="text" name="mail_from_name" value="{{ old('mail_from_name', $mail['mail_from_name']) }}"
+                                placeholder="AI E-Commerce Studio"
+                                class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="pt-1">
+                    <button type="submit"
+                        class="bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-5 py-2.5 rounded-lg transition-colors">
+                        Save Mail Settings
+                    </button>
+                </div>
+            </form>
+
+            {{-- Test, so nobody has to raise a real request to find out it is broken --}}
+            <div class="mt-6 pt-5 border-t border-gray-100">
+                <form method="POST" action="{{ route('settings.mail.test') }}" class="flex flex-wrap items-end gap-3">
+                    @csrf
+                    <div class="flex-1 min-w-[14rem]">
+                        <label class="block text-sm font-medium text-gray-700 mb-1.5">Send a test email to</label>
+                        <input type="email" name="test_email" required value="{{ auth()->user()->email }}"
+                            class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent">
+                    </div>
+                    <button type="submit"
+                        class="border border-gray-300 text-gray-700 text-sm font-medium px-5 py-2.5 rounded-lg hover:bg-gray-50 transition-colors">
+                        Send Test
+                    </button>
+                </form>
+                <p class="text-xs text-gray-400 mt-2">
+                    Sent immediately rather than queued, so the result here is the real one — no worker involved.
+                </p>
+            </div>
+        </div>
+    </div>
+    @endif
+
     {{-- Clear Cache (super admin only) --}}
     @if(auth()->user()->is_super_admin)
     <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">

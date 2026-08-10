@@ -23,6 +23,11 @@ class AppServiceProvider extends ServiceProvider
     {
         Paginator::useTailwind();
 
+        // SMTP details managed in Settings win over config/mail.php. Applied here
+        // so it covers web requests, queued notifications and artisan commands
+        // alike — anywhere mail might be sent.
+        \App\Services\MailConfigurator::apply();
+
         View::composer('layouts.app', function ($view) {
             try {
                 $user = auth()->user();
