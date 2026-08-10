@@ -1099,22 +1099,7 @@
                 </div>
                 <form method="POST" action="{{ route('product-requests.assign', $request) }}" class="px-5 py-4 space-y-3">
                     @csrf
-                    @php
-                        // Every assignable role, from the model. Photoshoot roles are
-                        // dropped when there is no shoot — an empty field for work
-                        // nobody is doing is just noise — but never when somebody is
-                        // already assigned, so an assignment can't be stranded.
-                        $assignmentFields = collect(\App\Models\ProductRequest::ASSIGNMENT_ROLES)
-                            ->reject(fn ($label, $field) =>
-                                $field === 'photographer_id'
-                                && !$request->photoshoot_required
-                                && !$request->photographer_id)
-                            ->reject(fn ($label, $field) =>
-                                $field === 'supply_chain_id'
-                                && !$request->requiresMapping()
-                                && !$request->supply_chain_id)
-                            ->all();
-                    @endphp
+                    @php $assignmentFields = $request->visibleAssignmentRoles(); @endphp
                     @foreach($assignmentFields as $field => $label)
                         {{-- Several roles own more than one stage, so rather than naming
                              stages, flag the one the request is waiting on right now. --}}
@@ -1164,9 +1149,14 @@
                     @endforeach
 
                     @unless($request->isClosed())
-                    <button type="submit" class="w-full bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
-                        Save Assignments
-                    </button>
+                    {{-- Sticky: with six roles the button used to sit well below the
+                         fold, so a changed dropdown looked like it had not saved. --}}
+                    <div class="sticky bottom-0 -mx-5 px-5 pt-3 pb-1 bg-white border-t border-gray-100">
+                        <button type="submit" class="w-full bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-4 py-2.5 rounded-lg transition-colors">
+                            Save Assignments
+                        </button>
+                        <p class="text-xs text-gray-400 text-center mt-1.5">Changing a person here reassigns the task and notifies them.</p>
+                    </div>
                     @endunless
                 </form>
             </div>

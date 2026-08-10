@@ -265,9 +265,11 @@
                             }
                         },
                         // Only roles this request will actually use.
+                        // Same rule as the request page: no shoot means no
+                        // photographer and nothing to edit either.
                         get activeRoles() {
                             return this.allRoles.filter(r =>
-                                (r.key !== 'photographer_id' || photoshoot === '1') &&
+                                (!['photographer_id', 'image_editor_id'].includes(r.key) || photoshoot === '1') &&
                                 (r.key !== 'supply_chain_id' || usesMapping)
                             );
                         },

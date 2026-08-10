@@ -190,6 +190,36 @@ class ProductRequest extends Model
         'qa_owner_id'      => 'Review the images, copy and product data before anything goes live, and send it back a stage if something needs rework.',
     ];
 
+    /**
+     * Which roles to offer for this request.
+     *
+     * Photography roles are pointless without a shoot, and Supply Chain without
+     * a mapping step — but a role is always kept when somebody already holds it,
+     * or when it owns the stage the request is sitting at, so an assignment can
+     * never become stranded and un-editable.
+     *
+     * @return array<string, string>  field => label
+     */
+    public function visibleAssignmentRoles(): array
+    {
+        $currentField = $this->currentGuide()['field'] ?? null;
+
+        return collect(self::ASSIGNMENT_ROLES)
+            ->filter(function ($label, $field) use ($currentField) {
+                if ($this->{$field} || $field === $currentField) {
+                    return true;
+                }
+
+                return match ($field) {
+                    // No shoot means no photographs, so nothing to shoot or edit.
+                    'photographer_id', 'image_editor_id' => (bool) $this->photoshoot_required,
+                    'supply_chain_id'                    => $this->requiresMapping(),
+                    default                              => true,
+                };
+            })
+            ->all();
+    }
+
     /** What we are asking of someone in this role. */
     public static function taskForRole(string $field): ?string
     {

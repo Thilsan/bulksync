@@ -942,19 +942,101 @@ class ProductRequestTest extends TestCase
         $this->assertSame('mine', $request->ownershipFor($editor));
     }
 
-    public function test_the_assignment_panel_offers_every_role(): void
+    public function test_the_assignment_panel_offers_every_applicable_role(): void
     {
         Notification::fake();
 
         $user    = $this->brandManager();
-        $request = $this->submitFor($user, $this->mappingSite(), 'ROLE-2');
+        $request = $this->submitFor($user, $this->mappingSite(), 'ROLE-2');   // photoshoot required
 
         $page = $this->actingAs($user)->get(route('product-requests.show', $request))->assertOk();
 
-        foreach (ProductRequest::ASSIGNMENT_ROLES as $field => $label) {
+        foreach ($request->visibleAssignmentRoles() as $field => $label) {
             $page->assertSee($label);
             $page->assertSee('name="' . $field . '"', false);
         }
+
+        // With a shoot, that means all of them.
+        $this->assertCount(count(ProductRequest::ASSIGNMENT_ROLES), $request->visibleAssignmentRoles());
+    }
+
+    public function test_photography_roles_are_hidden_when_there_is_no_photoshoot(): void
+    {
+        Notification::fake();
+
+        $user    = $this->brandManager();
+        $request = $this->submitFor($user, $this->plainSite(), 'NOSHOOT-1');
+
+        $request->update(['photoshoot_required' => false, 'supplier_images_available' => true]);
+        $request->refresh();
+
+        $roles = $request->visibleAssignmentRoles();
+
+        // No shoot means nothing to photograph and nothing to edit.
+        $this->assertArrayNotHasKey('photographer_id', $roles);
+        $this->assertArrayNotHasKey('image_editor_id', $roles);
+        $this->assertArrayHasKey('content_owner_id', $roles);
+        $this->assertArrayHasKey('qa_owner_id', $roles);
+
+        $this->actingAs($user)->get(route('product-requests.show', $request))
+            ->assertOk()
+            ->assertDontSee('name="photographer_id"', false)
+            ->assertDontSee('name="image_editor_id"', false);
+    }
+
+    public function test_a_hidden_role_reappears_if_it_is_in_use(): void
+    {
+        Notification::fake();
+
+        $user    = $this->brandManager();
+        $editor  = User::create(['name' => 'Ed Vis', 'email' => 'edvis@example.test', 'password' => 'password',
+            'is_active' => true, 'perm_product_request' => true, 'pcr_role' => 'image_editor']);
+        $request = $this->submitFor($user, $this->plainSite(), 'REAPPEAR-1');
+
+        // Someone already holds the role — hiding it would strand the assignment.
+        $request->update(['photoshoot_required' => false, 'image_editor_id' => $editor->id]);
+        $this->assertArrayHasKey('image_editor_id', $request->refresh()->visibleAssignmentRoles());
+
+        // And it must be offered when it owns the stage the request is sitting at.
+        $request->update(['image_editor_id' => null, 'status' => ProductRequest::IMAGE_EDITING]);
+        $this->assertArrayHasKey('image_editor_id', $request->refresh()->visibleAssignmentRoles());
+    }
+
+    public function test_an_assigned_person_can_be_swapped_for_someone_else(): void
+    {
+        Notification::fake();
+
+        $requester = $this->brandManager();
+        $request   = $this->submitFor($requester, $this->plainSite(), 'SWAP-1');
+
+        $first  = User::create(['name' => 'First QA', 'email' => 'q1s@example.test', 'password' => 'password',
+            'is_active' => true, 'perm_product_request' => true, 'pcr_role' => 'qa']);
+        $second = User::create(['name' => 'Second QA', 'email' => 'q2s@example.test', 'password' => 'password',
+            'is_active' => true, 'perm_product_request' => true, 'pcr_role' => 'qa']);
+
+        $this->actingAs($requester)->post(route('product-requests.assign', $request), [
+            'qa_owner_id' => $first->id,
+        ])->assertRedirect();
+
+        $this->assertSame($first->id, $request->fresh()->qa_owner_id);
+
+        // Changing the dropdown to someone else must actually swap them.
+        $this->actingAs($requester)->post(route('product-requests.assign', $request), [
+            'qa_owner_id' => $second->id,
+        ])->assertRedirect();
+
+        $request->refresh();
+
+        $this->assertSame($second->id, $request->qa_owner_id);
+        $this->assertSame($second->id, $request->assignmentFor('qa_owner_id')->user_id);
+        Notification::assertSentTo($second, ProductRequestAssigned::class);
+
+        // And clearing it back to Unassigned works too.
+        $this->actingAs($requester)->post(route('product-requests.assign', $request), [
+            'qa_owner_id' => null,
+        ])->assertRedirect();
+
+        $this->assertNull($request->fresh()->qa_owner_id);
     }
 
     public function test_a_request_is_listed_by_its_name_with_the_reference_kept(): void
