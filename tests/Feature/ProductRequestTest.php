@@ -112,7 +112,7 @@ class ProductRequestTest extends TestCase
         // The stage is absent from the stepper and can never be moved to.
         $this->assertNotContains(ProductRequest::WAITING_MAPPING, $request->displayStages());
         $this->assertNotContains(ProductRequest::WAITING_MAPPING, $request->allowedTransitions());
-        $this->assertCount(11, $request->displayStages());
+        $this->assertCount(9, $request->displayStages());
     }
 
     public function test_the_website_must_be_one_the_user_can_access(): void
@@ -375,6 +375,56 @@ class ProductRequestTest extends TestCase
         ]);
 
         $this->actingAs($other)->get(route('product-requests.show', $request))->assertForbidden();
+    }
+
+    public function test_publishing_ends_the_request(): void
+    {
+        Notification::fake();
+
+        $user    = $this->brandManager();
+        $request = $this->submitFor($user, $this->plainSite(), 'PUB-1');
+
+        // Publishing is the last stage — there is no Ready for Upload or
+        // Completed step after it.
+        $stages = $request->displayStages();
+        $this->assertSame(ProductRequest::PUBLISHED, end($stages));
+        $this->assertNotContains(ProductRequest::READY_FOR_UPLOAD, $stages);
+        $this->assertNotContains(ProductRequest::COMPLETED, $stages);
+
+        app(ProductRequestWorkflow::class)->transition($request, ProductRequest::PUBLISHED, $user, 'Live');
+        $request->refresh();
+
+        $this->assertTrue($request->isClosed());
+        $this->assertSame([], $request->allowedTransitions());
+        $this->assertFalse($request->isOverdue());
+
+        // Publishing stamps completion too, or every closed request would look
+        // like it was never finished.
+        $this->assertNotNull($request->published_at);
+        $this->assertNotNull($request->completed_at);
+    }
+
+    public function test_a_request_left_on_a_retired_stage_still_works(): void
+    {
+        Notification::fake();
+
+        $user    = $this->brandManager();
+        $request = $this->submitFor($user, $this->plainSite(), 'LEGACY-1');
+
+        // Created under the old flow, before Ready for Upload was retired.
+        $request->update(['status' => ProductRequest::READY_FOR_UPLOAD]);
+        $request->refresh();
+
+        // It must still render — the stepper needs to contain its own status.
+        $this->assertContains(ProductRequest::READY_FOR_UPLOAD, $request->displayStages());
+        $this->assertGreaterThanOrEqual(0, $request->displayStageIndex());
+        $this->assertGreaterThan(0, $request->progressPercent());
+
+        // And it can still be finished.
+        $this->assertSame(ProductRequest::PUBLISHED, $request->suggestedNextStatus());
+        $this->assertFalse($request->isClosed());
+
+        $this->actingAs($user)->get(route('product-requests.show', $request))->assertOk();
     }
 
     public function test_cancelling_closes_the_request(): void
@@ -702,7 +752,9 @@ class ProductRequestTest extends TestCase
 
         $this->assertSame('Supply Chain Team', $request->guideFor(ProductRequest::WAITING_MAPPING)['role']);
         $this->assertSame('Photographer', $request->guideFor(ProductRequest::PHOTOSHOOT_SCHEDULED)['role']);
-        $this->assertSame('QA Team', $request->guideFor(ProductRequest::QA_REVIEW)['role']);
+        // Whoever writes the content reviews and publishes it.
+        $this->assertSame('Content Team', $request->guideFor(ProductRequest::QA_REVIEW)['role']);
+        $this->assertSame('Content Team', $request->guideFor(ProductRequest::PUBLISHED)['role']);
     }
 
     public function test_the_content_stage_guidance_changes_when_the_brand_team_supplies_copy(): void
@@ -1069,7 +1121,7 @@ class ProductRequestTest extends TestCase
         $this->assertNotContains(ProductRequest::PHOTOSHOOT_SCHEDULED, $stages);
         $this->assertNotContains(ProductRequest::WAITING_IMAGES, $stages);
         $this->assertContains(ProductRequest::AI_CONTENT, $stages);
-        $this->assertCount(7, $stages);
+        $this->assertCount(5, $stages);
 
         // The suggestion must land on a stage this request actually has.
         $this->assertSame(ProductRequest::AI_CONTENT, $request->suggestedNextStatus());
@@ -1115,7 +1167,7 @@ class ProductRequestTest extends TestCase
             $this->assertContains($stage, $stages);
         }
 
-        $this->assertCount(11, $stages);
+        $this->assertCount(9, $stages);
     }
 
     public function test_photography_roles_are_hidden_when_there_is_no_photoshoot(): void

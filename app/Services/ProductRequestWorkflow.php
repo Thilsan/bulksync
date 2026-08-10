@@ -34,9 +34,11 @@ class ProductRequestWorkflow
         ProductRequest::PHOTOSHOOT_COMPLETED => ['ecommerce', 'content'],
         ProductRequest::IMAGE_EDITING        => ['image_editor', 'ecommerce'],
         ProductRequest::AI_CONTENT           => ['content'],
-        ProductRequest::QA_REVIEW            => ['qa'],
-        ProductRequest::READY_FOR_UPLOAD     => ['ecommerce'],
-        ProductRequest::PUBLISHED            => ['brand_manager', 'ecommerce'],
+        // The content person reviews and publishes their own work.
+        ProductRequest::QA_REVIEW            => ['content', 'qa'],
+        ProductRequest::READY_FOR_UPLOAD     => ['content'],           // retired stage
+        // Publishing closes the request, so the brand side hears about it.
+        ProductRequest::PUBLISHED            => ['brand_manager', 'ecommerce', 'content'],
         ProductRequest::COMPLETED            => ['brand_manager', 'ecommerce'],
         ProductRequest::CANCELLED            => ['ecommerce', 'brand_manager'],
     ];
@@ -65,8 +67,10 @@ class ProductRequestWorkflow
         $request->fill(['status' => $to]);
 
         // Stamp the milestone timestamps the dashboard and reporting read.
+        // Publishing is the end of the road, so it stamps completion too —
+        // otherwise every closed request would show as never completed.
         match ($to) {
-            ProductRequest::PUBLISHED => $request->published_at = now(),
+            ProductRequest::PUBLISHED => [$request->published_at = now(), $request->completed_at = now()],
             ProductRequest::COMPLETED => $request->completed_at = now(),
             ProductRequest::CANCELLED => $request->cancelled_at = now(),
             default                   => null,

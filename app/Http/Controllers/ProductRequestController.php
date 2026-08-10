@@ -93,9 +93,11 @@ class ProductRequestController extends Controller implements HasMiddleware
             'waiting_mapping'   => $base()->where('status', ProductRequest::WAITING_MAPPING)->count(),
             'in_progress'       => $base()->inProgress()->count(),
             'waiting_photoshoot'=> $base()->whereIn('status', [ProductRequest::WAITING_IMAGES, ProductRequest::PHOTOSHOOT_SCHEDULED])->count(),
-            'ready_for_upload'  => $base()->where('status', ProductRequest::READY_FOR_UPLOAD)->count(),
-            'published'         => $base()->where('status', ProductRequest::PUBLISHED)->count(),
-            'completed'         => $base()->where('status', ProductRequest::COMPLETED)->count(),
+            'qa_review'         => $base()->where('status', ProductRequest::QA_REVIEW)->count(),
+            'on_hold'           => $base()->onHold()->count(),
+            // Publishing closes a request, so live and done are the same number.
+            // Legacy "completed" rows are counted here too.
+            'published'         => $base()->whereIn('status', [ProductRequest::PUBLISHED, ProductRequest::COMPLETED])->count(),
         ];
 
         $breakdown = $base()
@@ -106,7 +108,7 @@ class ProductRequestController extends Controller implements HasMiddleware
         $recent = $base()->with(['user', 'assignee'])->latest()->limit(8)->get();
 
         $deadlines = $base()
-            ->whereNotIn('status', [ProductRequest::PUBLISHED, ProductRequest::COMPLETED, ProductRequest::CANCELLED])
+            ->whereNotIn('status', ProductRequest::CLOSED_STATUSES)
             ->whereNotNull('online_launch_date')
             ->orderBy('online_launch_date')
             ->limit(5)
@@ -266,7 +268,7 @@ class ProductRequestController extends Controller implements HasMiddleware
 
         // Closed work is hidden by default — this is a to-do list, not history.
         if (!$request->boolean('include_closed')) {
-            $query->whereNotIn('status', [ProductRequest::COMPLETED, ProductRequest::CANCELLED]);
+            $query->whereNotIn('status', ProductRequest::CLOSED_STATUSES);
         }
 
         $requests = $query
@@ -279,7 +281,7 @@ class ProductRequestController extends Controller implements HasMiddleware
             'teamTasks'   => $this->unclaimedForRole($user),
             'overdue'     => $requests->filter->isOverdue()->count(),
             'closedCount' => ProductRequest::query()->assignedTo($user)
-                ->whereIn('status', [ProductRequest::COMPLETED, ProductRequest::CANCELLED])->count(),
+                ->whereIn('status', ProductRequest::CLOSED_STATUSES)->count(),
         ]);
     }
 

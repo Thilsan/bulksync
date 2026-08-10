@@ -40,7 +40,7 @@ class SendProductRequestReminders extends Command
         $dryRun      = (bool) $this->option('dry-run');
 
         $open = ProductRequest::query()
-            ->whereNotIn('status', [ProductRequest::COMPLETED, ProductRequest::CANCELLED])
+            ->whereNotIn('status', ProductRequest::CLOSED_STATUSES)
             ->with(['assignee', 'supplyChainOwner', 'photographer', 'imageEditor', 'contentOwner', 'qaOwner',
                     'user', 'assignments.user'])
             ->get();

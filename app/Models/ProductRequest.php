@@ -24,6 +24,20 @@ class ProductRequest extends Model
     public const COMPLETED            = 'completed';
     public const CANCELLED            = 'cancelled';
 
+    /**
+     * Publishing ends a request. There is no separate completion step: the person
+     * who writes the content reviews it and puts it live, and once it is live
+     * there is nothing left to sign off.
+     *
+     * COMPLETED and READY_FOR_UPLOAD are retired rather than deleted — requests
+     * created under the old flow still hold those statuses and have to keep
+     * rendering. See stageApplies().
+     */
+    public const CLOSED_STATUSES = [self::PUBLISHED, self::COMPLETED, self::CANCELLED];
+
+    /** Stages no longer part of the flow, kept only so historic requests work. */
+    public const RETIRED_STAGES = [self::READY_FOR_UPLOAD, self::COMPLETED];
+
     /** Ordered pipeline — drives the progress stepper and "is this a step forward?" checks. */
     public const PIPELINE = [
         self::SUBMITTED,
@@ -131,22 +145,23 @@ class ProductRequest extends Model
             'what'  => 'Generate the product copy — descriptions, meta titles and meta descriptions — using the AI Content Generator.',
         ],
         self::QA_REVIEW => [
-            'role'  => 'QA Team',
-            'role_key' => 'qa',
-            'field' => 'qa_owner_id',
-            'what'  => 'Check the images, copy and product data. If something needs rework, move the request back one stage with a remark explaining why.',
+            'role'  => 'Content Team',
+            'role_key' => 'content',
+            'field' => 'content_owner_id',
+            'what'  => 'Check your own images, copy and product data before it goes live. If something needs rework, move the request back a stage with a remark explaining why.',
         ],
+        // Retired stage, kept for requests still sitting on it.
         self::READY_FOR_UPLOAD => [
-            'role'  => 'E-Commerce Team',
-            'role_key' => 'ecommerce',
-            'field' => 'assigned_to',
-            'what'  => 'Everything is approved. Upload the products so they go live on the planned online launch date.',
+            'role'  => 'Content Team',
+            'role_key' => 'content',
+            'field' => 'content_owner_id',
+            'what'  => 'Upload the products so they go live, then mark the request as Published.',
         ],
         self::PUBLISHED => [
-            'role'  => 'E-Commerce Team',
-            'role_key' => 'ecommerce',
-            'field' => 'assigned_to',
-            'what'  => 'Products are live on the website. Check them over, then close the request as completed.',
+            'role'  => 'Content Team',
+            'role_key' => 'content',
+            'field' => 'content_owner_id',
+            'what'  => 'Products are live on the website. Nothing further is needed — publishing closes the request.',
         ],
         self::COMPLETED => [
             'role'  => null,
@@ -472,7 +487,7 @@ class ProductRequest extends Model
     public function scopeOnHold($query)
     {
         return $query->where('on_hold', true)
-            ->whereNotIn('status', [self::COMPLETED, self::CANCELLED]);
+            ->whereNotIn('status', self::CLOSED_STATUSES);
     }
 
     /**
@@ -665,7 +680,7 @@ class ProductRequest extends Model
 
     public function isClosed(): bool
     {
-        return in_array($this->status, [self::COMPLETED, self::CANCELLED], true);
+        return in_array($this->status, self::CLOSED_STATUSES, true);
     }
 
     public function isBlockedOnMapping(): bool
@@ -744,6 +759,11 @@ class ProductRequest extends Model
             // No shoot means no raw images of ours to edit — supplier images
             // arrive ready to use, so the editing step does not apply either.
             self::IMAGE_EDITING => (bool) $this->photoshoot_required,
+
+            // Retired: publishing is the end, so there is no upload hand-off and
+            // no separate completion. Only shown if a request is still sitting
+            // on one from before the change.
+            self::READY_FOR_UPLOAD, self::COMPLETED => false,
 
             default => true,
         };
@@ -891,7 +911,7 @@ class ProductRequest extends Model
         // Compares the actual moment now that launches carry a time: a 09:00
         // launch is late by lunchtime, not at midnight.
         return $this->online_launch_date->isPast()
-            && !in_array($this->status, [self::PUBLISHED, self::COMPLETED, self::CANCELLED], true);
+            && !in_array($this->status, self::CLOSED_STATUSES, true);
     }
 
     /** The launch moment, for display. */

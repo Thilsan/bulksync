@@ -85,7 +85,7 @@ $pruneProductRequestData = function () {
     $cutoff = now()->subDays(90);
 
     ProductRequestAttachment::whereHas('productRequest', fn ($q) => $q
-        ->whereIn('status', [ProductRequest::COMPLETED, ProductRequest::CANCELLED])
+        ->whereIn('status', ProductRequest::CLOSED_STATUSES)
         ->where('updated_at', '<', $cutoff))
         ->chunkById(200, function ($attachments) {
             foreach ($attachments as $attachment) {
