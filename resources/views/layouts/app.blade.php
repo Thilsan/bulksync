@@ -146,7 +146,6 @@
             @if(auth()->user()->hasFeature('product_request'))
             @php
                 $pcrActive = request()->routeIs('product-requests.*');
-                $pcrQueue  = request()->route('queue');
                 $pcrUnread = $bellUnreadCount ?? 0;
             @endphp
             <div x-data="{ open: {{ $pcrActive ? 'true' : 'false' }} }">
@@ -183,8 +182,6 @@
                         $pcrLinks = [
                             ['label' => 'All Requests',     'url' => route('product-requests.list'),                             'on' => request()->routeIs('product-requests.list')],
                             ['label' => 'Assigned to Me',   'url' => route('product-requests.my-tasks'),                         'on' => request()->routeIs('product-requests.my-tasks')],
-                            ['label' => 'Photoshoot',       'url' => route('product-requests.queue', 'photoshoot'),              'on' => $pcrQueue === 'photoshoot'],
-                            ['label' => 'Content Creation', 'url' => route('product-requests.queue', 'content'),                 'on' => $pcrQueue === 'content'],
                             ['label' => 'Notifications',    'url' => route('product-requests.notifications'),                    'on' => request()->routeIs('product-requests.notifications')],
                         ];
                     @endphp
@@ -192,7 +189,6 @@
                         <a href="{{ $link['url'] }}"
                            class="flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-medium transition-colors
                                   {{ $link['on'] ? 'bg-white/15 text-white' : 'text-white/60 hover:bg-white/10 hover:text-white' }}">
-                            <span class="w-1 h-1 rounded-full shrink-0 {{ $link['on'] ? 'bg-white' : 'bg-white/30' }}"></span>
                             <span class="flex-1 truncate">{{ $link['label'] }}</span>
                             @if($link['label'] === 'Notifications' && $pcrUnread > 0)
                                 <span class="shrink-0 text-[10px] text-red-300 font-semibold">{{ $pcrUnread > 99 ? '99+' : $pcrUnread }}</span>
