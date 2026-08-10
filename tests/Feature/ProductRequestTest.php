@@ -1124,8 +1124,9 @@ class ProductRequestTest extends TestCase
             $page->assertSee('name="' . $field . '"', false);
         }
 
-        // With a shoot, that means all of them.
-        $this->assertCount(count(ProductRequest::ASSIGNMENT_ROLES), $request->visibleAssignmentRoles());
+        // With a shoot, that means every live role — QA is retired, so not it.
+        $this->assertCount(count(ProductRequest::assignableRoles()), $request->visibleAssignmentRoles());
+        $this->assertArrayNotHasKey('qa_owner_id', $request->visibleAssignmentRoles());
     }
 
     public function test_image_editing_is_dropped_when_there_is_no_photoshoot(): void
@@ -1226,12 +1227,44 @@ class ProductRequestTest extends TestCase
         $this->assertArrayNotHasKey('photographer_id', $roles);
         $this->assertArrayNotHasKey('image_editor_id', $roles);
         $this->assertArrayHasKey('content_owner_id', $roles);
-        $this->assertArrayHasKey('qa_owner_id', $roles);
 
         $this->actingAs($user)->get(route('product-requests.show', $request))
             ->assertOk()
             ->assertDontSee('name="photographer_id"', false)
             ->assertDontSee('name="image_editor_id"', false);
+    }
+
+    public function test_the_retired_qa_role_is_not_offered_but_is_not_stranded(): void
+    {
+        Notification::fake();
+
+        $user    = $this->brandManager();
+        $request = $this->submitFor($user, $this->plainSite(), 'QARET-1');
+
+        // Not offered on a new request — QA Review belongs to the Content Team.
+        $this->assertArrayNotHasKey('qa_owner_id', ProductRequest::assignableRoles());
+        $this->assertArrayNotHasKey('qa_owner_id', $request->visibleAssignmentRoles());
+
+        $this->actingAs($user)->get(route('product-requests.show', $request))
+            ->assertOk()
+            ->assertDontSee('name="qa_owner_id"', false);
+
+        // But a request that already has one still shows it, so it can be cleared
+        // rather than being stuck with an invisible assignee.
+        $qa = User::create(['name' => 'Old QA', 'email' => 'oldqa@example.test', 'password' => 'password',
+            'is_active' => true, 'perm_product_request' => true]);
+        $request->update(['qa_owner_id' => $qa->id]);
+
+        $this->assertArrayHasKey('qa_owner_id', $request->refresh()->visibleAssignmentRoles());
+
+        $this->actingAs($user)->get(route('product-requests.show', $request))
+            ->assertOk()
+            ->assertSee('name="qa_owner_id"', false);
+
+        // And clearing it works.
+        $this->actingAs($user)->post(route('product-requests.assign', $request), ['qa_owner_id' => null]);
+        $this->assertNull($request->fresh()->qa_owner_id);
+        $this->assertArrayNotHasKey('qa_owner_id', $request->fresh()->visibleAssignmentRoles());
     }
 
     public function test_a_hidden_role_reappears_if_it_is_in_use(): void

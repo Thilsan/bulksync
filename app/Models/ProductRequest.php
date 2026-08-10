@@ -277,6 +277,11 @@ class ProductRequest extends Model
                     return true;
                 }
 
+                // Retired roles are never offered fresh.
+                if (in_array($field, self::RETIRED_ROLES, true)) {
+                    return false;
+                }
+
                 return match ($field) {
                     'photographer_id' => $this->needsPhotoshoot(),
                     'image_editor_id' => $this->needsImageEditing(),
@@ -287,11 +292,29 @@ class ProductRequest extends Model
             ->all();
     }
 
+    /** Roles offered when raising a request — retired ones are not. */
+    public static function assignableRoles(): array
+    {
+        return collect(self::ASSIGNMENT_ROLES)
+            ->reject(fn ($label, $field) => in_array($field, self::RETIRED_ROLES, true))
+            ->all();
+    }
+
     /** What we are asking of someone in this role. */
     public static function taskForRole(string $field): ?string
     {
         return self::ROLE_TASKS[$field] ?? null;
     }
+
+    /**
+     * Roles no longer offered on new requests.
+     *
+     * QA Review belongs to the Content Team now — whoever writes the copy checks
+     * it — so a separate QA assignee has nothing to own. Kept in the list rather
+     * than deleted so a request that already has one still shows it, and it can
+     * be cleared; hiding it outright would strand the assignment.
+     */
+    public const RETIRED_ROLES = ['qa_owner_id'];
 
     /** The people a request can be assigned to, and what to call each. */
     public const ASSIGNMENT_ROLES = [

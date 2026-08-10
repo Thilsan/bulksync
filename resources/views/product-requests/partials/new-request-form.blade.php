@@ -245,7 +245,7 @@
                 {{-- 6. Team --}}
                 <section x-data="{
                         rows: [{ role: '', user: '', due: '' }],
-                        allRoles: {{ Illuminate\Support\Js::from(collect(\App\Models\ProductRequest::ASSIGNMENT_ROLES)->map(fn ($label, $key) => ['key' => $key, 'label' => $label, 'task' => \App\Models\ProductRequest::taskForRole($key)])->values()) }},
+                        allRoles: {{ Illuminate\Support\Js::from(collect(\App\Models\ProductRequest::assignableRoles())->map(fn ($label, $key) => ['key' => $key, 'label' => $label, 'task' => \App\Models\ProductRequest::taskForRole($key)])->values()) }},
                         taskFor(role) {
                             const found = this.allRoles.find(r => r.key === role);
                             return found ? found.task : '';

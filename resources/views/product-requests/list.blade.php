@@ -120,7 +120,7 @@
                     <div>
                         <label class="block text-xs font-medium text-gray-600 mb-1">Role</label>
                         <select name="field" class="rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
-                            @foreach(\App\Models\ProductRequest::ASSIGNMENT_ROLES as $field => $label)
+                            @foreach(\App\Models\ProductRequest::assignableRoles() as $field => $label)
                                 <option value="{{ $field }}">{{ $label }}</option>
                             @endforeach
                         </select>
