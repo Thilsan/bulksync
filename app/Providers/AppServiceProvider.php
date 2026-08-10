@@ -3,6 +3,7 @@
 namespace App\Providers;
 
 use Illuminate\Pagination\Paginator;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\View;
 use Illuminate\Support\ServiceProvider;
 
@@ -23,10 +24,15 @@ class AppServiceProvider extends ServiceProvider
     {
         Paginator::useTailwind();
 
-        // SMTP details managed in Settings win over config/mail.php. Applied here
-        // so it covers web requests, queued notifications and artisan commands
-        // alike — anywhere mail might be sent.
+        // SMTP details managed in Settings win over config/mail.php.
         \App\Services\MailConfigurator::apply();
+
+        // ...and again before every queued job. A queue worker is a long-lived
+        // process: it applied the config once at boot, so settings saved after
+        // it started were invisible to it. Notifications would then see
+        // mail.default = "log", skip the mail channel entirely, and deliver
+        // in-app only — silently, with nothing failed to look at.
+        Queue::before(fn () => \App\Services\MailConfigurator::apply());
 
         View::composer('layouts.app', function ($view) {
             try {

@@ -2,9 +2,13 @@
 
 namespace Tests\Feature;
 
+use App\Models\ProductRequest;
 use App\Models\Setting;
 use App\Models\User;
+use App\Notifications\ProductRequestAssigned;
 use App\Services\MailConfigurator;
+use Illuminate\Contracts\Queue\Job;
+use Illuminate\Queue\Events\JobProcessing;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Mail;
 use Tests\TestCase;
@@ -157,6 +161,58 @@ class MailSettingsTest extends TestCase
 
         // Nothing pretends to have been sent.
         $this->assertSame('log', config('mail.default'));
+    }
+
+    public function test_a_queue_worker_picks_up_settings_saved_after_it_started(): void
+    {
+        // A worker is long-lived: it applies the mail config once at boot. Settings
+        // saved afterwards were invisible to it, so notifications saw
+        // mail.default = "log", skipped the mail channel and delivered in-app only.
+        config(['mail.default' => 'log']);
+
+        Setting::set('mail_enabled', '1');
+        Setting::set('mail_host', 'send.smtp.com');
+        Setting::set('mail_port', '2525');
+        MailConfigurator::flush();
+
+        // Still stale, because nothing has re-applied it in this process.
+        $this->assertSame('log', config('mail.default'));
+
+        // Queue::before fires this at the start of every job.
+        event(new JobProcessing('database', $this->createMock(Job::class)));
+
+        $this->assertSame('smtp', config('mail.default'));
+        $this->assertSame('send.smtp.com', config('mail.mailers.smtp.host'));
+    }
+
+    public function test_notifications_include_the_mail_channel_once_smtp_is_configured(): void
+    {
+        $user = $this->superAdmin();
+
+        $request = ProductRequest::create([
+            'reference'         => ProductRequest::nextReference(),
+            'user_id'           => $user->id,
+            'request_type'      => 'new_brand',
+            'brand'             => 'Channel Test',
+            'category'          => 'X',
+            'status'            => ProductRequest::WAITING_IMAGES,
+            'priority'          => 'low',
+            'validation_status' => 'completed',
+        ]);
+
+        $notification = ProductRequestAssigned::forRequest($request, 'Photographer', 'Tester');
+
+        // On the log driver, email is deliberately skipped rather than pretended.
+        config(['mail.default' => 'log']);
+        $this->assertSame(['database'], $notification->via($user));
+
+        // With SMTP configured, the mail channel joins in.
+        Setting::set('mail_enabled', '1');
+        Setting::set('mail_host', 'send.smtp.com');
+        MailConfigurator::flush();
+        MailConfigurator::apply();
+
+        $this->assertSame(['database', 'mail'], $notification->via($user));
     }
 
     public function test_only_super_admins_can_change_mail_settings(): void
