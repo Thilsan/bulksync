@@ -71,6 +71,9 @@ class ProductRequestStatusChanged extends Notification implements ShouldQueue
                 'statusLabel'   => $label,
                 'stageGuide'    => $this->stageGuide($request, $this->toStatus),
                 'isMine'        => $isMine,
+                // A finished request has no next step and nobody to wait on.
+                'isClosed'      => $request?->isClosed() ?? in_array($this->toStatus, ProductRequest::CLOSED_STATUSES, true),
+                'isCancelled'   => $this->toStatus === ProductRequest::CANCELLED,
                 'ownerText'     => $owner?->name ?? (($guide['role'] ?? null) ?: 'the team'),
                 'dueText'       => $dueText,
                 'remarks'       => $this->remarks,

@@ -1798,6 +1798,39 @@ class ProductRequestTest extends TestCase
         $this->assertStringContainsString('You are the Photographer', $mail->subject);
     }
 
+    public function test_a_finished_status_email_does_not_ask_who_we_are_waiting_on(): void
+    {
+        $user    = $this->brandManager();
+        $request = $this->submitFor($user, $this->plainSite(), 'MAILEND-1');
+
+        // Mid-flight it should still explain the next step and the owner.
+        $request->update(['status' => ProductRequest::QA_REVIEW]);
+        $open = ProductRequestStatusChanged::forRequest($request->fresh(), ProductRequest::QA_REVIEW, 'Ahamed')
+            ->toMail($user)->render();
+
+        $this->assertStringContainsString('What happens next', $open);
+        $this->assertStringContainsString('Waiting on', $open);
+
+        // Closed, there is no next step and nobody to wait on.
+        foreach ([ProductRequest::PUBLISHED, ProductRequest::COMPLETED] as $status) {
+            $request->update(['status' => $status]);
+            $html = ProductRequestStatusChanged::forRequest($request->fresh(), $status, 'Ahamed')
+                ->toMail($user)->render();
+
+            $this->assertStringNotContainsString('Waiting on', $html);
+            $this->assertStringNotContainsString('What happens next', $html);
+            $this->assertStringContainsString('Finished', $html);
+        }
+
+        // Cancelled says so rather than claiming to be finished.
+        $request->update(['status' => ProductRequest::CANCELLED]);
+        $cancelled = ProductRequestStatusChanged::forRequest($request->fresh(), ProductRequest::CANCELLED, 'Ahamed')
+            ->toMail($user)->render();
+
+        $this->assertStringContainsString('Cancelled', $cancelled);
+        $this->assertStringNotContainsString('Waiting on', $cancelled);
+    }
+
     public function test_the_reminder_email_only_lists_that_persons_own_work(): void
     {
         $me    = $this->brandManager();

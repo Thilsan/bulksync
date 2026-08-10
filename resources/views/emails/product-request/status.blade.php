@@ -11,7 +11,14 @@
         <strong style="color:#1d5a74;">{{ $statusLabel }}</strong>.
     </p>
 
-    @if($isMine)
+    @if($isClosed)
+        {{-- Finished or cancelled: there is no next step and nobody to wait on. --}}
+        @include('emails.partials.callout', [
+            'tone'    => $isCancelled ? 'red' : 'green',
+            'heading' => $isCancelled ? 'Cancelled' : 'Finished',
+            'body'    => e($stageGuide),
+        ])
+    @elseif($isMine)
         @include('emails.partials.callout', [
             'tone'    => 'brand',
             'heading' => 'This stage is yours',
@@ -33,7 +40,7 @@
     @endif
 
     @include('emails.partials.summary', ['rows' => $rows])
-    @include('emails.partials.button', ['url' => $url, 'label' => 'Open this request'])
+    @include('emails.partials.button', ['url' => $url, 'label' => $isClosed ? 'View this request' : 'Open this request'])
 
     <p style="margin:14px 0 0 0; font-size:13px; color:#6b7280;">Updated by {{ $actorName }}.</p>
 @endsection
