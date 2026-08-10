@@ -1332,6 +1332,74 @@ class ProductRequestTest extends TestCase
         $this->assertNull($request->assignmentFor('image_editor_id'));   // no orphan brief left behind
     }
 
+    public function test_the_assignment_email_is_branded_and_personal(): void
+    {
+        $requester = $this->brandManager();
+        $request   = $this->submitFor($requester, $this->plainSite(), 'MAIL-1');
+
+        $shooter = User::create(['name' => 'Mail Shooter', 'email' => 'ms@example.test', 'password' => 'password',
+            'is_active' => true, 'perm_product_request' => true, 'pcr_role' => 'photographer']);
+
+        $request->update(['status' => ProductRequest::WAITING_IMAGES, 'name' => 'New Balance SS26']);
+
+        app(ProductRequestWorkflow::class)->assignRole(
+            request: $request->refresh(),
+            field:   'photographer_id',
+            userId:  $shooter->id,
+            actor:   $requester,
+            title:   'Shoot 45 SKUs on white background',
+            dueDate: now()->addDays(2)->toDateString(),
+        );
+
+        $mail = ProductRequestAssigned::forRequest($request->refresh(), 'Photographer', $requester->name)
+            ->toMail($shooter);
+
+        $html = $mail->render();
+
+        // Addressed to one person, about their own task only.
+        $this->assertStringContainsString('Hello Mail Shooter', $html);
+        $this->assertStringContainsString('Shoot 45 SKUs on white background', $html);
+        $this->assertStringContainsString('Finish by', $html);
+        $this->assertStringContainsString('Photographer', $html);
+
+        // Tells them what the stage actually needs.
+        $this->assertStringContainsString('Gather the product images', $html);
+
+        // Branding: logo, wordmark and a working link back into the system.
+        $this->assertStringContainsString('aih_logo-1.png', $html);
+        $this->assertStringContainsString('AI E-Commerce Studio', $html);
+        $this->assertStringContainsString('#1d5a74', $html);
+        $this->assertStringContainsString(route('product-requests.show', $request->id), $html);
+        $this->assertStringContainsString('Abuissa Holding E-Commerce Department', $html);
+
+        // The subject names the role, so it is scannable in an inbox.
+        $this->assertStringContainsString('You are the Photographer', $mail->subject);
+    }
+
+    public function test_the_reminder_email_only_lists_that_persons_own_work(): void
+    {
+        $me    = $this->brandManager();
+        $other = User::create(['name' => 'Someone Else', 'email' => 'se@example.test', 'password' => 'password',
+            'is_active' => true, 'perm_product_request' => true, 'pcr_role' => 'qa']);
+
+        $mine = $this->submitFor($me, $this->plainSite(), 'MINE-MAIL');
+        $mine->update(['name' => 'My Own Request']);
+
+        $html = (new ProductRequestReminder([[
+            'request_id' => $mine->id,
+            'reference'  => $mine->reference,
+            'name'       => $mine->displayName(),
+            'reason'     => 'your QA Team task "Check the copy" is due today',
+        ]]))->toMail($me)->render();
+
+        $this->assertStringContainsString('Hello Brand Manager', $html);
+        $this->assertStringContainsString('My Own Request', $html);
+        $this->assertStringContainsString('Check the copy', $html);
+
+        // Nobody else's name or work appears in a personal digest.
+        $this->assertStringNotContainsString($other->name, $html);
+    }
+
     public function test_the_dashboard_explains_the_process_to_newcomers(): void
     {
         $user = $this->brandManager();

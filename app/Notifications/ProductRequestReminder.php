@@ -5,6 +5,7 @@ namespace App\Notifications;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
+use App\Notifications\Concerns\BuildsRequestEmail;
 use Illuminate\Notifications\Notification;
 
 /**
@@ -16,7 +17,7 @@ use Illuminate\Notifications\Notification;
  */
 class ProductRequestReminder extends Notification implements ShouldQueue
 {
-    use Queueable;
+    use BuildsRequestEmail, Queueable;
 
     /**
      * @param  array<int, array{reference: string, name: string, reason: string, request_id: int}>  $items
@@ -35,18 +36,23 @@ class ProductRequestReminder extends Notification implements ShouldQueue
 
     public function toMail(object $notifiable): MailMessage
     {
-        $count = count($this->items);
+        $count   = count($this->items);
+        $subject = $count === 1
+            ? '1 product request needs your attention'
+            : "{$count} product requests need your attention";
 
-        $mail = (new MailMessage)
-            ->subject("{$count} product " . str('request')->plural($count) . ' need your attention')
-            ->greeting("Hello {$notifiable->name},")
-            ->line("These are waiting on you:");
-
-        foreach ($this->items as $item) {
-            $mail->line("• **{$item['name']}** ({$item['reference']}) — {$item['reason']}");
-        }
-
-        return $mail->action('Open Assigned to Me', route('product-requests.my-tasks'));
+        return (new MailMessage)
+            ->subject($subject)
+            ->view('emails.product-request.reminder', [
+                'recipientName' => $notifiable->name,
+                'count'         => $count,
+                'items'         => collect($this->items)
+                    ->map(fn ($i) => $i + ['url' => route('product-requests.show', $i['request_id'])])
+                    ->all(),
+                'url'           => route('product-requests.my-tasks'),
+                'subject'       => $subject,
+                'preheader'     => collect($this->items)->pluck('reason')->first() ?? 'Work is waiting on you.',
+            ]);
     }
 
     public function toArray(object $notifiable): array

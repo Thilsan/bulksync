@@ -6,11 +6,12 @@ use App\Models\ProductRequest;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
+use App\Notifications\Concerns\BuildsRequestEmail;
 use Illuminate\Notifications\Notification;
 
 class ProductRequestStatusChanged extends Notification implements ShouldQueue
 {
-    use Queueable;
+    use BuildsRequestEmail, Queueable;
 
     public function __construct(
         public readonly int     $requestId,
@@ -48,21 +49,37 @@ class ProductRequestStatusChanged extends Notification implements ShouldQueue
 
     public function toMail(object $notifiable): MailMessage
     {
-        $label = ProductRequest::STATUS_LABELS[$this->toStatus] ?? $this->toStatus;
+        $request = $this->requestForEmail($this->requestId);
+        $label   = ProductRequest::STATUS_LABELS[$this->toStatus] ?? $this->toStatus;
+        $name    = $request?->displayName() ?? $this->brand;
 
-        $mail = (new MailMessage)
-            ->subject("[{$this->reference}] {$this->brand} — {$label}")
-            ->greeting("Hello {$notifiable->name},")
-            ->line("Product creation request **{$this->reference}** ({$this->brand}) is now **{$label}**.")
-            ->line("Updated by: {$this->actorName}");
+        $guide   = $request?->currentGuide();
+        $owner   = $guide['owner'] ?? null;
+        $isMine  = $owner && (int) $owner->id === (int) $notifiable->id;
 
-        if ($this->remarks) {
-            $mail->line("Remarks: {$this->remarks}");
-        }
+        // Only spell out a deadline for the person who actually owns the stage.
+        $brief   = $isMine && $guide['field'] ? $request?->assignmentFor($guide['field']) : null;
+        $dueText = $brief?->due_date
+            ? 'Finish by ' . $brief->due_date->format('D d M Y') . ' — ' . strtolower($brief->dueLabel())
+            : null;
 
-        return $mail
-            ->action('Open request', route('product-requests.show', $this->requestId))
-            ->line('You are receiving this because your team is involved in this stage.');
+        return (new MailMessage)
+            ->subject("[{$this->reference}] {$name} — {$label}")
+            ->view('emails.product-request.status', [
+                'recipientName' => $notifiable->name,
+                'requestName'   => $name,
+                'statusLabel'   => $label,
+                'stageGuide'    => $this->stageGuide($request, $this->toStatus),
+                'isMine'        => $isMine,
+                'ownerText'     => $owner?->name ?? (($guide['role'] ?? null) ?: 'the team'),
+                'dueText'       => $dueText,
+                'remarks'       => $this->remarks,
+                'actorName'     => $this->actorName,
+                'rows'          => $this->summaryRows($request),
+                'url'           => $this->requestUrl($this->requestId),
+                'subject'       => "{$name} — {$label}",
+                'preheader'     => "{$name} is now {$label}.",
+            ]);
     }
 
     public function toArray(object $notifiable): array

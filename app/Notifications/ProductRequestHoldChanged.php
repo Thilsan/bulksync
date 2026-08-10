@@ -6,6 +6,7 @@ use App\Models\ProductRequest;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
+use App\Notifications\Concerns\BuildsRequestEmail;
 use Illuminate\Notifications\Notification;
 
 /**
@@ -15,7 +16,7 @@ use Illuminate\Notifications\Notification;
  */
 class ProductRequestHoldChanged extends Notification implements ShouldQueue
 {
-    use Queueable;
+    use BuildsRequestEmail, Queueable;
 
     public function __construct(
         public readonly int     $requestId,
@@ -51,20 +52,30 @@ class ProductRequestHoldChanged extends Notification implements ShouldQueue
 
     public function toMail(object $notifiable): MailMessage
     {
-        $mail = (new MailMessage)
-            ->subject("[{$this->reference}] " . ($this->onHold ? 'Put on hold' : 'Back in progress'))
-            ->greeting("Hello {$notifiable->name},");
+        $request = $this->requestForEmail($this->requestId);
+        $name    = $request?->displayName() ?? $this->brand;
 
-        if ($this->onHold) {
-            $mail->line("**{$this->reference}** ({$this->brand}) has been put on hold at **{$this->stageLabel}**.")
-                 ->line("Reason: {$this->reason}");
-        } else {
-            $mail->line("**{$this->reference}** ({$this->brand}) is off hold and back in progress at **{$this->stageLabel}**.");
-        }
+        $subject = $this->onHold
+            ? "[{$this->reference}] On hold — {$this->reason}"
+            : "[{$this->reference}] Back in progress";
 
-        return $mail
-            ->line("Updated by: {$this->actorName}")
-            ->action('Open request', route('product-requests.show', $this->requestId));
+        return (new MailMessage)
+            ->subject($subject)
+            ->view('emails.product-request.hold', [
+                'recipientName' => $notifiable->name,
+                'requestName'   => $name,
+                'onHold'        => $this->onHold,
+                'reason'        => $this->reason,
+                'statusLabel'   => $this->stageLabel,
+                'stageGuide'    => $this->stageGuide($request),
+                'actorName'     => $this->actorName,
+                'rows'          => $this->summaryRows($request),
+                'url'           => $this->requestUrl($this->requestId),
+                'subject'       => $subject,
+                'preheader'     => $this->onHold
+                    ? "Blocked: {$this->reason}"
+                    : "{$name} is moving again.",
+            ]);
     }
 
     public function toArray(object $notifiable): array

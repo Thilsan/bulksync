@@ -6,6 +6,7 @@ use App\Models\ProductRequest;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
+use App\Notifications\Concerns\BuildsRequestEmail;
 use Illuminate\Notifications\Notification;
 use Illuminate\Support\Str;
 
@@ -16,7 +17,7 @@ use Illuminate\Support\Str;
  */
 class ProductRequestCommented extends Notification implements ShouldQueue
 {
-    use Queueable;
+    use BuildsRequestEmail, Queueable;
 
     public function __construct(
         public readonly int    $requestId,
@@ -50,18 +51,25 @@ class ProductRequestCommented extends Notification implements ShouldQueue
 
     public function toMail(object $notifiable): MailMessage
     {
+        $request = $this->requestForEmail($this->requestId);
+
         $subject = $this->mentioned
             ? "[{$this->reference}] {$this->actorName} mentioned you"
             : "[{$this->reference}] New comment from {$this->actorName}";
 
         return (new MailMessage)
             ->subject($subject)
-            ->greeting("Hello {$notifiable->name},")
-            ->line($this->mentioned
-                ? "**{$this->actorName}** mentioned you on **{$this->requestName}**:"
-                : "**{$this->actorName}** commented on **{$this->requestName}**:")
-            ->line('"' . $this->body . '"')
-            ->action('Reply on the request', route('product-requests.show', $this->requestId));
+            ->view('emails.product-request.comment', [
+                'recipientName' => $notifiable->name,
+                'requestName'   => $this->requestName,
+                'actorName'     => $this->actorName,
+                'mentioned'     => $this->mentioned,
+                'body'          => $this->body,
+                'rows'          => $this->summaryRows($request),
+                'url'           => $this->requestUrl($this->requestId),
+                'subject'       => $subject,
+                'preheader'     => \Illuminate\Support\Str::limit($this->body, 90),
+            ]);
     }
 
     public function toArray(object $notifiable): array
