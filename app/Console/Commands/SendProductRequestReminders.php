@@ -41,8 +41,7 @@ class SendProductRequestReminders extends Command
 
         $open = ProductRequest::query()
             ->whereNotIn('status', ProductRequest::CLOSED_STATUSES)
-            ->with(['assignee', 'supplyChainOwner', 'photographer', 'imageEditor', 'contentOwner', 'qaOwner',
-                    'user', 'assignments.user'])
+            ->with(['user', 'assignments.user', 'currentAssignments.user'])
             ->get();
 
         // Grouped by recipient so one person gets one digest, not five emails.
@@ -61,7 +60,7 @@ class SendProductRequestReminders extends Command
         foreach ($open as $request) {
             // A personal deadline is the sharpest signal there is — it names one
             // person and one commitment, so chase it first and on its own.
-            foreach ($request->assignments as $brief) {
+            foreach ($request->currentAssignments as $brief) {
                 if (!$brief->user?->is_active) {
                     continue;
                 }

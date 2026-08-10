@@ -1094,7 +1094,7 @@
                                     class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 disabled:bg-gray-50 disabled:text-gray-500">
                                 <option value="">Unassigned</option>
                                 @foreach($teamPool as $member)
-                                    <option value="{{ $member->id }}" @selected($request->{$field} === $member->id)>
+                                    <option value="{{ $member->id }}" @selected($request->ownerFor($field)?->id === $member->id)>
                                         {{ $member->name }}@if($member->pcr_role) — {{ $member->pcrRoleLabel() }}@endif
                                     </option>
                                 @endforeach
@@ -1117,7 +1117,7 @@
                                 @endif
                             </div>
 
-                            @if($request->{$field})
+                            @if($request->ownerFor($field))
                                 <p class="text-[11px] text-gray-400 mt-1 leading-snug">
                                     {{ \App\Models\ProductRequest::taskForRole($field) }}
                                 </p>
@@ -1137,6 +1137,32 @@
                     @endunless
                 </form>
             </div>
+
+            {{-- Who held what, and for how long. Only worth showing once a role
+                 has actually changed hands. --}}
+            @php $history = $request->assignments->whereNotNull('ended_at'); @endphp
+            @if($history->isNotEmpty())
+            <div class="bg-white rounded-xl border border-gray-200 shadow-sm">
+                <div class="px-5 py-3.5 border-b border-gray-100">
+                    <h2 class="text-sm font-semibold text-gray-800">Ownership History</h2>
+                    <p class="text-xs text-gray-400 mt-0.5">Every hand-over on this request.</p>
+                </div>
+                <div class="divide-y divide-gray-50">
+                    @foreach($request->ownershipHistory() as $entry)
+                        <div class="flex items-center gap-3 px-5 py-2.5">
+                            <span class="w-1.5 h-1.5 rounded-full shrink-0 {{ $entry['current'] ? 'bg-green-500' : 'bg-gray-300' }}"></span>
+                            <div class="flex-1 min-w-0">
+                                <p class="text-sm text-gray-800 truncate">{{ $entry['user'] ?? 'Unassigned' }}</p>
+                                <p class="text-xs text-gray-400">{{ $entry['role'] }}</p>
+                            </div>
+                            <span class="text-xs shrink-0 {{ $entry['current'] ? 'text-green-700 font-medium' : 'text-gray-500' }}">
+                                {{ $entry['days'] }}d{{ $entry['current'] ? ' so far' : '' }}
+                            </span>
+                        </div>
+                    @endforeach
+                </div>
+            </div>
+            @endif
 
             {{-- Summary --}}
             <div class="bg-white rounded-xl border border-gray-200 shadow-sm">

@@ -18,6 +18,7 @@ class ProductRequestAssignment extends Model
         'due_date',
         'assigned_by',
         'completed_at',
+        'ended_at',
     ];
 
     protected function casts(): array
@@ -25,6 +26,7 @@ class ProductRequestAssignment extends Model
         return [
             'due_date'     => 'date',
             'completed_at' => 'datetime',
+            'ended_at'     => 'datetime',
         ];
     }
 
@@ -41,6 +43,34 @@ class ProductRequestAssignment extends Model
     public function assignedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'assigned_by');
+    }
+
+    /** The live assignment for a role — the one that has not been handed on. */
+    public function scopeCurrent($query)
+    {
+        return $query->whereNull('ended_at');
+    }
+
+    /** Closed rows: who used to hold this, and for how long. */
+    public function scopeHistoric($query)
+    {
+        return $query->whereNotNull('ended_at');
+    }
+
+    public function isCurrent(): bool
+    {
+        return $this->ended_at === null;
+    }
+
+    /**
+     * Days this person actually held the role — finished at handover, otherwise
+     * still running. This is the number "how long does editing take" is built on.
+     */
+    public function heldForDays(): int
+    {
+        $until = $this->ended_at ?? now();
+
+        return (int) $this->created_at->startOfDay()->diffInDays($until->startOfDay());
     }
 
     public function roleLabel(): string

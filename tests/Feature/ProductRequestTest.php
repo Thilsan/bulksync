@@ -17,6 +17,7 @@ use App\Services\SkuMappingService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Notification;
 use Tests\TestCase;
 
@@ -56,6 +57,26 @@ class ProductRequestTest extends TestCase
             'is_active'            => false,
             'requires_sku_mapping' => false,
         ]);
+    }
+
+    /** Assign a role the way the app does — ownership lives in the assignments table. */
+    private function assign(ProductRequest $request, string $role, ?User $user): ProductRequest
+    {
+        app(ProductRequestWorkflow::class)->assignRole(
+            request: $request,
+            field:   $role,
+            userId:  $user?->id,
+            actor:   $request->user,
+            notify:  false,
+        );
+
+        return $request->refresh();
+    }
+
+    /** Who currently holds a role. */
+    private function ownerId(ProductRequest $request, string $role): ?int
+    {
+        return $request->ownerFor($role)?->id;
     }
 
     private function submitFor(User $user, Store $store, string $skus = 'X-1'): ProductRequest
@@ -548,7 +569,8 @@ class ProductRequestTest extends TestCase
             'online_launch_date' => now()->addDays(5),
         ];
 
-        ProductRequest::create($base + ['reference' => ProductRequest::nextReference(), 'brand' => 'MINE', 'photographer_id' => $user->id]);
+        $mineRow = ProductRequest::create($base + ['reference' => ProductRequest::nextReference(), 'brand' => 'MINE']);
+        $this->assign($mineRow, 'photographer_id', $user);
         ProductRequest::create($base + ['reference' => ProductRequest::nextReference(), 'brand' => 'NOBODYS']);
 
         $this->actingAs($user)->get(route('product-requests.queue', ['queue' => 'photoshoot', 'mine' => 1]))
@@ -618,7 +640,8 @@ class ProductRequestTest extends TestCase
         $mine    = $this->submitFor($user, $store, 'MINE-1');
         $notMine = $this->submitFor($user, $store, 'THEIRS-1');
 
-        $mine->update(['brand' => 'MY BRAND', 'qa_owner_id' => $user->id]);
+        $mine->update(['brand' => 'MY BRAND']);
+        $this->assign($mine, 'qa_owner_id', $user);
         $notMine->update(['brand' => 'SOMEONE ELSE']);
 
         $response = $this->actingAs($user)->get(route('product-requests.my-tasks'));
@@ -637,7 +660,9 @@ class ProductRequestTest extends TestCase
         $store = $this->mappingSite();
         $done  = $this->submitFor($user, $store, 'DONE-1');
 
-        $done->update(['brand' => 'FINISHED WORK', 'assigned_to' => $user->id, 'status' => ProductRequest::COMPLETED]);
+        $done->update(['brand' => 'FINISHED WORK']);
+        $this->assign($done, 'assigned_to', $user);
+        $done->update(['status' => ProductRequest::COMPLETED]);
 
         $this->actingAs($user)->get(route('product-requests.my-tasks'))
             ->assertOk()->assertDontSee('FINISHED WORK');
@@ -798,8 +823,7 @@ class ProductRequestTest extends TestCase
         $request = $this->submitFor($user, $this->plainSite(), 'GUIDE-1');
 
         // Sitting at SKU Verified, which the E-Commerce team drives.
-        $request->update(['assigned_to' => $user->id]);
-        $request->refresh();
+        $this->assign($request, 'assigned_to', $user);
 
         $this->assertTrue($request->isWaitingOn($user));
 
@@ -872,7 +896,7 @@ class ProductRequestTest extends TestCase
 
         $request->refresh();
 
-        $this->assertSame($ecom->id, $request->assigned_to);
+        $this->assertSame($ecom->id, $this->ownerId($request, 'assigned_to'));
         $this->assertSame('mine', $request->ownershipFor($ecom));
 
         // Claiming is recorded, so there is no mystery about who picked it up.
@@ -890,7 +914,7 @@ class ProductRequestTest extends TestCase
         $this->actingAs($other)->post(route('product-requests.claim', $request))
             ->assertSessionHasErrors('claim');
 
-        $this->assertSame($ecom->id, $request->fresh()->assigned_to);
+        $this->assertSame($ecom->id, $this->ownerId($request->fresh(), 'assigned_to'));
     }
 
     // ── Blocked work and hand-over ───────────────────────────────────────────
@@ -907,8 +931,8 @@ class ProductRequestTest extends TestCase
             'is_active' => true, 'perm_product_request' => true, 'pcr_role' => 'photographer',
         ]);
 
-        $request->update(['status' => ProductRequest::PHOTOSHOOT_SCHEDULED, 'photographer_id' => $shooter->id]);
-        $request->refresh();
+        $request->update(['status' => ProductRequest::PHOTOSHOOT_SCHEDULED]);
+        $this->assign($request->refresh(), 'photographer_id', $shooter);
 
         $this->actingAs($shooter)->post(route('product-requests.hold', $request), [
             'hold_reason' => 'Samples not received at studio',
@@ -975,6 +999,74 @@ class ProductRequestTest extends TestCase
         $this->assertFalse($request->fresh()->isOnHold());
     }
 
+    public function test_a_handover_keeps_the_previous_owner_as_history(): void
+    {
+        Notification::fake();
+
+        $requester = $this->brandManager();
+        $request   = $this->submitFor($requester, $this->plainSite(), 'HIST-1');
+
+        $first  = User::create(['name' => 'Holder One', 'email' => 'ho1@example.test', 'password' => 'password',
+            'is_active' => true, 'perm_product_request' => true, 'pcr_role' => 'ecommerce']);
+        $second = User::create(['name' => 'Holder Two', 'email' => 'ho2@example.test', 'password' => 'password',
+            'is_active' => true, 'perm_product_request' => true, 'pcr_role' => 'ecommerce']);
+
+        $this->assign($request, 'assigned_to', $first);
+
+        // Backdate at the query level — created_at is not fillable.
+        DB::table('product_request_assignments')
+            ->where('product_request_id', $request->id)
+            ->update(['created_at' => now()->subDays(4)]);
+
+        $this->assign($request, 'assigned_to', $second);
+
+        // Two rows, one live. The old owner columns could not do this: a handover
+        // simply overwrote them and the previous holder was gone.
+        $this->assertSame(2, $request->assignments()->count());
+        $this->assertSame(1, $request->currentAssignments()->count());
+        $this->assertSame($second->id, $this->ownerId($request, 'assigned_to'));
+
+        $history = $request->refresh()->ownershipHistory();
+
+        $this->assertCount(2, $history);
+        $this->assertSame('Holder One', $history[0]['user']);
+        $this->assertSame(4, $history[0]['days']);          // held it for four days
+        $this->assertFalse($history[0]['current']);
+        $this->assertSame('Holder Two', $history[1]['user']);
+        $this->assertTrue($history[1]['current']);
+
+        // The previous holder no longer has it in their task list.
+        $this->assertFalse(ProductRequest::assignedTo($first)->whereKey($request->id)->exists());
+        $this->assertTrue(ProductRequest::assignedTo($second)->whereKey($request->id)->exists());
+
+        // And the request page shows the trail.
+        $this->actingAs($requester)->get(route('product-requests.show', $request))
+            ->assertOk()
+            ->assertSee('Ownership History')
+            ->assertSee('Holder One');
+    }
+
+    public function test_clearing_a_role_closes_its_assignment_rather_than_deleting_history(): void
+    {
+        Notification::fake();
+
+        $requester = $this->brandManager();
+        $request   = $this->submitFor($requester, $this->plainSite(), 'HIST-2');
+
+        $editor = User::create(['name' => 'Ed Hist', 'email' => 'edh@example.test', 'password' => 'password',
+            'is_active' => true, 'perm_product_request' => true, 'pcr_role' => 'image_editor']);
+
+        $this->assign($request, 'image_editor_id', $editor);
+        $this->assign($request, 'image_editor_id', null);
+
+        $this->assertNull($this->ownerId($request, 'image_editor_id'));
+        $this->assertSame(0, $request->currentAssignments()->count());
+
+        // The record of who held it survives being unassigned.
+        $this->assertSame(1, $request->assignments()->count());
+        $this->assertNotNull($request->assignments()->first()->ended_at);
+    }
+
     public function test_a_handover_emails_both_the_new_and_the_previous_owner(): void
     {
         Notification::fake();
@@ -1004,7 +1096,7 @@ class ProductRequestTest extends TestCase
         Notification::assertSentTo($first, ProductRequestHandedOff::class,
             fn ($n) => $n->newOwnerName === 'Second Owner' && $n->roleLabel === 'E-Commerce Team');
 
-        $this->assertSame($second->id, $request->fresh()->assigned_to);
+        $this->assertSame($second->id, $this->ownerId($request->fresh(), 'assigned_to'));
     }
 
     public function test_the_handover_emails_render(): void
@@ -1050,8 +1142,8 @@ class ProductRequestTest extends TestCase
             'is_active' => true, 'perm_product_request' => true, 'pcr_role' => 'photographer',
         ]);
 
-        $request->update(['status' => ProductRequest::PHOTOSHOOT_SCHEDULED, 'photographer_id' => $first->id]);
-        $request->refresh();
+        $request->update(['status' => ProductRequest::PHOTOSHOOT_SCHEDULED]);
+        $this->assign($request->refresh(), 'photographer_id', $first);
 
         $this->actingAs($first)->post(route('product-requests.reassign', $request), [
             'user_id' => $second->id,
@@ -1060,7 +1152,7 @@ class ProductRequestTest extends TestCase
         $request->refresh();
 
         // Hand-over writes to the stage's own slot, not some generic field.
-        $this->assertSame($second->id, $request->photographer_id);
+        $this->assertSame($second->id, $this->ownerId($request, 'photographer_id'));
         $this->assertSame('mine', $request->ownershipFor($second));
         $this->assertSame('other', $request->ownershipFor($first));
 
@@ -1097,7 +1189,7 @@ class ProductRequestTest extends TestCase
 
         $request->refresh();
 
-        $this->assertSame($supply->id, $request->supply_chain_id);
+        $this->assertSame($supply->id, $this->ownerId($request, 'supply_chain_id'));
         $this->assertSame('mine', $request->ownershipFor($supply));
         Notification::assertSentTo($supply, ProductRequestAssigned::class);
 
@@ -1253,7 +1345,7 @@ class ProductRequestTest extends TestCase
         // rather than being stuck with an invisible assignee.
         $qa = User::create(['name' => 'Old QA', 'email' => 'oldqa@example.test', 'password' => 'password',
             'is_active' => true, 'perm_product_request' => true]);
-        $request->update(['qa_owner_id' => $qa->id]);
+        $this->assign($request, 'qa_owner_id', $qa);
 
         $this->assertArrayHasKey('qa_owner_id', $request->refresh()->visibleAssignmentRoles());
 
@@ -1263,7 +1355,7 @@ class ProductRequestTest extends TestCase
 
         // And clearing it works.
         $this->actingAs($user)->post(route('product-requests.assign', $request), ['qa_owner_id' => null]);
-        $this->assertNull($request->fresh()->qa_owner_id);
+        $this->assertNull($this->ownerId($request->fresh(), 'qa_owner_id'));
         $this->assertArrayNotHasKey('qa_owner_id', $request->fresh()->visibleAssignmentRoles());
     }
 
@@ -1277,11 +1369,13 @@ class ProductRequestTest extends TestCase
         $request = $this->submitFor($user, $this->plainSite(), 'REAPPEAR-1');
 
         // Someone already holds the role — hiding it would strand the assignment.
-        $request->update(['image_source' => ProductRequest::IMG_SUPPLIER, 'photoshoot_required' => false, 'image_editor_id' => $editor->id]);
+        $request->update(['image_source' => ProductRequest::IMG_SUPPLIER, 'photoshoot_required' => false]);
+        $this->assign($request, 'image_editor_id', $editor);
         $this->assertArrayHasKey('image_editor_id', $request->refresh()->visibleAssignmentRoles());
 
         // And it must be offered when it owns the stage the request is sitting at.
-        $request->update(['image_editor_id' => null, 'status' => ProductRequest::IMAGE_EDITING]);
+        $this->assign($request, 'image_editor_id', null);
+        $request->update(['status' => ProductRequest::IMAGE_EDITING]);
         $this->assertArrayHasKey('image_editor_id', $request->refresh()->visibleAssignmentRoles());
     }
 
@@ -1301,7 +1395,7 @@ class ProductRequestTest extends TestCase
             'qa_owner_id' => $first->id,
         ])->assertRedirect();
 
-        $this->assertSame($first->id, $request->fresh()->qa_owner_id);
+        $this->assertSame($first->id, $this->ownerId($request->fresh(), 'qa_owner_id'));
 
         // Changing the dropdown to someone else must actually swap them.
         $this->actingAs($requester)->post(route('product-requests.assign', $request), [
@@ -1310,7 +1404,7 @@ class ProductRequestTest extends TestCase
 
         $request->refresh();
 
-        $this->assertSame($second->id, $request->qa_owner_id);
+        $this->assertSame($second->id, $this->ownerId($request, 'qa_owner_id'));
         $this->assertSame($second->id, $request->assignmentFor('qa_owner_id')->user_id);
         Notification::assertSentTo($second, ProductRequestAssigned::class);
 
@@ -1319,7 +1413,7 @@ class ProductRequestTest extends TestCase
             'qa_owner_id' => null,
         ])->assertRedirect();
 
-        $this->assertNull($request->fresh()->qa_owner_id);
+        $this->assertNull($this->ownerId($request->fresh(), 'qa_owner_id'));
     }
 
     public function test_the_launch_moment_keeps_its_time(): void
@@ -1440,7 +1534,7 @@ class ProductRequestTest extends TestCase
             'name' => 'Qadir Ahmed', 'email' => 'qa2@example.test', 'password' => 'password',
             'is_active' => true, 'perm_product_request' => true, 'pcr_role' => 'qa',
         ]);
-        $request->update(['qa_owner_id' => $qa->id]);
+        $this->assign($request, 'qa_owner_id', $qa);
 
         $this->actingAs($author)->post(route('product-requests.comment', $request), [
             'remarks' => '@Qadir can you check the sizing copy?',
@@ -1557,8 +1651,8 @@ class ProductRequestTest extends TestCase
             'user_id' => $editor->id,
         ])->assertRedirect();
 
-        $this->assertSame($editor->id, $a->fresh()->image_editor_id);
-        $this->assertSame($editor->id, $b->fresh()->image_editor_id);
+        $this->assertSame($editor->id, $this->ownerId($a->fresh(), 'image_editor_id'));
+        $this->assertSame($editor->id, $this->ownerId($b->fresh(), 'image_editor_id'));
         Notification::assertSentTo($editor, ProductRequestAssigned::class);
     }
 
@@ -1617,8 +1711,8 @@ class ProductRequestTest extends TestCase
 
         $request = ProductRequest::first();
 
-        $this->assertSame($shooter->id, $request->photographer_id);
-        $this->assertSame($qa->id, $request->qa_owner_id);
+        $this->assertSame($shooter->id, $this->ownerId($request, 'photographer_id'));
+        $this->assertSame($qa->id, $this->ownerId($request, 'qa_owner_id'));
 
         // Each assignee is told, and the message names who raised it.
         Notification::assertSentTo($shooter, ProductRequestAssigned::class,
@@ -1753,7 +1847,7 @@ class ProductRequestTest extends TestCase
         $this->assertStringContainsString('overdue', $brief->dueLabel());
 
         // The owner column and the brief agree — nothing drifted.
-        $this->assertSame($shooter->id, $request->photographer_id);
+        $this->assertSame($shooter->id, $this->ownerId($request, 'photographer_id'));
         $this->assertSame($shooter->id, $brief->user_id);
 
         // The digest chases the person by name, quoting their own task.
@@ -1786,7 +1880,7 @@ class ProductRequestTest extends TestCase
         $workflow->assignRole($request, 'image_editor_id', null, $requester);
 
         $request->refresh();
-        $this->assertNull($request->image_editor_id);
+        $this->assertNull($this->ownerId($request, 'image_editor_id'));
         $this->assertNull($request->assignmentFor('image_editor_id'));   // no orphan brief left behind
     }
 

@@ -177,17 +177,6 @@ class ProductRequest extends Model
         ],
     ];
 
-    /** Which relation holds the owner for each assignment column. */
-    private const OWNER_RELATIONS = [
-        'brand_manager_id' => 'brandManager',
-        'assigned_to'      => 'assignee',
-        'supply_chain_id'  => 'supplyChainOwner',
-        'photographer_id'  => 'photographer',
-        'image_editor_id'  => 'imageEditor',
-        'content_owner_id' => 'contentOwner',
-        'qa_owner_id'      => 'qaOwner',
-    ];
-
     // ── Where the product images come from ───────────────────────────────────
     public const IMG_SUPPLIER      = 'supplier';
     public const IMG_PHOTOSHOOT    = 'photoshoot';
@@ -273,7 +262,7 @@ class ProductRequest extends Model
 
         return collect(self::ASSIGNMENT_ROLES)
             ->filter(function ($label, $field) use ($currentField) {
-                if ($this->{$field} || $field === $currentField) {
+                if ($this->ownerFor($field) || $field === $currentField) {
                     return true;
                 }
 
@@ -369,13 +358,6 @@ class ProductRequest extends Model
         'not_mapped_skus',
         'validated_at',
         'validation_error',
-        'brand_manager_id',
-        'assigned_to',
-        'supply_chain_id',
-        'photographer_id',
-        'image_editor_id',
-        'content_owner_id',
-        'qa_owner_id',
         'on_hold',
         'hold_reason',
         'hold_since',
@@ -421,34 +403,19 @@ class ProductRequest extends Model
         return $this->belongsTo(User::class, 'assigned_to');
     }
 
-    public function brandManager(): BelongsTo
+    /**
+     * Live assignments only. The single answer to "who owns this role" — the
+     * owner columns that used to duplicate this are gone.
+     */
+    public function currentAssignments(): HasMany
     {
-        return $this->belongsTo(User::class, 'brand_manager_id');
+        return $this->hasMany(ProductRequestAssignment::class)->whereNull('ended_at');
     }
 
-    public function supplyChainOwner(): BelongsTo
+    /** Who holds a role right now, if anyone. */
+    public function ownerFor(string $role): ?User
     {
-        return $this->belongsTo(User::class, 'supply_chain_id');
-    }
-
-    public function photographer(): BelongsTo
-    {
-        return $this->belongsTo(User::class, 'photographer_id');
-    }
-
-    public function imageEditor(): BelongsTo
-    {
-        return $this->belongsTo(User::class, 'image_editor_id');
-    }
-
-    public function contentOwner(): BelongsTo
-    {
-        return $this->belongsTo(User::class, 'content_owner_id');
-    }
-
-    public function qaOwner(): BelongsTo
-    {
-        return $this->belongsTo(User::class, 'qa_owner_id');
+        return $this->assignmentFor($role)?->user;
     }
 
     public function skus(): HasMany
@@ -487,16 +454,16 @@ class ProductRequest extends Model
         return $this->skus()->where('in_shopify', true)->exists();
     }
 
-    /** Per-person brief and deadline, one row per assigned role. */
+    /** Every assignment ever made on this request, current and historic. */
     public function assignments(): HasMany
     {
         return $this->hasMany(ProductRequestAssignment::class);
     }
 
-    /** The brief for one role, if the requester gave one. */
+    /** The live assignment for one role. */
     public function assignmentFor(string $role): ?ProductRequestAssignment
     {
-        return $this->assignments->firstWhere('role', $role);
+        return $this->currentAssignments->firstWhere('role', $role);
     }
 
     /** The brief attached to the stage the request is sitting at. */
@@ -510,7 +477,7 @@ class ProductRequest extends Model
     /** Assignments this user holds that are past their own deadline. */
     public function overdueAssignmentsFor(User $user)
     {
-        return $this->assignments
+        return $this->currentAssignments
             ->where('user_id', $user->id)
             ->filter(fn ($a) => $a->isOverdue());
     }
@@ -600,14 +567,12 @@ class ProductRequest extends Model
             $guide['what'] = "{$outstanding} of {$this->total_skus} SKUs still need mapping. " . $guide['what'];
         }
 
-        $relation = $guide['field'] ? (self::OWNER_RELATIONS[$guide['field']] ?? null) : null;
-
         return [
             'role'     => $guide['role'],
             'role_key' => $guide['role_key'] ?? null,
             'what'     => $guide['what'],
             'field'    => $guide['field'],
-            'owner'    => $relation ? $this->{$relation} : null,
+            'owner'    => $guide['field'] ? $this->ownerFor($guide['field']) : null,
         ];
     }
 
@@ -1032,28 +997,39 @@ class ProductRequest extends Model
         });
     }
 
-    /** Requests where this user holds any of the four assignment roles. */
+    /** Requests this user currently holds a role on. */
     public function scopeAssignedTo($query, User $user)
     {
-        return $query->where(function ($q) use ($user) {
-            foreach (array_keys(self::ASSIGNMENT_ROLES) as $field) {
-                $q->orWhere($field, $user->id);
-            }
-        });
+        return $query->whereHas('currentAssignments', fn ($q) => $q->where('user_id', $user->id));
     }
 
     /** Which hats this user is wearing on this request, e.g. ["Photographer"]. */
     public function rolesFor(User $user): array
     {
-        $roles = [];
+        return $this->currentAssignments
+            ->where('user_id', $user->id)
+            ->map(fn ($a) => $a->roleLabel())
+            ->values()
+            ->all();
+    }
 
-        foreach (self::ASSIGNMENT_ROLES as $field => $label) {
-            if ((int) $this->{$field} === $user->id) {
-                $roles[] = $label;
-            }
-        }
-
-        return $roles;
+    /**
+     * How long each person held each role on this request — the history the old
+     * owner columns could not keep, since a handover simply overwrote them.
+     *
+     * @return \Illuminate\Support\Collection<int, array{role: string, user: ?string, days: int, current: bool}>
+     */
+    public function ownershipHistory()
+    {
+        return $this->assignments
+            ->sortBy('created_at')
+            ->map(fn (ProductRequestAssignment $a) => [
+                'role'    => $a->roleLabel(),
+                'user'    => $a->user?->name,
+                'days'    => $a->heldForDays(),
+                'current' => $a->isCurrent(),
+            ])
+            ->values();
     }
 
     /** "In Progress" for the dashboard tile — everything actively being worked. */

@@ -160,41 +160,48 @@ class ProductRequestWorkflow
         // The task comes from the workflow, not from whoever filled in the form —
         // same wording on every request, and nothing to mistype.
         $title ??= ProductRequest::taskForRole($field);
-        $previous  = $request->{$field} ? (int) $request->{$field} : null;
-        $assignee  = $userId ? User::find($userId) : null;
+
+        $existing = $request->assignments()->current()->where('role', $field)->first();
+        $previous = $existing?->user_id;
+        $assignee = $userId ? User::find($userId) : null;
 
         if ($userId && !$assignee?->is_active) {
             return false;   // never hand work to a disabled account
         }
 
-        $existing   = $request->assignments()->where('role', $field)->first();
-        $detailOnly = $previous === $userId
-            && ($title !== null || $dueDate !== null)
-            && ($existing?->title !== $title || (string) $existing?->due_date?->toDateString() !== (string) $dueDate);
+        // Same person: the only thing that can change is their brief.
+        $detailOnly = $previous === $assignee?->id && $existing !== null;
 
-        // Same person, no new brief — nothing to record.
-        if ($previous === $userId && !$detailOnly) {
-            return false;
-        }
+        if ($detailOnly) {
+            $changed = $existing->title !== $title
+                || (string) $existing->due_date?->toDateString() !== (string) $dueDate;
 
-        $request->update([$field => $assignee?->id]);
+            if (!$changed) {
+                return false;
+            }
 
-        if ($assignee) {
-            $request->assignments()->updateOrCreate(
-                ['role' => $field],
-                array_filter([
+            $existing->update(['title' => $title, 'due_date' => $dueDate]);
+        } else {
+            if ($previous === null && $assignee === null) {
+                return false;   // nothing there, nothing asked for
+            }
+
+            // Close the outgoing assignment rather than overwriting it — that
+            // closed row is the record of who held this role and for how long.
+            $existing?->update(['ended_at' => now()]);
+
+            if ($assignee) {
+                $request->assignments()->create([
+                    'role'        => $field,
                     'user_id'     => $assignee->id,
                     'assigned_by' => $actor?->id,
                     'title'       => $title,
                     'due_date'    => $dueDate,
-                ], fn ($v, $k) => $v !== null || in_array($k, ['title', 'due_date'], true), ARRAY_FILTER_USE_BOTH)
-            );
-        } else {
-            // Unassigned: drop the brief with it rather than leaving an orphan.
-            $request->assignments()->where('role', $field)->delete();
+                ]);
+            }
         }
 
-        $request->load('assignments');
+        $request->load(['assignments', 'currentAssignments.user']);
 
         // Callers may phrase it better — a self-claim reads as "took this task",
         // which says more in the audit trail than "assigned as".
@@ -214,7 +221,7 @@ class ProductRequestWorkflow
 
         // Anyone losing the task needs telling as much as the person gaining it —
         // otherwise the previous owner carries on thinking it is still theirs.
-        $previousUser = $previous && $previous !== $userId ? User::find($previous) : null;
+        $previousUser = $previous && $previous !== $assignee?->id ? User::find($previous) : null;
 
         if ($notify && !$detailOnly) {
             try {
@@ -283,9 +290,9 @@ class ProductRequestWorkflow
             ? User::where('is_active', true)->whereIn('pcr_role', $roles)->get()
             : collect();
 
+        // Everyone currently holding a role, plus whoever raised it.
         $named = collect([$request->user])
-            ->merge(collect(array_keys(ProductRequest::ASSIGNMENT_ROLES))
-                ->map(fn ($field) => $request->{$field} ? User::find($request->{$field}) : null))
+            ->merge($request->currentAssignments()->with('user')->get()->pluck('user'))
             ->filter();
 
         return $byRole->merge($named)->filter(fn ($u) => $u->is_active)->unique('id')->values();

@@ -6,8 +6,6 @@
 @section('content')
 @php
     $labels       = \App\Models\ProductRequest::STATUS_LABELS;
-    $ownerField   = $config['owner_field'];
-    $ownerRelation = $config['owner_relation'];
     // One literal class per case — the Tailwind CDN can only see classes that
     // actually appear in the rendered HTML.
     $boardCols    = count($config['stages']) === 2 ? 'md:grid-cols-2' : 'md:grid-cols-3';
