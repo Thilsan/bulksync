@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Exceptions\ShopifyRequestException;
 use App\Models\Store;
 use GuzzleHttp\Client;
 use GuzzleHttp\Exception\ClientException;
@@ -553,7 +554,10 @@ class ShopifyService
 
         } catch (ClientException $e) {
             $this->handleClientException($e, "uploadImageToProduct({$productId})");
-            throw new \RuntimeException('Shopify image upload failed: ' . $e->getMessage());
+            throw ShopifyRequestException::fromClientException(
+                $e,
+                'Shopify image upload failed: ' . $this->clientErrorDetail($e),
+            );
         }
     }
 
@@ -1229,9 +1233,45 @@ class ShopifyService
             return null;
         }
 
-        Log::error("Shopify {$code} in {$context}: " . $e->getMessage());
+        Log::error("Shopify {$code} in {$context}: " . $this->clientErrorDetail($e));
 
         return null;
+    }
+
+    /**
+     * Guzzle's exception message stops after the first 120 characters of the
+     * response body, which is usually just enough to cut off Shopify's actual
+     * reason for the rejection. Pull the reason out of the JSON instead, so
+     * what lands in the item's note explains the failure.
+     */
+    private function clientErrorDetail(ClientException $e): string
+    {
+        $response = $e->getResponse();
+        $status   = $response->getStatusCode();
+
+        // The stream may already have been read once — rewind before re-reading.
+        $stream = $response->getBody();
+        if ($stream->isSeekable()) {
+            $stream->rewind();
+        }
+        $body = (string) $stream;
+
+        $errors = json_decode($body, true)['errors'] ?? null;
+
+        // Shopify returns errors either as a plain string or as
+        // {"field": ["message", ...]} — flatten both to one line.
+        $detail = match (true) {
+            is_string($errors) => $errors,
+            is_array($errors)  => implode('; ', array_map(
+                fn ($field, $messages) => (is_int($field) ? '' : "{$field}: ")
+                    . implode(', ', (array) $messages),
+                array_keys($errors),
+                $errors,
+            )),
+            default => trim(mb_substr($body, 0, 300)),
+        };
+
+        return "HTTP {$status}" . ($detail !== '' ? " — {$detail}" : '');
     }
 
     private function getProductTitle(int|string $productId): string

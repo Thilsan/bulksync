@@ -12,6 +12,13 @@ class ImageProcessingService
     private const START_QUALITY = 100;
     private const MIN_QUALITY   = 30;
 
+    /**
+     * Shopify rejects any image above 20 megapixels with a 422, independent of
+     * file size — a heavily compressed 6000×4000 shot can sit well under the
+     * byte limit and still be refused. Stay just under the line.
+     */
+    private const MAX_PIXELS = 19_500_000;
+
     private ImageManager $manager;
 
     public function __construct()
@@ -43,6 +50,12 @@ class ImageProcessingService
 
     public function compressOnly(string $imageContent, int $maxBytes = 1_000_000): string
     {
+        // "Keep original size" still means keeping it inside Shopify's pixel
+        // ceiling — compression alone never lowers the pixel count, so a huge
+        // original would otherwise be refused on upload no matter how small
+        // we squeeze the file.
+        $imageContent = $this->capPixelCount($imageContent);
+
         // Already within the size limit — return original bytes untouched.
         // Re-encoding at quality 100 would only make the file larger.
         if (strlen($imageContent) <= $maxBytes) {
@@ -70,13 +83,46 @@ class ImageProcessingService
             if ($size <= $maxBytes) { $lo = $mid; } else { $hi = $mid - 1; }
         }
 
-        return $this->manager->decode($imageContent)
+        $result = $this->manager->decode($imageContent)
             ->encode(new JpegEncoder(quality: $lo))
             ->toString();
+
+        // Detailed shots — fabric texture, patterned prints — can still sit
+        // over the limit at the lowest quality we allow. Quality is spent by
+        // this point, so start giving up pixels instead, the same way
+        // process() does rather than shipping an oversized file.
+        return strlen($result) <= $maxBytes
+            ? $result
+            : $this->shrinkUntilUnderLimit($imageContent, $result, $maxBytes);
+    }
+
+    /**
+     * Last resort for a file that won't compress far enough: scale it down in
+     * 10% steps at minimum quality. Returns the smallest result it reached,
+     * even if that is still over $maxBytes — an oversized image beats no image.
+     */
+    private function shrinkUntilUnderLimit(string $imageContent, string $result, int $maxBytes): string
+    {
+        $scale = 0.9;
+
+        while (strlen($result) > $maxBytes && $scale > 0.3) {
+            $img    = $this->manager->decode($imageContent);
+            $result = $img
+                ->scaleDown((int) ($img->width() * $scale), (int) ($img->height() * $scale))
+                ->encode(new JpegEncoder(quality: self::MIN_QUALITY))
+                ->toString();
+            $scale -= 0.1;
+        }
+
+        return $result;
     }
 
     public function process(string $imageContent, int $width, int $height, int $maxBytes = 1_000_000): string
     {
+        // Custom dimensions can be asked for well past Shopify's pixel ceiling
+        // (5000 × 5000 is 25 MP) — shrink the target, keeping its aspect ratio.
+        [$width, $height] = $this->clampToPixelLimit($width, $height);
+
         $img = $this->manager->decode($imageContent);
         $img->cover($width, $height);
         $result = $img->encode(new JpegEncoder(quality: self::START_QUALITY))->toString();
@@ -110,6 +156,55 @@ class ImageProcessingService
         }
 
         return $result;
+    }
+
+    /**
+     * Scale an image down until it fits under Shopify's megapixel ceiling,
+     * preserving its aspect ratio. Images already under it are returned
+     * byte-for-byte, so nothing is re-encoded needlessly.
+     */
+    private function capPixelCount(string $imageContent): string
+    {
+        // Reads the header only — far cheaper than decoding the full image,
+        // and the vast majority of files pass here and go no further.
+        $info = @getimagesizefromstring($imageContent);
+        if ($info && ($info[0] * $info[1]) <= self::MAX_PIXELS) {
+            return $imageContent;
+        }
+
+        // Unreadable header (CMYK TIFF and friends) — fall back to decoding.
+        $img    = $this->manager->decode($imageContent);
+        $pixels = $img->width() * $img->height();
+
+        if ($pixels <= self::MAX_PIXELS) {
+            return $imageContent;
+        }
+
+        [$width, $height] = $this->clampToPixelLimit($img->width(), $img->height());
+
+        return $img->scaleDown($width, $height)
+            ->encode(new JpegEncoder(quality: self::START_QUALITY))
+            ->toString();
+    }
+
+    /**
+     * @return array{0:int,1:int} the given dimensions, shrunk on the same
+     *                            aspect ratio until they fit MAX_PIXELS
+     */
+    private function clampToPixelLimit(int $width, int $height): array
+    {
+        $pixels = $width * $height;
+
+        if ($pixels <= self::MAX_PIXELS || $pixels <= 0) {
+            return [$width, $height];
+        }
+
+        $ratio = sqrt(self::MAX_PIXELS / $pixels);
+
+        return [
+            max(1, (int) floor($width * $ratio)),
+            max(1, (int) floor($height * $ratio)),
+        ];
     }
 
     public function outputFilename(string $originalFilename): string

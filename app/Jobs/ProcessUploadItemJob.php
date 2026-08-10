@@ -2,6 +2,7 @@
 
 namespace App\Jobs;
 
+use App\Exceptions\ShopifyRequestException;
 use App\Models\UploadItem;
 use App\Models\UploadSession;
 use App\Services\ImageProcessingService;
@@ -218,6 +219,15 @@ class ProcessUploadItemJob implements ShouldQueue
                 'status'        => 'failed',
                 'error_message' => $e->getMessage(),
             ]);
+
+            // Shopify rejecting the request itself — an image past the pixel
+            // limit, a product that no longer exists — gives the same answer
+            // however often it is asked. Retrying only re-sends multiple
+            // megabytes to earn the same refusal, so stop at the first one.
+            if ($e instanceof ShopifyRequestException && $e->isPermanent()) {
+                $this->syncSessionCounts($item->upload_session_id);
+                return;
+            }
 
             // Let the queue retry (up to $tries times)
             if ($this->attempts() < $this->tries) {

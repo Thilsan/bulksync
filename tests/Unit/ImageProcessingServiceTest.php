@@ -1,0 +1,94 @@
+<?php
+
+namespace Tests\Unit;
+
+use App\Services\ImageProcessingService;
+use PHPUnit\Framework\TestCase;
+
+class ImageProcessingServiceTest extends TestCase
+{
+    /** Shopify rejects anything above this with a 422 on upload. */
+    private const SHOPIFY_MAX_PIXELS = 20_000_000;
+
+    private ImageProcessingService $service;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $this->service = new ImageProcessingService();
+    }
+
+    public function test_compress_only_shrinks_an_image_past_the_shopify_pixel_limit(): void
+    {
+        // 24 MP but only ~360 KB — under any byte limit, yet Shopify refuses it.
+        $source = $this->jpeg(6000, 4000, quality: 60);
+        $this->assertLessThan(1_000_000, strlen($source));
+
+        [$width, $height] = getimagesizefromstring($this->service->compressOnly($source));
+
+        $this->assertLessThanOrEqual(self::SHOPIFY_MAX_PIXELS, $width * $height);
+        $this->assertEqualsWithDelta(6000 / 4000, $width / $height, 0.01, 'aspect ratio changed');
+    }
+
+    public function test_compress_only_leaves_an_image_within_both_limits_untouched(): void
+    {
+        $source = $this->jpeg(800, 800, quality: 80);
+
+        $this->assertSame($source, $this->service->compressOnly($source));
+    }
+
+    public function test_process_clamps_requested_dimensions_to_the_shopify_pixel_limit(): void
+    {
+        // 5000 × 5000 = 25 MP is accepted by the form's validation rules.
+        $result = $this->service->process($this->jpeg(6000, 4000, quality: 60), 5000, 5000);
+
+        [$width, $height] = getimagesizefromstring($result);
+
+        $this->assertLessThanOrEqual(self::SHOPIFY_MAX_PIXELS, $width * $height);
+        $this->assertEqualsWithDelta(1.0, $width / $height, 0.01, 'aspect ratio changed');
+    }
+
+    public function test_compress_only_scales_down_when_quality_alone_cannot_reach_the_byte_limit(): void
+    {
+        // Detail this fine stays around 2 MB even at the lowest quality —
+        // only shedding pixels gets it under the limit.
+        $result = $this->service->compressOnly($this->noisyJpeg(3000, 3000), 500_000);
+
+        $this->assertLessThanOrEqual(500_000, strlen($result));
+    }
+
+    private function jpeg(int $width, int $height, int $quality): string
+    {
+        $img = imagecreatetruecolor($width, $height);
+        imagefilledrectangle($img, 0, 0, $width - 1, $height - 1, imagecolorallocate($img, 200, 150, 120));
+
+        ob_start();
+        imagejpeg($img, null, $quality);
+
+        return ob_get_clean();
+    }
+
+    /**
+     * Flat colour compresses to almost nothing. Fine detail is what a real
+     * product shot has and what refuses to shrink on quality alone.
+     */
+    private function noisyJpeg(int $width, int $height): string
+    {
+        $img = imagecreatetruecolor($width, $height);
+        for ($x = 0; $x < $width; $x += 2) {
+            for ($y = 0; $y < $height; $y += 2) {
+                imagefilledrectangle($img, $x, $y, $x + 1, $y + 1, imagecolorallocate(
+                    $img,
+                    ($x * 7 + $y * 13) % 256,
+                    ($x * 3 + $y * 29) % 256,
+                    ($x * 17 + $y * 5) % 256,
+                ));
+            }
+        }
+
+        ob_start();
+        imagejpeg($img, null, 100);
+
+        return ob_get_clean();
+    }
+}
