@@ -12,6 +12,28 @@
     $currentStep = $request->displayStageIndex();
     $transitions = $request->allowedTransitions();
     $usesMapping = $request->requiresMapping();
+
+        $me        = auth()->user();
+        $guide     = $request->currentGuide();
+        $ownership = $request->ownershipFor($me);   // mine | my_team | other | none
+        $claimable = $request->claimableBy($me);
+        $closed    = $request->isClosed();
+
+        $onHold = $request->isOnHold();
+        $held   = $request->heldForDays();
+
+        // One colour per state. Being blocked outranks whose task it is —
+        // nothing can move until the blocker is cleared.
+        [$panelBg, $iconBg, $heading] = match (true) {
+            $closed                  => ['bg-gray-50 border-gray-200',    'bg-gray-200 text-gray-500',   'This request is closed'],
+            $onHold                  => ['bg-red-50 border-red-300',      'bg-red-600 text-white',       'On hold — work is blocked'],
+            $ownership === 'mine'    => ['bg-brand-50 border-brand-300',  'bg-brand-600 text-white',     'This is your task'],
+            $ownership === 'my_team' => ['bg-amber-50 border-amber-300',  'bg-amber-500 text-white',     'Waiting on your team'],
+            default                  => ['bg-white border-gray-200',      'bg-gray-100 text-gray-500',   'What needs to happen next'],
+        };
+    // Countdown to the online launch — the number that decides how loudly a
+    // stalled request should shout.
+    $daysLeft = $request->daysToOnlineLaunch();
 @endphp
 
 <div class="space-y-5"
@@ -150,6 +172,175 @@
                         Online launch is scheduled before the store launch date.
                     </div>
                 @endif
+
+                {{-- Next task, owner and time left — sits beside the stepper so the
+                     two halves of "where is this?" are answered side by side. --}}
+                <div class="mt-5">
+    {{-- What has to happen next, and whose job it is. --}}
+
+        <div class="rounded-xl border shadow-sm px-5 py-4 {{ $panelBg }}">
+            <div class="flex items-start gap-4">
+                <div class="w-9 h-9 rounded-lg flex items-center justify-center shrink-0 {{ $iconBg }}">
+                    <svg class="w-4.5 h-4.5" style="width:1.125rem;height:1.125rem" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="{{ $onHold && !$closed
+                                ? 'M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z'
+                                : ($closed
+                                ? 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z'
+                                : ($ownership === 'mine' || $ownership === 'my_team'
+                                    ? 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4'
+                                    : 'M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z')) }}"/>
+                    </svg>
+                </div>
+
+                <div class="flex-1 min-w-0">
+                    <div class="flex flex-wrap items-center gap-2">
+                        <h3 class="text-sm font-semibold text-gray-900">{{ $heading }}</h3>
+
+                        @if($onHold && !$closed)
+                            <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wide bg-red-600 text-white">
+                                Blocked{{ $held !== null && $held > 0 ? " · {$held}d" : '' }}
+                            </span>
+                        @elseif($ownership === 'mine')
+                            <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wide bg-brand-600 text-white">
+                                Assigned to you
+                            </span>
+                        @elseif($ownership === 'my_team')
+                            <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wide bg-amber-500 text-white">
+                                Unclaimed
+                            </span>
+                        @endif
+                    </div>
+
+                    @if($onHold && !$closed)
+                        <p class="text-sm text-red-900 mt-1">
+                            <span class="font-semibold">{{ $request->hold_reason }}</span>
+                        </p>
+                        <p class="text-xs text-red-700 mt-0.5">
+                            Flagged by {{ $request->holdSetter?->name ?? 'someone' }}
+                            {{ $request->hold_since ? $request->hold_since->diffForHumans() : '' }}.
+                            Nothing moves until this is resolved.
+                        </p>
+                        <p class="text-xs text-gray-600 mt-2">
+                            When unblocked: {{ $guide['what'] }}
+                        </p>
+                    @else
+                        <p class="text-sm text-gray-700 mt-1">{{ $guide['what'] }}</p>
+                    @endif
+
+                    @unless($closed)
+                        {{-- Say plainly whose court the ball is in. --}}
+                        <p class="text-xs text-gray-600 mt-2">
+                            @if($ownership === 'mine')
+                                <span class="font-medium">You</span> are the {{ $guide['role'] }} on this request.
+                            @elseif($ownership === 'my_team')
+                                This stage belongs to the <span class="font-medium">{{ $guide['role'] }}</span> — your team — but
+                                <span class="font-medium text-amber-700">nobody has taken it yet</span>.
+                            @elseif($guide['owner'])
+                                Waiting on <span class="font-medium">{{ $guide['owner']->name }}</span> ({{ $guide['role'] }}).
+                            @else
+                                Waiting on the <span class="font-medium">{{ $guide['role'] ?? 'team' }}</span> —
+                                <span class="font-medium text-amber-700">nobody assigned yet</span>.
+                            @endif
+                            <span class="mx-1 text-gray-300">|</span>
+                            Current stage: <span class="font-medium">{{ $request->statusLabel() }}</span>
+                        </p>
+
+                        {{-- Time left to the online launch. Colour escalates as it
+                             closes in, so urgency is visible without doing the maths. --}}
+                        @php
+                            [$dueTone, $dueIcon, $dueText] = match (true) {
+                                $daysLeft === null => ['bg-gray-100 text-gray-500', 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z', 'No online launch date set'],
+                                $daysLeft < 0      => ['bg-red-100 text-red-800', 'M12 9v2m0 4h.01M5 19h14a2 2 0 001.84-2.75L13.74 4a2 2 0 00-3.48 0l-7.1 12.25A2 2 0 004.99 19z', 'Overdue by ' . abs($daysLeft) . ' ' . \Illuminate\Support\Str::plural('day', abs($daysLeft))],
+                                $daysLeft === 0    => ['bg-orange-100 text-orange-800', 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z', 'Launches online today'],
+                                $daysLeft <= 3     => ['bg-orange-100 text-orange-800', 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z', $daysLeft . ' ' . \Illuminate\Support\Str::plural('day', $daysLeft) . ' to online launch'],
+                                $daysLeft <= 7     => ['bg-amber-100 text-amber-800', 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z', $daysLeft . ' days to online launch'],
+                                default            => ['bg-gray-100 text-gray-600', 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z', $daysLeft . ' days to online launch'],
+                            };
+                        @endphp
+                        <div class="flex flex-wrap items-center gap-2 mt-2.5">
+                            <span class="inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-semibold {{ $dueTone }}">
+                                <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="{{ $dueIcon }}"/>
+                                </svg>
+                                {{ $dueText }}
+                            </span>
+                            @if($request->online_launch_date)
+                                <span class="text-xs text-gray-500">{{ $request->online_launch_date->format('d M Y') }}</span>
+                            @endif
+                            @if($onHold && $held !== null && $held > 0)
+                                <span class="text-xs text-red-700 font-medium">&middot; blocked for {{ $held }} of those</span>
+                            @endif
+                        </div>
+                    @endunless
+                </div>
+
+                @unless($closed)
+                <div class="shrink-0 flex flex-col gap-2 self-center">
+                    @if($onHold)
+                        <form method="POST" action="{{ route('product-requests.resume', $request) }}">
+                            @csrf
+                            <button type="submit"
+                                    class="w-full inline-flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/>
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                </svg>
+                                Unblock &amp; resume
+                            </button>
+                        </form>
+                    @endif
+
+                    @if($claimable)
+                        <form method="POST" action="{{ route('product-requests.claim', $request) }}">
+                            @csrf
+                            <button type="submit"
+                                    class="w-full inline-flex items-center justify-center gap-2 text-sm font-medium px-4 py-2 rounded-lg transition-colors
+                                           {{ $ownership === 'my_team' ? 'bg-amber-500 hover:bg-amber-600 text-white' : 'border border-gray-300 text-gray-700 hover:bg-gray-50' }}">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                </svg>
+                                Take this task
+                            </button>
+                        </form>
+                    @endif
+
+                    @if(!empty($transitions))
+                    <button type="button" @click="showTransition = true"
+                            class="inline-flex items-center justify-center gap-2 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+                            style="background-color:#1d5a74" onmouseover="this.style.backgroundColor='#164659'" onmouseout="this.style.backgroundColor='#1d5a74'">
+                        Move to next stage
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7"/>
+                        </svg>
+                    </button>
+                    @elseif($request->isBlockedOnMapping())
+                    <button type="button" @click="tab = 'skus'"
+                            class="inline-flex items-center justify-center gap-2 border border-amber-300 bg-white text-amber-700 text-sm font-medium px-4 py-2 rounded-lg hover:bg-amber-50 transition-colors">
+                        Go to SKUs
+                    </button>
+                    @endif
+
+                    {{-- Secondary actions: report a blocker, or pass the task on. --}}
+                    <div class="flex gap-2">
+                        @unless($onHold)
+                            <button type="button" @click="showHold = true"
+                                    class="flex-1 text-xs font-medium px-3 py-1.5 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 transition-colors whitespace-nowrap">
+                                Report a blocker
+                            </button>
+                        @endunless
+                        @if($guide['field'])
+                            <button type="button" @click="showHandover = true"
+                                    class="flex-1 text-xs font-medium px-3 py-1.5 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 transition-colors whitespace-nowrap">
+                                Hand over
+                            </button>
+                        @endif
+                    </div>
+                </div>
+                @endunless
+            </div>
+        </div>
+                </div>
             </div>
 
             {{-- Workflow progress, grouped into phases --}}
@@ -215,163 +406,6 @@
                     @endforeach
                 </div>
             </div>
-        </div>
-    </div>
-
-    {{-- What has to happen next, and whose job it is. --}}
-    @php
-        $me        = auth()->user();
-        $guide     = $request->currentGuide();
-        $ownership = $request->ownershipFor($me);   // mine | my_team | other | none
-        $claimable = $request->claimableBy($me);
-        $closed    = $request->isClosed();
-
-        $onHold = $request->isOnHold();
-        $held   = $request->heldForDays();
-
-        // One colour per state. Being blocked outranks whose task it is —
-        // nothing can move until the blocker is cleared.
-        [$panelBg, $iconBg, $heading] = match (true) {
-            $closed                  => ['bg-gray-50 border-gray-200',    'bg-gray-200 text-gray-500',   'This request is closed'],
-            $onHold                  => ['bg-red-50 border-red-300',      'bg-red-600 text-white',       'On hold — work is blocked'],
-            $ownership === 'mine'    => ['bg-brand-50 border-brand-300',  'bg-brand-600 text-white',     'This is your task'],
-            $ownership === 'my_team' => ['bg-amber-50 border-amber-300',  'bg-amber-500 text-white',     'Waiting on your team'],
-            default                  => ['bg-white border-gray-200',      'bg-gray-100 text-gray-500',   'What needs to happen next'],
-        };
-    @endphp
-    <div class="rounded-xl border shadow-sm px-5 py-4 {{ $panelBg }}">
-        <div class="flex items-start gap-4">
-            <div class="w-9 h-9 rounded-lg flex items-center justify-center shrink-0 {{ $iconBg }}">
-                <svg class="w-4.5 h-4.5" style="width:1.125rem;height:1.125rem" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="{{ $onHold && !$closed
-                            ? 'M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z'
-                            : ($closed
-                            ? 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z'
-                            : ($ownership === 'mine' || $ownership === 'my_team'
-                                ? 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4'
-                                : 'M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z')) }}"/>
-                </svg>
-            </div>
-
-            <div class="flex-1 min-w-0">
-                <div class="flex flex-wrap items-center gap-2">
-                    <h3 class="text-sm font-semibold text-gray-900">{{ $heading }}</h3>
-
-                    @if($onHold && !$closed)
-                        <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wide bg-red-600 text-white">
-                            Blocked{{ $held !== null && $held > 0 ? " · {$held}d" : '' }}
-                        </span>
-                    @elseif($ownership === 'mine')
-                        <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wide bg-brand-600 text-white">
-                            Assigned to you
-                        </span>
-                    @elseif($ownership === 'my_team')
-                        <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wide bg-amber-500 text-white">
-                            Unclaimed
-                        </span>
-                    @endif
-                </div>
-
-                @if($onHold && !$closed)
-                    <p class="text-sm text-red-900 mt-1">
-                        <span class="font-semibold">{{ $request->hold_reason }}</span>
-                    </p>
-                    <p class="text-xs text-red-700 mt-0.5">
-                        Flagged by {{ $request->holdSetter?->name ?? 'someone' }}
-                        {{ $request->hold_since ? $request->hold_since->diffForHumans() : '' }}.
-                        Nothing moves until this is resolved.
-                    </p>
-                    <p class="text-xs text-gray-600 mt-2">
-                        When unblocked: {{ $guide['what'] }}
-                    </p>
-                @else
-                    <p class="text-sm text-gray-700 mt-1">{{ $guide['what'] }}</p>
-                @endif
-
-                @unless($closed)
-                    {{-- Say plainly whose court the ball is in. --}}
-                    <p class="text-xs text-gray-600 mt-2">
-                        @if($ownership === 'mine')
-                            <span class="font-medium">You</span> are the {{ $guide['role'] }} on this request.
-                        @elseif($ownership === 'my_team')
-                            This stage belongs to the <span class="font-medium">{{ $guide['role'] }}</span> — your team — but
-                            <span class="font-medium text-amber-700">nobody has taken it yet</span>.
-                        @elseif($guide['owner'])
-                            Waiting on <span class="font-medium">{{ $guide['owner']->name }}</span> ({{ $guide['role'] }}).
-                        @else
-                            Waiting on the <span class="font-medium">{{ $guide['role'] ?? 'team' }}</span> —
-                            <span class="font-medium text-amber-700">nobody assigned yet</span>.
-                        @endif
-                        <span class="mx-1 text-gray-300">|</span>
-                        Current stage: <span class="font-medium">{{ $request->statusLabel() }}</span>
-                    </p>
-                @endunless
-            </div>
-
-            @unless($closed)
-            <div class="shrink-0 flex flex-col gap-2 self-center">
-                @if($onHold)
-                    <form method="POST" action="{{ route('product-requests.resume', $request) }}">
-                        @csrf
-                        <button type="submit"
-                                class="w-full inline-flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/>
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                            </svg>
-                            Unblock &amp; resume
-                        </button>
-                    </form>
-                @endif
-
-                @if($claimable)
-                    <form method="POST" action="{{ route('product-requests.claim', $request) }}">
-                        @csrf
-                        <button type="submit"
-                                class="w-full inline-flex items-center justify-center gap-2 text-sm font-medium px-4 py-2 rounded-lg transition-colors
-                                       {{ $ownership === 'my_team' ? 'bg-amber-500 hover:bg-amber-600 text-white' : 'border border-gray-300 text-gray-700 hover:bg-gray-50' }}">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                            </svg>
-                            Take this task
-                        </button>
-                    </form>
-                @endif
-
-                @if(!empty($transitions))
-                <button type="button" @click="showTransition = true"
-                        class="inline-flex items-center justify-center gap-2 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
-                        style="background-color:#1d5a74" onmouseover="this.style.backgroundColor='#164659'" onmouseout="this.style.backgroundColor='#1d5a74'">
-                    Move to next stage
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7"/>
-                    </svg>
-                </button>
-                @elseif($request->isBlockedOnMapping())
-                <button type="button" @click="tab = 'skus'"
-                        class="inline-flex items-center justify-center gap-2 border border-amber-300 bg-white text-amber-700 text-sm font-medium px-4 py-2 rounded-lg hover:bg-amber-50 transition-colors">
-                    Go to SKUs
-                </button>
-                @endif
-
-                {{-- Secondary actions: report a blocker, or pass the task on. --}}
-                <div class="flex gap-2">
-                    @unless($onHold)
-                        <button type="button" @click="showHold = true"
-                                class="flex-1 text-xs font-medium px-3 py-1.5 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 transition-colors whitespace-nowrap">
-                            Report a blocker
-                        </button>
-                    @endunless
-                    @if($guide['field'])
-                        <button type="button" @click="showHandover = true"
-                                class="flex-1 text-xs font-medium px-3 py-1.5 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 transition-colors whitespace-nowrap">
-                            Hand over
-                        </button>
-                    @endif
-                </div>
-            </div>
-            @endunless
         </div>
     </div>
 
