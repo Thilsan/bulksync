@@ -251,14 +251,32 @@
         </div>
         @endif
 
+        {{-- Clock --}}
+        <div class="px-3 py-3 border-t border-white/10 text-center"
+             x-data="{
+                 tz: '{{ config('app.timezone') }}',
+                 time: '',
+                 date: '',
+                 tick() {
+                     const now = new Date();
+                     this.time = now.toLocaleTimeString('en-GB', { timeZone: this.tz, hour: '2-digit', minute: '2-digit' });
+                     this.date = now.toLocaleDateString('en-GB', { timeZone: this.tz, weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' });
+                 }
+             }"
+             x-init="tick(); setInterval(() => tick(), 1000)">
+            <p class="text-lg font-semibold text-white tabular-nums" x-text="time">{{ now()->format('H:i') }}</p>
+            <p class="text-xs text-white/50" x-text="date">{{ now()->format('D, d M Y') }}</p>
+        </div>
+
     </aside>
 
     {{-- Main content --}}
     <div class="flex-1 flex flex-col overflow-hidden">
 
         {{-- Top bar --}}
-        <header class="bg-white border-b border-gray-200 px-8 py-4 flex items-center justify-between shrink-0">
+        <header class="relative bg-white border-b border-gray-200 px-8 py-4 flex items-center justify-between shrink-0">
             <h1 class="text-xl font-semibold text-gray-800">@yield('page-title', 'Dashboard')</h1>
+
             <div class="flex items-center gap-4">
                 {{-- Store switcher --}}
                 @if($allStores->isNotEmpty())
@@ -449,8 +467,6 @@
                     </div>
                 </div>
                 @endif
-
-                <div class="text-sm text-gray-400">{{ now()->format('D, d M Y') }}</div>
 
                 {{-- User menu --}}
                 <div x-data="{ user: false }" class="relative">

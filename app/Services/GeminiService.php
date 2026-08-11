@@ -10,6 +10,13 @@ class GeminiService
     private string $apiKey = '';
     private string $endpoint = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
 
+    /**
+     * When the last request went out, as a float timestamp. Static so the pacing
+     * holds across every instance in one queue worker — the throttle is about the
+     * API's limit, not about one object's lifetime.
+     */
+    private static float $lastRequestAt = 0.0;
+
     public function __construct(private readonly ImageProcessingService $imageProcessor)
     {
         $this->apiKey = config('services.gemini.api_key') ?? '';
@@ -351,16 +358,34 @@ Return a JSON object: {\"alt_text\": \"...\"}. No markdown, no code blocks, no e
 
         do {
             $attempt++;
+
+            $this->throttle();
+
             try {
-                $response = Http::timeout(30)->post("{$this->endpoint}?key={$this->apiKey}", $payload);
+                // The key goes in a header, not the query string. As a query
+                // param it ended up inside every Guzzle exception message and
+                // from there into the log, in plain text, on every timeout.
+                $response = Http::timeout(30)
+                    ->withHeaders(['x-goog-api-key' => $this->apiKey])
+                    ->post($this->endpoint, $payload);
 
                 if ($response->successful()) {
                     return $response;
                 }
 
-                Log::warning('Gemini API error', ['attempt' => $attempt, 'status' => $response->status(), 'body' => $response->body()]);
+                Log::warning('Gemini API error', ['attempt' => $attempt, 'status' => $response->status(), 'body' => self::scrub($response->body())]);
+
+                // Over the rate limit. Google says how long to wait; if it does
+                // not, back off further each time. Worth more attempts than a
+                // normal error — the request was fine, we were just early.
+                if ($response->status() === 429) {
+                    $wait = (int) ($response->header('Retry-After') ?: $retryDelaySeconds * $attempt * 2);
+                    sleep(min($wait, 60));
+                    $retries = max($retries, 3);
+                    continue;
+                }
             } catch (\Throwable $e) {
-                Log::warning('Gemini API exception', ['attempt' => $attempt, 'error' => $e->getMessage()]);
+                Log::warning('Gemini API exception', ['attempt' => $attempt, 'error' => self::scrub($e->getMessage())]);
             }
 
             if ($attempt <= $retries) {
@@ -369,5 +394,76 @@ Return a JSON object: {\"alt_text\": \"...\"}. No markdown, no code blocks, no e
         } while ($attempt <= $retries);
 
         return null;
+    }
+
+    /**
+     * Wait only as long as the rate limit actually requires.
+     *
+     * The job used to sleep a flat 4 seconds after every call, on top of however
+     * long the call itself took — so a 3-second generation became 7, and the real
+     * rate sat well under even the free tier's allowance. This measures from the
+     * last request instead: the API's own latency counts towards the interval, and
+     * nothing is spent waiting that does not have to be.
+     */
+    private function throttle(): void
+    {
+        $rpm = max(1, (int) config('services.gemini.rpm', 10));
+        $gap = 60 / $rpm;
+
+        $since = microtime(true) - self::$lastRequestAt;
+
+        if (self::$lastRequestAt > 0.0 && $since < $gap) {
+            usleep((int) (($gap - $since) * 1_000_000));
+        }
+
+        self::$lastRequestAt = microtime(true);
+    }
+
+    /**
+     * Belt and braces: never let a key reach the log even if some other call
+     * still puts one in a URL. A leaked key is not recoverable by editing the
+     * log afterwards — it has to be rotated.
+     */
+    private static function scrub(string $message): string
+    {
+        return (string) preg_replace('/([?&](?:key|api_key)=)[^&\s"\']+/i', '$1[redacted]', $message);
+    }
+
+    /**
+     * Can this server reach Gemini at all?
+     *
+     * When outbound access to Google is blocked every call dies on a 30-second
+     * timeout, and a whole session of them takes long enough for the queue worker
+     * to kill the job — leaving the UI on 0% with nothing to explain it. This is
+     * the cheap up-front check that turns that into one sentence.
+     *
+     * @return array{ok: bool, message: string}
+     */
+    public function ping(): array
+    {
+        if ($this->apiKey === '') {
+            return ['ok' => false, 'message' => 'No Gemini API key is configured.'];
+        }
+
+        try {
+            $response = Http::timeout(10)
+                ->withHeaders(['x-goog-api-key' => $this->apiKey])
+                ->get('https://generativelanguage.googleapis.com/v1beta/models');
+
+            if ($response->successful()) {
+                return ['ok' => true, 'message' => 'Gemini is reachable and the key works.'];
+            }
+
+            return [
+                'ok'      => false,
+                'message' => 'Google answered ' . $response->status() . ': ' . self::scrub(\Illuminate\Support\Str::limit($response->body(), 200)),
+            ];
+        } catch (\Throwable $e) {
+            return [
+                'ok'      => false,
+                'message' => 'Could not reach generativelanguage.googleapis.com — ' . self::scrub($e->getMessage())
+                           . ' This is outbound network access from the server, not the key.',
+            ];
+        }
     }
 }

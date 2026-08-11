@@ -32,14 +32,15 @@ class ProductRequestWorkflow
         ProductRequest::SKU_VERIFIED         => ['ecommerce'],
         ProductRequest::WAITING_IMAGES       => ['photographer', 'ecommerce'],
         ProductRequest::PHOTOSHOOT_SCHEDULED => ['photographer'],
-        ProductRequest::PHOTOSHOOT_COMPLETED => ['ecommerce', 'content'],
+        ProductRequest::PHOTOSHOOT_COMPLETED => ['ecommerce'],
         ProductRequest::IMAGE_EDITING        => ['image_editor', 'ecommerce'],
-        ProductRequest::AI_CONTENT           => ['content'],
-        // The content person reviews and publishes their own work.
-        ProductRequest::QA_REVIEW            => ['content', 'qa'],
-        ProductRequest::READY_FOR_UPLOAD     => ['content'],           // retired stage
+        // Content is the E-Commerce owner's job now — one person per category
+        // writes the copy, reviews it and publishes it.
+        ProductRequest::AI_CONTENT           => ['ecommerce'],
+        ProductRequest::QA_REVIEW            => ['ecommerce'],
+        ProductRequest::READY_FOR_UPLOAD     => ['ecommerce'],         // retired stage
         // Publishing closes the request, so the brand side hears about it.
-        ProductRequest::PUBLISHED            => ['brand_manager', 'ecommerce', 'content'],
+        ProductRequest::PUBLISHED            => ['brand_manager', 'ecommerce'],
         ProductRequest::COMPLETED            => ['brand_manager', 'ecommerce'],
         ProductRequest::CANCELLED            => ['ecommerce', 'brand_manager'],
     ];
@@ -278,7 +279,8 @@ class ProductRequestWorkflow
      *
      * One person handles a category end to end, so they take every role the
      * request needs — except the shoot, which goes to the photoshoot
-     * coordinator (who may well be the same person). Roles the
+     * coordinator, and the brand-side task, which goes to the category's brand
+     * manager. Either may well be the same person. Roles the
      * requester filled in themselves are left alone: an explicit choice beats the
      * default. The person is notified once, not once per role, because five
      * "you have been assigned" messages about the same request is noise.
@@ -287,8 +289,12 @@ class ProductRequestWorkflow
      */
     public function staffFromCategory(ProductRequest $request, ?User $actor = null): array
     {
-        $owner       = $request->categoryOwner();
-        $coordinator = $request->needsPhotoshoot() ? User::photoshootCoordinator() : null;
+        $owner        = $request->categoryOwner();
+        $coordinator  = $request->needsPhotoshoot() ? User::photoshootCoordinator() : null;
+        // The category's brand manager holds the brand-side task — supplying the
+        // information and approving the copy — rather than only being copied on
+        // the emails. Where a category has none, the owner keeps it.
+        $brandManager = User::brandManagersForCategory($request->category)->first() ?? $owner;
 
         $staffed  = [];
         $notified = [];
@@ -298,7 +304,11 @@ class ProductRequestWorkflow
                 continue;   // the requester already named someone for this role
             }
 
-            $person = $field === 'photographer_id' ? $coordinator : $owner;
+            $person = match ($field) {
+                'photographer_id'  => $coordinator,
+                'brand_manager_id' => $brandManager,
+                default            => $owner,
+            };
 
             if (!$person) {
                 continue;

@@ -155,6 +155,17 @@ class SettingsController extends Controller
         }
     }
 
+    /**
+     * Can the server reach Gemini? Answers the question that a session stuck on
+     * 0% cannot: is this the key, or is it outbound network access.
+     */
+    public function testGemini(): \Illuminate\Http\JsonResponse
+    {
+        $result = app(\App\Services\GeminiService::class)->ping();
+
+        return response()->json(['ok' => $result['ok'], 'message' => $result['message']]);
+    }
+
     public function clearCache(): RedirectResponse
     {
         if (!Auth::user()->is_super_admin) {

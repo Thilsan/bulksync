@@ -68,6 +68,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/settings',                [SettingsController::class, 'index'])->name('settings.index');
     Route::put('/settings',                [SettingsController::class, 'update'])->name('settings.update');
     Route::get('/settings/test-onedrive',  [SettingsController::class, 'testOnedrive'])->name('settings.test-onedrive');
+    Route::get('/settings/test-gemini',    [SettingsController::class, 'testGemini'])->name('settings.test-gemini');
     Route::post('/settings/clear-cache',   [SettingsController::class, 'clearCache'])->name('settings.clear-cache');
     Route::put('/settings/mail',           [SettingsController::class, 'updateMail'])->name('settings.mail.update');
     Route::post('/settings/mail/test',     [SettingsController::class, 'testMail'])->name('settings.mail.test');

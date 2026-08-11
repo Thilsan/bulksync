@@ -36,6 +36,19 @@ class GenerateAiContentJob implements ShouldQueue
 
         $session->update(['status' => 'processing']);
 
+        // Every call to Gemini costs a 30-second timeout when the server cannot
+        // reach Google, so a session of twenty SKUs spends twenty minutes dying
+        // and the worker kills it before it can report anything. One cheap check
+        // first turns that into an immediate, readable failure.
+        $reachable = $gemini->ping();
+
+        if (!$reachable['ok']) {
+            Log::error('GenerateAiContentJob: Gemini unreachable', ['session' => $this->sessionId, 'error' => $reachable['message']]);
+            $session->update(['status' => 'failed', 'error_message' => $reachable['message']]);
+
+            return;
+        }
+
         try {
             $this->processSkus($session, $shopify, $gemini, $storeName, $availableCollections);
 
@@ -44,6 +57,24 @@ class GenerateAiContentJob implements ShouldQueue
             Log::error('GenerateAiContentJob failed', ['session' => $this->sessionId, 'error' => $e->getMessage()]);
             $session->update(['status' => 'failed', 'error_message' => $e->getMessage()]);
         }
+    }
+
+    /**
+     * Called when the job dies outright — including a queue-worker timeout,
+     * which is how a slow session ends. Without this the session sits on
+     * "processing" for ever and the page shows a progress bar that will never
+     * move again.
+     */
+    public function failed(?\Throwable $e): void
+    {
+        AiContentSession::where('id', $this->sessionId)
+            ->whereIn('status', ['pending', 'processing'])
+            ->update([
+                'status'        => 'failed',
+                'error_message' => $e
+                    ? \Illuminate\Support\Str::limit($e->getMessage(), 500)
+                    : 'Generation stopped before it finished — most often the queue worker timeout.',
+            ]);
     }
 
     /**
@@ -143,7 +174,8 @@ class GenerateAiContentJob implements ShouldQueue
         $hero = $images[0];
 
         $content = $gemini->generateFromImageUrl($hero['src'], $productTitle, $vendor, $productType, $tags, $collections, $sku, $storeName, $existingDescription, $existingMaterial, $existingFeatures, $collectionTitles);
-        sleep(4); // respect Gemini free tier: 15 req/min
+        // Pacing lives in GeminiService::throttle() now — one place, measured
+        // from the last call rather than a flat wait on top of it.
 
         if (!$content) {
             $item->update(['status' => 'failed', 'error_message' => 'Gemini API failed to generate content']);
@@ -180,7 +212,6 @@ class GenerateAiContentJob implements ShouldQueue
         foreach (array_slice($images, 1) as $index => $image) {
             try {
                 $altText = $this->sanitizeText($gemini->generateAltTextFromUrl($image['src'], $productTitle) ?? '') ?: null;
-                sleep(4);
 
                 AiContentImage::create([
                     'item_id'          => $item->id,
@@ -229,7 +260,8 @@ class GenerateAiContentJob implements ShouldQueue
         array $collectionTitles,
     ): AiContentItem {
         $content = $gemini->generateFromTextOnly($productTitle, $vendor, $productType, $tags, $collections, $sku, $storeName, $existingDescription, $existingMaterial, $existingFeatures, $collectionTitles);
-        sleep(4); // respect Gemini free tier: 15 req/min
+        // Pacing lives in GeminiService::throttle() now — one place, measured
+        // from the last call rather than a flat wait on top of it.
 
         if (!$content) {
             $item->update(['status' => 'failed', 'error_message' => 'No images found for this product, and text-only generation failed']);

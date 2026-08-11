@@ -433,15 +433,21 @@ class ProductRequestTest extends TestCase
         $request = $this->submitFor($author, $this->mappingSite(), 'CATOWN-1');
 
         $this->assertSame($owner->id, $this->ownerId($request, 'assigned_to'));
-        $this->assertSame($owner->id, $this->ownerId($request, 'brand_manager_id'));
         $this->assertSame($owner->id, $this->ownerId($request, 'supply_chain_id'));
         $this->assertSame($owner->id, $this->ownerId($request, 'image_editor_id'));
-        $this->assertSame($owner->id, $this->ownerId($request, 'content_owner_id'));
+
+        // No brand manager is set for Luggage here, so the owner keeps that too.
+        $this->assertSame($owner->id, $this->ownerId($request, 'brand_manager_id'));
+
+        // Content is retired: the owner writes the copy as part of running the
+        // request, so there is no separate Content Team assignee to give it to.
+        $this->assertNull($this->ownerId($request, 'content_owner_id'));
+        $this->assertArrayNotHasKey('content_owner_id', ProductRequest::assignableRoles());
 
         // The shoot is the one thing that is somebody else's job.
         $this->assertSame($shoot->id, $this->ownerId($request, 'photographer_id'));
 
-        // Five roles, but one message — the same request five times over is noise.
+        // Four roles, but one message — the same request four times over is noise.
         Notification::assertSentToTimes($owner, ProductRequestAssigned::class, 1);
         Notification::assertSentToTimes($shoot, ProductRequestAssigned::class, 1);
     }
@@ -571,6 +577,72 @@ class ProductRequestTest extends TestCase
         $this->assertSame(['Home', "Women's Fashion", 'Kids'], $ahmad->fresh()->ownedCategories());
     }
 
+    // ── Whose dashboard is it ────────────────────────────────────────────────
+
+    public function test_the_dashboard_and_list_show_only_your_own_requests(): void
+    {
+        Notification::fake();
+
+        $owner = $this->luggageOwner();
+        $store = $this->plainSite();
+
+        // Two brand people, one request each.
+        $mine   = $this->brandManager();
+        $theirs = User::create([
+            'name' => 'Other Brand', 'email' => 'otherbrand@example.test', 'password' => 'password',
+            'is_active' => true, 'perm_product_request' => true, 'pcr_role' => 'brand_manager',
+        ]);
+
+        $myRequest    = $this->submitFor($mine, $store, 'MINE-1');
+        $theirRequest = $this->submitFor($theirs, $store, 'THEIRS-1');
+
+        // The submission's flash message names its reference and would still be
+        // in the session on the next page.
+        $this->flushSession();
+
+        // The dashboard counts one request, not two, and lists only mine.
+        $this->actingAs($mine)->get(route('product-requests.index'))
+            ->assertOk()
+            ->assertSee($myRequest->reference)
+            ->assertDontSee($theirRequest->reference);
+
+        $this->flushSession();
+
+        $this->actingAs($mine)->get(route('product-requests.list'))
+            ->assertOk()
+            ->assertSee($myRequest->reference)
+            ->assertDontSee($theirRequest->reference);
+
+        // A workflow role is not a reason to be shown everybody's work…
+        $this->assertSame(1, ProductRequest::query()->onMyDesk($mine->fresh())->count());
+
+        // …but it still lets you open what you are emailed about, or the team
+        // would not be able to pick anything up.
+        $this->actingAs($mine)->get(route('product-requests.show', $theirRequest))->assertOk();
+
+        // The category owner sees both, because both are assigned to them.
+        $this->assertSame(2, ProductRequest::query()->onMyDesk($owner->fresh())->count());
+    }
+
+    public function test_a_super_admin_and_the_watching_account_see_every_request(): void
+    {
+        Notification::fake();
+
+        $this->luggageOwner();
+        $store = $this->plainSite();
+
+        $this->submitFor($this->brandManager(), $store, 'ALL-1');
+
+        $admin = User::create([
+            'name' => 'Root', 'email' => 'root4@example.test', 'password' => 'password',
+            'is_active' => true, 'is_super_admin' => true,
+        ]);
+
+        // Oversight is the whole job of these two accounts.
+        $this->assertSame(1, ProductRequest::query()->onMyDesk($admin)->count());
+        $this->assertSame(1, ProductRequest::query()->onMyDesk($this->watcher())->count());
+    }
+
     // ── Notifications: mine versus the team's ────────────────────────────────
 
     public function test_the_bell_only_rings_for_your_own_work(): void
@@ -582,11 +654,11 @@ class ProductRequestTest extends TestCase
 
         $shooter = $this->photographer();
 
-        // A second photographer hears about photoshoot stages by role, but holds
-        // nothing on this request.
+        // Hears about this stage because of their role, but holds nothing on the
+        // request and owns no category — the definition of an FYI.
         $bystander = User::create([
-            'name' => 'Other Studio', 'email' => 'studio2@example.test', 'password' => 'password',
-            'is_active' => true, 'perm_product_request' => true, 'pcr_role' => 'photographer',
+            'name' => 'Other Desk', 'email' => 'other@example.test', 'password' => 'password',
+            'is_active' => true, 'perm_product_request' => true, 'pcr_role' => 'ecommerce',
         ]);
 
         $request = $this->submitFor($author, $store, 'BELL-1');
@@ -608,19 +680,25 @@ class ProductRequestTest extends TestCase
         $store  = $this->plainSite();
         $author->stores()->sync([$store->id]);
 
+        // Told about the stage by role; holds nothing, owns no category.
         $bystander = User::create([
-            'name' => 'Other Studio', 'email' => 'studio3@example.test', 'password' => 'password',
-            'is_active' => true, 'perm_product_request' => true, 'pcr_role' => 'photographer',
+            'name' => 'Other Desk', 'email' => 'other3@example.test', 'password' => 'password',
+            'is_active' => true, 'perm_product_request' => true, 'pcr_role' => 'ecommerce',
         ]);
 
         $request = $this->submitFor($author, $store, 'PAGE-1');
         app(ProductRequestWorkflow::class)->transition($request->refresh(), ProductRequest::WAITING_IMAGES, $author, 'Off to the studio');
+        // The submission's own flash message names the reference, and it would
+        // still be in the session on the next page — nothing to do with the
+        // notification list this test is about.
+        $this->flushSession();
 
         // Default view: nothing, because none of it is theirs.
         $this->actingAs($bystander)->get(route('product-requests.notifications'))
             ->assertOk()
             ->assertSee('Nothing waiting on you')
             ->assertDontSee($request->reference);
+
 
         // Everything: the team update is here, marked as FYI.
         $this->actingAs($bystander)->get(route('product-requests.notifications', ['scope' => 'all']))
@@ -1050,7 +1128,7 @@ class ProductRequestTest extends TestCase
 
     // ── Brand managers follow their categories ───────────────────────────────
 
-    /** Follows Luggage as brand manager: emailed about it, never given the work. */
+    /** The brand manager for Luggage: holds the brand-side task on its requests. */
     private function luggageBrandManager(): User
     {
         return User::create([
@@ -1060,28 +1138,31 @@ class ProductRequestTest extends TestCase
         ]);
     }
 
-    public function test_a_categorys_brand_manager_is_emailed_but_given_no_work(): void
+    public function test_a_categorys_brand_manager_holds_the_brand_side_task_and_nothing_else(): void
     {
         Notification::fake();
 
-        $follower = $this->luggageBrandManager();
-        $owner    = $this->luggageOwner();
-        $author   = $this->brandManager();
+        $brandDesk = $this->luggageBrandManager();
+        $owner     = $this->luggageOwner();
+        $author    = $this->brandManager();
 
         $request = $this->submitFor($author, $this->plainSite(), 'BM-1');
 
-        // Told who picked it up…
-        Notification::assertSentTo($follower, ProductRequestAssigned::class,
-            fn ($n) => $n->isCopy() && $n->assigneeName === $owner->name);
+        // Theirs: supply the information and approve the content.
+        $this->assertSame($brandDesk->id, $this->ownerId($request, 'brand_manager_id'));
 
-        // …but holding nothing themselves.
-        foreach (array_keys(ProductRequest::ASSIGNMENT_ROLES) as $role) {
-            $this->assertNotSame($follower->id, $this->ownerId($request, $role), "Brand manager was given {$role}");
+        // Everything else stays with whoever runs the category.
+        foreach (['assigned_to', 'image_editor_id'] as $role) {
+            $this->assertSame($owner->id, $this->ownerId($request, $role), "Brand manager took {$role}");
         }
 
+        // They are told it is theirs, not copied in about somebody else's task.
+        Notification::assertSentTo($brandDesk, ProductRequestAssigned::class,
+            fn ($n) => !$n->isCopy() && $n->roleField === 'brand_manager_id');
+
         // And they hear the request move on.
-        app(ProductRequestWorkflow::class)->transition($request, ProductRequest::WAITING_IMAGES, $owner, 'Moving on');
-        Notification::assertSentTo($follower, ProductRequestStatusChanged::class);
+        app(ProductRequestWorkflow::class)->transition($request->refresh(), ProductRequest::WAITING_IMAGES, $owner, 'Moving on');
+        Notification::assertSentTo($brandDesk, ProductRequestStatusChanged::class);
     }
 
     public function test_a_brand_manager_only_hears_about_their_own_categories(): void
@@ -1114,16 +1195,34 @@ class ProductRequestTest extends TestCase
     {
         Notification::fake();
 
-        $follower = $this->luggageBrandManager();   // no pcr_role, no assignment
+        $follower = $this->luggageBrandManager();   // no pcr_role
         $this->luggageOwner();
-        $request = $this->submitFor($this->brandManager(), $this->plainSite(), 'BMVIEW-1');
+        $author  = $this->brandManager();
+        $request = $this->submitFor($author, $this->plainSite(), 'BMVIEW-1');
 
         // An email nobody can open is worse than no email.
         $this->actingAs($follower)->get(route('product-requests.show', $request))->assertOk();
 
-        // Somebody else's category stays out of reach.
-        $request->update(['category' => 'Beauty']);
-        $this->actingAs($follower)->get(route('product-requests.show', $request))->assertForbidden();
+        // A category they neither manage nor hold a role on stays out of reach.
+        $store = $this->plainSite();
+        $author->stores()->syncWithoutDetaching([$store->id]);
+
+        $this->actingAs($author)->post(route('product-requests.store'), [
+            'store_id'           => $store->id,
+            'request_type'       => 'new_brand',
+            'brand'              => 'Dior',
+            'category'           => 'Beauty',
+            'skus'               => 'BMHIDDEN-1',
+            'online_launch_date' => now()->addDays(18)->format('Y-m-d H:i'),
+            'image_source'       => ProductRequest::IMG_SUPPLIER,
+            'images_location'    => ProductRequest::IMAGES_AT_PIM,
+            'use_ai_content'     => 1,
+            'priority'           => 'low',
+        ])->assertRedirect();
+
+        $hidden = ProductRequest::latest('id')->first();
+
+        $this->actingAs($follower)->get(route('product-requests.show', $hidden))->assertForbidden();
     }
 
     // ── The shared inbox that watches everything ─────────────────────────────
@@ -1791,9 +1890,11 @@ class ProductRequestTest extends TestCase
 
         $this->assertSame('Supply Chain Team', $request->guideFor(ProductRequest::WAITING_MAPPING)['role']);
         $this->assertSame('Photoshoot Coordinator', $request->guideFor(ProductRequest::PHOTOSHOOT_SCHEDULED)['role']);
-        // Whoever writes the content reviews and publishes it.
-        $this->assertSame('Content Team', $request->guideFor(ProductRequest::QA_REVIEW)['role']);
-        $this->assertSame('Content Team', $request->guideFor(ProductRequest::PUBLISHED)['role']);
+        // One person per category writes the copy, reviews it and publishes it,
+        // so the content stages belong to the E-Commerce owner.
+        $this->assertSame('E-Commerce Team', $request->guideFor(ProductRequest::AI_CONTENT)['role']);
+        $this->assertSame('E-Commerce Team', $request->guideFor(ProductRequest::QA_REVIEW)['role']);
+        $this->assertSame('E-Commerce Team', $request->guideFor(ProductRequest::PUBLISHED)['role']);
     }
 
     public function test_the_content_stage_guidance_changes_when_the_brand_team_supplies_copy(): void
@@ -2343,7 +2444,11 @@ class ProductRequestTest extends TestCase
         // No shoot means nothing to photograph and nothing to edit.
         $this->assertArrayNotHasKey('photographer_id', $roles);
         $this->assertArrayNotHasKey('image_editor_id', $roles);
-        $this->assertArrayHasKey('content_owner_id', $roles);
+
+        // What is left is the request itself and the brand side of it.
+        $this->assertArrayHasKey('assigned_to', $roles);
+        $this->assertArrayHasKey('brand_manager_id', $roles);
+        $this->assertArrayNotHasKey('content_owner_id', $roles);
 
         $this->actingAs($user)->get(route('product-requests.show', $request))
             ->assertOk()

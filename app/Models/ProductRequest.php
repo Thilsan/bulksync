@@ -139,28 +139,28 @@ class ProductRequest extends Model
             'what'  => 'Edit, crop and optimise the images so they are ready for the website.',
         ],
         self::AI_CONTENT => [
-            'role'  => 'Content Team',
-            'role_key' => 'content',
-            'field' => 'content_owner_id',
+            'role'  => 'E-Commerce Team',
+            'role_key' => 'ecommerce',
+            'field' => 'assigned_to',
             'what'  => 'Generate the product copy — descriptions, meta titles and meta descriptions — using the AI Content Generator.',
         ],
         self::QA_REVIEW => [
-            'role'  => 'Content Team',
-            'role_key' => 'content',
-            'field' => 'content_owner_id',
+            'role'  => 'E-Commerce Team',
+            'role_key' => 'ecommerce',
+            'field' => 'assigned_to',
             'what'  => 'Check your own images, copy and product data before it goes live. If something needs rework, move the request back a stage with a remark explaining why.',
         ],
         // Retired stage, kept for requests still sitting on it.
         self::READY_FOR_UPLOAD => [
-            'role'  => 'Content Team',
-            'role_key' => 'content',
-            'field' => 'content_owner_id',
+            'role'  => 'E-Commerce Team',
+            'role_key' => 'ecommerce',
+            'field' => 'assigned_to',
             'what'  => 'Upload the products so they go live, then mark the request as Published.',
         ],
         self::PUBLISHED => [
-            'role'  => 'Content Team',
-            'role_key' => 'content',
-            'field' => 'content_owner_id',
+            'role'  => 'E-Commerce Team',
+            'role_key' => 'ecommerce',
+            'field' => 'assigned_to',
             'what'  => 'Products are live on the website. Nothing further is needed — publishing closes the request.',
         ],
         self::COMPLETED => [
@@ -487,12 +487,17 @@ class ProductRequest extends Model
     /**
      * Roles no longer offered on new requests.
      *
-     * QA Review belongs to the Content Team now — whoever writes the copy checks
-     * it — so a separate QA assignee has nothing to own. Kept in the list rather
-     * than deleted so a request that already has one still shows it, and it can
-     * be cleared; hiding it outright would strand the assignment.
+     * QA Review belongs to whoever produced the work — they check their own
+     * output — so a separate QA assignee has nothing to own. Content went the
+     * same way: one person runs a category end to end, writing the copy as part
+     * of owning the request, so a separate Content Team assignee was always the
+     * same name twice. Their stages are owned by the E-Commerce Team.
+     *
+     * Kept in the list rather than deleted so a request that already has one
+     * still shows it, and it can be cleared; hiding it outright would strand the
+     * assignment.
      */
-    public const RETIRED_ROLES = ['qa_owner_id'];
+    public const RETIRED_ROLES = ['qa_owner_id', 'content_owner_id'];
 
     /** The people a request can be assigned to, and what to call each. */
     public const ASSIGNMENT_ROLES = [
@@ -1229,10 +1234,14 @@ class ProductRequest extends Model
 
     public function scopeVisibleTo($query, User $user)
     {
-        // Super admins and anyone with a workflow role see the whole pipeline —
-        // the module's whole point is shared visibility. Everyone else sees
-        // only what they raised or were assigned.
-        if ($user->is_super_admin || $user->pcr_role) {
+        // Who may OPEN a request — not what fills their dashboard; see onMyDesk().
+        //
+        // Anyone with a workflow role can reach any request, because they have to:
+        // Supply Chain records mappings on requests they hold nothing on, a team
+        // has to be able to pick up unclaimed work, and every stage email links
+        // to a request. The accounts copied on everything need it for the same
+        // reason. Without a role, you get what you raised, hold, or brand-manage.
+        if ($user->is_super_admin || $user->pcr_role || $user->pcr_notify_all) {
             return $query;
         }
 
@@ -1248,6 +1257,36 @@ class ProductRequest extends Model
             // to be able to open what those emails link to.
             if ($followed) {
                 $q->orWhereIn('category', $followed);
+            }
+        });
+    }
+
+    /**
+     * What belongs on this person's own dashboard and list.
+     *
+     * Being able to open any request is not a reason to be shown all of them. A
+     * brand manager's dashboard read as the whole company's pipeline — six
+     * requests, one of them theirs — which made the numbers meaningless. This is
+     * the narrower question: what did I raise, what do I hold, and which
+     * categories am I brand manager for.
+     *
+     * Super admins, and the accounts copied on every request, still see the lot:
+     * that oversight is their job.
+     */
+    public function scopeOnMyDesk($query, User $user)
+    {
+        if ($user->is_super_admin || $user->pcr_notify_all) {
+            return $query;
+        }
+
+        $managed = $user->brandManagedCategories();
+
+        return $query->where(function ($q) use ($user, $managed) {
+            $q->where('user_id', $user->id)
+              ->orWhereHas('assignments', fn ($a) => $a->current()->where('user_id', $user->id));
+
+            if ($managed) {
+                $q->orWhereIn('category', $managed);
             }
         });
     }

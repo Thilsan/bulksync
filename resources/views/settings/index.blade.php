@@ -17,6 +17,40 @@
     </div>
     @endif
 
+    {{-- AI content generation reachability. A session stuck on 0% cannot say
+         whether the key is wrong or the server simply has no route to Google;
+         this can. --}}
+    <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div class="px-6 py-5 border-b border-gray-100 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <div class="w-9 h-9 rounded-lg bg-violet-100 flex items-center justify-center">
+                    <svg class="w-5 h-5 text-violet-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
+                    </svg>
+                </div>
+                <div>
+                    <h2 class="font-semibold text-gray-800">AI Content (Gemini)</h2>
+                    <p class="text-xs text-gray-500">Checks that this server can reach Google and that the key works</p>
+                </div>
+            </div>
+            <button type="button" @click="testGemini()"
+                class="text-xs border border-gray-300 text-gray-700 px-3 py-1.5 rounded-lg hover:bg-gray-50 transition-colors">
+                Test Connection
+            </button>
+        </div>
+
+        <div class="px-6 py-5">
+            <div x-show="geminiResult" x-cloak
+                 :class="geminiOk ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'"
+                 class="border rounded-lg px-3 py-2 text-sm" x-text="geminiResult">
+            </div>
+            <p x-show="!geminiResult" class="text-sm text-gray-500">
+                Run this whenever AI content generation sits at 0% — it separates a bad key from blocked outbound access.
+            </p>
+        </div>
+    </div>
+
     {{-- OneDrive Settings --}}
     <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
         <div class="px-6 py-5 border-b border-gray-100 flex items-center justify-between">
@@ -358,6 +392,23 @@ function settingsPage() {
     return {
         onedriveResult: '',
         onedriveOk:     false,
+        geminiResult:   '',
+        geminiOk:       false,
+
+        async testGemini() {
+            this.geminiResult = 'Testing…';
+            try {
+                const res  = await fetch('{{ route('settings.test-gemini') }}', {
+                    headers: { 'Accept': 'application/json', 'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]').content }
+                });
+                const data = await res.json();
+                this.geminiOk     = data.ok;
+                this.geminiResult = data.message;
+            } catch {
+                this.geminiOk     = false;
+                this.geminiResult = 'Request failed.';
+            }
+        },
 
         async testOneDrive() {
             this.onedriveResult = 'Testing…';

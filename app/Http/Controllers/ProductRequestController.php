@@ -56,10 +56,11 @@ class ProductRequestController extends Controller implements HasMiddleware
             'title'          => 'Content Creation',
             'description'    => 'Requests in image editing and AI content generation.',
             // Image Editing and AI Content have different owners, so the board
-            // resolves each card's owner from its own stage.
-            'owner_field'    => 'content_owner_id',
-            'owner_fields'   => ['image_editor_id', 'content_owner_id'],
-            'owner_label'    => 'Content Owner',
+            // resolves each card's owner from its own stage. Content is the
+            // E-Commerce owner's job now, so that is the second field.
+            'owner_field'    => 'assigned_to',
+            'owner_fields'   => ['image_editor_id', 'assigned_to'],
+            'owner_label'    => 'Owner',
             'stages'         => [
                 ProductRequest::IMAGE_EDITING,
                 ProductRequest::AI_CONTENT,
@@ -86,7 +87,9 @@ class ProductRequestController extends Controller implements HasMiddleware
 
     public function index(#[CurrentUser] User $user): View
     {
-        $base = fn () => ProductRequest::query()->visibleTo($user);
+        // The dashboard answers "how is MY work going", so it counts what is on
+        // this person's desk — not every request they are allowed to open.
+        $base = fn () => ProductRequest::query()->onMyDesk($user);
 
         $stats = [
             'total'             => $base()->count(),
@@ -143,7 +146,7 @@ class ProductRequestController extends Controller implements HasMiddleware
     {
         // All four owner relations are eager-loaded: the "Waiting On" column
         // resolves whichever one the current stage belongs to, per row.
-        $query = ProductRequest::query()->visibleTo($user)
+        $query = ProductRequest::query()->onMyDesk($user)
             ->with(['user', 'currentAssignments.user']);
 
         if ($request->filled('status')) {
@@ -170,7 +173,7 @@ class ProductRequestController extends Controller implements HasMiddleware
 
         $requests = $query->latest()->paginate(20)->withQueryString();
 
-        $brands = ProductRequest::query()->visibleTo($user)
+        $brands = ProductRequest::query()->onMyDesk($user)
             ->distinct()->orderBy('brand')->pluck('brand');
 
         // The New Request slide-over lives on this page too, and needs the
@@ -204,10 +207,10 @@ class ProductRequestController extends Controller implements HasMiddleware
             'remarks'   => 'nullable|string|max:255',
         ]);
 
-        // visibleTo means a bulk post can never touch a request the user
-        // couldn't have opened individually.
+        // Scoped the same way as the list it was posted from, so a bulk action
+        // can never reach a request that was not on screen.
         $requests = ProductRequest::query()
-            ->visibleTo($user)
+            ->onMyDesk($user)
             ->whereIn('id', $data['ids'])
             ->get();
 
@@ -385,13 +388,18 @@ class ProductRequestController extends Controller implements HasMiddleware
      * The requester picks a category, not a person — so the form has to be able
      * to show them who that means before they submit.
      *
-     * @return array{categoryOwnerNames: array<string, string>, photoshootCoordinator: ?string}
+     * @return array{categoryOwnerNames: array<string, string>, categoryBrandManagerNames: array<string, string>, photoshootCoordinator: ?string}
      */
     private function categoryStaffing(): array
     {
         return [
-            'categoryOwnerNames'    => collect(User::categoryOwners())->map->name->all(),
-            'photoshootCoordinator' => User::photoshootCoordinator()?->name,
+            'categoryOwnerNames'        => collect(User::categoryOwners())->map->name->all(),
+            // First brand manager per category — the one who takes the role.
+            'categoryBrandManagerNames' => collect(User::categoryBrandManagers())
+                ->map(fn ($people) => $people->first()?->name)
+                ->filter()
+                ->all(),
+            'photoshootCoordinator'     => User::photoshootCoordinator()?->name,
         ];
     }
 

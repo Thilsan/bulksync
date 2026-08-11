@@ -48,6 +48,19 @@ return [
 
     'gemini' => [
         'api_key' => env('GEMINI_API_KEY'),
+
+        /*
+         * Requests per minute to pace ourselves to. Speed costs nothing — Gemini
+         * bills per token, not per request — so this exists only to stay inside
+         * the rate limit.
+         *
+         *   10  = free tier for gemini-2.5-flash (billing not enabled)
+         *   300 = paid tier 1 (billing enabled on the key's project)
+         *
+         * Set GEMINI_RPM=300 once billing is confirmed and generation gets several
+         * times faster with no change to the bill.
+         */
+        'rpm' => (int) env('GEMINI_RPM', 10),
     ],
 
     'fanar' => [

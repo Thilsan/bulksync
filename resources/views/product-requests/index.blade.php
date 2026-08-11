@@ -92,12 +92,11 @@
                 <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2.5">Who does what</p>
                 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-2">
                     @foreach([
-                        'Brand Team'       => 'Raises the request and supplies content if AI is not used.',
+                        'Brand Manager'    => 'Supplies the product information and samples, and approves the content.',
                         'Supply Chain'     => 'Maps the SKUs in Cegid and records it here.',
-                        'E-Commerce Team'  => 'Runs the request, edits images and uploads the products.',
+                        'E-Commerce Team'  => 'Runs the request end to end — images, copy, QA and publishing.',
                         'Photoshoot Coordinator' => 'Arranges the shoot and hands the images on.',
-                        'Content Team'     => 'Produces the descriptions and meta content.',
-                        'QA Team'          => 'Reviews everything before it goes live.',
+                        'Photo Editor'     => 'Edits and optimises the images for the website.',
                     ] as $team => $does)
                         <div class="flex gap-2">
                             <span class="w-1.5 h-1.5 rounded-full bg-brand-400 shrink-0 mt-1.5"></span>
