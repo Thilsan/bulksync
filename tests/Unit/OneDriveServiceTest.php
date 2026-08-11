@@ -55,10 +55,15 @@ class OneDriveServiceTest extends TestCase
         );
     }
 
-    public function test_the_requested_scopes_can_read_files_shared_with_the_account(): void
+    public function test_the_requested_scopes_stay_within_what_a_user_can_consent_to(): void
     {
-        // Files.Read alone is own-files-only and 403s on someone else's link.
-        $this->assertStringContainsString('Files.Read.All', OneDriveService::SCOPES);
+        // Files.Read.All needs a directory admin in this tenant, and asking for a
+        // scope nobody has granted breaks every refresh, not just shared links.
+        $this->assertStringContainsString('Files.Read', OneDriveService::SCOPES);
+        $this->assertStringNotContainsString('Files.Read.All', OneDriveService::SCOPES);
+
+        // Without offline_access there is no refresh token, so the connection
+        // would die an hour after every sign-in.
         $this->assertStringContainsString('offline_access', OneDriveService::SCOPES);
     }
 }
