@@ -175,6 +175,75 @@
                                 <p class="text-xs text-gray-400 mt-1">Controls which workflow stages notify this user.</p>
                             </div>
 
+                            {{-- One person handles a category end to end, so a request
+                                 raised against it lands on them without anyone choosing. --}}
+                            <div class="pt-3">
+                                <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Categories Handled</label>
+                                <div class="grid grid-cols-2 gap-x-3 gap-y-1.5 rounded-lg border border-gray-200 bg-white px-3 py-2.5">
+                                    @foreach(\App\Models\ProductRequest::CATEGORIES as $category)
+                                        @php $heldBy = $categoryOwners[$category] ?? null; @endphp
+                                        <label class="flex items-start gap-2 cursor-pointer select-none group">
+                                            <input type="checkbox" name="pcr_categories[]" value="{{ $category }}"
+                                                {{ $user->ownsCategory($category) ? 'checked' : '' }}
+                                                class="mt-0.5 w-4 h-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500">
+                                            <span class="text-sm text-gray-700 group-hover:text-gray-900 leading-tight">
+                                                {{ $category }}
+                                                @if($heldBy && $heldBy->id !== $user->id)
+                                                    <span class="block text-xs text-gray-400">{{ $heldBy->name }}</span>
+                                                @endif
+                                            </span>
+                                        </label>
+                                    @endforeach
+                                </div>
+                                <p class="text-xs text-gray-400 mt-1">
+                                    New requests in these categories are assigned to this user automatically —
+                                    every role except the photoshoot. Ticking one here takes it off whoever holds it now.
+                                </p>
+                            </div>
+
+                            {{-- Brand managers follow their categories; they are
+                                 emailed about them but never given the work. --}}
+                            <div class="pt-3">
+                                <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Brand Manager For</label>
+                                <div class="grid grid-cols-2 gap-x-3 gap-y-1.5 rounded-lg border border-gray-200 bg-white px-3 py-2.5">
+                                    @foreach(\App\Models\ProductRequest::CATEGORIES as $category)
+                                        @php $others = ($categoryBrandManagers[$category] ?? collect())->where('id', '!=', $user->id); @endphp
+                                        <label class="flex items-start gap-2 cursor-pointer select-none group">
+                                            <input type="checkbox" name="pcr_brand_categories[]" value="{{ $category }}"
+                                                {{ $user->managesBrandCategory($category) ? 'checked' : '' }}
+                                                class="mt-0.5 w-4 h-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500">
+                                            <span class="text-sm text-gray-700 group-hover:text-gray-900 leading-tight">
+                                                {{ $category }}
+                                                @if($others->isNotEmpty())
+                                                    <span class="block text-xs text-gray-400">{{ $others->pluck('name')->join(', ') }}</span>
+                                                @endif
+                                            </span>
+                                        </label>
+                                    @endforeach
+                                </div>
+                                <p class="text-xs text-gray-400 mt-1">
+                                    Copied on every request in these categories — assignments, status changes, comments and
+                                    holds — with no task of their own. More than one person can follow a category.
+                                </p>
+                            </div>
+
+                            {{-- For a shared inbox that watches the whole process
+                                 without holding a role on any one request. --}}
+                            <div class="pt-3">
+                                <label class="flex items-start gap-2.5 cursor-pointer select-none group">
+                                    <input type="checkbox" name="pcr_notify_all" value="1"
+                                        {{ $user->pcr_notify_all ? 'checked' : '' }}
+                                        class="mt-0.5 w-4 h-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500">
+                                    <span class="text-sm text-gray-700 group-hover:text-gray-900 leading-tight">
+                                        Copy on every product request
+                                        <span class="block text-xs text-gray-400">
+                                            Assignments, status changes, comments, holds and the daily chase — for every
+                                            request, not just this user's own.
+                                        </span>
+                                    </span>
+                                </label>
+                            </div>
+
                             <div class="pt-2">
                                 <button type="submit"
                                     class="text-xs bg-brand-600 hover:bg-brand-700 text-white px-3 py-1.5 rounded-lg transition-colors font-medium">

@@ -47,14 +47,25 @@ class SendProductRequestReminders extends Command
         // Grouped by recipient so one person gets one digest, not five emails.
         $perUser = [];
 
-        $add = function (User $user, ProductRequest $request, string $reason) use (&$perUser) {
-            $perUser[$user->id] ??= ['user' => $user, 'items' => []];
-            $perUser[$user->id]['items'][] = [
+        // Everything being chased today, phrased for someone reading over the
+        // team's shoulder rather than being chased themselves.
+        $watched = [];
+
+        $add = function (User $user, ProductRequest $request, string $reason, ?string $watcherReason = null) use (&$perUser, &$watched) {
+            $item = [
                 'request_id' => $request->id,
                 'reference'  => $request->reference,
                 'name'       => $request->displayName(),
                 'reason'     => $reason,
             ];
+
+            $perUser[$user->id] ??= ['user' => $user, 'items' => []];
+            $perUser[$user->id]['items'][] = $item;
+
+            // The same request can be chased through several people; the watcher
+            // wants it once.
+            $seen = $watcherReason ?? $reason;
+            $watched[$request->reference . '|' . $seen] = ['reason' => $seen] + $item;
         };
 
         foreach ($open as $request) {
@@ -67,14 +78,18 @@ class SendProductRequestReminders extends Command
 
                 if ($brief->isOverdue()) {
                     $late = abs($brief->daysLeft());
+                    $when = 'was due ' . $late . ' ' . ($late === 1 ? 'day' : 'days') . ' ago';
+
                     $add($brief->user, $request,
-                        "your {$brief->roleLabel()} task \"{$brief->taskTitle()}\" was due "
-                        . $late . ' ' . ($late === 1 ? 'day' : 'days') . ' ago');
+                        "your {$brief->roleLabel()} task \"{$brief->taskTitle()}\" {$when}",
+                        "{$brief->user->name}'s {$brief->roleLabel()} task \"{$brief->taskTitle()}\" {$when}");
                 } elseif ($brief->isDueSoon($dueDays)) {
                     $days = $brief->daysLeft();
+                    $when = 'is due ' . ($days === 0 ? 'today' : "in {$days} " . ($days === 1 ? 'day' : 'days'));
+
                     $add($brief->user, $request,
-                        "your {$brief->roleLabel()} task \"{$brief->taskTitle()}\" is due "
-                        . ($days === 0 ? 'today' : "in {$days} " . ($days === 1 ? 'day' : 'days')));
+                        "your {$brief->roleLabel()} task \"{$brief->taskTitle()}\" {$when}",
+                        "{$brief->user->name}'s {$brief->roleLabel()} task \"{$brief->taskTitle()}\" {$when}");
                 }
             }
 
@@ -92,6 +107,14 @@ class SendProductRequestReminders extends Command
         if (empty($perUser)) {
             $this->info('Nothing needs chasing.');
             return self::SUCCESS;
+        }
+
+        // The watching accounts get the whole board in one digest, everything
+        // named by whose task it is. It replaces their personal digest rather
+        // than arriving alongside it — it already contains those items, and two
+        // emails covering the same ground is exactly the noise this avoids.
+        foreach (User::requestWatchers() as $watcher) {
+            $perUser[$watcher->id] = ['user' => $watcher, 'items' => array_values($watched)];
         }
 
         foreach ($perUser as $entry) {

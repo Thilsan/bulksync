@@ -45,6 +45,11 @@
                   // Per-person deadlines are dates, the launch is a moment — so
                   // cap them on the launch day, not the timestamp.
                   get launchDay() { return this.onlineDate ? this.onlineDate.slice(0, 10) : ''; },
+                  {{-- Js::from, not a quoted string — "Men's Fashion" would break out of it. --}}
+                  category: {{ Illuminate\Support\Js::from(old('category', '')) }},
+                  categoryOwners: {{ Illuminate\Support\Js::from($categoryOwnerNames ?? []) }},
+                  photoshootCoordinator: {{ Illuminate\Support\Js::from($photoshootCoordinator ?? null) }},
+                  get categoryOwner() { return this.categoryOwners[this.category] || ''; },
                   storeId: '{{ old('store_id', $stores->firstWhere('is_active', true)?->id ?? $stores->first()?->id) }}',
                   mappingSites: {{ Illuminate\Support\Js::from($stores->where('requires_sku_mapping', true)->pluck('id')->map(fn ($id) => (string) $id)->values()) }},
                   get usesMapping() { return this.mappingSites.includes(String(this.storeId)) },
@@ -113,24 +118,39 @@
                         </div>
                         <div>
                             <label class="block text-xs font-medium text-gray-600 mb-1.5">Category <span class="text-red-500">*</span></label>
-                            <input type="text" name="category" value="{{ old('category') }}" required placeholder="e.g. Footwear"
-                                   class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent">
+                            <select name="category" x-model="category" required
+                                    class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent">
+                                <option value="">Select a category</option>
+                                @foreach(\App\Models\ProductRequest::CATEGORIES as $category)
+                                    <option value="{{ $category }}" {{ old('category') === $category ? 'selected' : '' }}>{{ $category }}</option>
+                                @endforeach
+                            </select>
                         </div>
-                        <div>
-                            <label class="block text-xs font-medium text-gray-600 mb-1.5">Sub Category</label>
-                            <input type="text" name="sub_category" value="{{ old('sub_category') }}" placeholder="e.g. Running Shoes"
-                                   class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent">
-                        </div>
-                        <div>
-                            <label class="block text-xs font-medium text-gray-600 mb-1.5">Department</label>
-                            <input type="text" name="department" value="{{ old('department') }}" placeholder="e.g. Men"
-                                   class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent">
-                        </div>
-                        <div class="col-span-2">
-                            <label class="block text-xs font-medium text-gray-600 mb-1.5">Collection / Season</label>
-                            <input type="text" name="collection" value="{{ old('collection') }}" placeholder="e.g. Fall / Winter 2026"
-                                   class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent">
-                        </div>
+                    </div>
+
+                    {{-- The category decides who does the work, so say so here rather
+                         than leaving the requester to guess in section 6. --}}
+                    <div x-show="category" x-cloak class="mt-3 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5">
+                        <template x-if="categoryOwner">
+                            <p class="text-xs text-gray-600">
+                                <span class="font-semibold text-gray-800" x-text="categoryOwner"></span>
+                                handles <span class="font-medium" x-text="category"></span> and will be assigned every stage of this
+                                request automatically.
+                                <span x-show="needsPhotoshoot && photoshootCoordinator" x-cloak>
+                                    The photoshoot is arranged by
+                                    <span class="font-semibold text-gray-800" x-text="photoshootCoordinator"></span>.
+                                </span>
+                                <span x-show="needsPhotoshoot && !photoshootCoordinator" x-cloak>
+                                    Pick the photoshoot coordinator below — more than one account holds that role.
+                                </span>
+                            </p>
+                        </template>
+                        <template x-if="!categoryOwner">
+                            <p class="text-xs text-amber-700">
+                                Nobody is set to handle <span class="font-medium" x-text="category"></span> yet, so this request will
+                                arrive unassigned. Choose the people in section 6, or ask an admin to set the category owner.
+                            </p>
+                        </template>
                     </div>
                 </section>
 
@@ -335,12 +355,13 @@
 
                     <h3 class="text-sm font-semibold text-gray-800 mb-1">6. Team Assignments</h3>
                     <p class="text-xs text-gray-400 mb-3">
-                        Optional. Choose a role and who does it — the task is set by the workflow.
+                        Optional — leave it empty and the category owner takes every role, with the shoot going to the
+                        photoshoot coordinator. Fill a row in only to send one role somewhere else; anything you set here
+                        wins over the category default.
                         Add a deadline if that person needs to finish before the launch date.
                         The next row opens as you complete each one.
                         Anyone you pick is notified that
                         <span class="font-medium text-gray-600">{{ auth()->user()->name }}</span> has given them this work.
-                        Leave it empty and each team can claim their own stage later.
                     </p>
 
                     <div class="space-y-2">

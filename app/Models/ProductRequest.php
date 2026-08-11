@@ -115,19 +115,19 @@ class ProductRequest extends Model
             'what'  => 'Every SKU is mapped. Confirm where the images are coming from — supplier or photoshoot — and move the request to the next stage.',
         ],
         self::WAITING_IMAGES => [
-            'role'  => 'Photographer',
+            'role'  => 'Photoshoot Coordinator',
             'role_key' => 'photographer',
             'field' => 'photographer_id',
             'what'  => 'Gather the product images. If a photoshoot is needed, book it and set the shoot date when you move the request on.',
         ],
         self::PHOTOSHOOT_SCHEDULED => [
-            'role'  => 'Photographer',
+            'role'  => 'Photoshoot Coordinator',
             'role_key' => 'photographer',
             'field' => 'photographer_id',
             'what'  => 'Shoot the products on the scheduled date, then mark the photoshoot completed.',
         ],
         self::PHOTOSHOOT_COMPLETED => [
-            'role'  => 'Photographer',
+            'role'  => 'Photoshoot Coordinator',
             'role_key' => 'photographer',
             'field' => 'photographer_id',
             'what'  => 'Hand the raw images over to the E-Commerce team for editing.',
@@ -176,6 +176,50 @@ class ProductRequest extends Model
             'what'  => 'This request was cancelled and is no longer being worked on.',
         ],
     ];
+
+    // ── Categories ───────────────────────────────────────────────────────────
+    /**
+     * The categories the business trades in. Free text let everyone spell the
+     * same category their own way ("mens fashion", "Men's Fashion", "Menswear"),
+     * which made the queue impossible to group or report on.
+     */
+    public const CATEGORIES = [
+        'Beauty',
+        'Food & Beverages',
+        'Fashion Accessories',
+        'Home',
+        'Leather Goods',
+        'Lingerie',
+        'Linen',
+        'Luggage',
+        "Men's Fashion",
+        "Women's Fashion",
+        'Kids',
+        'Watches',
+        'PG Operations',
+    ];
+
+    /**
+     * Who handles this category. Each category belongs to one person, set on
+     * their user record, so a request lands with its owner without the requester
+     * having to know who covers what.
+     */
+    public function categoryOwner(): ?User
+    {
+        return User::ownerForCategory($this->category);
+    }
+
+    /** The list, plus whatever this request was raised with before the list existed. */
+    public function categoryOptions(): array
+    {
+        $options = self::CATEGORIES;
+
+        if (filled($this->category) && !in_array($this->category, $options, true)) {
+            array_unshift($options, $this->category);
+        }
+
+        return $options;
+    }
 
     // ── Where the product images come from ───────────────────────────────────
     public const IMG_SUPPLIER      = 'supplier';
@@ -309,7 +353,7 @@ class ProductRequest extends Model
         'brand_manager_id' => 'Supply the product information and samples, answer queries from the teams, and approve the content before launch.',
         'assigned_to'      => 'Own this request end to end: check the SKU validation, move it through each stage, then upload and publish the products for the launch date.',
         'supply_chain_id'  => 'Map the SKUs in Cegid, then record the outcome on the SKUs tab so the request can continue.',
-        'photographer_id'  => 'Photograph the products once the samples arrive, then hand the images over for editing.',
+        'photographer_id'  => 'Arrange the shoot once the samples arrive — book the studio, get the products photographed, then hand the images over for editing.',
         'image_editor_id'  => 'Edit, crop and optimise the product images so they are ready for the website.',
         'content_owner_id' => 'Produce the product copy — descriptions, meta titles and meta descriptions — and apply it to the products.',
         'qa_owner_id'      => 'Review the images, copy and product data before anything goes live, and send it back a stage if something needs rework.',
@@ -379,7 +423,7 @@ class ProductRequest extends Model
         'brand_manager_id' => 'Brand Manager',
         'assigned_to'      => 'E-Commerce Team',
         'supply_chain_id'  => 'Supply Chain',
-        'photographer_id'  => 'Photographer',
+        'photographer_id'  => 'Photoshoot Coordinator',
         'image_editor_id'  => 'Photo Editor',
         'content_owner_id' => 'Content Team',
         'qa_owner_id'      => 'QA Team',
@@ -406,9 +450,6 @@ class ProductRequest extends Model
         'request_type',
         'brand',
         'category',
-        'sub_category',
-        'department',
-        'collection',
         'status',
         'priority',
         'store_launch_date',
@@ -754,7 +795,7 @@ class ProductRequest extends Model
             return $this->name;
         }
 
-        return collect([$this->brand, $this->category, $this->collection])
+        return collect([$this->brand, $this->category])
             ->filter()
             ->implode(' · ') ?: $this->reference;
     }
@@ -1059,12 +1100,19 @@ class ProductRequest extends Model
             return $query;
         }
 
-        return $query->where(function ($q) use ($user) {
+        // Ownership lives in the assignments table — the owner columns these
+        // checks used to read were dropped with it.
+        $followed = $user->brandManagedCategories();
+
+        return $query->where(function ($q) use ($user, $followed) {
             $q->where('user_id', $user->id)
-              ->orWhere('assigned_to', $user->id)
-              ->orWhere('photographer_id', $user->id)
-              ->orWhere('content_owner_id', $user->id)
-              ->orWhere('qa_owner_id', $user->id);
+              ->orWhereHas('assignments', fn ($a) => $a->current()->where('user_id', $user->id));
+
+            // A brand manager gets emailed about their categories, so they have
+            // to be able to open what those emails link to.
+            if ($followed) {
+                $q->orWhereIn('category', $followed);
+            }
         });
     }
 

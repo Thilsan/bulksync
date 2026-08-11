@@ -23,6 +23,7 @@ use Illuminate\Http\Request;
 use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
 use Illuminate\Support\Facades\Notification as NotificationFacade;
+use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -42,7 +43,7 @@ class ProductRequestController extends Controller implements HasMiddleware
             'description'    => 'Requests waiting on images, scheduled shoots and completed shoots.',
             'owner_field'    => 'photographer_id',
             'owner_fields'   => ['photographer_id'],
-            'owner_label'    => 'Photographer',
+            'owner_label'    => 'Photoshoot Coordinator',
             'stages'         => [
                 ProductRequest::WAITING_IMAGES,
                 ProductRequest::PHOTOSHOOT_SCHEDULED,
@@ -133,7 +134,7 @@ class ProductRequestController extends Controller implements HasMiddleware
 
         return view('product-requests.index', compact(
             'stats', 'breakdown', 'recent', 'deadlines', 'topBrands', 'activity', 'stores', 'teamPool'
-        ));
+        ) + $this->categoryStaffing());
     }
 
     /** Full, filterable request list — the "View Requests" screen. */
@@ -176,7 +177,7 @@ class ProductRequestController extends Controller implements HasMiddleware
         $stores   = Store::selectableFor($user);
         $teamPool = User::where('is_active', true)->orderBy('name')->get(['id', 'name', 'pcr_role']);
 
-        return view('product-requests.list', compact('requests', 'brands', 'stores', 'teamPool'));
+        return view('product-requests.list', compact('requests', 'brands', 'stores', 'teamPool') + $this->categoryStaffing());
     }
 
     /**
@@ -377,6 +378,22 @@ class ProductRequestController extends Controller implements HasMiddleware
         ]);
     }
 
+    /**
+     * Who a request will land on, for the new-request form.
+     *
+     * The requester picks a category, not a person — so the form has to be able
+     * to show them who that means before they submit.
+     *
+     * @return array{categoryOwnerNames: array<string, string>, photoshootCoordinator: ?string}
+     */
+    private function categoryStaffing(): array
+    {
+        return [
+            'categoryOwnerNames'    => collect(User::categoryOwners())->map->name->all(),
+            'photoshootCoordinator' => User::photoshootCoordinator()?->name,
+        ];
+    }
+
     // ── Create ───────────────────────────────────────────────────────────────
 
     public function store(Request $request, #[CurrentUser] User $user): RedirectResponse
@@ -392,10 +409,7 @@ class ProductRequestController extends Controller implements HasMiddleware
             'name'                      => 'nullable|string|max:255',
             'request_type'              => 'required|in:new_brand,existing_brand',
             'brand'                     => 'required|string|max:255',
-            'category'                  => 'required|string|max:255',
-            'sub_category'              => 'nullable|string|max:255',
-            'department'                => 'nullable|string|max:255',
-            'collection'                => 'nullable|string|max:255',
+            'category'                  => ['required', Rule::in(ProductRequest::CATEGORIES)],
             'skus'                      => 'nullable|string',
             'sku_csv'                   => 'nullable|file|mimes:csv,txt|max:20480',
             'online_launch_date'        => 'required|date',
@@ -465,9 +479,6 @@ class ProductRequestController extends Controller implements HasMiddleware
             'request_type'              => $data['request_type'],
             'brand'                     => $data['brand'],
             'category'                  => $data['category'],
-            'sub_category'              => $data['sub_category'] ?? null,
-            'department'                => $data['department'] ?? null,
-            'collection'                => $data['collection'] ?? null,
             'status'                    => ProductRequest::SUBMITTED,
             'priority'                  => $data['priority'],
             'online_launch_date'        => $data['online_launch_date'],
@@ -514,12 +525,20 @@ class ProductRequestController extends Controller implements HasMiddleware
             }
         }
 
+        // Whatever the requester left blank is staffed from the category — its
+        // owner takes the request, and a shoot goes to the photoshoot coordinator.
+        $staffed = $this->workflow->staffFromCategory($productRequest, $user);
+        $assigned += count($staffed);
+
         ValidateProductRequestSkusJob::dispatch($productRequest->id, $user->id)->onQueue('bulkupload');
+
+        $names = collect($staffed)->unique('id')->pluck('name')->join(', ', ' and ');
 
         return redirect()
             ->route('product-requests.show', $productRequest)
             ->with('success', "Request {$productRequest->reference} submitted. SKU validation is running."
-                . ($assigned > 0 ? " {$assigned} team " . str('member')->plural($assigned) . ' notified.' : ''));
+                . ($names !== '' ? " {$productRequest->category} goes to {$names}." : '')
+                . ($assigned > 0 ? " {$assigned} " . str('assignment')->plural($assigned) . ' made.' : ''));
     }
 
     // ── Detail ───────────────────────────────────────────────────────────────
@@ -571,10 +590,9 @@ class ProductRequestController extends Controller implements HasMiddleware
         $data = $request->validate([
             'name'                      => 'nullable|string|max:255',
             'brand'                     => 'required|string|max:255',
-            'category'                  => 'required|string|max:255',
-            'sub_category'              => 'nullable|string|max:255',
-            'department'                => 'nullable|string|max:255',
-            'collection'                => 'nullable|string|max:255',
+            // The request's own category stays valid even if it predates the list,
+            // so editing anything else on an older request doesn't force a change.
+            'category'                  => ['required', Rule::in($productRequest->categoryOptions())],
             'online_launch_date'        => 'required|date',
             'image_source'              => 'required|in:' . implode(',', array_keys(ProductRequest::IMAGE_SOURCES)),
             'images_location'           => 'nullable|in:' . implode(',', array_keys(ProductRequest::IMAGE_LOCATIONS)),

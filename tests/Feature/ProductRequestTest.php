@@ -347,6 +347,385 @@ class ProductRequestTest extends TestCase
         $this->assertFalse($request->photoshoot_required);
     }
 
+    public function test_the_category_must_come_from_the_agreed_list(): void
+    {
+        $user  = $this->brandManager();
+        $store = $this->mappingSite();
+        $user->stores()->sync([$store->id]);
+
+        $base = [
+            'store_id'           => $store->id,
+            'request_type'       => 'new_brand',
+            'brand'              => 'Samsonite',
+            'skus'               => 'CAT-1',
+            'online_launch_date' => now()->addDays(18)->format('Y-m-d H:i'),
+            'image_source'       => ProductRequest::IMG_PHOTOSHOOT,
+            'use_ai_content'     => 1,
+            'priority'           => 'high',
+        ];
+
+        // Free text let the same category arrive spelled three ways, so the queue
+        // could not be grouped. Anything off the list is refused now.
+        $this->actingAs($user)->post(route('product-requests.store'), $base + ['category' => 'Bags & Cases'])
+            ->assertSessionHasErrors('category');
+
+        $this->assertSame(0, ProductRequest::count());
+
+        $this->actingAs($user)->post(route('product-requests.store'), $base + ['category' => 'Luggage'])
+            ->assertRedirect();
+
+        $this->assertSame('Luggage', ProductRequest::first()->category);
+    }
+
+    public function test_a_category_raised_before_the_list_survives_an_edit(): void
+    {
+        Notification::fake();
+
+        $user    = $this->brandManager();
+        $request = $this->submitFor($user, $this->mappingSite(), 'OLDCAT-1');
+
+        // Written straight to the row, the way it would have been before the list.
+        $request->update(['category' => 'Footwear']);
+
+        $this->actingAs($user)->put(route('product-requests.update', $request), [
+            'brand'              => $request->brand,
+            'category'           => 'Footwear',
+            'online_launch_date' => now()->addDays(20)->format('Y-m-d H:i'),
+            'image_source'       => $request->image_source,
+            'use_ai_content'     => 1,
+            'priority'           => 'low',
+        ])->assertRedirect();
+
+        $this->assertSame('Footwear', $request->fresh()->category);
+        $this->assertContains('Footwear', $request->fresh()->categoryOptions());
+    }
+
+    // ── The category decides who does the work ───────────────────────────────
+
+    /** Ahmad handles Luggage, and there is exactly one photographer. */
+    private function luggageOwner(): User
+    {
+        return User::create([
+            'name' => 'Ahmad', 'email' => 'ahmad@example.test', 'password' => 'password',
+            'is_active' => true, 'perm_product_request' => true, 'pcr_role' => 'ecommerce',
+            'pcr_categories' => ['Luggage', "Women's Fashion", 'Kids', 'Home'],
+        ]);
+    }
+
+    private function photographer(string $email = 'shoot@example.test'): User
+    {
+        return User::create([
+            'name' => 'Studio', 'email' => $email, 'password' => 'password',
+            'is_active' => true, 'perm_product_request' => true, 'pcr_role' => 'photographer',
+        ]);
+    }
+
+    public function test_the_category_owner_takes_every_role_except_the_photoshoot(): void
+    {
+        Notification::fake();
+
+        $owner  = $this->luggageOwner();
+        $shoot  = $this->photographer();
+        $author = $this->brandManager();
+
+        // A Blue Salon request with a photoshoot — every role is in play.
+        $request = $this->submitFor($author, $this->mappingSite(), 'CATOWN-1');
+
+        $this->assertSame($owner->id, $this->ownerId($request, 'assigned_to'));
+        $this->assertSame($owner->id, $this->ownerId($request, 'brand_manager_id'));
+        $this->assertSame($owner->id, $this->ownerId($request, 'supply_chain_id'));
+        $this->assertSame($owner->id, $this->ownerId($request, 'image_editor_id'));
+        $this->assertSame($owner->id, $this->ownerId($request, 'content_owner_id'));
+
+        // The shoot is the one thing that is somebody else's job.
+        $this->assertSame($shoot->id, $this->ownerId($request, 'photographer_id'));
+
+        // Five roles, but one message — the same request five times over is noise.
+        Notification::assertSentToTimes($owner, ProductRequestAssigned::class, 1);
+        Notification::assertSentToTimes($shoot, ProductRequestAssigned::class, 1);
+    }
+
+    public function test_one_person_can_own_the_category_and_coordinate_the_shoot(): void
+    {
+        Notification::fake();
+
+        // Ghassen's situation: he handles his own categories and arranges every
+        // shoot, so he holds both jobs on the same request.
+        $ghassen = User::create([
+            'name' => 'Ghassen', 'email' => 'ghassen@example.test', 'password' => 'password',
+            'is_active' => true, 'perm_product_request' => true, 'pcr_role' => 'photographer',
+            'pcr_categories' => ['Luggage'],
+        ]);
+
+        $request = $this->submitFor($this->brandManager(), $this->plainSite(), 'BOTH-1');
+
+        $this->assertSame($ghassen->id, $this->ownerId($request, 'assigned_to'));
+        $this->assertSame($ghassen->id, $this->ownerId($request, 'photographer_id'));
+
+        // Six roles, one person, one message.
+        Notification::assertSentToTimes($ghassen, ProductRequestAssigned::class, 1);
+    }
+
+    public function test_no_photoshoot_coordinator_is_guessed_when_there_is_more_than_one(): void
+    {
+        Notification::fake();
+
+        $this->luggageOwner();
+        $this->photographer('shoot1@example.test');
+        $this->photographer('shoot2@example.test');
+
+        $request = $this->submitFor($this->brandManager(), $this->plainSite(), 'TWOSHOOT-1');
+
+        // Picking one of two would be a coin toss, so it waits for a person.
+        $this->assertNull($this->ownerId($request, 'photographer_id'));
+    }
+
+    public function test_a_role_the_requester_filled_in_beats_the_category_default(): void
+    {
+        Notification::fake();
+
+        $owner  = $this->luggageOwner();
+        $author = $this->brandManager();
+        $store  = $this->plainSite();
+        $author->stores()->sync([$store->id]);
+
+        $chosen = User::create([
+            'name' => 'Copy Desk', 'email' => 'copy@example.test', 'password' => 'password',
+            'is_active' => true, 'perm_product_request' => true, 'pcr_role' => 'content',
+        ]);
+
+        $this->actingAs($author)->post(route('product-requests.store'), [
+            'store_id'           => $store->id,
+            'request_type'       => 'new_brand',
+            'brand'              => 'Samsonite',
+            'category'           => 'Luggage',
+            'skus'               => 'OVERRIDE-1',
+            'online_launch_date' => now()->addDays(18)->format('Y-m-d H:i'),
+            'image_source'       => ProductRequest::IMG_SUPPLIER,
+            'images_location'    => ProductRequest::IMAGES_AT_PIM,
+            'use_ai_content'     => 1,
+            'priority'           => 'high',
+            'assignments'        => [['role' => 'content_owner_id', 'user_id' => $chosen->id]],
+        ])->assertRedirect();
+
+        $request = ProductRequest::latest('id')->first();
+
+        $this->assertSame($chosen->id, $this->ownerId($request, 'content_owner_id'));
+        $this->assertSame($owner->id, $this->ownerId($request, 'assigned_to'));
+    }
+
+    public function test_a_category_nobody_owns_arrives_unassigned_rather_than_failing(): void
+    {
+        Notification::fake();
+
+        // Nobody has been given Beauty.
+        $author = $this->brandManager();
+        $store  = $this->plainSite();
+        $author->stores()->sync([$store->id]);
+
+        $this->actingAs($author)->post(route('product-requests.store'), [
+            'store_id'           => $store->id,
+            'request_type'       => 'new_brand',
+            'brand'              => 'Dior',
+            'category'           => 'Beauty',
+            'skus'               => 'NOOWNER-1',
+            'online_launch_date' => now()->addDays(18)->format('Y-m-d H:i'),
+            'image_source'       => ProductRequest::IMG_PHOTOSHOOT,
+            'use_ai_content'     => 1,
+            'priority'           => 'low',
+        ])->assertRedirect();
+
+        $request = ProductRequest::latest('id')->first();
+
+        $this->assertNotNull($request);
+        $this->assertNull($this->ownerId($request, 'assigned_to'));
+    }
+
+    public function test_giving_a_category_to_someone_takes_it_off_whoever_held_it(): void
+    {
+        $admin = User::create([
+            'name' => 'Root', 'email' => 'root@example.test', 'password' => 'password',
+            'is_active' => true, 'is_super_admin' => true,
+        ]);
+
+        $ahmad = $this->luggageOwner();
+        $rasul = User::create([
+            'name' => 'Rasul', 'email' => 'rasul@example.test', 'password' => 'password',
+            'is_active' => true, 'perm_product_request' => true, 'pcr_role' => 'ecommerce',
+        ]);
+
+        $this->actingAs($admin)->post(route('super-admin.users.permissions', $rasul), [
+            'perm_product_request' => 1,
+            'pcr_role'             => 'ecommerce',
+            'pcr_categories'       => ['Luggage', 'Beauty', 'Not A Category'],
+        ])->assertRedirect();
+
+        // One category, one owner — and made-up values are dropped.
+        $this->assertSame(['Beauty', 'Luggage'], $rasul->fresh()->pcr_categories);
+        $this->assertNotContains('Luggage', $ahmad->fresh()->pcr_categories);
+        $this->assertSame($rasul->id, User::ownerForCategory('Luggage')->id);
+
+        // Ahmad keeps everything else — listed in dropdown order, not the order
+        // the tick boxes happened to be saved in.
+        $this->assertSame(['Home', "Women's Fashion", 'Kids'], $ahmad->fresh()->ownedCategories());
+    }
+
+    // ── Brand managers follow their categories ───────────────────────────────
+
+    /** Follows Luggage as brand manager: emailed about it, never given the work. */
+    private function luggageBrandManager(): User
+    {
+        return User::create([
+            'name' => 'Brand Desk', 'email' => 'bd@example.test', 'password' => 'password',
+            'is_active' => true, 'perm_product_request' => true,
+            'pcr_brand_categories' => ['Luggage'],
+        ]);
+    }
+
+    public function test_a_categorys_brand_manager_is_emailed_but_given_no_work(): void
+    {
+        Notification::fake();
+
+        $follower = $this->luggageBrandManager();
+        $owner    = $this->luggageOwner();
+        $author   = $this->brandManager();
+
+        $request = $this->submitFor($author, $this->plainSite(), 'BM-1');
+
+        // Told who picked it up…
+        Notification::assertSentTo($follower, ProductRequestAssigned::class,
+            fn ($n) => $n->isCopy() && $n->assigneeName === $owner->name);
+
+        // …but holding nothing themselves.
+        foreach (array_keys(ProductRequest::ASSIGNMENT_ROLES) as $role) {
+            $this->assertNotSame($follower->id, $this->ownerId($request, $role), "Brand manager was given {$role}");
+        }
+
+        // And they hear the request move on.
+        app(ProductRequestWorkflow::class)->transition($request, ProductRequest::WAITING_IMAGES, $owner, 'Moving on');
+        Notification::assertSentTo($follower, ProductRequestStatusChanged::class);
+    }
+
+    public function test_a_brand_manager_only_hears_about_their_own_categories(): void
+    {
+        Notification::fake();
+
+        $follower = $this->luggageBrandManager();
+        $this->luggageOwner();
+        $author = $this->brandManager();
+        $store  = $this->plainSite();
+        $author->stores()->sync([$store->id]);
+
+        // A Beauty request — not theirs.
+        $this->actingAs($author)->post(route('product-requests.store'), [
+            'store_id'           => $store->id,
+            'request_type'       => 'new_brand',
+            'brand'              => 'Dior',
+            'category'           => 'Beauty',
+            'skus'               => 'OTHERCAT-1',
+            'online_launch_date' => now()->addDays(18)->format('Y-m-d H:i'),
+            'image_source'       => ProductRequest::IMG_PHOTOSHOOT,
+            'use_ai_content'     => 1,
+            'priority'           => 'low',
+        ])->assertRedirect();
+
+        Notification::assertNothingSentTo($follower);
+    }
+
+    public function test_a_brand_manager_can_open_the_requests_they_are_emailed_about(): void
+    {
+        Notification::fake();
+
+        $follower = $this->luggageBrandManager();   // no pcr_role, no assignment
+        $this->luggageOwner();
+        $request = $this->submitFor($this->brandManager(), $this->plainSite(), 'BMVIEW-1');
+
+        // An email nobody can open is worse than no email.
+        $this->actingAs($follower)->get(route('product-requests.show', $request))->assertOk();
+
+        // Somebody else's category stays out of reach.
+        $request->update(['category' => 'Beauty']);
+        $this->actingAs($follower)->get(route('product-requests.show', $request))->assertForbidden();
+    }
+
+    // ── The shared inbox that watches everything ─────────────────────────────
+
+    /** The e-commerce account: copied on every request without holding a role. */
+    private function watcher(): User
+    {
+        return User::create([
+            'name' => 'Ecommerce', 'email' => 'ecommerce@example.test', 'password' => 'password',
+            'is_active' => true, 'is_super_admin' => true, 'pcr_notify_all' => true,
+        ]);
+    }
+
+    public function test_the_watching_account_is_copied_on_assignments_and_status_changes(): void
+    {
+        Notification::fake();
+
+        $watcher = $this->watcher();
+        $owner   = $this->luggageOwner();
+        $author  = $this->brandManager();
+
+        $request = $this->submitFor($author, $this->plainSite(), 'WATCH-1');
+
+        // It holds no role on this request, but it hears about the staffing…
+        $this->assertNotSame($watcher->id, $this->ownerId($request, 'assigned_to'));
+        Notification::assertSentTo($watcher, ProductRequestAssigned::class,
+            fn ($n) => $n->reference === $request->reference);
+
+        // …and about the request moving on.
+        app(ProductRequestWorkflow::class)->transition($request, ProductRequest::WAITING_IMAGES, $owner, 'Ready to shoot');
+
+        Notification::assertSentTo($watcher, ProductRequestStatusChanged::class);
+    }
+
+    public function test_the_watching_account_hears_about_comments(): void
+    {
+        Notification::fake();
+
+        $watcher = $this->watcher();
+        $author  = $this->brandManager();
+        $request = $this->submitFor($author, $this->plainSite(), 'WATCHCMT-1');
+
+        $this->actingAs($author)->post(route('product-requests.comment', $request), [
+            'remarks' => 'Samples arrive Thursday.',
+        ])->assertRedirect();
+
+        Notification::assertSentTo($watcher, ProductRequestCommented::class);
+    }
+
+    public function test_the_watching_account_is_not_told_about_its_own_doing(): void
+    {
+        Notification::fake();
+
+        $watcher = $this->watcher();
+        $owner   = $this->luggageOwner();
+        $store   = $this->plainSite();
+        $watcher->stores()->sync([$store->id]);
+
+        // The watcher raises the request itself — being copied on your own
+        // action is the one thing nobody wants.
+        $request = $this->submitFor($watcher, $store, 'SELFWATCH-1');
+
+        Notification::assertNotSentTo($watcher, ProductRequestAssigned::class);
+        $this->assertSame($owner->id, $this->ownerId($request, 'assigned_to'));
+    }
+
+    public function test_a_deactivated_watcher_stops_receiving_copies(): void
+    {
+        Notification::fake();
+
+        $watcher = $this->watcher();
+        $watcher->update(['is_active' => false]);
+
+        $this->luggageOwner();
+        $request = $this->submitFor($this->brandManager(), $this->plainSite(), 'DEADWATCH-1');
+
+        $this->assertNotNull($request);
+        Notification::assertNotSentTo($watcher, ProductRequestAssigned::class);
+    }
+
     public function test_submission_requires_at_least_one_sku(): void
     {
         $user  = $this->brandManager();
@@ -750,7 +1129,7 @@ class ProductRequestTest extends TestCase
         ])->assertRedirect();
 
         Notification::assertSentTo($photographer, ProductRequestAssigned::class,
-            fn ($n) => $n->roleLabel === 'Photographer' && $n->reference === $request->reference);
+            fn ($n) => $n->roleLabel === 'Photoshoot Coordinator' && $n->reference === $request->reference);
 
         // Assigning yourself shouldn't ping you.
         Notification::assertNotSentTo($user, ProductRequestAssigned::class);
@@ -933,7 +1312,7 @@ class ProductRequestTest extends TestCase
         }
 
         $this->assertSame('Supply Chain Team', $request->guideFor(ProductRequest::WAITING_MAPPING)['role']);
-        $this->assertSame('Photographer', $request->guideFor(ProductRequest::PHOTOSHOOT_SCHEDULED)['role']);
+        $this->assertSame('Photoshoot Coordinator', $request->guideFor(ProductRequest::PHOTOSHOOT_SCHEDULED)['role']);
         // Whoever writes the content reviews and publishes it.
         $this->assertSame('Content Team', $request->guideFor(ProductRequest::QA_REVIEW)['role']);
         $this->assertSame('Content Team', $request->guideFor(ProductRequest::PUBLISHED)['role']);
@@ -1440,7 +1819,7 @@ class ProductRequestTest extends TestCase
             $request->guideFor(ProductRequest::WAITING_IMAGES)['what']
         );
 
-        // Photo Editor is offered; Photographer is not.
+        // Photo Editor is offered; the photoshoot coordinator is not.
         $roles = $request->visibleAssignmentRoles();
         $this->assertArrayHasKey('image_editor_id', $roles);
         $this->assertArrayNotHasKey('photographer_id', $roles);
@@ -1651,7 +2030,7 @@ class ProductRequestTest extends TestCase
             'name'                      => 'New Balance Running SS26 launch',
             'request_type'              => 'new_brand',
             'brand'                     => 'New Balance',
-            'category'                  => 'Footwear',
+            'category'                  => "Men's Fashion",
             'skus'                      => 'NB-1',
             'online_launch_date'        => now()->addDays(18)->format('Y-m-d H:i'),
             'image_source'              => ProductRequest::IMG_PHOTOSHOOT,
@@ -1884,7 +2263,7 @@ class ProductRequestTest extends TestCase
 
         // Each assignee is told, and the message names who raised it.
         Notification::assertSentTo($shooter, ProductRequestAssigned::class,
-            fn ($n) => $n->roleLabel === 'Photographer' && $n->requesterName === $requester->name);
+            fn ($n) => $n->roleLabel === 'Photoshoot Coordinator' && $n->requesterName === $requester->name);
         Notification::assertSentTo($qa, ProductRequestAssigned::class);
 
         // Assigning yourself is not announced to yourself.
@@ -1900,7 +2279,7 @@ class ProductRequestTest extends TestCase
         $brief = $request->assignmentFor('photographer_id');
         $this->assertNotNull($brief);
         $this->assertSame(ProductRequest::taskForRole('photographer_id'), $brief->title);
-        $this->assertStringContainsString('Photograph the products', $brief->title);
+        $this->assertStringContainsString('Arrange the shoot', $brief->title);
         $this->assertSame(now()->addDays(6)->toDateString(), $brief->due_date->toDateString());
         $this->assertSame($requester->id, $brief->assigned_by);
         $this->assertSame(6, $brief->daysLeft());
@@ -2030,6 +2409,39 @@ class ProductRequestTest extends TestCase
         $this->assertFalse($brief->fresh()->isOverdue());
     }
 
+    public function test_the_daily_chase_reaches_the_watching_account_as_one_board(): void
+    {
+        Notification::fake();
+
+        $watcher   = $this->watcher();
+        $requester = $this->brandManager();
+        $shooter   = $this->photographer();
+        $request   = $this->submitFor($requester, $this->plainSite(), 'WATCHREM-1');
+
+        app(ProductRequestWorkflow::class)->assignRole(
+            request: $request->refresh(),
+            field:   'photographer_id',
+            userId:  $shooter->id,
+            actor:   $requester,
+            title:   'Shoot the samples',
+            dueDate: now()->subDays(2)->toDateString(),
+        );
+
+        $this->artisan('product-requests:remind')->assertSuccessful();
+
+        // Same overdue task, but told as somebody else's — the watcher is reading
+        // over the team's shoulder, not being chased.
+        Notification::assertSentTo($watcher, ProductRequestReminder::class, function ($n) use ($shooter) {
+            $reasons = collect($n->items)->pluck('reason')->implode(' ');
+
+            return str_contains($reasons, "{$shooter->name}'s") && str_contains($reasons, 'Shoot the samples');
+        });
+
+        Notification::assertSentTo($shooter, ProductRequestReminder::class, function ($n) {
+            return str_contains(collect($n->items)->pluck('reason')->implode(' '), 'your ');
+        });
+    }
+
     public function test_unassigning_a_role_removes_its_brief(): void
     {
         Notification::fake();
@@ -2071,7 +2483,7 @@ class ProductRequestTest extends TestCase
             dueDate: now()->addDays(2)->toDateString(),
         );
 
-        $mail = ProductRequestAssigned::forRequest($request->refresh(), 'Photographer', $requester->name)
+        $mail = ProductRequestAssigned::forRequest($request->refresh(), 'Photoshoot Coordinator', $requester->name)
             ->toMail($shooter);
 
         $html = $mail->render();
@@ -2080,7 +2492,7 @@ class ProductRequestTest extends TestCase
         $this->assertStringContainsString('Hello Mail Shooter', $html);
         $this->assertStringContainsString('Shoot 45 SKUs on white background', $html);
         $this->assertStringContainsString('Finish by', $html);
-        $this->assertStringContainsString('Photographer', $html);
+        $this->assertStringContainsString('Photoshoot Coordinator', $html);
 
         // Tells them what the stage actually needs.
         $this->assertStringContainsString('samples into the studio', $html);
@@ -2093,7 +2505,7 @@ class ProductRequestTest extends TestCase
         $this->assertStringContainsString('Abuissa Holding E-Commerce Department', $html);
 
         // The subject names the role, so it is scannable in an inbox.
-        $this->assertStringContainsString('You are the Photographer', $mail->subject);
+        $this->assertStringContainsString('You are the Photoshoot Coordinator', $mail->subject);
     }
 
     public function test_a_finished_status_email_does_not_ask_who_we_are_waiting_on(): void

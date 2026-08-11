@@ -372,7 +372,13 @@
                                     <div class="min-w-0 flex-1">
                                         @if($assigned)
                                             <p class="text-sm text-gray-800">
-                                                <span class="font-medium">{{ $d['reference'] ?? 'A request' }}</span> assigned to you as
+                                                <span class="font-medium">{{ $d['reference'] ?? 'A request' }}</span>
+                                                {{-- A copy names whoever actually got the job. --}}
+                                                @if(!empty($d['assignee']))
+                                                    — {{ $d['assignee'] }} is the
+                                                @else
+                                                    assigned to you as
+                                                @endif
                                                 <span class="font-medium">{{ $d['role'] ?? 'owner' }}</span>
                                             </p>
                                             <p class="text-xs text-gray-500 truncate">{{ $d['brand'] ?? '' }} &middot; {{ $d['status_label'] ?? '' }}</p>

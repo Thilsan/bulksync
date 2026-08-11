@@ -108,6 +108,14 @@ $pruneProductRequestData = function () {
         ->whereNotNull('read_at')
         ->where('read_at', '<', now()->subDays(60))
         ->delete();
+
+    // An account copied on every request collects bell entries far faster than
+    // anyone clears them, and unread rows were never swept. Six months is long
+    // past the point where an unread notice is still worth acting on.
+    DB::table('notifications')
+        ->whereNull('read_at')
+        ->where('created_at', '<', now()->subDays(180))
+        ->delete();
 };
 
 Schedule::call($pruneProductRequestData)->daily()->name('prune-product-request-data')->withoutOverlapping();

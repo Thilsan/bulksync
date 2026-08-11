@@ -95,7 +95,7 @@
                         'Brand Team'       => 'Raises the request and supplies content if AI is not used.',
                         'Supply Chain'     => 'Maps the SKUs in Cegid and records it here.',
                         'E-Commerce Team'  => 'Runs the request, edits images and uploads the products.',
-                        'Photographer'     => 'Schedules and shoots the products.',
+                        'Photoshoot Coordinator' => 'Arranges the shoot and hands the images on.',
                         'Content Team'     => 'Produces the descriptions and meta content.',
                         'QA Team'          => 'Reviews everything before it goes live.',
                     ] as $team => $does)

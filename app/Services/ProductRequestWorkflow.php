@@ -242,12 +242,87 @@ class ProductRequestWorkflow
                         $actor?->name ?? 'System',
                     ));
                 }
+
+                // Assignments are personal, so they never pass through
+                // recipients() — the people who only follow are copied here,
+                // told who got the job rather than that it is theirs.
+                if ($assignee) {
+                    $told = array_filter([$assignee->id, $previousUser?->id, $actor?->id]);
+
+                    $followers = User::brandManagersForCategory($request->category)
+                        ->merge(User::requestWatchers())
+                        ->unique('id')
+                        ->reject(fn (User $u) => in_array($u->id, $told, true));
+
+                    foreach ($followers as $follower) {
+                        $follower->notify(ProductRequestAssigned::asCopy(
+                            $request,
+                            $roleLabel,
+                            $actor?->name ?? 'System',
+                            $assignee->name,
+                            handedOverFrom: $previousUser?->name,
+                        ));
+                    }
+                }
             } catch (\Throwable $e) {
                 Log::error("ProductRequestWorkflow: assign notification failed for request {$request->id}: " . $e->getMessage());
             }
         }
 
         return true;
+    }
+
+    /**
+     * Staff a fresh request from its category.
+     *
+     * One person handles a category end to end, so they take every role the
+     * request needs — except the shoot, which goes to the photoshoot
+     * coordinator (who may well be the same person). Roles the
+     * requester filled in themselves are left alone: an explicit choice beats the
+     * default. The person is notified once, not once per role, because five
+     * "you have been assigned" messages about the same request is noise.
+     *
+     * @return array<string, User>  field => person, for the roles this filled
+     */
+    public function staffFromCategory(ProductRequest $request, ?User $actor = null): array
+    {
+        $owner       = $request->categoryOwner();
+        $coordinator = $request->needsPhotoshoot() ? User::photoshootCoordinator() : null;
+
+        $staffed  = [];
+        $notified = [];
+
+        foreach (array_keys($request->visibleAssignmentRoles()) as $field) {
+            if ($request->ownerFor($field)) {
+                continue;   // the requester already named someone for this role
+            }
+
+            $person = $field === 'photographer_id' ? $coordinator : $owner;
+
+            if (!$person) {
+                continue;
+            }
+
+            $firstForPerson = !in_array($person->id, $notified, true);
+
+            $assigned = $this->assignRole(
+                request: $request,
+                field:   $field,
+                userId:  $person->id,
+                actor:   $actor,
+                notify:  $firstForPerson,
+            );
+
+            if ($assigned) {
+                $staffed[$field] = $person;
+
+                if ($firstForPerson) {
+                    $notified[] = $person->id;
+                }
+            }
+        }
+
+        return $staffed;
     }
 
     private function briefRemark(?string $title, ?string $dueDate): ?string
@@ -290,9 +365,13 @@ class ProductRequestWorkflow
             ? User::where('is_active', true)->whereIn('pcr_role', $roles)->get()
             : collect();
 
-        // Everyone currently holding a role, plus whoever raised it.
+        // Everyone currently holding a role, plus whoever raised it — and the
+        // people who follow without holding one: the category's brand managers
+        // and the accounts copied on everything.
         $named = collect([$request->user])
             ->merge($request->currentAssignments()->with('user')->get()->pluck('user'))
+            ->merge(User::brandManagersForCategory($request->category))
+            ->merge(User::requestWatchers())
             ->filter();
 
         return $byRole->merge($named)->filter(fn ($u) => $u->is_active)->unique('id')->values();

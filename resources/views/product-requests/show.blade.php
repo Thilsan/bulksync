@@ -126,13 +126,11 @@
                     </div>
                 </div>
 
-                <div class="grid grid-cols-3 sm:grid-cols-6 gap-4 mt-5">
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-5">
                     @foreach([
                         'Website'    => $request->store?->name ?? '—',
                         'Brand'      => $request->brand,
                         'Category'   => $request->category,
-                        'Department' => $request->department ?: '—',
-                        'Collection' => $request->collection ?: '—',
                     ] as $label => $value)
                         <div>
                             <p class="text-xs text-gray-400">{{ $label }}</p>
@@ -659,10 +657,6 @@
                             @foreach([
                                 ['name', 'Request Name', 'text', false],
                                 ['brand', 'Brand', 'text', true],
-                                ['category', 'Category', 'text', true],
-                                ['sub_category', 'Sub Category', 'text', false],
-                                ['department', 'Department', 'text', false],
-                                ['collection', 'Collection / Season', 'text', false],
                             ] as [$field, $label, $type, $required])
                                 <div>
                                     <label class="block text-xs font-medium text-gray-500 mb-1">{{ $label }}</label>
@@ -674,6 +668,19 @@
                                            class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
                                 </div>
                             @endforeach
+
+                            <div>
+                                <label class="block text-xs font-medium text-gray-500 mb-1">Category</label>
+                                <template x-if="!editing">
+                                    <p class="text-sm text-gray-800 py-2">{{ $request->category ?: '—' }}</p>
+                                </template>
+                                <select x-show="editing" x-cloak name="category" required
+                                        class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
+                                    @foreach($request->categoryOptions() as $category)
+                                        <option value="{{ $category }}" {{ old('category', $request->category) === $category ? 'selected' : '' }}>{{ $category }}</option>
+                                    @endforeach
+                                </select>
+                            </div>
 
                             <div>
                                 <label class="block text-xs font-medium text-gray-500 mb-1">Priority</label>

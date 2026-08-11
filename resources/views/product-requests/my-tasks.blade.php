@@ -16,7 +16,7 @@
                 <span class="text-gray-600">Assigned to Me</span>
             </nav>
             <h2 class="text-lg font-semibold text-gray-800">Assigned to Me</h2>
-            <p class="text-sm text-gray-500">Requests where a role has been given to you — E-Commerce, Supply Chain, Photographer, Photo Editor, Content or QA.</p>
+            <p class="text-sm text-gray-500">Requests where a role has been given to you — E-Commerce, Supply Chain, Photoshoot Coordinator, Photo Editor, Content or QA.</p>
         </div>
         <a href="{{ route('product-requests.index') }}"
            class="inline-flex items-center gap-2 border border-gray-300 text-gray-700 text-sm font-medium px-4 py-2 rounded-lg hover:bg-gray-50 transition-colors shrink-0">

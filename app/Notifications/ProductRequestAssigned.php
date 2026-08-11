@@ -28,6 +28,8 @@ class ProductRequestAssigned extends Notification implements ShouldQueue
         public readonly string $actorName,
         public readonly string $requesterName = 'Unknown',
         public readonly ?string $handedOverFrom = null,
+        /** Set when this copy goes to someone kept informed, not the assignee. */
+        public readonly ?string $assigneeName = null,
     ) {
         $this->onQueue('bulkupload');
     }
@@ -37,6 +39,7 @@ class ProductRequestAssigned extends Notification implements ShouldQueue
         string $roleLabel,
         string $actorName,
         ?string $handedOverFrom = null,
+        ?string $assigneeName = null,
     ): self {
         return new self(
             requestId:   $request->id,
@@ -48,7 +51,30 @@ class ProductRequestAssigned extends Notification implements ShouldQueue
             actorName:     $actorName,
             requesterName: $request->user?->name ?? 'Unknown',
             handedOverFrom: $handedOverFrom,
+            assigneeName:   $assigneeName,
         );
+    }
+
+    /**
+     * The same news, for someone who is only being kept informed.
+     *
+     * Telling a watching account "You are the Photo Editor" would be a plain
+     * lie, so the copy names whoever actually got the job.
+     */
+    public static function asCopy(
+        ProductRequest $request,
+        string $roleLabel,
+        string $actorName,
+        string $assigneeName,
+        ?string $handedOverFrom = null,
+    ): self {
+        return self::forRequest($request, $roleLabel, $actorName, $handedOverFrom, $assigneeName);
+    }
+
+    /** True when this is an information copy rather than "you have work". */
+    public function isCopy(): bool
+    {
+        return $this->assigneeName !== null;
     }
 
     public function via(object $notifiable): array
@@ -63,9 +89,13 @@ class ProductRequestAssigned extends Notification implements ShouldQueue
         $request = $this->requestForEmail($this->requestId);
         $brief    = $request?->assignmentFor($this->roleField);
 
-        $subject = $this->handedOverFrom
-            ? "[{$this->reference}] {$this->roleLabel} handed over to you"
-            : "[{$this->reference}] You are the {$this->roleLabel} — {$this->brand}";
+        $subject = match (true) {
+            $this->isCopy() && $this->handedOverFrom !== null
+                => "[{$this->reference}] {$this->roleLabel} handed to {$this->assigneeName} — {$this->brand}",
+            $this->isCopy()      => "[{$this->reference}] {$this->assigneeName} is the {$this->roleLabel} — {$this->brand}",
+            $this->handedOverFrom !== null => "[{$this->reference}] {$this->roleLabel} handed over to you",
+            default                        => "[{$this->reference}] You are the {$this->roleLabel} — {$this->brand}",
+        };
 
         // The task box: their own brief and deadline if the requester set one,
         // otherwise the role itself so the box is never empty.
@@ -102,10 +132,13 @@ class ProductRequestAssigned extends Notification implements ShouldQueue
                 'rows'            => $this->summaryRows($request),
                 'url'             => $this->requestUrl($this->requestId),
                 'handedOverFrom'  => $this->handedOverFrom,
+                'assigneeName'    => $this->assigneeName,
                 'mentionSubject'  => $subject,
-                'preheader'       => $this->handedOverFrom
-                    ? "{$this->actorName} handed this over to you from {$this->handedOverFrom}."
-                    : "{$this->actorName} assigned you as {$this->roleLabel} on {$this->reference}.",
+                'preheader'       => match (true) {
+                    $this->isCopy()       => "{$this->actorName} made {$this->assigneeName} the {$this->roleLabel} on {$this->reference}.",
+                    (bool) $this->handedOverFrom => "{$this->actorName} handed this over to you from {$this->handedOverFrom}.",
+                    default               => "{$this->actorName} assigned you as {$this->roleLabel} on {$this->reference}.",
+                },
             ]);
     }
 
@@ -121,6 +154,7 @@ class ProductRequestAssigned extends Notification implements ShouldQueue
             'actor'        => $this->actorName,
             'requester'    => $this->requesterName,
             'handed_over_from' => $this->handedOverFrom,
+            'assignee'     => $this->assigneeName,
         ];
     }
 }

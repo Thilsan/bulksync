@@ -200,7 +200,7 @@ class MailSettingsTest extends TestCase
             'validation_status' => 'completed',
         ]);
 
-        $notification = ProductRequestAssigned::forRequest($request, 'Photographer', 'Tester');
+        $notification = ProductRequestAssigned::forRequest($request, 'Photoshoot Coordinator', 'Tester');
 
         // On the log driver, email is deliberately skipped rather than pretended.
         config(['mail.default' => 'log']);

@@ -6,7 +6,21 @@
 @section('content')
     <p style="margin:0 0 14px 0; font-size:16px; color:#111827;">Hello {{ $recipientName }},</p>
 
-    @if($handedOverFrom)
+    @if($assigneeName ?? null)
+        {{-- An information copy: this reader has no task, so nothing here asks
+             them to do one. --}}
+        <p style="margin:0 0 4px 0;">
+            <strong>{{ $actorName }}</strong>
+            @if($handedOverFrom)
+                has handed the <strong style="color:#1d5a74;">{{ $roleLabel }}</strong> task on this request
+                to <strong>{{ $assigneeName }}</strong>, previously with {{ $handedOverFrom }}.
+            @else
+                has made <strong>{{ $assigneeName }}</strong> the
+                <strong style="color:#1d5a74;">{{ $roleLabel }}</strong> on this request.
+            @endif
+            You are copied for information.
+        </p>
+    @elseif($handedOverFrom)
         <p style="margin:0 0 4px 0;">
             <strong>{{ $actorName }}</strong> has handed this task over to you as
             <strong style="color:#1d5a74;">{{ $roleLabel }}</strong>, previously with {{ $handedOverFrom }}.
@@ -20,7 +34,7 @@
 
     @include('emails.partials.callout', [
         'tone'    => $dueTone,
-        'heading' => 'Your task',
+        'heading' => ($assigneeName ?? null) ? $assigneeName . '’s task' : 'Your task',
         'body'    => $taskHtml,
     ])
 
@@ -31,9 +45,16 @@
 
     @include('emails.partials.button', ['url' => $url, 'label' => 'Open this request'])
 
-    <p style="margin:14px 0 0 0; font-size:13px; color:#6b7280;">
-        When you have finished, open the request and move it to the next stage so the
-        following team knows they can start. If something is stopping you, use
-        <strong>Report a blocker</strong> — everyone involved is told straight away.
-    </p>
+    @if($assigneeName ?? null)
+        <p style="margin:14px 0 0 0; font-size:13px; color:#6b7280;">
+            Nothing is needed from you — this is sent so you can follow the request.
+            Open it any time to see where it has got to.
+        </p>
+    @else
+        <p style="margin:14px 0 0 0; font-size:13px; color:#6b7280;">
+            When you have finished, open the request and move it to the next stage so the
+            following team knows they can start. If something is stopping you, use
+            <strong>Report a blocker</strong> — everyone involved is told straight away.
+        </p>
+    @endif
 @endsection
