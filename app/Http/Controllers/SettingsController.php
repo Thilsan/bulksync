@@ -21,7 +21,14 @@ class SettingsController extends Controller
             'onedrive_tenant_id'     => Setting::get('onedrive_tenant_id'),
             'onedrive_client_id'     => Setting::get('onedrive_client_id'),
             'onedrive_client_secret' => Setting::get('onedrive_client_secret'),
-            'onedrive_connected'     => !empty($user->onedrive_access_token),
+            // The refresh token is what makes a connection last. An access token
+            // is good for an hour, so judging by that reported "connected" for
+            // months after the connection had actually died.
+            'onedrive_connected'     => !empty($user->onedrive_refresh_token),
+            'onedrive_expires_at'    => $user->onedrive_token_expiry
+                ? \Illuminate\Support\Carbon::createFromTimestamp((int) $user->onedrive_token_expiry)
+                : null,
+            'onedrive_stale'         => !empty($user->onedrive_access_token) && empty($user->onedrive_refresh_token),
         ];
 
         $mail = collect(MailConfigurator::KEYS)
@@ -135,9 +142,17 @@ class SettingsController extends Controller
 
     public function testOnedrive(): \Illuminate\Http\JsonResponse
     {
-        $ok = app(OneDriveService::class)->testConnection();
+        try {
+            app(OneDriveService::class)->checkConnection();
 
-        return response()->json(['ok' => $ok, 'message' => $ok ? 'OneDrive connected!' : 'Connection failed. Check Azure credentials.']);
+            return response()->json(['ok' => true, 'message' => 'OneDrive connected!']);
+        } catch (\Throwable $e) {
+            // Microsoft's own wording, trimmed to something readable on screen.
+            return response()->json([
+                'ok'      => false,
+                'message' => \Illuminate\Support\Str::limit($e->getMessage(), 400),
+            ]);
+        }
     }
 
     public function clearCache(): RedirectResponse

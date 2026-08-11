@@ -191,11 +191,29 @@ class OneDriveService
     public function testConnection(): bool
     {
         try {
-            $this->getAccessToken();
+            $this->checkConnection();
             return true;
         } catch (\Throwable $e) {
-            Log::error('OneDrive connection test failed: ' . $e->getMessage());
             return false;
+        }
+    }
+
+    /**
+     * Same check, but the reason comes back instead of being swallowed.
+     *
+     * "Connection failed. Check Azure credentials." was the answer to every
+     * cause — an expired secret, a revoked consent, a sign-in that never
+     * finished — and each of those is fixed somewhere different.
+     *
+     * @throws \RuntimeException  with something a person can act on
+     */
+    public function checkConnection(): void
+    {
+        try {
+            $this->getAccessToken();
+        } catch (\Throwable $e) {
+            Log::error('OneDrive connection test failed: ' . $e->getMessage());
+            throw $e;
         }
     }
 
@@ -301,24 +319,45 @@ class OneDriveService
         $clientId     = Setting::get('onedrive_client_id');
         $clientSecret = Setting::get('onedrive_client_secret');
 
-        if (!$refreshToken || !$clientId || !$clientSecret) {
-            throw new \RuntimeException('OneDrive is not connected. Go to Settings and click "Connect OneDrive".');
+        // Each of these is a different problem with a different fix, so say which.
+        if (!$clientId || !$clientSecret) {
+            throw new \RuntimeException('The Azure app credentials are missing. A super admin needs to fill in the Client ID and Client Secret under Settings → Azure App Credentials.');
+        }
+
+        if (!$refreshToken) {
+            throw new \RuntimeException('This account has no OneDrive refresh token, so the connection cannot be renewed — the sign-in either never completed or was revoked. Click "Reconnect OneDrive".');
         }
 
         $tenantId = Setting::get('onedrive_tenant_id') ?: 'common';
 
-        $response = $this->http->post(
-            "https://login.microsoftonline.com/{$tenantId}/oauth2/v2.0/token",
-            [
-                'form_params' => [
-                    'grant_type'    => 'refresh_token',
-                    'client_id'     => $clientId,
-                    'client_secret' => $clientSecret,
-                    'refresh_token' => $refreshToken,
-                    'scope'         => self::SCOPES,
-                ],
-            ]
-        );
+        try {
+            $response = $this->http->post(
+                "https://login.microsoftonline.com/{$tenantId}/oauth2/v2.0/token",
+                [
+                    'form_params' => [
+                        'grant_type'    => 'refresh_token',
+                        'client_id'     => $clientId,
+                        'client_secret' => $clientSecret,
+                        'refresh_token' => $refreshToken,
+                        'scope'         => self::SCOPES,
+                    ],
+                ]
+            );
+        } catch (\GuzzleHttp\Exception\RequestException $e) {
+            // Microsoft says exactly what is wrong — an AADSTS code and a
+            // sentence explaining it. Guzzle truncates that into its own
+            // message, so pull it out of the response body instead: "check your
+            // credentials" sends people looking in the wrong place.
+            $body  = (string) $e->getResponse()?->getBody();
+            $azure = json_decode($body, true);
+
+            throw new \RuntimeException(
+                'Microsoft refused the connection: '
+                . ($azure['error_description'] ?? $azure['error'] ?? $e->getMessage()),
+                0,
+                $e,
+            );
+        }
 
         $data = json_decode((string) $response->getBody(), true);
 

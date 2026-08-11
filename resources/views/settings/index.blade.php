@@ -32,7 +32,9 @@
                     <p class="text-xs text-gray-500">Connect your Microsoft account to access your files</p>
                 </div>
             </div>
-            @if($settings['onedrive_connected'])
+            {{-- Offered while there is anything to test, including a dead token:
+                 that is exactly when you want to know what Microsoft says. --}}
+            @if($settings['onedrive_connected'] || $settings['onedrive_stale'])
             <button type="button" @click="testOneDrive()"
                 class="text-xs border border-gray-300 text-gray-700 px-3 py-1.5 rounded-lg hover:bg-gray-50 transition-colors">
                 Test Connection
@@ -44,11 +46,35 @@
 
             {{-- Connection status --}}
             @if($settings['onedrive_connected'])
-            <div class="flex items-center gap-2 bg-green-50 border border-green-200 rounded-lg px-4 py-3">
-                <svg class="w-4 h-4 text-green-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div class="flex items-start gap-2 bg-green-50 border border-green-200 rounded-lg px-4 py-3">
+                <svg class="w-4 h-4 text-green-600 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
                 </svg>
-                <span class="text-sm text-green-700 font-medium">OneDrive connected</span>
+                <div>
+                    <span class="text-sm text-green-700 font-medium">OneDrive connected</span>
+                    @if($settings['onedrive_expires_at'])
+                        <p class="text-xs text-green-600/80">
+                            Access token
+                            {{ $settings['onedrive_expires_at']->isPast() ? 'expired' : 'valid until' }}
+                            {{ $settings['onedrive_expires_at']->format('d M Y, H:i') }}{{ $settings['onedrive_expires_at']->isPast() ? ' — it renews itself on the next use' : '' }}.
+                        </p>
+                    @endif
+                </div>
+            </div>
+            @elseif($settings['onedrive_stale'])
+            {{-- A token with no way to renew it: this is what "connected" used to
+                 look like right up until something tried to use it. --}}
+            <div class="flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg px-4 py-3">
+                <svg class="w-4 h-4 text-red-600 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+                </svg>
+                <div>
+                    <span class="text-sm text-red-700 font-medium">OneDrive needs reconnecting</span>
+                    <p class="text-xs text-red-600/90">
+                        There is an old token on this account but no way to renew it — the sign-in was revoked or never
+                        finished. Nothing will work until you click Reconnect.
+                    </p>
+                </div>
             </div>
             @else
             <div class="flex items-center gap-2 bg-yellow-50 border border-yellow-200 rounded-lg px-4 py-3">
