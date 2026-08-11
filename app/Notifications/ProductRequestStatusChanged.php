@@ -89,6 +89,9 @@ class ProductRequestStatusChanged extends Notification implements ShouldQueue
     {
         return [
             'kind'        => 'status',
+            // Whole teams are told when a request moves; only the people on it
+            // need the bell to ring.
+            'for_me'      => $this->concernsRecipient($this->requestForEmail($this->requestId), $notifiable),
             'request_id'  => $this->requestId,
             'reference'   => $this->reference,
             'brand'       => $this->brand,

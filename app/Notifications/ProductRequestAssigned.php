@@ -146,6 +146,8 @@ class ProductRequestAssigned extends Notification implements ShouldQueue
     {
         return [
             'kind'         => 'assigned',
+            // A copy is news about somebody else's task, not a task.
+            'for_me'       => !$this->isCopy(),
             'request_id'   => $this->requestId,
             'reference'    => $this->reference,
             'brand'        => $this->brand,

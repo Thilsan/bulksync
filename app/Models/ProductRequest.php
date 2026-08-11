@@ -274,6 +274,82 @@ class ProductRequest extends Model
         return $options;
     }
 
+    // ── The shoot itself ─────────────────────────────────────────────────────
+
+    public const SHOOT_PENDING     = 'pending';
+    public const SHOOT_SCHEDULED   = 'scheduled';
+    public const SHOOT_IN_PROGRESS = 'in_progress';
+    public const SHOOT_COMPLETED   = 'completed';
+    public const SHOOT_CANCELLED   = 'cancelled';
+
+    /**
+     * Where a shoot has got to, which is not the same question as where the
+     * request has got to — a shoot can be under way, or called off and rebooked,
+     * while the request sits at the same stage throughout.
+     */
+    public const SHOOT_STATUSES = [
+        self::SHOOT_PENDING     => 'Pending',
+        self::SHOOT_SCHEDULED   => 'Scheduled',
+        self::SHOOT_IN_PROGRESS => 'In Progress',
+        self::SHOOT_COMPLETED   => 'Completed',
+        self::SHOOT_CANCELLED   => 'Cancelled',
+    ];
+
+    /** One literal class string per state — Tailwind only sees what is rendered. */
+    public const SHOOT_COLORS = [
+        self::SHOOT_PENDING     => 'bg-amber-50 text-amber-700 border-amber-200',
+        self::SHOOT_SCHEDULED   => 'bg-blue-50 text-blue-700 border-blue-200',
+        self::SHOOT_IN_PROGRESS => 'bg-violet-50 text-violet-700 border-violet-200',
+        self::SHOOT_COMPLETED   => 'bg-green-50 text-green-700 border-green-200',
+        self::SHOOT_CANCELLED   => 'bg-gray-100 text-gray-500 border-gray-200',
+    ];
+
+    /** The solid version, for calendar chips where the day is already busy. */
+    public const SHOOT_DOT_COLORS = [
+        self::SHOOT_PENDING     => 'bg-amber-400',
+        self::SHOOT_SCHEDULED   => 'bg-blue-500',
+        self::SHOOT_IN_PROGRESS => 'bg-violet-500',
+        self::SHOOT_COMPLETED   => 'bg-green-500',
+        self::SHOOT_CANCELLED   => 'bg-gray-400',
+    ];
+
+    /** States that still need someone to do something. */
+    public const SHOOT_OPEN_STATUSES = [self::SHOOT_PENDING, self::SHOOT_SCHEDULED, self::SHOOT_IN_PROGRESS];
+
+    public function shootStatusLabel(): string
+    {
+        return self::SHOOT_STATUSES[$this->photoshoot_status] ?? '—';
+    }
+
+    public function shootStatusColor(): string
+    {
+        return self::SHOOT_COLORS[$this->photoshoot_status] ?? 'bg-gray-100 text-gray-500 border-gray-200';
+    }
+
+    public function shootDotColor(): string
+    {
+        return self::SHOOT_DOT_COLORS[$this->photoshoot_status] ?? 'bg-gray-400';
+    }
+
+    /** Booked, but the day has come and gone with nothing marked done. */
+    public function isShootOverdue(): bool
+    {
+        return in_array($this->photoshoot_status, [self::SHOOT_SCHEDULED, self::SHOOT_IN_PROGRESS], true)
+            && $this->photoshoot_scheduled_at?->isPast() === true;
+    }
+
+    /** Needs a shoot, and it has not happened or been called off. */
+    public function shootIsOpen(): bool
+    {
+        return in_array($this->photoshoot_status, self::SHOOT_OPEN_STATUSES, true);
+    }
+
+    /** Requests with a shoot to think about — the Photoshoot Room's whole list. */
+    public function scopeWithPhotoshoot($query)
+    {
+        return $query->whereNotNull('photoshoot_status');
+    }
+
     public const IMAGES_AT_URL = 'url';
     public const IMAGES_AT_PIM = 'pim';
 
@@ -460,6 +536,9 @@ class ProductRequest extends Model
         'images_url',
         'photoshoot_required',
         'photoshoot_scheduled_at',
+        'photoshoot_status',
+        'photoshoot_studio',
+        'photoshoot_notes',
         'use_ai_content',
         'ai_content_session_id',
         'notes',
@@ -485,7 +564,8 @@ class ProductRequest extends Model
         return [
             'store_launch_date'         => 'date',    // legacy: no longer collected
             'online_launch_date'        => 'datetime',
-            'photoshoot_scheduled_at'   => 'date',
+            // A booking, so it carries a time — "Tuesday" is not a slot.
+            'photoshoot_scheduled_at'   => 'datetime',
             'supplier_images_available' => 'boolean',
             'photoshoot_required'       => 'boolean',
             'use_ai_content'            => 'boolean',
@@ -871,6 +951,58 @@ class ProductRequest extends Model
         return $this->total_skus > 0 && $this->mapped_skus === $this->total_skus;
     }
 
+    // ── The balance: SKUs still waiting on Cegid ─────────────────────────────
+
+    /**
+     * SKUs Supply Chain has not resolved yet.
+     *
+     * Only meaningful on a Cegid website — everywhere else a SKU that isn't in
+     * Shopify is simply a product nobody has uploaded yet, which is the normal
+     * state of a new brand.
+     */
+    public function balanceSkus(): int
+    {
+        if (!$this->requiresMapping()) {
+            return 0;
+        }
+
+        return max(0, $this->total_skus - $this->mapped_skus);
+    }
+
+    public function hasSkuBalance(): bool
+    {
+        return $this->balanceSkus() > 0;
+    }
+
+    /**
+     * How much of the request can actually go live — mapped SKUs as a share of
+     * the whole. This is the number to quote at the end: "18 of 20 (90%)" says
+     * far more about where a launch stands than the stage name does.
+     */
+    public function skuCompletionPercent(): int
+    {
+        if ($this->total_skus < 1) {
+            return 0;
+        }
+
+        return (int) round($this->mapped_skus / $this->total_skus * 100);
+    }
+
+    /**
+     * Enough mapped to get on with, but not all of it.
+     *
+     * The condition for carrying on with part of a request rather than holding
+     * ten good SKUs hostage to ten that Supply Chain has not reached yet.
+     */
+    public function canContinueWithMapped(): bool
+    {
+        return $this->status === self::WAITING_MAPPING
+            && $this->requiresMapping()
+            && $this->mapped_skus > 0
+            && $this->hasSkuBalance()
+            && !$this->isClosed();
+    }
+
     /**
      * The pipeline grouped into the four things people actually talk about.
      * Twelve stages in one strip is unreadable — and it hides the fact that
@@ -1013,7 +1145,9 @@ class ProductRequest extends Model
         }
 
         if ($this->status === self::WAITING_MAPPING) {
-            return $this->isFullyMapped() ? self::SKU_VERIFIED : null;
+            // Part-mapped still points forward: the mapped SKUs are ready to work
+            // on even while the balance sits with Supply Chain.
+            return $this->isFullyMapped() || $this->mapped_skus > 0 ? self::SKU_VERIFIED : null;
         }
 
         $stages = $this->displayStages();
@@ -1042,8 +1176,10 @@ class ProductRequest extends Model
             return [];
         }
 
-        // Can't leave "Waiting for Mapping" until every SKU resolves.
-        if ($this->status === self::WAITING_MAPPING && !$this->isFullyMapped()) {
+        // Waiting for Mapping with nothing mapped is a genuine dead stop — there
+        // is no product to work on. With some of it mapped the request may carry
+        // on with that part, and the balance follows once Cegid catches up.
+        if ($this->status === self::WAITING_MAPPING && !$this->isFullyMapped() && $this->mapped_skus < 1) {
             return [self::CANCELLED];
         }
 

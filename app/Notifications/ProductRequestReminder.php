@@ -61,6 +61,8 @@ class ProductRequestReminder extends Notification implements ShouldQueue
 
         return [
             'kind'         => 'reminder',
+            // A digest of nothing but this person's own outstanding work.
+            'for_me'       => true,
             'reference'    => $count . ' ' . str('request')->plural($count),
             'brand'        => 'Needs your attention',
             'status_label' => 'Reminder',

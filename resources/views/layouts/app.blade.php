@@ -181,6 +181,7 @@
                         // No "Dashboard" entry — the parent link already goes there.
                         $pcrLinks = [
                             ['label' => 'All Requests',     'url' => route('product-requests.list'),                             'on' => request()->routeIs('product-requests.list')],
+                            ['label' => 'Photoshoot Room',  'url' => route('product-requests.photoshoot-room'),                  'on' => request()->routeIs('product-requests.photoshoot-room*')],
                             ['label' => 'Assigned to Me',   'url' => route('product-requests.my-tasks'),                         'on' => request()->routeIs('product-requests.my-tasks')],
                             ['label' => 'Notifications',    'url' => route('product-requests.notifications'),                    'on' => request()->routeIs('product-requests.notifications')],
                         ];
@@ -225,7 +226,7 @@
 
         {{-- Super admin section --}}
         @if(auth()->user()?->is_super_admin)
-        <div class="px-3 pb-2">
+        <div class="px-3 pb-4">
             <div class="border-t border-white/10 pt-3 mb-1">
                 <p class="px-3 text-xs font-semibold uppercase tracking-wider mb-1" style="color:rgba(255,255,255,0.35)">Super Admin</p>
             </div>
@@ -249,28 +250,6 @@
             </a>
         </div>
         @endif
-
-        {{-- User footer --}}
-        <div class="px-3 py-4 border-t border-white/10">
-            <div class="flex items-center gap-2.5">
-                <div class="w-7 h-7 rounded-full bg-white/20 flex items-center justify-center text-white text-xs font-semibold shrink-0">
-                    {{ strtoupper(substr(auth()->user()->name, 0, 2)) }}
-                </div>
-                <div class="flex-1 min-w-0">
-                    <p class="text-xs font-semibold text-white truncate">{{ auth()->user()->name }}</p>
-                    <p class="text-xs text-white/60 truncate">{{ auth()->user()->email }}</p>
-                </div>
-                <form method="POST" action="{{ route('logout') }}">
-                    @csrf
-                    <button type="submit" title="Logout" class="text-white/60 hover:text-white transition-colors">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
-                        </svg>
-                    </button>
-                </form>
-            </div>
-        </div>
 
     </aside>
 
@@ -321,29 +300,89 @@
                 @endif
                 {{-- Notification bell --}}
                 @if(auth()->user()->hasFeature('product_request'))
-                <div x-data="{ bell: false }" class="relative">
+                {{--
+                    The bell polls for its own count so a notification that arrives
+                    from a queued job or the hourly SKU check announces itself,
+                    instead of waiting for the next page load. Anything genuinely
+                    new also raises a toast, bottom-right.
+                --}}
+                <div x-data="{
+                        bell: false,
+                        unread: {{ (int) ($bellUnreadCount ?? 0) }},
+                        seen: {{ Illuminate\Support\Js::from(($bellNotifications ?? collect())->pluck('id')) }},
+                        toasts: [],
+                        ring: false,
+                        poll() {
+                            if (document.hidden) return;
+                            fetch('{{ route('product-requests.notifications.feed') }}', { headers: { 'Accept': 'application/json' } })
+                                .then(r => r.ok ? r.json() : null)
+                                .then(data => {
+                                    if (!data) return;
+                                    const fresh = data.items.filter(i => !this.seen.includes(i.id));
+                                    this.unread = data.unread;
+                                    if (!fresh.length) return;
+                                    this.seen = data.items.map(i => i.id).concat(this.seen).slice(0, 50);
+                                    this.ring = true;
+                                    setTimeout(() => this.ring = false, 1200);
+                                    // Three at once is a summary, not three toasts.
+                                    fresh.slice(0, 3).forEach(item => this.announce(item));
+                                })
+                                .catch(() => {});
+                        },
+                        announce(item) {
+                            const id = item.id;
+                            this.toasts.push(item);
+                            setTimeout(() => { this.toasts = this.toasts.filter(t => t.id !== id) }, 9000);
+                        },
+                        dismiss(id) { this.toasts = this.toasts.filter(t => t.id !== id) },
+                     }"
+                     x-init="setInterval(() => poll(), 30000)"
+                     class="relative">
                     <button @click="bell = !bell"
                             class="relative flex items-center justify-center w-9 h-9 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 hover:text-gray-700 transition-colors"
+                            :class="ring && 'ring-2 ring-red-400 border-red-300 text-red-600'"
                             aria-label="Notifications">
                         <svg class="w-4.5 h-4.5" style="width:1.125rem;height:1.125rem" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                 d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1h6z"/>
                         </svg>
-                        @if(($bellUnreadCount ?? 0) > 0)
-                            <span class="absolute -top-1 -right-1 px-1 h-4 rounded-full bg-red-500 text-white text-[10px] font-semibold flex items-center justify-center" style="min-width:1rem">
-                                {{ $bellUnreadCount > 99 ? '99+' : $bellUnreadCount }}
-                            </span>
-                        @endif
+                        <span x-show="unread > 0" x-cloak
+                              class="absolute -top-1 -right-1 px-1 h-4 rounded-full bg-red-500 text-white text-[10px] font-semibold flex items-center justify-center"
+                              style="min-width:1rem"
+                              x-text="unread > 99 ? '99+' : unread"></span>
                     </button>
+
+                    {{-- Toasts. Fixed to the viewport so they are visible wherever
+                         the page is scrolled. --}}
+                    <div class="fixed bottom-5 right-5 z-[60] w-80 max-w-[calc(100vw-2.5rem)] space-y-2" x-cloak>
+                        <template x-for="toast in toasts" :key="toast.id">
+                            <div x-transition:enter="transition ease-out duration-200"
+                                 x-transition:enter-start="translate-y-3 opacity-0"
+                                 x-transition:enter-end="translate-y-0 opacity-100"
+                                 class="bg-white rounded-xl shadow-lg border border-gray-200 px-4 py-3 flex items-start gap-3">
+                                <span class="w-2 h-2 rounded-full bg-red-500 shrink-0 mt-1.5"></span>
+                                <div class="min-w-0 flex-1">
+                                    <a :href="toast.url" class="text-sm font-medium text-gray-900 hover:text-brand-700 block truncate" x-text="toast.title"></a>
+                                    <p class="text-xs text-gray-500 truncate" x-text="toast.body"></p>
+                                </div>
+                                <button type="button" @click="dismiss(toast.id)" class="text-gray-300 hover:text-gray-600 shrink-0" aria-label="Dismiss">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                                    </svg>
+                                </button>
+                            </div>
+                        </template>
+                    </div>
 
                     <div x-show="bell" @click.outside="bell = false" x-cloak
                          class="absolute right-0 mt-2 w-96 max-w-[calc(100vw-2rem)] bg-white rounded-xl shadow-lg border border-gray-200 z-50 overflow-hidden">
 
                         <div class="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
                             <div>
-                                <p class="text-sm font-semibold text-gray-800">Notifications</p>
+                                <p class="text-sm font-semibold text-gray-800">Your notifications</p>
                                 <p class="text-xs text-gray-400">
-                                    {{ ($bellUnreadCount ?? 0) > 0 ? $bellUnreadCount . ' unread' : 'Nothing new' }}
+                                    <span x-show="unread > 0"><span x-text="unread"></span> unread</span>
+                                    <span x-show="unread < 1">Nothing waiting on you</span>
                                 </p>
                             </div>
                             @if(($bellUnreadCount ?? 0) > 0)
@@ -395,9 +434,9 @@
                                 </a>
                             @empty
                                 <div class="px-4 py-10 text-center">
-                                    <p class="text-sm text-gray-500">You're all caught up.</p>
-                                    <a href="{{ route('product-requests.notifications') }}" class="text-xs text-brand-600 hover:text-brand-700 font-medium mt-1 inline-block">
-                                        See earlier notifications &rarr;
+                                    <p class="text-sm text-gray-500">Nothing waiting on you.</p>
+                                    <a href="{{ route('product-requests.notifications', ['scope' => 'all']) }}" class="text-xs text-brand-600 hover:text-brand-700 font-medium mt-1 inline-block">
+                                        See the team's updates &rarr;
                                     </a>
                                 </div>
                             @endforelse
@@ -405,13 +444,47 @@
 
                         <div class="px-4 py-2.5 bg-gray-50 border-t border-gray-100 flex items-center justify-between">
                             <a href="{{ route('product-requests.my-tasks') }}" class="text-xs text-gray-600 hover:text-gray-900 font-medium">Assigned to me</a>
-                            <a href="{{ route('product-requests.notifications') }}" class="text-xs text-brand-600 hover:text-brand-700 font-medium">View all &rarr;</a>
+                            <a href="{{ route('product-requests.notifications') }}" class="text-xs text-brand-600 hover:text-brand-700 font-medium">All notifications &rarr;</a>
                         </div>
                     </div>
                 </div>
                 @endif
 
                 <div class="text-sm text-gray-400">{{ now()->format('D, d M Y') }}</div>
+
+                {{-- User menu --}}
+                <div x-data="{ user: false }" class="relative">
+                    <button @click="user = !user"
+                            class="flex items-center gap-2 rounded-lg border border-gray-200 pl-1.5 pr-2 py-1 hover:bg-gray-50 transition-colors"
+                            aria-label="Account menu">
+                        <div class="w-7 h-7 rounded-full bg-brand-600 flex items-center justify-center text-white text-xs font-semibold shrink-0">
+                            {{ strtoupper(substr(auth()->user()->name, 0, 2)) }}
+                        </div>
+                        <span class="text-sm text-gray-700 font-medium max-w-40 truncate">{{ auth()->user()->name }}</span>
+                        <svg class="w-3 h-3 text-gray-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                        </svg>
+                    </button>
+
+                    <div x-show="user" @click.outside="user = false" x-cloak
+                         class="absolute right-0 mt-1 w-60 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50">
+                        <div class="px-4 py-2.5 border-b border-gray-100">
+                            <p class="text-sm font-semibold text-gray-800 truncate">{{ auth()->user()->name }}</p>
+                            <p class="text-xs text-gray-500 truncate">{{ auth()->user()->email }}</p>
+                        </div>
+                        <form method="POST" action="{{ route('logout') }}">
+                            @csrf
+                            <button type="submit"
+                                    class="w-full flex items-center gap-2.5 px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 hover:text-gray-900 transition-colors">
+                                <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
+                                </svg>
+                                Logout
+                            </button>
+                        </form>
+                    </div>
+                </div>
             </div>
         </header>
 

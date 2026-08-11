@@ -6,6 +6,7 @@ use App\Models\ProductRequest;
 use App\Models\ProductRequestActivity;
 use App\Models\User;
 use App\Notifications\ProductRequestAssigned;
+use App\Notifications\ProductRequestBalanceMapped;
 use App\Notifications\ProductRequestHandedOff;
 use App\Notifications\ProductRequestStatusChanged;
 use Illuminate\Support\Collection;
@@ -323,6 +324,68 @@ class ProductRequestWorkflow
         }
 
         return $staffed;
+    }
+
+    /**
+     * Tell the request's people that more of the balance has been mapped.
+     *
+     * Goes to whoever holds the request as well as the requester: the SKUs are
+     * theirs to finish, and until this existed the only way to notice was to
+     * re-open the request and count.
+     */
+    public function announceBalance(ProductRequest $request, int $justMapped): void
+    {
+        if ($justMapped < 1) {
+            return;
+        }
+
+        $this->log(
+            request:     $request,
+            action:      'sku_mapping',
+            description: $request->hasSkuBalance()
+                ? "{$justMapped} more SKU(s) mapped — {$request->mapped_skus} of {$request->total_skus}"
+                : "The balance is mapped — all {$request->total_skus} SKUs are ready",
+            remarks:     $request->hasSkuBalance()
+                ? "{$request->balanceSkus()} still with Supply Chain"
+                : 'Nothing outstanding — the request can be finished',
+        );
+
+        try {
+            $recipients = $this->recipients($request);
+
+            if ($recipients->isNotEmpty()) {
+                NotificationFacade::send($recipients, ProductRequestBalanceMapped::forRequest($request, $justMapped));
+            }
+        } catch (\Throwable $e) {
+            Log::error("ProductRequestWorkflow: balance notification failed for request {$request->id}: " . $e->getMessage());
+        }
+    }
+
+    /**
+     * Move the request to match where its shoot has got to.
+     *
+     * Only inside the photoshoot band, and only forwards: a request already at QA
+     * has moved past all this, and a tidy-up on the calendar must not drag it
+     * back. Anything the workflow itself would refuse is left alone.
+     *
+     * @return bool  true when the request actually moved
+     */
+    public function syncStageWithShoot(ProductRequest $request, ?User $actor = null): bool
+    {
+        $target = match ($request->photoshoot_status) {
+            ProductRequest::SHOOT_SCHEDULED,
+            ProductRequest::SHOOT_IN_PROGRESS => ProductRequest::PHOTOSHOOT_SCHEDULED,
+            ProductRequest::SHOOT_COMPLETED   => ProductRequest::PHOTOSHOOT_COMPLETED,
+            default                           => null,
+        };
+
+        if ($target === null || $request->status === $target || !$request->canTransitionTo($target)) {
+            return false;
+        }
+
+        $this->transition($request, $target, $actor, 'Photoshoot ' . strtolower(ProductRequest::SHOOT_STATUSES[$request->photoshoot_status]));
+
+        return true;
     }
 
     private function briefRemark(?string $title, ?string $dueDate): ?string

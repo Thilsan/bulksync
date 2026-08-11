@@ -42,9 +42,6 @@
                   },
                   onlineDate: '{{ old('online_launch_date') }}',
                   todayIso: '{{ now()->format('Y-m-d\TH:i') }}',
-                  // Per-person deadlines are dates, the launch is a moment — so
-                  // cap them on the launch day, not the timestamp.
-                  get launchDay() { return this.onlineDate ? this.onlineDate.slice(0, 10) : ''; },
                   {{-- Js::from, not a quoted string — "Men's Fashion" would break out of it. --}}
                   category: {{ Illuminate\Support\Js::from(old('category', '')) }},
                   categoryOwners: {{ Illuminate\Support\Js::from($categoryOwnerNames ?? []) }},
@@ -128,30 +125,6 @@
                         </div>
                     </div>
 
-                    {{-- The category decides who does the work, so say so here rather
-                         than leaving the requester to guess in section 6. --}}
-                    <div x-show="category" x-cloak class="mt-3 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5">
-                        <template x-if="categoryOwner">
-                            <p class="text-xs text-gray-600">
-                                <span class="font-semibold text-gray-800" x-text="categoryOwner"></span>
-                                handles <span class="font-medium" x-text="category"></span> and will be assigned every stage of this
-                                request automatically.
-                                <span x-show="needsPhotoshoot && photoshootCoordinator" x-cloak>
-                                    The photoshoot is arranged by
-                                    <span class="font-semibold text-gray-800" x-text="photoshootCoordinator"></span>.
-                                </span>
-                                <span x-show="needsPhotoshoot && !photoshootCoordinator" x-cloak>
-                                    Pick the photoshoot coordinator below — more than one account holds that role.
-                                </span>
-                            </p>
-                        </template>
-                        <template x-if="!categoryOwner">
-                            <p class="text-xs text-amber-700">
-                                Nobody is set to handle <span class="font-medium" x-text="category"></span> yet, so this request will
-                                arrive unassigned. Choose the people in section 6, or ask an admin to set the category owner.
-                            </p>
-                        </template>
-                    </div>
                 </section>
 
                 {{-- 2. SKUs --}}
@@ -306,25 +279,9 @@
 
                 {{-- 6. Team --}}
                 <section x-data="{
-                        rows: [{ role: '', user: '', due: '' }],
                         allRoles: {{ Illuminate\Support\Js::from(collect(\App\Models\ProductRequest::assignableRoles())->map(fn ($label, $key) => ['key' => $key, 'label' => $label, 'task' => \App\Models\ProductRequest::taskForRole($key)])->values()) }},
-                        taskFor(role) {
-                            const found = this.allRoles.find(r => r.key === role);
-                            return found ? found.task : '';
-                        },
-                        get complete() { return this.rows.filter(r => r.role && r.user).length; },
-                        // A finished row opens the next one, so the form leads you
-                        // through the team instead of showing six empty slots.
-                        openNext() {
-                            const last = this.rows[this.rows.length - 1];
-                            if (last && last.role && last.user && this.canAdd) {
-                                this.rows.push({ role: '', user: '', due: '' });
-                            }
-                        },
-                        // Only roles this request will actually use.
-                        // Same rule as the request page: no shoot means no
-                        // photographer and nothing to edit either.
-                        // Same rule as the request page, from the one image answer.
+                        // Only the roles this request will actually use — no shoot
+                        // means no coordinator and nothing to edit either.
                         get activeRoles() {
                             return this.allRoles.filter(r =>
                                 (r.key !== 'photographer_id' || needsPhotoshoot) &&
@@ -332,113 +289,52 @@
                                 (r.key !== 'supply_chain_id' || usesMapping)
                             );
                         },
-                        // A role already given out isn't offered again.
-                        optionsFor(i) {
-                            const taken = this.rows.filter((_, j) => j !== i).map(r => r.role).filter(Boolean);
-                            return this.activeRoles.filter(r => !taken.includes(r.key));
+                        // The category owner runs the request; only the shoot is
+                        // somebody else's job.
+                        personFor(key) {
+                            return key === 'photographer_id' ? photoshootCoordinator : categoryOwner;
                         },
-                        get canAdd() { return this.rows.length < this.activeRoles.length; },
-                        add() { if (this.canAdd) this.rows.push({ role: '', user: '', due: '' }); },
-                        remove(i) {
-                            this.rows.splice(i, 1);
-                            if (!this.rows.length) this.add();
-                        },
-                        // Turning off the photoshoot must not leave a photographer
-                        // assigned to work that no longer exists.
-                        prune() {
-                            const ok = this.activeRoles.map(r => r.key);
-                            this.rows.forEach(r => { if (r.role && !ok.includes(r.role)) { r.role = ''; r.user = ''; r.due = ''; } });
-                        },
-                     }"
-                     x-effect="imageSource; usesMapping; prune()"
-                     x-init="$watch('rows', () => openNext(), { deep: true })">
+                     }">
 
                     <h3 class="text-sm font-semibold text-gray-800 mb-1">6. Team Assignments</h3>
                     <p class="text-xs text-gray-400 mb-3">
-                        Optional — leave it empty and the category owner takes every role, with the shoot going to the
-                        photoshoot coordinator. Fill a row in only to send one role somewhere else; anything you set here
-                        wins over the category default.
-                        Add a deadline if that person needs to finish before the launch date.
-                        The next row opens as you complete each one.
-                        Anyone you pick is notified that
-                        <span class="font-medium text-gray-600">{{ auth()->user()->name }}</span> has given them this work.
+                        Set by the category — there is nothing to choose here. Everyone below is notified when you submit,
+                        and any role can be handed to someone else on the request page afterwards.
                     </p>
 
-                    <div class="space-y-2">
-                        <template x-for="(row, i) in rows" :key="i">
-                            <div class="rounded-lg border border-gray-200 bg-gray-50/60 px-3 py-3">
-                                <div class="flex items-center justify-between mb-2">
-                                    <span class="text-xs font-semibold text-gray-500">
-                                        Assignment <span x-text="i + 1"></span>
-                                        <span x-show="row.role && row.user" x-cloak
-                                              class="ml-1 text-green-600 font-normal">&check; set</span>
-                                    </span>
-                                    <button type="button" @click="remove(i)"
-                                            class="text-gray-400 hover:text-red-600 transition-colors" title="Remove">
-                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-                                        </svg>
-                                    </button>
-                                </div>
+                    <template x-if="!category">
+                        <p class="text-xs text-gray-500 rounded-lg border border-dashed border-gray-300 px-3 py-3">
+                            Choose a category above to see who will handle this request.
+                        </p>
+                    </template>
 
-                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                    <div>
-                                        <label class="block text-xs text-gray-500 mb-1">Role</label>
-                                        <select x-model="row.role" :name="`assignments[${i}][role]`"
-                                                class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-500">
-                                            <option value="">Select a role…</option>
-                                            <template x-for="r in optionsFor(i)" :key="r.key">
-                                                <option :value="r.key" x-text="r.label"></option>
-                                            </template>
-                                        </select>
+                    <template x-if="category">
+                        <div>
+                            <div class="rounded-lg border border-gray-200 divide-y divide-gray-100 overflow-hidden">
+                                <template x-for="r in activeRoles" :key="r.key">
+                                    <div class="flex items-start justify-between gap-4 px-3 py-2.5 bg-gray-50/60">
+                                        <div class="min-w-0">
+                                            <p class="text-sm font-medium text-gray-800" x-text="r.label"></p>
+                                            <p class="text-xs text-gray-500 mt-0.5" x-text="r.task"></p>
+                                        </div>
+                                        <p class="text-sm shrink-0 text-right"
+                                           :class="personFor(r.key) ? 'text-gray-800 font-medium' : 'text-amber-700'"
+                                           x-text="personFor(r.key) || 'Unassigned'"></p>
                                     </div>
-
-                                    <div>
-                                        <label class="block text-xs text-gray-500 mb-1">Person</label>
-                                        <select x-model="row.user" :name="`assignments[${i}][user_id]`" :disabled="!row.role"
-                                                class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-500 disabled:bg-gray-100 disabled:text-gray-400">
-                                            <option value="">Select a person…</option>
-                                            @foreach($teamPool as $member)
-                                                <option value="{{ $member->id }}">{{ $member->name }}@if($member->pcr_role) — {{ $member->pcrRoleLabel() }}@endif</option>
-                                            @endforeach
-                                        </select>
-                                    </div>
-
-                                    <div>
-                                        <label class="block text-xs text-gray-500 mb-1">
-                                            Finish by
-                                            <span class="text-gray-400" x-show="launchDay">(launch <span x-text="launchDay"></span>)</span>
-                                        </label>
-                                        <input type="date" x-model="row.due" :name="`assignments[${i}][due_date]`" :disabled="!row.role"
-                                               :max="launchDay || null"
-                                               class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-500 disabled:bg-gray-100">
-                                        <p x-show="row.due && launchDay && row.due > launchDay" x-cloak
-                                           class="text-xs text-amber-600 mt-1">
-                                            That is after the launch date.
-                                        </p>
-                                    </div>
-                                </div>
-
-                                {{-- The task is dictated by the workflow, so it is shown, not typed. --}}
-                                <div x-show="row.role" x-cloak class="mt-2 rounded-lg bg-white border border-gray-200 px-3 py-2">
-                                    <p class="text-[11px] uppercase tracking-wide font-semibold text-gray-400">Their task</p>
-                                    <p class="text-xs text-gray-700 mt-0.5" x-text="taskFor(row.role)"></p>
-                                </div>
+                                </template>
                             </div>
-                        </template>
-                    </div>
 
-                    <p x-show="complete" x-cloak class="text-xs text-gray-400 mt-2">
-                        <span x-text="complete"></span> of <span x-text="activeRoles.length"></span> roles assigned.
-                    </p>
+                            <p x-show="!categoryOwner" x-cloak class="text-xs text-amber-700 mt-2">
+                                Nobody is set to handle <span class="font-medium" x-text="category"></span> yet, so this
+                                request will arrive unassigned. Ask an admin to set the category owner, or assign it
+                                yourself on the request page once it is raised.
+                            </p>
 
-                    <button type="button" @click="add()" x-show="canAdd"
-                            class="mt-2.5 inline-flex items-center gap-1.5 text-xs font-medium text-brand-600 hover:text-brand-700">
-                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
-                        </svg>
-                        Add another role
-                    </button>
+                            <p x-show="needsPhotoshoot && !photoshootCoordinator" x-cloak class="text-xs text-amber-700 mt-2">
+                                No single photoshoot coordinator is set, so the shoot is left unassigned.
+                            </p>
+                        </div>
+                    </template>
                 </section>
 
                 {{-- 7. Additional --}}

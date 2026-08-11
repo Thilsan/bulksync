@@ -374,11 +374,22 @@
             <div>
                 <div class="flex items-center justify-between mb-3">
                     <h3 class="text-sm font-semibold text-gray-800">Workflow Progress</h3>
-                    <div class="flex items-center gap-2 w-40">
-                        <div class="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                            <div class="h-full bg-brand-600 rounded-full transition-all" style="width: {{ $request->progressPercent() }}%"></div>
+                    <div class="flex items-center gap-4">
+                        {{-- A part-mapped request is not the same as a finished one, so
+                             the SKU share sits beside the stage progress. --}}
+                        @if($request->hasSkuBalance())
+                            <a href="#skus" @click="tab = 'skus'"
+                               class="text-xs font-medium text-amber-700 hover:text-amber-800 whitespace-nowrap">
+                                {{ number_format($request->mapped_skus) }}/{{ number_format($request->total_skus) }} SKUs
+                                ({{ $request->skuCompletionPercent() }}%)
+                            </a>
+                        @endif
+                        <div class="flex items-center gap-2 w-40">
+                            <div class="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                                <div class="h-full bg-brand-600 rounded-full transition-all" style="width: {{ $request->progressPercent() }}%"></div>
+                            </div>
+                            <span class="text-xs text-gray-500 tabular-nums shrink-0">{{ $request->progressPercent() }}%</span>
                         </div>
-                        <span class="text-xs text-gray-500 tabular-nums shrink-0">{{ $request->progressPercent() }}%</span>
                     </div>
                 </div>
 
@@ -519,6 +530,57 @@
                         </div>
                         @endif
                     </div>
+
+                    @if($usesMapping && $request->total_skus > 0)
+                        {{-- What can actually go live, as a share of the whole. At the
+                             end of a request this is the number people ask for. --}}
+                        <div class="mt-4 rounded-lg border border-gray-200 px-4 py-3">
+                            <div class="flex items-center justify-between gap-3 mb-1.5">
+                                <p class="text-xs font-medium text-gray-600">
+                                    SKU completion
+                                    <span class="text-gray-400 font-normal">
+                                        — {{ number_format($request->mapped_skus) }} of {{ number_format($request->total_skus) }} mapped
+                                    </span>
+                                </p>
+                                <span class="text-sm font-semibold tabular-nums {{ $request->hasSkuBalance() ? 'text-amber-700' : 'text-green-700' }}">
+                                    {{ $request->skuCompletionPercent() }}%
+                                </span>
+                            </div>
+                            <div class="h-2 bg-gray-100 rounded-full overflow-hidden">
+                                <div class="h-full rounded-full transition-all {{ $request->hasSkuBalance() ? 'bg-amber-500' : 'bg-green-600' }}"
+                                     style="width: {{ $request->skuCompletionPercent() }}%"></div>
+                            </div>
+
+                            @if($request->hasSkuBalance())
+                                <p class="text-xs text-amber-700 mt-2">
+                                    <span class="font-semibold">{{ number_format($request->balanceSkus()) }}</span> SKUs are still
+                                    with Supply Chain. The SKU check runs hourly and everyone on this request is told as soon as
+                                    more of them are mapped — nothing to re-submit.
+                                </p>
+
+                                @if($request->canContinueWithMapped())
+                                    <form method="POST" action="{{ route('product-requests.continue-mapped', $request) }}" class="mt-2.5">
+                                        @csrf
+                                        <button type="submit"
+                                                class="inline-flex items-center gap-1.5 text-xs font-medium text-white px-3 py-1.5 rounded-lg"
+                                                style="background-color:#1d5a74">
+                                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7"/>
+                                            </svg>
+                                            Carry on with the {{ number_format($request->mapped_skus) }} mapped SKUs
+                                        </button>
+                                        <span class="ml-2 text-xs text-gray-400">
+                                            The balance stays here and follows on its own.
+                                        </span>
+                                    </form>
+                                @endif
+                            @else
+                                <p class="text-xs text-green-700 mt-2">
+                                    Every SKU is mapped — nothing is outstanding.
+                                </p>
+                            @endif
+                        </div>
+                    @endif
 
                     <div class="flex flex-wrap gap-2 mt-4">
                         @php
@@ -752,12 +814,25 @@
                             </div>
 
                             <div @class(['hidden' => !$request->needsPhotoshoot() && !$request->photoshoot_scheduled_at])>
-                                <label class="block text-xs font-medium text-gray-500 mb-1">Photoshoot Scheduled On</label>
+                                <label class="block text-xs font-medium text-gray-500 mb-1">
+                                    Photoshoot Scheduled On
+                                    @if($request->photoshoot_status)
+                                        <a href="{{ route('product-requests.photoshoot-room') }}"
+                                           class="ml-1 font-normal text-brand-600 hover:text-brand-700">Photoshoot Room &rarr;</a>
+                                    @endif
+                                </label>
                                 <template x-if="!editing">
-                                    <p class="text-sm text-gray-800 py-2">{{ $request->photoshoot_scheduled_at?->format('d M Y') ?? '—' }}</p>
+                                    <p class="text-sm text-gray-800 py-2">
+                                        {{ $request->photoshoot_scheduled_at?->format('d M Y, H:i') ?? '—' }}
+                                        @if($request->photoshoot_status)
+                                            <span class="ml-1 inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium border {{ $request->shootStatusColor() }}">
+                                                {{ $request->shootStatusLabel() }}
+                                            </span>
+                                        @endif
+                                    </p>
                                 </template>
-                                <input x-show="editing" x-cloak type="date" name="photoshoot_scheduled_at"
-                                       value="{{ old('photoshoot_scheduled_at', $request->photoshoot_scheduled_at?->format('Y-m-d')) }}"
+                                <input x-show="editing" x-cloak type="datetime-local" name="photoshoot_scheduled_at"
+                                       value="{{ old('photoshoot_scheduled_at', $request->photoshoot_scheduled_at?->format('Y-m-d\TH:i')) }}"
                                        class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
                             </div>
 
@@ -789,17 +864,36 @@
                         </div>
                     </form>
 
-                    @unless($request->isClosed())
-                    <div class="mt-5 pt-4 border-t border-gray-100">
-                        <button type="button" @click="showCancel = true"
-                                class="inline-flex items-center gap-2 text-red-600 hover:text-red-700 text-sm font-medium">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
-                            </svg>
-                            Cancel this request
-                        </button>
+                    @if(!$request->isClosed() || auth()->user()->is_super_admin)
+                    <div class="mt-5 pt-4 border-t border-gray-100 flex flex-wrap items-center gap-x-6 gap-y-3">
+                        @unless($request->isClosed())
+                            <button type="button" @click="showCancel = true"
+                                    class="inline-flex items-center gap-2 text-red-600 hover:text-red-700 text-sm font-medium">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                                </svg>
+                                Cancel this request
+                            </button>
+                        @endunless
+
+                        {{-- Cancelling keeps the record; deleting is for requests that
+                             should never have existed, so it is a super admin's call. --}}
+                        @if(auth()->user()->is_super_admin)
+                            <form method="POST" action="{{ route('product-requests.destroy', $request) }}"
+                                  onsubmit="return confirm('Delete {{ addslashes($request->reference) }} permanently?\n\nIts {{ $request->total_skus }} SKU(s), activity trail, assignments and attachments go with it. Cancel the request instead if you want to keep the record.')">
+                                @csrf
+                                @method('DELETE')
+                                <button type="submit" class="inline-flex items-center gap-2 text-gray-500 hover:text-red-700 text-sm font-medium">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                    </svg>
+                                    Delete permanently
+                                    <span class="text-xs font-normal text-gray-400">super admin</span>
+                                </button>
+                            </form>
+                        @endif
                     </div>
-                    @endunless
+                    @endif
                 </div>
 
                 {{-- Tab: SKUs --}}
@@ -1269,8 +1363,8 @@
                     </div>
                     <div @class(['hidden' => !$request->needsPhotoshoot()])>
                         <label class="block text-xs font-medium text-gray-600 mb-1.5">Photoshoot Date <span class="text-gray-400 font-normal">(if scheduling)</span></label>
-                        <input type="date" name="photoshoot_scheduled_at"
-                               value="{{ $request->photoshoot_scheduled_at?->format('Y-m-d') }}"
+                        <input type="datetime-local" name="photoshoot_scheduled_at"
+                               value="{{ $request->photoshoot_scheduled_at?->format('Y-m-d\TH:i') }}"
                                class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
                     </div>
                     <div class="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2.5 text-xs text-gray-600">
@@ -1280,6 +1374,16 @@
                             <p class="mt-1">{{ $request->guideFor($request->suggestedNextStatus())['what'] }}</p>
                         @endif
                     </div>
+
+                    @if($request->hasSkuBalance())
+                        {{-- Says plainly what "done" would mean right now: part of it. --}}
+                        <div class="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5 text-xs text-amber-900">
+                            <span class="font-semibold">{{ number_format($request->mapped_skus) }} of
+                            {{ number_format($request->total_skus) }} SKUs ({{ $request->skuCompletionPercent() }}%)</span>
+                            are mapped. The other {{ number_format($request->balanceSkus()) }} cannot go live yet — finish
+                            those once Supply Chain maps them, then mark the request complete.
+                        </div>
+                    @endif
 
                     <div>
                         <label class="block text-xs font-medium text-gray-600 mb-1.5">Remarks</label>

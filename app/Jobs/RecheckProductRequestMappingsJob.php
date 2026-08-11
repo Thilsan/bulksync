@@ -33,11 +33,18 @@ class RecheckProductRequestMappingsJob implements ShouldQueue
 
     public function handle(SkuMappingService $mapping, ProductRequestWorkflow $workflow): void
     {
-        $requests = ProductRequest::whereIn('status', [
-                ProductRequest::SUBMITTED,
-                ProductRequest::WAITING_MAPPING,
-            ])
+        $requests = ProductRequest::query()
+            ->whereNotIn('status', ProductRequest::CLOSED_STATUSES)
             ->where('total_skus', '>', 0)
+            ->where(function ($q) {
+                // Requests still parked before the mapping gate…
+                $q->whereIn('status', [ProductRequest::SUBMITTED, ProductRequest::WAITING_MAPPING])
+                  // …and ones that carried on with part of their SKUs. Those have
+                  // a balance nobody is watching otherwise: the request has left
+                  // Supply Chain's queue but is not finishable until Cegid
+                  // catches up with the rest.
+                  ->orWhereRaw('mapped_skus < total_skus');
+            })
             ->orderBy('validated_at')   // oldest check first; nulls lead
             ->limit(self::MAX_PER_RUN)
             ->get();
@@ -47,9 +54,13 @@ class RecheckProductRequestMappingsJob implements ShouldQueue
         }
 
         $released = 0;
+        $caught   = 0;
 
         foreach ($requests as $request) {
             try {
+                $beforeMapped = (int) $request->mapped_skus;
+                $beforeStatus = $request->status;
+
                 $mapping->validate($request);
                 $request->refresh();
 
@@ -57,17 +68,26 @@ class RecheckProductRequestMappingsJob implements ShouldQueue
                     continue;
                 }
 
-                $before = $request->status;
                 $workflow->reconcileMapping($request);
+                $request->refresh();
 
-                if ($request->fresh()->status !== $before) {
+                if ($request->status !== $beforeStatus) {
                     $released++;
+                }
+
+                // Progress on the balance is news in its own right — the person
+                // holding the request has work to do the moment it lands.
+                if ($request->mapped_skus > $beforeMapped
+                    && !in_array($beforeStatus, [ProductRequest::SUBMITTED, ProductRequest::WAITING_MAPPING], true)) {
+                    $workflow->announceBalance($request, $request->mapped_skus - $beforeMapped);
+                    $caught++;
                 }
             } catch (\Throwable $e) {
                 Log::error("RecheckProductRequestMappingsJob: {$request->reference} failed: " . $e->getMessage());
             }
         }
 
-        Log::info("RecheckProductRequestMappingsJob: rechecked {$requests->count()} request(s), {$released} advanced.");
+        Log::info("RecheckProductRequestMappingsJob: rechecked {$requests->count()} request(s), "
+            . "{$released} advanced, {$caught} balance update(s) announced.");
     }
 }

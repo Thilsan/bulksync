@@ -47,10 +47,12 @@ class AppServiceProvider extends ServiceProvider
                 $unreadCount   = 0;
 
                 if ($user && $user->hasFeature('product_request')) {
-                    // Unread only: the bell is a to-read list, not history.
-                    // Everything ever sent lives on the notifications page.
-                    $notifications = $user->unreadNotifications()->latest()->limit(8)->get();
-                    $unreadCount   = $user->unreadNotifications()->count();
+                    // Unread, and only what is actually this person's — a whole
+                    // team is told when a request moves, and a bell that rings for
+                    // all of it stops meaning anything. The team's updates are
+                    // still on the notifications page under "Everything".
+                    $notifications = $user->unreadOwnNotifications()->latest()->limit(8)->get();
+                    $unreadCount   = $user->unreadOwnNotifications()->count();
                 }
 
                 $view->with([

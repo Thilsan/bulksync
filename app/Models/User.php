@@ -210,6 +210,25 @@ class User extends Authenticatable
         return $coordinators->count() === 1 ? $coordinators->first() : null;
     }
 
+    // ── Notifications: mine, versus the team's ───────────────────────────────
+
+    /**
+     * Notifications about this person's own work.
+     *
+     * Every message carries a for_me flag decided when it was written. `data` is
+     * a text column rather than JSON, so this matches on the encoded payload —
+     * which behaves the same on MySQL and SQLite, unlike the JSON operators.
+     */
+    public function ownNotifications(): \Illuminate\Database\Eloquent\Relations\MorphMany
+    {
+        return $this->notifications()->where('data', 'like', '%"for_me":true%');
+    }
+
+    public function unreadOwnNotifications(): \Illuminate\Database\Eloquent\Relations\MorphMany
+    {
+        return $this->unreadNotifications()->where('data', 'like', '%"for_me":true%');
+    }
+
     public function productRequests(): \Illuminate\Database\Eloquent\Relations\HasMany
     {
         return $this->hasMany(ProductRequest::class);

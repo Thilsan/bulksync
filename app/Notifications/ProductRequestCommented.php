@@ -76,6 +76,9 @@ class ProductRequestCommented extends Notification implements ShouldQueue
     {
         return [
             'kind'         => 'comment',
+            // Being named counts as yours even on somebody else's request.
+            'for_me'       => $this->mentioned
+                || $this->concernsRecipient($this->requestForEmail($this->requestId), $notifiable),
             'request_id'   => $this->requestId,
             'reference'    => $this->reference,
             'brand'        => $this->requestName,

@@ -82,6 +82,7 @@ class ProductRequestHoldChanged extends Notification implements ShouldQueue
     {
         return [
             'kind'         => $this->onHold ? 'on_hold' : 'resumed',
+            'for_me'       => $this->concernsRecipient($this->requestForEmail($this->requestId), $notifiable),
             'request_id'   => $this->requestId,
             'reference'    => $this->reference,
             'brand'        => $this->brand,

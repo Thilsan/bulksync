@@ -107,9 +107,14 @@
                             @if($queueKey === 'photoshoot')
                                 <p class="text-xs text-gray-500 mt-1.5">
                                     @if($item->photoshoot_scheduled_at)
-                                        Shoot: <span class="font-medium text-gray-700">{{ $item->photoshoot_scheduled_at->format('d M Y') }}</span>
+                                        Shoot: <span class="font-medium text-gray-700">{{ $item->photoshoot_scheduled_at->format('d M Y, H:i') }}</span>
                                     @else
                                         <span class="text-amber-600 font-medium">Shoot not scheduled</span>
+                                    @endif
+                                    @if($item->photoshoot_status)
+                                        <span class="ml-1 inline-flex items-center px-1.5 py-0.5 rounded-md text-[11px] font-medium border {{ $item->shootStatusColor() }}">
+                                            {{ $item->shootStatusLabel() }}
+                                        </span>
                                     @endif
                                 </p>
                                 <p class="text-xs text-gray-400">{{ $item->imageSourceLabel() }}</p>

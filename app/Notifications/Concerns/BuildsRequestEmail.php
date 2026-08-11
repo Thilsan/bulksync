@@ -56,6 +56,31 @@ trait BuildsRequestEmail
         return route('product-requests.show', $id);
     }
 
+    /**
+     * Is this message about the reader's own work?
+     *
+     * Everyone on a stage's team is told when a request moves, and the watching
+     * accounts hear about all of them — useful, but it buried the handful of
+     * messages that actually name you. The flag lands on each database row (this
+     * is computed per recipient), and the bell only rings for the ones that are
+     * yours: a role you currently hold, or a request you raised.
+     */
+    protected function concernsRecipient(?ProductRequest $request, object $notifiable): bool
+    {
+        if (!$request || empty($notifiable->id)) {
+            return false;
+        }
+
+        if ((int) $request->user_id === (int) $notifiable->id) {
+            return true;
+        }
+
+        return $request->assignments
+            ->whereNull('ended_at')
+            ->where('user_id', $notifiable->id)
+            ->isNotEmpty();
+    }
+
     /** Plain-English instruction for a stage, from the model's single source. */
     protected function stageGuide(?ProductRequest $request, ?string $stage = null): string
     {

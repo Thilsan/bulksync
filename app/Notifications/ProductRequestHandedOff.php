@@ -74,6 +74,8 @@ class ProductRequestHandedOff extends Notification implements ShouldQueue
     {
         return [
             'kind'         => 'handed_off',
+            // Losing a task is as personal as gaining one.
+            'for_me'       => true,
             'request_id'   => $this->requestId,
             'reference'    => $this->reference,
             'brand'        => $this->requestName,

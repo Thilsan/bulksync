@@ -22,6 +22,8 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Notification as NotificationFacade;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
@@ -127,13 +129,12 @@ class ProductRequestController extends Controller implements HasMiddleware
             ->limit(6)
             ->get();
 
-        // Websites the requester can raise a request against, and the people they
-        // can hand the work to at submission time.
-        $stores   = Store::selectableFor($user);
-        $teamPool = User::where('is_active', true)->orderBy('name')->get(['id', 'name', 'pcr_role']);
+        // Websites the requester can raise a request against. Who does the work
+        // is decided by the category, not chosen on the form.
+        $stores = Store::selectableFor($user);
 
         return view('product-requests.index', compact(
-            'stats', 'breakdown', 'recent', 'deadlines', 'topBrands', 'activity', 'stores', 'teamPool'
+            'stats', 'breakdown', 'recent', 'deadlines', 'topBrands', 'activity', 'stores'
         ) + $this->categoryStaffing());
     }
 
@@ -489,6 +490,11 @@ class ProductRequestController extends Controller implements HasMiddleware
             // reading these booleans stay correct.
             'supplier_images_available' => $data['image_source'] === ProductRequest::IMG_SUPPLIER,
             'photoshoot_required'       => $data['image_source'] === ProductRequest::IMG_PHOTOSHOOT,
+            // A shoot enters the Photoshoot Room the moment the request is raised,
+            // waiting for a date rather than waiting to be noticed.
+            'photoshoot_status'         => $data['image_source'] === ProductRequest::IMG_PHOTOSHOOT
+                ? ProductRequest::SHOOT_PENDING
+                : null,
             'use_ai_content'            => (bool) $data['use_ai_content'],
             'notes'                     => $data['notes'] ?? null,
             'validation_status'         => 'pending',
@@ -603,11 +609,17 @@ class ProductRequestController extends Controller implements HasMiddleware
             'notes'                     => 'nullable|string|max:5000',
         ]);
 
-        $isSupplier = $data['image_source'] === ProductRequest::IMG_SUPPLIER;
+        $isSupplier  = $data['image_source'] === ProductRequest::IMG_SUPPLIER;
+        $needsShoot  = $data['image_source'] === ProductRequest::IMG_PHOTOSHOOT;
 
         $productRequest->update($data + [
             'supplier_images_available' => $isSupplier,
-            'photoshoot_required'       => $data['image_source'] === ProductRequest::IMG_PHOTOSHOOT,
+            'photoshoot_required'       => $needsShoot,
+            // Deciding to shoot puts the request in the Photoshoot Room; deciding
+            // not to takes it back out, and its old booking with it.
+            'photoshoot_status'         => $needsShoot
+                ? ($productRequest->photoshoot_status ?? ProductRequest::SHOOT_PENDING)
+                : null,
             // Switching away from supplier images clears a location that no
             // longer describes anything.
             'images_location'           => $isSupplier ? ($data['images_location'] ?? null) : null,
@@ -623,6 +635,47 @@ class ProductRequestController extends Controller implements HasMiddleware
         );
 
         return back()->with('success', 'Request updated.');
+    }
+
+    /**
+     * Delete a request outright. Super admins only.
+     *
+     * Cancelling is what everyone else does — it keeps the history, which is the
+     * point of an audit trail. This is for requests that should never have
+     * existed: a duplicate, a test, a mistake. It takes the SKUs, activity,
+     * assignments and attachments with it, files included, and clears the bell
+     * entries so nothing links to a request that is gone.
+     */
+    public function destroy(ProductRequest $productRequest, #[CurrentUser] User $user): RedirectResponse
+    {
+        abort_unless($user->is_super_admin, 403, 'Only a super admin can delete a request.');
+
+        $reference = $productRequest->reference;
+
+        // The rows cascade; the files on disk do not.
+        foreach ($productRequest->attachments as $attachment) {
+            $path = storage_path("app/{$attachment->path}");
+
+            if (is_file($path)) {
+                @unlink($path);
+            }
+        }
+
+        @rmdir(storage_path("app/product-requests/{$productRequest->id}"));
+
+        // Notifications carry the request id in their payload rather than a
+        // foreign key, so nothing else would ever clean them up.
+        DB::table('notifications')
+            ->where('data', 'like', '%"request_id":' . $productRequest->id . ',%')
+            ->delete();
+
+        $productRequest->delete();
+
+        Log::warning("ProductRequest {$reference} deleted by {$user->email}.");
+
+        return redirect()
+            ->route('product-requests.list')
+            ->with('success', "Request {$reference} and everything attached to it has been deleted.");
     }
 
     // ── SKUs ─────────────────────────────────────────────────────────────────
@@ -725,6 +778,9 @@ class ProductRequestController extends Controller implements HasMiddleware
             $query->whereIn('id', $data['sku_ids']);
         }
 
+        $wasMapped = (int) $productRequest->mapped_skus;
+        $wasStatus = $productRequest->status;
+
         $touched = $this->mapping->setMappingStatus(
             $query->get(),
             $data['mapping_status'],
@@ -748,7 +804,17 @@ class ProductRequestController extends Controller implements HasMiddleware
         // Releases the request automatically when the last SKU lands.
         $this->workflow->reconcileMapping($productRequest, $user);
 
-        return back()->with('success', "{$touched} SKU(s) updated to {$label}.");
+        // A request that carried on with part of its SKUs has people waiting on
+        // the balance. They are not looking at the SKUs tab, so tell them.
+        if ($productRequest->mapped_skus > $wasMapped
+            && !in_array($wasStatus, [ProductRequest::SUBMITTED, ProductRequest::WAITING_MAPPING], true)) {
+            $this->workflow->announceBalance($productRequest, $productRequest->mapped_skus - $wasMapped);
+        }
+
+        return back()->with('success', "{$touched} SKU(s) updated to {$label}."
+            . ($productRequest->hasSkuBalance()
+                ? " {$productRequest->balanceSkus()} still outstanding ({$productRequest->skuCompletionPercent()}% ready)."
+                : ''));
     }
 
     /** Streamed so no export file ever lands on disk. */
@@ -820,11 +886,46 @@ class ProductRequestController extends Controller implements HasMiddleware
         if (!$moved) {
             return back()->withErrors([
                 'to_status' => 'That status change is not allowed from ' . $productRequest->statusLabel()
-                    . ($productRequest->isBlockedOnMapping() ? ' — all SKUs must be mapped first.' : '.'),
+                    . ($productRequest->isBlockedOnMapping() ? ' — no SKU has been mapped yet.' : '.'),
             ]);
         }
 
         return back()->with('success', 'Status updated to ' . $productRequest->fresh()->statusLabel() . '.');
+    }
+
+    /**
+     * Carry on with the SKUs that are mapped, and leave the rest as the balance.
+     *
+     * Ten mappable SKUs used to wait on ten that Supply Chain had not reached, so
+     * a whole launch moved at the speed of its slowest line. The mapped part goes
+     * ahead; the hourly SKU check keeps watching the balance and tells whoever
+     * holds the request as soon as more of it lands.
+     */
+    public function continueWithMapped(ProductRequest $productRequest, #[CurrentUser] User $user): RedirectResponse
+    {
+        $this->authorizeView($productRequest, $user);
+
+        if (!$productRequest->canContinueWithMapped()) {
+            return back()->withErrors([
+                'to_status' => $productRequest->mapped_skus < 1
+                    ? 'No SKU is mapped yet, so there is nothing to carry on with.'
+                    : 'This request is not waiting on a partial mapping.',
+            ]);
+        }
+
+        $mapped  = (int) $productRequest->mapped_skus;
+        $balance = $productRequest->balanceSkus();
+
+        $this->workflow->transition(
+            $productRequest,
+            ProductRequest::SKU_VERIFIED,
+            $user,
+            "Continuing with {$mapped} of {$productRequest->total_skus} SKUs ({$productRequest->skuCompletionPercent()}%) — "
+                . "{$balance} still with Supply Chain.",
+        );
+
+        return back()->with('success', "Carrying on with {$mapped} SKUs. The remaining {$balance} stay on the SKUs tab and "
+            . 'you will be told as soon as Supply Chain maps them.');
     }
 
     public function assign(Request $request, ProductRequest $productRequest, #[CurrentUser] User $user): RedirectResponse
@@ -1242,11 +1343,52 @@ class ProductRequestController extends Controller implements HasMiddleware
 
     // ── Notifications ────────────────────────────────────────────────────────
 
-    public function notifications(#[CurrentUser] User $user): View
+    /**
+     * The reader's notifications, their own work first.
+     *
+     * Defaults to "mine": the messages that name this person. Team-wide status
+     * changes and the copies that go to followers are still here under
+     * "everything", but they are not what the page opens on.
+     */
+    public function notifications(Request $request, #[CurrentUser] User $user): View
     {
-        $notifications = $user->notifications()->paginate(30);
+        $scope = $request->query('scope') === 'all' ? 'all' : 'mine';
 
-        return view('product-requests.notifications', compact('notifications'));
+        $notifications = ($scope === 'all' ? $user->notifications() : $user->ownNotifications())
+            ->latest()
+            ->paginate(30)
+            ->withQueryString();
+
+        return view('product-requests.notifications', [
+            'notifications' => $notifications,
+            'scope'         => $scope,
+            'mineUnread'    => $user->unreadOwnNotifications()->count(),
+            'allUnread'     => $user->unreadNotifications()->count(),
+        ]);
+    }
+
+    /**
+     * Unread count and the newest few, for the top bar to poll.
+     *
+     * Notifications arrive from queued jobs and hourly checks, so without this
+     * the bell only updates when somebody happens to load a page.
+     */
+    public function notificationFeed(#[CurrentUser] User $user): JsonResponse
+    {
+        $unread = $user->unreadOwnNotifications()->latest()->limit(8)->get();
+
+        return response()->json([
+            'unread' => $unread->count(),
+            'items'  => $unread->map(fn ($note) => [
+                'id'      => $note->id,
+                'kind'    => $note->data['kind'] ?? null,
+                'title'   => $note->data['reference'] ?? 'Request',
+                'body'    => trim(($note->data['brand'] ?? '') . ' · ' . ($note->data['status_label'] ?? ''), ' ·'),
+                'url'     => !empty($note->data['request_id'])
+                    ? route('product-requests.show', $note->data['request_id'])
+                    : route('product-requests.notifications'),
+            ])->values(),
+        ]);
     }
 
     public function readNotifications(Request $request, #[CurrentUser] User $user): RedirectResponse

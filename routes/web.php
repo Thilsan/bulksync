@@ -13,6 +13,7 @@ use App\Http\Controllers\SkuCheckerController;
 use App\Http\Controllers\StoreImageSyncController;
 use App\Http\Controllers\MetafieldUpdateController;
 use App\Http\Controllers\AiContentController;
+use App\Http\Controllers\PhotoshootRoomController;
 use App\Http\Controllers\ProductRequestController;
 use Illuminate\Support\Facades\Route;
 
@@ -118,12 +119,18 @@ Route::middleware('auth')->group(function () {
         Route::get('/queue/{queue}',           [ProductRequestController::class, 'queue'])->name('queue')
             ->whereIn('queue', ['photoshoot', 'content']);
 
+        // The Photoshoot Room: one calendar everyone reads, one person edits.
+        Route::get('/photoshoot-room',                          [PhotoshootRoomController::class, 'index'])->name('photoshoot-room');
+        Route::put('/photoshoot-room/{productRequest}',          [PhotoshootRoomController::class, 'update'])->name('photoshoot-room.update');
+
         Route::get('/notifications',           [ProductRequestController::class, 'notifications'])->name('notifications');
+        Route::get('/notifications/feed',      [ProductRequestController::class, 'notificationFeed'])->name('notifications.feed');
         Route::post('/notifications/read',     [ProductRequestController::class, 'readNotifications'])->name('notifications.read');
 
         Route::get('/{productRequest}',                    [ProductRequestController::class, 'show'])->name('show');
         Route::get('/{productRequest}/status',             [ProductRequestController::class, 'status'])->name('status');
         Route::put('/{productRequest}',                    [ProductRequestController::class, 'update'])->name('update');
+        Route::delete('/{productRequest}',                 [ProductRequestController::class, 'destroy'])->name('destroy');
         Route::get('/{productRequest}/activities',         [ProductRequestController::class, 'activities'])->name('activities');
         Route::get('/{productRequest}/skus/download',      [ProductRequestController::class, 'downloadSkus'])->name('skus.download');
 
@@ -131,6 +138,7 @@ Route::middleware('auth')->group(function () {
         Route::post('/{productRequest}/skus',              [ProductRequestController::class, 'addSkus'])->name('skus.add');
         Route::post('/{productRequest}/skus/mapping',      [ProductRequestController::class, 'updateMapping'])->name('skus.mapping');
         Route::post('/{productRequest}/transition',        [ProductRequestController::class, 'transition'])->name('transition');
+        Route::post('/{productRequest}/continue-mapped',   [ProductRequestController::class, 'continueWithMapped'])->name('continue-mapped');
         Route::post('/{productRequest}/assign',            [ProductRequestController::class, 'assign'])->name('assign');
         Route::post('/{productRequest}/claim',             [ProductRequestController::class, 'claim'])->name('claim');
         Route::post('/{productRequest}/reassign',          [ProductRequestController::class, 'reassign'])->name('reassign');

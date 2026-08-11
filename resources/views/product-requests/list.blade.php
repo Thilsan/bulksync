@@ -208,6 +208,9 @@
                         <th class="px-3 py-2.5 font-medium">Status</th>
                         <th class="px-3 py-2.5 font-medium">Priority</th>
                         <th class="px-5 py-2.5 font-medium">Waiting On</th>
+                        @if(auth()->user()->is_super_admin)
+                            <th class="px-3 py-2.5 w-8"><span class="sr-only">Delete</span></th>
+                        @endif
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-gray-50">
@@ -230,6 +233,10 @@
                                 <span class="inline-flex items-center gap-1" title="Pending mapping"><span class="w-2 h-2 rounded-full bg-amber-500"></span>{{ $item->pending_skus }}</span>
                                 <span class="inline-flex items-center gap-1" title="Not mapped"><span class="w-2 h-2 rounded-full bg-red-500"></span>{{ $item->not_mapped_skus }}</span>
                             </div>
+                            @if($item->hasSkuBalance())
+                                {{-- How much of it can actually go live. --}}
+                                <p class="text-[11px] text-amber-700 font-medium mt-1">{{ $item->skuCompletionPercent() }}% ready</p>
+                            @endif
                         </td>
                         <td class="px-3 py-3 whitespace-nowrap {{ $item->isOverdue() ? 'text-red-600 font-medium' : 'text-gray-600' }}">
                             {{ $item->online_launch_date?->format('d M Y') ?? '—' }}
@@ -272,6 +279,24 @@
                                 <p class="text-xs text-amber-600">unassigned</p>
                             @endif
                         </td>
+                        {{-- Deleting is a super admin's job: everyone else cancels,
+                             which keeps the history. --}}
+                        @if(auth()->user()->is_super_admin)
+                            <td class="px-3 py-3 text-right">
+                                <form method="POST" action="{{ route('product-requests.destroy', $item) }}"
+                                      onsubmit="return confirm('Delete {{ addslashes($item->reference) }} — {{ addslashes($item->displayName()) }}?\n\nThis removes its {{ $item->total_skus }} SKU(s), activity trail, assignments and attachments for good. Cancel the request instead if you want to keep the record.')">
+                                    @csrf
+                                    @method('DELETE')
+                                    <button type="submit" title="Delete this request"
+                                            class="text-gray-300 hover:text-red-600 transition-colors">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                                        </svg>
+                                    </button>
+                                </form>
+                            </td>
+                        @endif
                     </tr>
                     @endforeach
                 </tbody>

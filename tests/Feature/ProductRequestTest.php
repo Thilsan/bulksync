@@ -7,6 +7,7 @@ use App\Models\ProductRequestActivity;
 use App\Models\Store;
 use App\Models\User;
 use App\Notifications\ProductRequestAssigned;
+use App\Notifications\ProductRequestBalanceMapped;
 use App\Notifications\ProductRequestCommented;
 use App\Notifications\ProductRequestHandedOff;
 use App\Notifications\ProductRequestReminder;
@@ -568,6 +569,483 @@ class ProductRequestTest extends TestCase
         // Ahmad keeps everything else — listed in dropdown order, not the order
         // the tick boxes happened to be saved in.
         $this->assertSame(['Home', "Women's Fashion", 'Kids'], $ahmad->fresh()->ownedCategories());
+    }
+
+    // ── Notifications: mine versus the team's ────────────────────────────────
+
+    public function test_the_bell_only_rings_for_your_own_work(): void
+    {
+        // Not faked: the point of this test is the rows that get written.
+        $author = $this->brandManager();
+        $store  = $this->plainSite();
+        $author->stores()->sync([$store->id]);
+
+        $shooter = $this->photographer();
+
+        // A second photographer hears about photoshoot stages by role, but holds
+        // nothing on this request.
+        $bystander = User::create([
+            'name' => 'Other Studio', 'email' => 'studio2@example.test', 'password' => 'password',
+            'is_active' => true, 'perm_product_request' => true, 'pcr_role' => 'photographer',
+        ]);
+
+        $request = $this->submitFor($author, $store, 'BELL-1');
+
+        app(ProductRequestWorkflow::class)->transition($request->refresh(), ProductRequest::WAITING_IMAGES, $author, 'Off to the studio');
+
+        // The assignee's own task, and the requester's own request, both count.
+        $this->assertGreaterThan(0, $shooter->fresh()->unreadOwnNotifications()->count());
+        $this->assertGreaterThan(0, $author->fresh()->unreadOwnNotifications()->count());
+
+        // The bystander was told, but it is not their work — no bell.
+        $this->assertGreaterThan(0, $bystander->fresh()->unreadNotifications()->count());
+        $this->assertSame(0, $bystander->fresh()->unreadOwnNotifications()->count());
+    }
+
+    public function test_the_notifications_page_opens_on_your_own_work(): void
+    {
+        $author = $this->brandManager();
+        $store  = $this->plainSite();
+        $author->stores()->sync([$store->id]);
+
+        $bystander = User::create([
+            'name' => 'Other Studio', 'email' => 'studio3@example.test', 'password' => 'password',
+            'is_active' => true, 'perm_product_request' => true, 'pcr_role' => 'photographer',
+        ]);
+
+        $request = $this->submitFor($author, $store, 'PAGE-1');
+        app(ProductRequestWorkflow::class)->transition($request->refresh(), ProductRequest::WAITING_IMAGES, $author, 'Off to the studio');
+
+        // Default view: nothing, because none of it is theirs.
+        $this->actingAs($bystander)->get(route('product-requests.notifications'))
+            ->assertOk()
+            ->assertSee('Nothing waiting on you')
+            ->assertDontSee($request->reference);
+
+        // Everything: the team update is here, marked as FYI.
+        $this->actingAs($bystander)->get(route('product-requests.notifications', ['scope' => 'all']))
+            ->assertOk()
+            ->assertSee($request->reference)
+            ->assertSee('FYI');
+    }
+
+    public function test_the_feed_endpoint_returns_only_this_users_unread_work(): void
+    {
+        $author = $this->brandManager();
+        $store  = $this->plainSite();
+        $author->stores()->sync([$store->id]);
+
+        $request = $this->submitFor($author, $store, 'FEED-1');
+
+        $this->actingAs($author)->getJson(route('product-requests.notifications.feed'))
+            ->assertOk()
+            ->assertJsonStructure(['unread', 'items' => [['id', 'kind', 'title', 'body', 'url']]]);
+
+        // Somebody with no stake in anything gets an empty feed, not everyone's.
+        $outsider = User::create([
+            'name' => 'Nobody', 'email' => 'nobody@example.test', 'password' => 'password',
+            'is_active' => true, 'perm_product_request' => true,
+        ]);
+
+        $this->actingAs($outsider)->getJson(route('product-requests.notifications.feed'))
+            ->assertOk()
+            ->assertJson(['unread' => 0, 'items' => []]);
+    }
+
+    // ── Deleting ─────────────────────────────────────────────────────────────
+
+    public function test_only_a_super_admin_can_delete_a_request(): void
+    {
+        Notification::fake();
+        Storage::fake('local');
+
+        $author  = $this->brandManager();
+        $request = $this->submitFor($author, $this->plainSite(), "DEL-1\nDEL-2");
+
+        // The person who raised it can cancel, not delete.
+        $this->actingAs($author)->delete(route('product-requests.destroy', $request))->assertForbidden();
+        $this->assertDatabaseHas('product_requests', ['id' => $request->id]);
+
+        // Not offered in the list either.
+        $this->actingAs($author)->get(route('product-requests.list'))
+            ->assertOk()
+            ->assertDontSee('Delete this request');
+
+        $admin = User::create([
+            'name' => 'Root', 'email' => 'root2@example.test', 'password' => 'password',
+            'is_active' => true, 'is_super_admin' => true,
+        ]);
+
+        $this->actingAs($admin)->get(route('product-requests.list'))
+            ->assertOk()
+            ->assertSee('Delete this request');
+
+        $this->actingAs($admin)->delete(route('product-requests.destroy', $request))
+            ->assertRedirect(route('product-requests.list'));
+
+        // The request and everything hanging off it are gone.
+        $this->assertDatabaseMissing('product_requests', ['id' => $request->id]);
+        $this->assertDatabaseMissing('product_request_skus', ['product_request_id' => $request->id]);
+        $this->assertDatabaseMissing('product_request_activities', ['product_request_id' => $request->id]);
+        $this->assertDatabaseMissing('product_request_assignments', ['product_request_id' => $request->id]);
+    }
+
+    public function test_deleting_takes_the_attachment_files_and_bell_entries_with_it(): void
+    {
+        Notification::fake();
+
+        $author  = $this->brandManager();
+        $request = $this->submitFor($author, $this->plainSite(), 'DELFILE-1');
+
+        $this->actingAs($author)->post(route('product-requests.attachments.store', $request), [
+            'reference_images' => [UploadedFile::fake()->image('swatch.jpg')],
+        ])->assertRedirect();
+
+        $attachment = $request->attachments()->firstOrFail();
+        $path       = storage_path("app/{$attachment->path}");
+
+        $this->assertFileExists($path);
+
+        // A bell entry pointing at this request, the way a real one is stored.
+        DB::table('notifications')->insert([
+            'id'              => (string) \Illuminate\Support\Str::uuid(),
+            'type'            => ProductRequestAssigned::class,
+            'notifiable_type' => User::class,
+            'notifiable_id'   => $author->id,
+            'data'            => json_encode(['kind' => 'assigned', 'request_id' => $request->id, 'reference' => $request->reference]),
+            'created_at'      => now(),
+            'updated_at'      => now(),
+        ]);
+
+        $admin = User::create([
+            'name' => 'Root', 'email' => 'root3@example.test', 'password' => 'password',
+            'is_active' => true, 'is_super_admin' => true,
+        ]);
+
+        $this->actingAs($admin)->delete(route('product-requests.destroy', $request))->assertRedirect();
+
+        // A file nobody can reach is just disk, and a bell entry linking to a
+        // deleted request is a dead end.
+        $this->assertFileDoesNotExist($path);
+        $this->assertSame(0, DB::table('notifications')
+            ->where('data', 'like', '%"request_id":' . $request->id . ',%')->count());
+    }
+
+    // ── Carrying on with part of a request ───────────────────────────────────
+
+    /** Mark some of a request's SKUs mapped, the way Supply Chain would. */
+    private function mapSome(ProductRequest $request, int $howMany): ProductRequest
+    {
+        $rows    = $request->skus()->orderBy('id')->limit($howMany)->get();
+        $mapping = app(SkuMappingService::class);
+
+        $mapping->setMappingStatus($rows, ProductRequest::MAP_MAPPED, $request->user, 'Mapped in Cegid');
+        $mapping->rollUp($request);
+
+        return $request->refresh();
+    }
+
+    public function test_ten_mapped_skus_do_not_wait_on_ten_that_are_not(): void
+    {
+        Notification::fake();
+
+        $author  = $this->brandManager();
+        $skus    = collect(range(1, 20))->map(fn ($i) => 'BAL-' . $i)->implode("\n");
+        $request = $this->submitFor($author, $this->mappingSite(), $skus);
+
+        // Cegid site, nothing mapped: the request parks with Supply Chain.
+        $this->assertSame(ProductRequest::WAITING_MAPPING, $request->status);
+        $this->assertSame(20, $request->balanceSkus());
+        $this->assertSame(0, $request->skuCompletionPercent());
+
+        // With nothing mapped there is genuinely nothing to get on with.
+        $this->assertFalse($request->canContinueWithMapped());
+        $this->assertSame([ProductRequest::CANCELLED], $request->allowedTransitions());
+
+        $request = $this->mapSome($request, 10);
+
+        $this->assertSame(10, $request->mapped_skus);
+        $this->assertSame(10, $request->balanceSkus());
+        $this->assertSame(50, $request->skuCompletionPercent());
+        $this->assertTrue($request->canContinueWithMapped());
+
+        $this->actingAs($author)->post(route('product-requests.continue-mapped', $request))->assertRedirect();
+
+        $request->refresh();
+
+        // The mapped half moves on; the balance is still recorded against it.
+        $this->assertSame(ProductRequest::SKU_VERIFIED, $request->status);
+        $this->assertSame(10, $request->balanceSkus());
+        $this->assertTrue($request->hasSkuBalance());
+
+        // And the reason is on the record, percentage included.
+        $this->assertTrue($request->activities()
+            ->where('description', 'like', '%Continuing with 10 of 20 SKUs%')
+            ->orWhere('remarks', 'like', '%Continuing with 10 of 20 SKUs (50%)%')
+            ->exists());
+    }
+
+    public function test_supply_chain_mapping_the_balance_tells_the_people_waiting_on_it(): void
+    {
+        Notification::fake();
+
+        $author  = $this->brandManager();
+        $request = $this->submitFor($author, $this->mappingSite(), "BAL-1\nBAL-2\nBAL-3\nBAL-4");
+
+        $request = $this->mapSome($request, 2);
+        $this->actingAs($author)->post(route('product-requests.continue-mapped', $request))->assertRedirect();
+
+        $supplyChain = User::create([
+            'name' => 'Cegid Desk', 'email' => 'cegid@example.test', 'password' => 'password',
+            'is_active' => true, 'perm_product_request' => true, 'pcr_role' => 'supply_chain',
+        ]);
+
+        // Supply Chain maps one of the balance on the SKUs tab.
+        $third = $request->skus()->where('mapping_status', ProductRequest::MAP_PENDING)->orderBy('id')->first();
+
+        $this->actingAs($supplyChain)->post(route('product-requests.skus.mapping', $request), [
+            'sku_ids'        => [$third->id],
+            'mapping_status' => ProductRequest::MAP_MAPPED,
+            'scope'          => 'selected',
+        ])->assertRedirect();
+
+        Notification::assertSentTo($author, ProductRequestBalanceMapped::class, function ($n) {
+            return $n->justMapped === 1 && $n->mapped === 3 && $n->total === 4
+                && $n->remaining === 1 && !$n->isComplete();
+        });
+
+        // The last one lands: the message says it can be finished now.
+        $last = $request->skus()->where('mapping_status', ProductRequest::MAP_PENDING)->orderBy('id')->first();
+
+        $this->actingAs($supplyChain)->post(route('product-requests.skus.mapping', $request), [
+            'sku_ids'        => [$last->id],
+            'mapping_status' => ProductRequest::MAP_MAPPED,
+            'scope'          => 'selected',
+        ])->assertRedirect();
+
+        Notification::assertSentTo($author, ProductRequestBalanceMapped::class,
+            fn ($n) => $n->isComplete() && $n->remaining === 0 && $n->mapped === 4);
+
+        $this->assertFalse($request->fresh()->hasSkuBalance());
+        $this->assertSame(100, $request->fresh()->skuCompletionPercent());
+    }
+
+    public function test_the_hourly_check_announces_a_balance_that_appears_in_shopify_by_itself(): void
+    {
+        Notification::fake();
+
+        $author  = $this->brandManager();
+        $request = $this->submitFor($author, $this->mappingSite(), "BAL-1\nBAL-2");
+
+        $request = $this->mapSome($request, 1);
+        $this->actingAs($author)->post(route('product-requests.continue-mapped', $request))->assertRedirect();
+
+        // The remaining SKU was never touched by hand, so the read-only Shopify
+        // check owns it. Warm the SKU cache the way the nightly warm does, with
+        // the product now present — that is what "created in Shopify later" looks
+        // like to this code.
+        $shop = $request->store->shopify_domain;
+
+        \Illuminate\Support\Facades\Cache::put('shopify_sku_warmed_' . md5($shop), 1);
+
+        foreach ($request->skus as $row) {
+            \Illuminate\Support\Facades\Cache::put(
+                'shopify_sku_' . md5($shop) . '_v1_' . md5($row->sku),
+                [['product_id' => 111, 'product_title' => 'Now in Shopify', 'published' => true]],
+            );
+        }
+
+        app(\App\Jobs\RecheckProductRequestMappingsJob::class)->handle(
+            app(SkuMappingService::class),
+            app(ProductRequestWorkflow::class),
+        );
+
+        // Nothing was re-submitted; the request simply reports itself finished.
+        Notification::assertSentTo($author, ProductRequestBalanceMapped::class,
+            fn ($n) => $n->isComplete() && $n->mapped === 2);
+    }
+
+    public function test_a_site_without_cegid_has_no_balance_to_wait_for(): void
+    {
+        Notification::fake();
+
+        // Not a mapping site: a SKU missing from Shopify is just a product nobody
+        // has uploaded yet, which is the normal state of a new brand.
+        $request = $this->submitFor($this->brandManager(), $this->plainSite(), "NB-1\nNB-2");
+
+        $this->assertSame(0, $request->balanceSkus());
+        $this->assertFalse($request->hasSkuBalance());
+        $this->assertFalse($request->canContinueWithMapped());
+        $this->assertNotSame(ProductRequest::WAITING_MAPPING, $request->status);
+    }
+
+    // ── The Photoshoot Room ──────────────────────────────────────────────────
+
+    public function test_a_shoot_enters_the_room_pending_and_leaves_when_it_is_not_needed(): void
+    {
+        Notification::fake();
+
+        $author  = $this->brandManager();
+        $request = $this->submitFor($author, $this->plainSite(), 'ROOM-1');
+
+        // Raised as "we are photographing" — it needs a date, not noticing.
+        $this->assertSame(ProductRequest::SHOOT_PENDING, $request->photoshoot_status);
+        $this->assertTrue($request->shootIsOpen());
+
+        // Switching to supplier images takes it out of the room entirely.
+        $this->actingAs($author)->put(route('product-requests.update', $request), [
+            'brand'              => $request->brand,
+            'category'           => $request->category,
+            'online_launch_date' => now()->addDays(20)->format('Y-m-d H:i'),
+            'image_source'       => ProductRequest::IMG_SUPPLIER,
+            'images_location'    => ProductRequest::IMAGES_AT_PIM,
+            'use_ai_content'     => 1,
+            'priority'           => 'low',
+        ])->assertRedirect();
+
+        $this->assertNull($request->fresh()->photoshoot_status);
+        $this->assertSame(0, ProductRequest::withPhotoshoot()->count());
+    }
+
+    public function test_only_the_coordinator_can_change_the_calendar(): void
+    {
+        Notification::fake();
+
+        $author  = $this->brandManager();
+        $request = $this->submitFor($author, $this->plainSite(), 'ROOM-2');
+
+        $booking = [
+            'photoshoot_status'       => ProductRequest::SHOOT_SCHEDULED,
+            'photoshoot_scheduled_at' => now()->addDays(4)->format('Y-m-d H:i'),
+            'photoshoot_studio'       => 'Studio 2, Doha',
+        ];
+
+        // Everyone can read the room…
+        $this->actingAs($author)->get(route('product-requests.photoshoot-room'))->assertOk();
+
+        // …but the brand manager cannot book anything.
+        $this->actingAs($author)
+            ->put(route('product-requests.photoshoot-room.update', $request), $booking)
+            ->assertForbidden();
+
+        $this->assertSame(ProductRequest::SHOOT_PENDING, $request->fresh()->photoshoot_status);
+
+        $coordinator = $this->photographer();
+
+        $this->actingAs($coordinator)
+            ->put(route('product-requests.photoshoot-room.update', $request), $booking)
+            ->assertRedirect();
+
+        $request->refresh();
+
+        $this->assertSame(ProductRequest::SHOOT_SCHEDULED, $request->photoshoot_status);
+        $this->assertSame('Studio 2, Doha', $request->photoshoot_studio);
+        // A booking carries a time, not just a day.
+        $this->assertSame(now()->addDays(4)->format('Y-m-d H:i'), $request->photoshoot_scheduled_at->format('Y-m-d H:i'));
+    }
+
+    public function test_a_shoot_cannot_be_scheduled_without_a_date(): void
+    {
+        Notification::fake();
+
+        $request     = $this->submitFor($this->brandManager(), $this->plainSite(), 'ROOM-3');
+        $coordinator = $this->photographer();
+
+        $this->actingAs($coordinator)
+            ->put(route('product-requests.photoshoot-room.update', $request), [
+                'photoshoot_status' => ProductRequest::SHOOT_SCHEDULED,
+            ])
+            ->assertSessionHasErrors('photoshoot_scheduled_at');
+
+        $this->assertSame(ProductRequest::SHOOT_PENDING, $request->fresh()->photoshoot_status);
+
+        // Cancelling needs no date — the shoot is not happening.
+        $this->actingAs($coordinator)
+            ->put(route('product-requests.photoshoot-room.update', $request), [
+                'photoshoot_status' => ProductRequest::SHOOT_CANCELLED,
+            ])
+            ->assertRedirect();
+
+        $this->assertSame(ProductRequest::SHOOT_CANCELLED, $request->fresh()->photoshoot_status);
+    }
+
+    public function test_booking_and_finishing_a_shoot_moves_the_request_with_it(): void
+    {
+        Notification::fake();
+
+        $request     = $this->submitFor($this->brandManager(), $this->plainSite(), 'ROOM-4');
+        $coordinator = $this->photographer();
+
+        // Get the request to the stage where a shoot is the next thing.
+        $request->update(['status' => ProductRequest::WAITING_IMAGES]);
+
+        $this->actingAs($coordinator)->put(route('product-requests.photoshoot-room.update', $request), [
+            'photoshoot_status'       => ProductRequest::SHOOT_SCHEDULED,
+            'photoshoot_scheduled_at' => now()->addDays(2)->format('Y-m-d H:i'),
+        ])->assertRedirect();
+
+        $this->assertSame(ProductRequest::PHOTOSHOOT_SCHEDULED, $request->fresh()->status);
+
+        $this->actingAs($coordinator)->put(route('product-requests.photoshoot-room.update', $request), [
+            'photoshoot_status'       => ProductRequest::SHOOT_COMPLETED,
+            'photoshoot_scheduled_at' => now()->subDay()->format('Y-m-d H:i'),
+        ])->assertRedirect();
+
+        $request->refresh();
+
+        $this->assertSame(ProductRequest::PHOTOSHOOT_COMPLETED, $request->status);
+        // Done is done: a past date no longer counts as late.
+        $this->assertFalse($request->isShootOverdue());
+    }
+
+    public function test_a_calendar_tidy_up_never_drags_a_request_backwards(): void
+    {
+        Notification::fake();
+
+        $request     = $this->submitFor($this->brandManager(), $this->plainSite(), 'ROOM-5');
+        $coordinator = $this->photographer();
+
+        // The request has moved well past the shoot.
+        $request->update(['status' => ProductRequest::QA_REVIEW]);
+
+        $this->actingAs($coordinator)->put(route('product-requests.photoshoot-room.update', $request), [
+            'photoshoot_status'       => ProductRequest::SHOOT_SCHEDULED,
+            'photoshoot_scheduled_at' => now()->addDay()->format('Y-m-d H:i'),
+        ])->assertRedirect();
+
+        // The booking is recorded; the request stays where it is.
+        $request->refresh();
+        $this->assertSame(ProductRequest::SHOOT_SCHEDULED, $request->photoshoot_status);
+        $this->assertSame(ProductRequest::QA_REVIEW, $request->status);
+    }
+
+    public function test_the_room_shows_the_shoot_and_leaves_supplier_requests_out(): void
+    {
+        Notification::fake();
+
+        $author = $this->brandManager();
+        $shoot  = $this->submitFor($author, $this->plainSite(), 'ROOM-6');
+        $store  = $this->mappingSite();
+        $author->stores()->syncWithoutDetaching([$store->id]);
+
+        $this->actingAs($author)->post(route('product-requests.store'), [
+            'store_id'           => $store->id,
+            'request_type'       => 'new_brand',
+            'brand'              => 'Rimowa',
+            'category'           => 'Luggage',
+            'skus'               => 'NOSHOOT-1',
+            'online_launch_date' => now()->addDays(18)->format('Y-m-d H:i'),
+            'image_source'       => ProductRequest::IMG_SUPPLIER,
+            'images_location'    => ProductRequest::IMAGES_AT_PIM,
+            'use_ai_content'     => 1,
+            'priority'           => 'low',
+        ])->assertRedirect();
+
+        $this->actingAs($author)->get(route('product-requests.photoshoot-room'))
+            ->assertOk()
+            ->assertSee($shoot->reference)
+            ->assertSee('Awaiting a date')
+            ->assertDontSee('NOSHOOT-1');
     }
 
     // ── Brand managers follow their categories ───────────────────────────────
@@ -2539,6 +3017,32 @@ class ProductRequestTest extends TestCase
 
         $this->assertStringContainsString('Cancelled', $cancelled);
         $this->assertStringNotContainsString('Waiting on', $cancelled);
+    }
+
+    public function test_the_balance_email_quotes_the_share_and_changes_tone_when_it_is_done(): void
+    {
+        Notification::fake();
+
+        $user    = $this->brandManager();
+        $request = $this->submitFor($user, $this->mappingSite(), "MAILBAL-1\nMAILBAL-2\nMAILBAL-3\nMAILBAL-4");
+
+        $request = $this->mapSome($request, 3);
+
+        $partial = ProductRequestBalanceMapped::forRequest($request, 2);
+        $html    = $partial->toMail($user)->render();
+
+        $this->assertStringContainsString('3 of 4 mapped (75%)', $html);
+        $this->assertStringContainsString('1 still with Supply Chain', $html);
+        // The bell entry says the same thing in one line.
+        $this->assertSame('3 of 4 SKUs mapped', $partial->toArray($user)['status_label']);
+
+        // The last one changes what the email is for: finish it and close it.
+        $request = $this->mapSome($request, 4);
+        $done    = ProductRequestBalanceMapped::forRequest($request, 1);
+
+        $this->assertTrue($done->isComplete());
+        $this->assertStringContainsString('ready to finish', $done->toMail($user)->subject);
+        $this->assertStringContainsString('Nothing is outstanding', $done->toMail($user)->render());
     }
 
     public function test_the_reminder_email_only_lists_that_persons_own_work(): void
