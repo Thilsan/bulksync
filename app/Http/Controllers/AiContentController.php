@@ -13,14 +13,75 @@ use Illuminate\Support\Facades\Log;
 
 class AiContentController extends Controller
 {
+    /**
+     * The generator form. Session history moved to history() so this page can
+     * be just the one job it does.
+     */
     public function index()
+    {
+        $activeStore = Store::getActive();
+
+        return view('ai-content.index', compact('activeStore'));
+    }
+
+    /**
+     * Overview of AI content activity. Scoped to the signed-in user's own
+     * sessions, matching how every other screen in this module reads.
+     */
+    public function dashboard()
+    {
+        $scope = fn () => AiContentSession::where('user_id', auth()->id());
+
+        $sessionIds = (clone $scope())->select('id');
+
+        // Item-level counts are what people actually ask about ("how many
+        // descriptions were written"), so they come off the items table.
+        $totals = [
+            'sessions'   => (clone $scope())->count(),
+            'items'      => (int) (clone $scope())->sum('total_items'),
+            'processed'  => (int) (clone $scope())->sum('processed_items'),
+            'translated' => AiContentItem::whereIn('session_id', $sessionIds)->whereNotNull('ai_description_ar')->count(),
+            'confirmed'  => AiContentItem::whereIn('session_id', $sessionIds)->where('is_confirmed', true)->count(),
+        ];
+
+        $running = (clone $scope())
+            ->whereIn('status', ['pending', 'processing', 'translating', 'pushing'])
+            ->with('store')
+            ->latest()
+            ->limit(4)
+            ->get();
+
+        $recent = (clone $scope())->with('store')->latest()->limit(6)->get();
+
+        // 14 days of daily output, zero-filled so the chart has no gaps.
+        $rows = (clone $scope())
+            ->where('created_at', '>=', now()->subDays(13)->startOfDay())
+            ->selectRaw('DATE(created_at) AS day')
+            ->selectRaw('COALESCE(SUM(processed_items), 0) AS processed')
+            ->groupBy('day')
+            ->pluck('processed', 'day');
+
+        $daily = collect(range(13, 0))->map(function ($back) use ($rows) {
+            $date = now()->subDays($back)->startOfDay();
+
+            return [
+                'date'      => $date,
+                'processed' => (int) ($rows[$date->format('Y-m-d')] ?? 0),
+            ];
+        });
+
+        return view('ai-content.dashboard', compact('totals', 'running', 'recent', 'daily'));
+    }
+
+    /** Every session this user has run, paginated. */
+    public function history()
     {
         $sessions = AiContentSession::where('user_id', auth()->id())
             ->with('store')
             ->latest()
             ->paginate(20);
 
-        return view('ai-content.index', compact('sessions'));
+        return view('ai-content.history', compact('sessions'));
     }
 
     public function store(Request $request)
@@ -250,6 +311,8 @@ class AiContentController extends Controller
     {
         abort_if($aiContentSession->user_id !== auth()->id(), 403);
         $aiContentSession->delete();
-        return redirect()->route('ai-content.index')->with('success', 'Session deleted.');
+
+        // Back to the list the delete was triggered from, not the generator form.
+        return redirect()->route('ai-content.history')->with('success', 'Session deleted.');
     }
 }

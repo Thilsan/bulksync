@@ -102,6 +102,9 @@ Route::middleware('auth')->group(function () {
     // AI Content
     Route::get('/ai-content',                          [AiContentController::class, 'index'])->name('ai-content.index');
     Route::post('/ai-content',                         [AiContentController::class, 'store'])->name('ai-content.store');
+    // Both must stay above /{aiContentSession}, or the words get bound as an id.
+    Route::get('/ai-content/dashboard',                [AiContentController::class, 'dashboard'])->name('ai-content.dashboard');
+    Route::get('/ai-content/history',                  [AiContentController::class, 'history'])->name('ai-content.history');
     Route::get('/ai-content/{aiContentSession}',       [AiContentController::class, 'show'])->name('ai-content.show');
     Route::get('/ai-content/{aiContentSession}/status',[AiContentController::class, 'status'])->name('ai-content.status');
     Route::get('/ai-content/{aiContentSession}/items', [AiContentController::class, 'items'])->name('ai-content.items');

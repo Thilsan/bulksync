@@ -192,7 +192,18 @@
                     ['label' => 'Product Migration',    'url' => route('store-image-sync.index'),  'icon' => 'swap',   'on' => request()->routeIs('store-image-sync.*'),  'show' => $u->hasFeature('store_sync')],
                     ['label' => 'SKU Checker',          'url' => route('sku-checker.index'),       'icon' => 'check',  'on' => request()->routeIs('sku-checker.*'),       'show' => $u->hasFeature('sku_checker')],
                     ['label' => 'Metafield Checker',    'url' => route('metafield-update.index'),  'icon' => 'doc',    'on' => request()->routeIs('metafield-update.*'),  'show' => $u->hasFeature('metafield_update')],
-                    ['label' => 'AI Content Generator', 'url' => route('ai-content.index'),        'icon' => 'screen', 'on' => request()->routeIs('ai-content.*'),        'show' => $u->hasFeature('ai_content')],
+                    [
+                        'label' => 'AI Content Generator',
+                        'url'   => route('ai-content.dashboard'),
+                        'icon'  => 'screen',
+                        'on'    => request()->routeIs('ai-content.*'),
+                        'show'  => $u->hasFeature('ai_content'),
+                        // Parent links to the overview, so it isn't repeated here.
+                        'children' => [
+                            ['label' => 'New Content',  'url' => route('ai-content.index'),   'on' => request()->routeIs('ai-content.index')],
+                            ['label' => 'All Sessions', 'url' => route('ai-content.history'), 'on' => request()->routeIs('ai-content.history')],
+                        ],
+                    ],
                     [
                         'label' => 'Product Requests',
                         'url'   => route('product-requests.index'),
@@ -233,6 +244,33 @@
             ->filter(fn ($g) => count($g['items']) > 0)
             ->values();
 
+        /*
+            Top-bar breadcrumb, read off the same nav data rather than declared
+            per page. The section always shows; the parent is added only when a
+            sub-page is open, so the crumb never just repeats the page title.
+        */
+        $crumbs = [];
+
+        foreach ($navGroups as $group) {
+            foreach ($group['items'] as $item) {
+                if (! ($item['on'] ?? false)) {
+                    continue;
+                }
+
+                if ($group['label']) {
+                    $crumbs[] = ['label' => $group['label']];
+                }
+
+                foreach ($item['children'] ?? [] as $child) {
+                    if ($child['on'] ?? false) {
+                        $crumbs[] = ['label' => $item['label'], 'url' => $item['url']];
+                        break;
+                    }
+                }
+
+                break 2;
+            }
+        }
     @endphp
 
     {{-- Backdrop for the mobile drawer --}}
@@ -392,11 +430,12 @@
 
     </aside>
 
-    {{-- Main content --}}
-    <div class="flex-1 flex flex-col overflow-hidden">
+    {{-- Main content. `scrolled` lifts the top bar off the page once you scroll. --}}
+    <div class="flex-1 flex flex-col overflow-hidden" x-data="{ scrolled: false }">
 
         {{-- Top bar --}}
-        <header class="relative bg-white border-b border-gray-200 px-4 sm:px-8 py-4 flex items-center justify-between gap-3 shrink-0">
+        <header class="relative z-20 flex shrink-0 items-center justify-between gap-3 border-b bg-white px-4 py-3 transition-shadow sm:px-8"
+                :class="scrolled ? 'border-transparent shadow-[0_1px_3px_rgba(15,23,42,.10),0_8px_24px_-16px_rgba(15,23,42,.25)]' : 'border-gray-200'">
             <div class="flex min-w-0 items-center gap-3">
                 <button type="button" @click="nav = true"
                         class="-ml-1 grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-gray-200 text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-700 lg:hidden"
@@ -405,46 +444,72 @@
                         <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16"/>
                     </svg>
                 </button>
-                <h1 class="truncate text-lg sm:text-xl font-semibold text-gray-800">@yield('page-title', 'Dashboard')</h1>
+                <div class="min-w-0">
+                    @if($crumbs)
+                        <nav class="flex items-center gap-1 text-[11px] font-medium text-gray-400" aria-label="Breadcrumb">
+                            @foreach($crumbs as $i => $crumb)
+                                @if($i > 0)
+                                    <svg class="h-3 w-3 shrink-0 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+                                    </svg>
+                                @endif
+                                @if(!empty($crumb['url']))
+                                    <a href="{{ $crumb['url'] }}" class="truncate transition-colors hover:text-gray-600">{{ $crumb['label'] }}</a>
+                                @else
+                                    <span class="truncate">{{ $crumb['label'] }}</span>
+                                @endif
+                            @endforeach
+                        </nav>
+                    @endif
+                    <h1 class="truncate text-lg font-semibold leading-tight text-gray-900 sm:text-xl">@yield('page-title', 'Dashboard')</h1>
+                </div>
             </div>
 
-            <div class="flex items-center gap-4">
+            <div class="flex items-center gap-2">
                 {{-- Store switcher --}}
                 @if($allStores->isNotEmpty())
                 <div x-data="{ open: false }" class="relative">
-                    <button @click="open = !open"
-                        class="flex items-center gap-2 text-sm border border-gray-200 rounded-lg px-3 py-1.5 hover:bg-gray-50 transition-colors">
-                        <div class="w-2 h-2 rounded-full {{ $activeStore ? 'bg-green-500' : 'bg-gray-300' }} shrink-0"></div>
-                        <span class="text-gray-700 font-medium">{{ $activeStore?->name ?? 'No store selected' }}</span>
-                        <svg class="w-3 h-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                    <button @click="open = !open" :aria-expanded="open"
+                        class="flex h-9 max-w-[13rem] items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 text-sm transition-colors hover:border-gray-300 hover:bg-gray-50">
+                        <span class="h-2 w-2 shrink-0 rounded-full {{ $activeStore ? 'bg-emerald-500' : 'bg-gray-300' }}"></span>
+                        <span class="truncate font-medium text-gray-700">{{ $activeStore?->name ?? 'No store selected' }}</span>
+                        <svg class="h-3 w-3 shrink-0 text-gray-400 transition-transform" :class="open && 'rotate-180'"
+                             fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
                         </svg>
                     </button>
                     <div x-show="open" @click.outside="open = false" x-cloak
-                         class="absolute right-0 mt-1 w-56 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50">
-                        @foreach($allStores as $s)
-                        @php $isActive = $s->id === $activeStore?->id; @endphp
-                        <form method="POST" action="{{ route('stores.switch', $s) }}">
-                            @csrf
-                            <button type="submit"
-                                class="w-full flex items-center gap-3 px-4 py-2 text-sm hover:bg-gray-50 transition-colors
-                                       {{ $isActive ? 'text-gray-900 font-medium' : 'text-gray-500' }}">
-                                <div class="w-2 h-2 rounded-full shrink-0 {{ $isActive ? 'bg-green-500' : 'bg-gray-300' }}"></div>
-                                <span class="flex-1 text-left truncate">{{ $s->name }}</span>
-                                @if($isActive)
-                                <svg class="w-3.5 h-3.5 text-green-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/>
-                                </svg>
-                                @endif
-                            </button>
-                        </form>
-                        @endforeach
-                        <div class="border-t border-gray-100 mt-1 pt-1">
-                            <a href="{{ route('stores.index') }}"
-                               class="flex items-center gap-2 px-4 py-2 text-xs text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-colors">
-                                Manage stores →
-                            </a>
+                         x-transition:enter="transition ease-out duration-150"
+                         x-transition:enter-start="opacity-0 -translate-y-1"
+                         x-transition:enter-end="opacity-100 translate-y-0"
+                         class="absolute right-0 z-50 mt-2 w-64 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-lg ring-1 ring-black/5">
+                        <p class="border-b border-gray-100 px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                            Switch store
+                        </p>
+                        <div class="max-h-72 overflow-y-auto py-1">
+                            @foreach($allStores as $s)
+                            @php $isActive = $s->id === $activeStore?->id; @endphp
+                            <form method="POST" action="{{ route('stores.switch', $s) }}">
+                                @csrf
+                                <button type="submit"
+                                    class="flex w-full items-center gap-3 px-4 py-2 text-sm transition-colors hover:bg-gray-50
+                                           {{ $isActive ? 'font-medium text-gray-900' : 'text-gray-600' }}">
+                                    <span class="h-2 w-2 shrink-0 rounded-full {{ $isActive ? 'bg-emerald-500' : 'bg-gray-300' }}"></span>
+                                    <span class="flex-1 truncate text-left">{{ $s->name }}</span>
+                                    @if($isActive)
+                                    <svg class="h-3.5 w-3.5 shrink-0 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
+                                    </svg>
+                                    @endif
+                                </button>
+                            </form>
+                            @endforeach
                         </div>
+                        <a href="{{ route('stores.index') }}"
+                           class="flex items-center justify-between border-t border-gray-100 bg-gray-50 px-4 py-2.5 text-xs font-medium text-gray-500 transition-colors hover:text-gray-800">
+                            Manage stores
+                            <span aria-hidden="true">&rarr;</span>
+                        </a>
                     </div>
                 </div>
                 @endif
@@ -490,8 +555,8 @@
                              $watch('unread', v => faviconBadge(v));
                              setInterval(() => poll(), 30000)"
                      class="relative">
-                    <button @click="bell = !bell"
-                            class="relative flex items-center justify-center w-9 h-9 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 hover:text-gray-700 transition-colors"
+                    <button @click="bell = !bell" :aria-expanded="bell"
+                            class="relative flex h-9 w-9 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-500 transition-colors hover:border-gray-300 hover:bg-gray-50 hover:text-gray-700"
                             :class="ring && 'ring-2 ring-red-400 border-red-300 text-red-600'"
                             aria-label="Notifications">
                         <svg class="w-4.5 h-4.5" style="width:1.125rem;height:1.125rem" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -602,37 +667,67 @@
                 </div>
                 @endif
 
+                {{-- Utility controls end here; the account sits on its own --}}
+                <span class="mx-1 hidden h-6 w-px bg-gray-200 sm:block"></span>
+
                 {{-- User menu --}}
                 <div x-data="{ user: false }" class="relative">
-                    <button @click="user = !user"
-                            class="flex items-center gap-2 rounded-lg border border-gray-200 pl-1.5 pr-2 py-1 hover:bg-gray-50 transition-colors"
+                    <button @click="user = !user" :aria-expanded="user"
+                            class="flex h-9 items-center gap-2 rounded-lg border border-gray-200 bg-white py-1 pl-1 pr-2 transition-colors hover:border-gray-300 hover:bg-gray-50"
                             aria-label="Account menu">
-                        <div class="w-7 h-7 rounded-full bg-brand-600 flex items-center justify-center text-white text-xs font-semibold shrink-0">
+                        <span class="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-brand-600 text-xs font-semibold text-white">
                             {{ strtoupper(substr(auth()->user()->name, 0, 2)) }}
-                        </div>
-                        <span class="text-sm text-gray-700 font-medium max-w-40 truncate">{{ auth()->user()->name }}</span>
-                        <svg class="w-3 h-3 text-gray-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                        </span>
+                        <span class="hidden max-w-32 truncate text-sm font-medium text-gray-700 sm:block">{{ auth()->user()->name }}</span>
+                        <svg class="h-3 w-3 shrink-0 text-gray-400 transition-transform" :class="user && 'rotate-180'"
+                             fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
                         </svg>
                     </button>
 
                     <div x-show="user" @click.outside="user = false" x-cloak
-                         class="absolute right-0 mt-1 w-60 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50">
-                        <div class="px-4 py-2.5 border-b border-gray-100">
-                            <p class="text-sm font-semibold text-gray-800 truncate">{{ auth()->user()->name }}</p>
-                            <p class="text-xs text-gray-500 truncate">{{ auth()->user()->email }}</p>
+                         x-transition:enter="transition ease-out duration-150"
+                         x-transition:enter-start="opacity-0 -translate-y-1"
+                         x-transition:enter-end="opacity-100 translate-y-0"
+                         class="absolute right-0 z-50 mt-2 w-64 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-lg ring-1 ring-black/5">
+                        <div class="flex items-center gap-3 border-b border-gray-100 px-4 py-3">
+                            <span class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-brand-600 text-sm font-semibold text-white">
+                                {{ strtoupper(substr(auth()->user()->name, 0, 2)) }}
+                            </span>
+                            <div class="min-w-0">
+                                <div class="flex items-center gap-1.5">
+                                    <p class="truncate text-sm font-semibold text-gray-800">{{ auth()->user()->name }}</p>
+                                    @if(auth()->user()?->is_super_admin)
+                                        {{-- A badge on the person, not a heading for the menu items below --}}
+                                        <span class="shrink-0 rounded bg-brand-50 px-1.5 py-px text-[10px] font-semibold uppercase tracking-wide text-brand-700 ring-1 ring-inset ring-brand-200">
+                                            Admin
+                                        </span>
+                                    @endif
+                                </div>
+                                <p class="truncate text-xs text-gray-500">{{ auth()->user()->email }}</p>
+                            </div>
                         </div>
-                        <form method="POST" action="{{ route('logout') }}">
-                            @csrf
-                            <button type="submit"
-                                    class="w-full flex items-center gap-2.5 px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 hover:text-gray-900 transition-colors">
-                                <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                        d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
+                        <div class="py-1">
+                            <a href="{{ route('settings.index') }}"
+                               class="flex w-full items-center gap-2.5 px-4 py-2 text-sm text-gray-600 transition-colors hover:bg-gray-50 hover:text-gray-900">
+                                <svg class="h-4 w-4 shrink-0 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.8">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
                                 </svg>
-                                Logout
-                            </button>
-                        </form>
+                                Settings
+                            </a>
+                            <form method="POST" action="{{ route('logout') }}">
+                                @csrf
+                                <button type="submit"
+                                        class="flex w-full items-center gap-2.5 px-4 py-2 text-sm text-gray-600 transition-colors hover:bg-gray-50 hover:text-gray-900">
+                                    <svg class="h-4 w-4 shrink-0 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.8">
+                                        <path stroke-linecap="round" stroke-linejoin="round"
+                                            d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
+                                    </svg>
+                                    Log out
+                                </button>
+                            </form>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -668,7 +763,10 @@
         </div>
 
         {{-- Page content --}}
-        <main class="flex-1 overflow-y-auto px-8 py-6">
+        {{-- This is the scrolling element, not the window, so the top bar's
+             shadow has to be driven from here. --}}
+        <main class="flex-1 overflow-y-auto px-4 py-6 sm:px-8"
+              @scroll.passive="scrolled = $event.target.scrollTop > 4">
             @yield('content')
         </main>
 

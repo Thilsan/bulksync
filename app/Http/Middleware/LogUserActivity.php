@@ -16,6 +16,7 @@ class LogUserActivity
      */
     private const PAGES = [
         'dashboard'              => 'Dashboard',
+        'upload.dashboard'       => 'Image Upload — Overview',
         'upload.create'          => 'Image Upload',
         'upload.history'         => 'Image Upload History',
         'upload.show'            => 'Image Upload — Session Details',
@@ -28,7 +29,9 @@ class LogUserActivity
         'store-image-sync.show'  => 'Store Image Migrate — Progress',
         'metafield-update.index' => 'Metafield Checker',
         'metafield-update.status'=> 'Metafield Checker — Status',
+        'ai-content.dashboard'   => 'AI Content — Overview',
         'ai-content.index'       => 'AI Content Generator',
+        'ai-content.history'     => 'AI Content Sessions',
         'ai-content.show'        => 'AI Content — Review',
         'stores.index'           => 'Stores',
         'settings.index'         => 'Settings',
