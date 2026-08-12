@@ -23,12 +23,13 @@
     ];
 @endphp
 
-<div class="mx-auto max-w-6xl space-y-5">
+{{-- Full-bleed, matching the main dashboard — no max-width wrapper. --}}
+<div class="space-y-5">
 
     {{-- Intro + actions --}}
     <div class="flex flex-wrap items-end justify-between gap-3">
         <div>
-            <h2 class="text-base font-semibold text-gray-800">Overview</h2>
+            <h2 class="text-lg font-semibold text-gray-900">Overview</h2>
             <p class="mt-0.5 text-sm text-gray-500">
                 {{ auth()->user()->is_super_admin ? 'Every upload session across the team.' : 'Your upload sessions.' }}
             </p>
@@ -209,11 +210,12 @@
                                             $isPeak = $peak > 0 && $day['uploaded'] === $peak;
                                         @endphp
                                         <div class="group relative flex h-full flex-1 items-end">
+                                            {{-- max-w keeps bars readable rather than slab-wide on a full-bleed page --}}
                                             {{-- A zero day still gets a hairline, so "none" never reads as "no data" --}}
                                             @if ($day['uploaded'] === 0)
-                                                <div class="h-px w-full rounded-full bg-gray-200"></div>
+                                                <div class="mx-auto h-px w-full max-w-16 rounded-full bg-gray-200"></div>
                                             @else
-                                                <div class="w-full rounded-t transition-colors group-hover:bg-brand-700 {{ $isPeak ? 'bg-brand-600' : 'bg-brand-500' }}"
+                                                <div class="mx-auto w-full max-w-16 rounded-t transition-colors group-hover:bg-brand-700 {{ $isPeak ? 'bg-brand-600' : 'bg-brand-500' }}"
                                                      style="height: {{ $h }}%"></div>
                                             @endif
 
@@ -230,8 +232,9 @@
                             {{-- x axis --}}
                             <div class="mt-2 flex gap-0.5">
                                 @foreach ($daily as $day)
-                                    <div class="flex-1 text-center text-[10px] tabular-nums text-gray-400">
-                                        {{ $day['date']->format('d') }}
+                                    <div class="flex-1 text-center">
+                                        <div class="text-[10px] tabular-nums text-gray-400">{{ $day['date']->format('d') }}</div>
+                                        <div class="text-[9px] uppercase tracking-wide text-gray-300">{{ $day['date']->format('D') }}</div>
                                     </div>
                                 @endforeach
                             </div>
