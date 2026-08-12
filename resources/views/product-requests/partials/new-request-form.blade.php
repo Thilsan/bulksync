@@ -283,12 +283,11 @@
                 {{-- 6. Team --}}
                 <section x-data="{
                         allRoles: {{ Illuminate\Support\Js::from(collect(\App\Models\ProductRequest::assignableRoles())->map(fn ($label, $key) => ['key' => $key, 'label' => $label, 'task' => \App\Models\ProductRequest::taskForRole($key)])->values()) }},
-                        // Only the roles this request will actually use — no shoot
-                        // means no coordinator and nothing to edit either.
+                        // Only the roles this request will actually use: no shoot
+                        // means no coordinator, and no Cegid means no mapping.
                         get activeRoles() {
                             return this.allRoles.filter(r =>
                                 (r.key !== 'photographer_id' || needsPhotoshoot) &&
-                                (r.key !== 'image_editor_id' || needsEditing) &&
                                 (r.key !== 'supply_chain_id' || usesMapping)
                             );
                         },

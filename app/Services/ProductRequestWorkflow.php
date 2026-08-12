@@ -33,7 +33,7 @@ class ProductRequestWorkflow
         ProductRequest::WAITING_IMAGES       => ['photographer', 'ecommerce'],
         ProductRequest::PHOTOSHOOT_SCHEDULED => ['photographer'],
         ProductRequest::PHOTOSHOOT_COMPLETED => ['ecommerce'],
-        ProductRequest::IMAGE_EDITING        => ['image_editor', 'ecommerce'],
+        ProductRequest::IMAGE_EDITING        => ['ecommerce'],          // retired stage
         // Content is the E-Commerce owner's job now — one person per category
         // writes the copy, reviews it and publishes it.
         ProductRequest::AI_CONTENT           => ['ecommerce'],

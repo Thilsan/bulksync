@@ -36,7 +36,7 @@ class ProductRequest extends Model
     public const CLOSED_STATUSES = [self::PUBLISHED, self::COMPLETED, self::CANCELLED];
 
     /** Stages no longer part of the flow, kept only so historic requests work. */
-    public const RETIRED_STAGES = [self::READY_FOR_UPLOAD, self::COMPLETED];
+    public const RETIRED_STAGES = [self::IMAGE_EDITING, self::READY_FOR_UPLOAD, self::COMPLETED];
 
     /** Ordered pipeline — drives the progress stepper and "is this a step forward?" checks. */
     public const PIPELINE = [
@@ -130,13 +130,15 @@ class ProductRequest extends Model
             'role'  => 'Photoshoot Coordinator',
             'role_key' => 'photographer',
             'field' => 'photographer_id',
-            'what'  => 'Hand the raw images over to the E-Commerce team for editing.',
+            'what'  => 'Finish the images — edited, cropped and ready for the website — then move the request on to content.',
         ],
+        // Retired stage: editing is part of the photoshoot now. Kept so a request
+        // still sitting here reads sensibly and can be moved on.
         self::IMAGE_EDITING => [
-            'role'  => 'Photo Editor',
-            'role_key' => 'image_editor',
-            'field' => 'image_editor_id',
-            'what'  => 'Edit, crop and optimise the images so they are ready for the website.',
+            'role'  => 'E-Commerce Team',
+            'role_key' => 'ecommerce',
+            'field' => 'assigned_to',
+            'what'  => 'Editing is done as part of the photoshoot now. Check the images are on the products, then move the request on to content.',
         ],
         self::AI_CONTENT => [
             'role'  => 'E-Commerce Team',
@@ -430,6 +432,7 @@ class ProductRequest extends Model
         'assigned_to'      => 'Own this request end to end: check the SKU validation, move it through each stage, then upload and publish the products for the launch date.',
         'supply_chain_id'  => 'Map the SKUs in Cegid, then record the outcome on the SKUs tab so the request can continue.',
         'photographer_id'  => 'Arrange the shoot once the samples arrive — book the studio, get the products photographed, then hand the images over for editing.',
+        // Retired role — the photoshoot delivers finished images.
         'image_editor_id'  => 'Edit, crop and optimise the product images so they are ready for the website.',
         'content_owner_id' => 'Produce the product copy — descriptions, meta titles and meta descriptions — and apply it to the products.',
         'qa_owner_id'      => 'Review the images, copy and product data before anything goes live, and send it back a stage if something needs rework.',
@@ -462,7 +465,6 @@ class ProductRequest extends Model
 
                 return match ($field) {
                     'photographer_id' => $this->needsPhotoshoot(),
-                    'image_editor_id' => $this->needsImageEditing(),
                     'supply_chain_id' => $this->requiresMapping(),
                     default           => true,
                 };
@@ -491,13 +493,16 @@ class ProductRequest extends Model
      * output — so a separate QA assignee has nothing to own. Content went the
      * same way: one person runs a category end to end, writing the copy as part
      * of owning the request, so a separate Content Team assignee was always the
-     * same name twice. Their stages are owned by the E-Commerce Team.
+     * same name twice. Photo Editor went the same way: the people who take the
+     * pictures finish them, so the shoot delivers website-ready images and there
+     * is nothing left to hand to an editor. Their stages are owned by the
+     * E-Commerce Team.
      *
      * Kept in the list rather than deleted so a request that already has one
      * still shows it, and it can be cleared; hiding it outright would strand the
      * assignment.
      */
-    public const RETIRED_ROLES = ['qa_owner_id', 'content_owner_id'];
+    public const RETIRED_ROLES = ['qa_owner_id', 'content_owner_id', 'image_editor_id'];
 
     /** The people a request can be assigned to, and what to call each. */
     public const ASSIGNMENT_ROLES = [
@@ -1025,6 +1030,8 @@ class ProductRequest extends Model
         ],
         'content' => [
             'label'  => 'Content Creation',
+            // IMAGE_EDITING is retired but still listed, so a request parked on it
+            // shows inside a phase rather than falling outside the stepper.
             'stages' => [self::IMAGE_EDITING, self::AI_CONTENT],
         ],
         'launch' => [
@@ -1055,14 +1062,13 @@ class ProductRequest extends Model
 
             self::PHOTOSHOOT_SCHEDULED, self::PHOTOSHOOT_COMPLETED => $this->needsPhotoshoot(),
 
-            // Supplier images are used as they are. Ours, or the brand's, need
-            // editing for our own storefront.
-            self::IMAGE_EDITING => $this->needsImageEditing(),
-
-            // Retired: publishing is the end, so there is no upload hand-off and
-            // no separate completion. Only shown if a request is still sitting
-            // on one from before the change.
-            self::READY_FOR_UPLOAD, self::COMPLETED => false,
+            // Retired stages. Editing is part of the photoshoot — the people who
+            // take the pictures finish them — so there is no separate editing
+            // step to wait on; publishing is the end, so there is no upload
+            // hand-off and no separate completion. Any of these still shows on a
+            // request that is sitting on it from before the change, because the
+            // check above returns early for the current stage.
+            self::IMAGE_EDITING, self::READY_FOR_UPLOAD, self::COMPLETED => false,
 
             default => true,
         };

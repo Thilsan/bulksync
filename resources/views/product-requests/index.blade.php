@@ -95,8 +95,7 @@
                         'Brand Manager'    => 'Supplies the product information and samples, and approves the content.',
                         'Supply Chain'     => 'Maps the SKUs in Cegid and records it here.',
                         'E-Commerce Team'  => 'Runs the request end to end — images, copy, QA and publishing.',
-                        'Photoshoot Coordinator' => 'Arranges the shoot and hands the images on.',
-                        'Photo Editor'     => 'Edits and optimises the images for the website.',
+                        'Photoshoot Coordinator' => 'Arranges the shoot and delivers finished, website-ready images.',
                     ] as $team => $does)
                         <div class="flex gap-2">
                             <span class="w-1.5 h-1.5 rounded-full bg-brand-400 shrink-0 mt-1.5"></span>

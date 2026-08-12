@@ -136,6 +136,33 @@ class MailSettingsTest extends TestCase
             ->assertDontSee('do-not-leak-me');
     }
 
+    /**
+     * The Settings page is one screen that touches OneDrive, Azure, Gemini and
+     * SMTP, and a single bad reference on any of those 500s the whole thing. It
+     * has done exactly that before, so both roles get walked through it here.
+     */
+    public function test_the_settings_page_renders_for_both_kinds_of_user(): void
+    {
+        $this->withoutExceptionHandling();
+
+        $this->actingAs($this->superAdmin())->get(route('settings.index'))
+            ->assertOk()
+            ->assertSee('Microsoft OneDrive')
+            ->assertSee('AI Content (Gemini)')
+            ->assertSee('Azure App Credentials');
+
+        // Everyone else sees the same page without the shared Azure credentials.
+        $plain = User::create([
+            'name' => 'Plain User', 'email' => 'plain@example.test', 'password' => 'password',
+            'is_active' => true,
+        ]);
+
+        $this->actingAs($plain)->get(route('settings.index'))
+            ->assertOk()
+            ->assertSee('Microsoft OneDrive')
+            ->assertDontSee('Azure App Credentials');
+    }
+
     public function test_the_test_button_sends_immediately(): void
     {
         // Left on the test suite's array transport on purpose: Mail::fake()

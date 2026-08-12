@@ -1249,22 +1249,19 @@
                                 @endforeach
                             </select>
 
+                            {{-- No per-person deadline: the launch date is the only
+                                 date on a request, and a second one per role was
+                                 just something else to keep in step with it. A date
+                                 set before this change still shows, so nothing that
+                                 exists becomes invisible. --}}
                             @php $brief = $request->assignmentFor($field); @endphp
-
-                            {{-- Deadline is a decision; the task is not — it comes from
-                                 the workflow, so it is shown rather than edited. --}}
-                            <div class="flex items-center gap-2 mt-1.5">
-                                <input type="date" name="due_dates[{{ $field }}]"
-                                       value="{{ $brief?->due_date?->format('Y-m-d') }}"
-                                       max="{{ $request->online_launch_date?->format('Y-m-d') }}"
-                                       {{ $request->isClosed() ? 'disabled' : '' }}
-                                       class="flex-1 rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500 disabled:bg-gray-50">
-                                @if($brief?->due_date)
-                                    <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold shrink-0 {{ $brief->dueTone() }}">
+                            @if($brief?->due_date)
+                                <p class="mt-1.5">
+                                    <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold {{ $brief->dueTone() }}">
                                         {{ $brief->dueLabel() }}
                                     </span>
-                                @endif
-                            </div>
+                                </p>
+                            @endif
 
                             @if($request->ownerFor($field))
                                 <p class="text-[11px] text-gray-400 mt-1 leading-snug">

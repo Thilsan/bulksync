@@ -2,6 +2,8 @@
 
 namespace Tests\Feature;
 
+use App\Jobs\GenerateAiContentJob;
+use App\Models\AiContentSession;
 use App\Models\ProductRequest;
 use App\Models\ProductRequestActivity;
 use App\Models\Store;
@@ -20,6 +22,7 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Notification;
+use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
 
 class ProductRequestTest extends TestCase
@@ -133,7 +136,7 @@ class ProductRequestTest extends TestCase
         // The stage is absent from the stepper and can never be moved to.
         $this->assertNotContains(ProductRequest::WAITING_MAPPING, $request->displayStages());
         $this->assertNotContains(ProductRequest::WAITING_MAPPING, $request->allowedTransitions());
-        $this->assertCount(9, $request->displayStages());
+        $this->assertCount(8, $request->displayStages());
     }
 
     public function test_the_website_must_be_one_the_user_can_access(): void
@@ -434,7 +437,10 @@ class ProductRequestTest extends TestCase
 
         $this->assertSame($owner->id, $this->ownerId($request, 'assigned_to'));
         $this->assertSame($owner->id, $this->ownerId($request, 'supply_chain_id'));
-        $this->assertSame($owner->id, $this->ownerId($request, 'image_editor_id'));
+
+        // Photo Editor is retired — the photoshoot delivers finished images.
+        $this->assertNull($this->ownerId($request, 'image_editor_id'));
+        $this->assertArrayNotHasKey('image_editor_id', ProductRequest::assignableRoles());
 
         // No brand manager is set for Luggage here, so the owner keeps that too.
         $this->assertSame($owner->id, $this->ownerId($request, 'brand_manager_id'));
@@ -1152,9 +1158,7 @@ class ProductRequestTest extends TestCase
         $this->assertSame($brandDesk->id, $this->ownerId($request, 'brand_manager_id'));
 
         // Everything else stays with whoever runs the category.
-        foreach (['assigned_to', 'image_editor_id'] as $role) {
-            $this->assertSame($owner->id, $this->ownerId($request, $role), "Brand manager took {$role}");
-        }
+        $this->assertSame($owner->id, $this->ownerId($request, 'assigned_to'), 'Brand manager took the request');
 
         // They are told it is theirs, not copied in about somebody else's task.
         Notification::assertSentTo($brandDesk, ProductRequestAssigned::class,
@@ -2284,13 +2288,19 @@ class ProductRequestTest extends TestCase
         $this->assertSame('mine', $request->ownershipFor($supply));
         Notification::assertSentTo($supply, ProductRequestAssigned::class);
 
-        // Image Editing belongs to the editor, not the E-Commerce team.
+        // Image Editing is retired, so a request still parked there belongs to
+        // whoever runs it rather than to a Photo Editor nobody appoints now.
         $request->update(['status' => ProductRequest::IMAGE_EDITING]);
         $request->refresh();
 
-        $this->assertSame('Photo Editor', $request->currentGuide()['role']);
-        $this->assertSame($editor->id, $request->currentGuide()['owner']->id);
-        $this->assertSame('mine', $request->ownershipFor($editor));
+        $this->assertSame('E-Commerce Team', $request->currentGuide()['role']);
+        $this->assertSame('assigned_to', $request->currentGuide()['field']);
+        $this->assertContains(ProductRequest::IMAGE_EDITING, ProductRequest::RETIRED_STAGES);
+
+        // The editor's own assignment is not lost — it is still shown and can be
+        // cleared, which is the point of retiring a role instead of deleting it.
+        $this->assertSame($editor->id, $this->ownerId($request, 'image_editor_id'));
+        $this->assertArrayHasKey('image_editor_id', $request->visibleAssignmentRoles());
     }
 
     public function test_the_assignment_panel_offers_every_applicable_role(): void
@@ -2385,10 +2395,10 @@ class ProductRequestTest extends TestCase
 
         $stages = $request->displayStages();
 
-        // Someone has to fetch them, and they need editing for our storefront —
-        // but there is no studio shoot.
+        // Someone still has to fetch them, but there is no studio shoot and no
+        // separate editing stage — whoever produces the images finishes them.
         $this->assertContains(ProductRequest::WAITING_IMAGES, $stages);
-        $this->assertContains(ProductRequest::IMAGE_EDITING, $stages);
+        $this->assertNotContains(ProductRequest::IMAGE_EDITING, $stages);
         $this->assertNotContains(ProductRequest::PHOTOSHOOT_SCHEDULED, $stages);
         $this->assertNotContains(ProductRequest::PHOTOSHOOT_COMPLETED, $stages);
 
@@ -2398,9 +2408,10 @@ class ProductRequestTest extends TestCase
             $request->guideFor(ProductRequest::WAITING_IMAGES)['what']
         );
 
-        // Photo Editor is offered; the photoshoot coordinator is not.
+        // Neither photography role is offered: there is no shoot, and editing is
+        // no longer a role of its own.
         $roles = $request->visibleAssignmentRoles();
-        $this->assertArrayHasKey('image_editor_id', $roles);
+        $this->assertArrayNotHasKey('image_editor_id', $roles);
         $this->assertArrayNotHasKey('photographer_id', $roles);
 
         // The edit form still shows its current value, so it is not stuck on a
@@ -2422,11 +2433,13 @@ class ProductRequestTest extends TestCase
         $stages = $request->displayStages();
 
         foreach ([ProductRequest::WAITING_IMAGES, ProductRequest::PHOTOSHOOT_SCHEDULED,
-                  ProductRequest::PHOTOSHOOT_COMPLETED, ProductRequest::IMAGE_EDITING] as $stage) {
+                  ProductRequest::PHOTOSHOOT_COMPLETED] as $stage) {
             $this->assertContains($stage, $stages);
         }
 
-        $this->assertCount(9, $stages);
+        // Editing is part of the shoot, so it is not a stage of its own.
+        $this->assertNotContains(ProductRequest::IMAGE_EDITING, $stages);
+        $this->assertCount(8, $stages);
     }
 
     public function test_photography_roles_are_hidden_when_there_is_no_photoshoot(): void
@@ -2503,10 +2516,11 @@ class ProductRequestTest extends TestCase
         $this->assign($request, 'image_editor_id', $editor);
         $this->assertArrayHasKey('image_editor_id', $request->refresh()->visibleAssignmentRoles());
 
-        // And it must be offered when it owns the stage the request is sitting at.
+        // Cleared, it is gone for good — the role is retired, so nothing offers
+        // it again even on a request sitting at the old editing stage.
         $this->assign($request, 'image_editor_id', null);
         $request->update(['status' => ProductRequest::IMAGE_EDITING]);
-        $this->assertArrayHasKey('image_editor_id', $request->refresh()->visibleAssignmentRoles());
+        $this->assertArrayNotHasKey('image_editor_id', $request->refresh()->visibleAssignmentRoles());
     }
 
     public function test_an_assigned_person_can_be_swapped_for_someone_else(): void
@@ -2744,6 +2758,29 @@ class ProductRequestTest extends TestCase
         $request->refresh();
         $this->assertNotNull($request->ai_content_session_id);
         $this->assertSame(1, $request->aiContentSession->total_items);
+    }
+
+    public function test_generating_from_a_request_hands_the_job_its_sku_list(): void
+    {
+        Notification::fake();
+        Queue::fake();   // the real job would call Gemini
+
+        $user    = $this->brandManager();
+        $request = $this->submitFor($user, $this->plainSite(), "aicon-1\nAICON-2");
+
+        $request->skus()->update(['in_shopify' => true]);
+
+        $this->actingAs($user)->post(route('product-requests.ai-content', $request))->assertRedirect();
+
+        $session = AiContentSession::latest('id')->firstOrFail();
+
+        // The job reads skus_json. This path only ever set sku_raw, so the job
+        // found nothing to do and reported itself ready — "Progress 0 / 1" with no
+        // error anywhere, which looked like Gemini being slow for ten minutes.
+        $this->assertSame(['AICON-1', 'AICON-2'], json_decode($session->skus_json, true));
+        $this->assertSame(2, $session->total_items);
+
+        Queue::assertPushed(GenerateAiContentJob::class);
     }
 
     public function test_bulk_actions_apply_to_many_requests_and_skip_what_cannot_change(): void

@@ -54,12 +54,11 @@ class ProductRequestController extends Controller implements HasMiddleware
         ],
         'content' => [
             'title'          => 'Content Creation',
-            'description'    => 'Requests in image editing and AI content generation.',
-            // Image Editing and AI Content have different owners, so the board
-            // resolves each card's owner from its own stage. Content is the
-            // E-Commerce owner's job now, so that is the second field.
+            'description'    => 'Requests generating product copy.',
+            // Both stages belong to the E-Commerce owner now — editing came with
+            // the photoshoot and content is part of running the request.
             'owner_field'    => 'assigned_to',
-            'owner_fields'   => ['image_editor_id', 'assigned_to'],
+            'owner_fields'   => ['assigned_to'],
             'owner_label'    => 'Owner',
             'stages'         => [
                 ProductRequest::IMAGE_EDITING,
@@ -943,12 +942,7 @@ class ProductRequestController extends Controller implements HasMiddleware
         $fields = array_keys(ProductRequest::ASSIGNMENT_ROLES);
 
         $data = $request->validate(
-            collect($fields)
-                ->mapWithKeys(fn ($f) => [
-                    $f               => 'nullable|exists:users,id',
-                    "due_dates.{$f}" => 'nullable|date',
-                ])
-                ->all()
+            collect($fields)->mapWithKeys(fn ($f) => [$f => 'nullable|exists:users,id'])->all()
         );
 
         $changed = 0;
@@ -959,7 +953,10 @@ class ProductRequestController extends Controller implements HasMiddleware
                 field:   $field,
                 userId:  isset($data[$field]) ? (int) $data[$field] : null,
                 actor:   $user,
-                dueDate: $request->input("due_dates.{$field}"),
+                // No per-person deadlines any more — a request has one date, the
+                // launch. A date already on an old assignment is left alone
+                // rather than wiped by the next save.
+                dueDate: $productRequest->assignmentFor($field)?->due_date?->toDateString(),
             )) {
                 $changed++;
             }
@@ -1186,7 +1183,9 @@ class ProductRequestController extends Controller implements HasMiddleware
 
         abort_if($productRequest->isClosed(), 403, 'This request is closed.');
 
-        $eligible = $productRequest->skus()->where('in_shopify', true)->pluck('sku');
+        // Ordered so generation runs in the order the SKUs were submitted, which
+        // is what someone watching the progress bar expects to see.
+        $eligible = $productRequest->skus()->where('in_shopify', true)->orderBy('id')->pluck('sku');
         $skipped  = $productRequest->total_skus - $eligible->count();
 
         if ($eligible->isEmpty()) {
@@ -1196,13 +1195,21 @@ class ProductRequestController extends Controller implements HasMiddleware
             ]);
         }
 
+        // Uppercased and deduped exactly as the AI Content Generator screen does,
+        // so a request raised from here behaves identically.
+        $skus = $eligible->map(fn ($sku) => strtoupper(trim($sku)))->filter()->unique()->values();
+
         $session = AiContentSession::create([
             'user_id'    => $user->id,
             'store_id'   => $productRequest->store_id,
             'input_type' => 'sku_list',
-            'sku_raw'    => $eligible->implode("\n"),
+            'sku_raw'    => $skus->implode("\n"),
+            // The job reads skus_json — sku_raw is only what the user typed. Without
+            // this the job found no SKUs, did nothing, and reported itself ready:
+            // "Status Ready, Progress 0/1" with no error anywhere.
+            'skus_json'  => json_encode($skus->all()),
             'status'     => 'pending',
-            'total_items'=> $eligible->count(),
+            'total_items'=> $skus->count(),
         ]);
 
         $productRequest->update(['ai_content_session_id' => $session->id]);
