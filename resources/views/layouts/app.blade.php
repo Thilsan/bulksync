@@ -113,230 +113,239 @@
         }
     </script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
-    <style>[x-cloak] { display: none !important; }</style>
+    <style>
+        [x-cloak] { display: none !important; }
+
+        /* Sidebar ground: same gradient language as the sign-in showcase. */
+        .app-sidebar {
+            background:
+                radial-gradient(620px 260px at 50% -10%, rgba(105,187,217,.20), transparent 70%),
+                linear-gradient(180deg, #1d5a74 0%, #1a5069 48%, #12333f 100%);
+        }
+        /* A full-height scrollbar would cut the panel in half, so keep it hairline. */
+        .nav-scroll { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.18) transparent; }
+        .nav-scroll::-webkit-scrollbar { width: 6px; }
+        .nav-scroll::-webkit-scrollbar-track { background: transparent; }
+        .nav-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,.18); border-radius: 999px; }
+        .nav-scroll::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,.3); }
+
+        .live-dot { animation: live 2.4s ease-in-out infinite; }
+        @keyframes live { 0%,100% { opacity: 1 } 50% { opacity: .35 } }
+        @media (prefers-reduced-motion: reduce) { .live-dot { animation: none } }
+    </style>
 </head>
-<body class="h-full flex" x-data>
+<body class="h-full flex bg-gray-50" x-data="{ nav: false }" @keydown.escape.window="nav = false">
 
-    {{-- Sidebar --}}
-    <aside class="w-56 shrink-0 flex flex-col min-h-screen" style="background-color:#1d5a74">
+    {{--
+        Sidebar. The nav is described as data rather than 12 near-identical
+        anchors, so a new module is one array entry and the active/hover
+        treatment can never drift between items. Icons are Heroicons outline
+        paths; a few need two paths, hence the array.
+    --}}
+    @php
+        $u = auth()->user();
 
-        {{-- Logo --}}
-        <div class="flex flex-col items-center px-5 py-4 border-b border-white/10 gap-2">
-            <img src="{{ asset('aih_logo_whitegray-3.png') }}" alt="Logo" class="h-10 w-auto">
-            <div class="flex items-center gap-2">
-                <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
-                </svg>
-                <span class="text-white font-semibold text-base tracking-tight">AI Ecommerce Studio</span>
+        $ico = [
+            'home'     => ['M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6'],
+            'upload'   => ['M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12'],
+            'history'  => ['M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2'],
+            'photo'    => ['M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z'],
+            'check'    => ['M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z'],
+            'swap'     => ['M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4'],
+            'doc'      => ['M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z'],
+            'screen'   => ['M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z'],
+            'tasks'    => ['M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01'],
+            'store'    => ['M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4'],
+            'cog'      => ['M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z', 'M15 12a3 3 0 11-6 0 3 3 0 016 0z'],
+            'shield'   => ['M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z'],
+            'clock'    => ['M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z'],
+        ];
+
+        $navGroups = [
+            [
+                'label' => null,
+                'items' => [
+                    ['label' => 'Dashboard', 'url' => route('dashboard'), 'icon' => 'home', 'on' => request()->routeIs('dashboard')],
+                ],
+            ],
+            [
+                'label' => 'Media',
+                'items' => [
+                    ['label' => 'Image Upload',   'url' => route('upload.create'),  'icon' => 'upload',  'on' => request()->routeIs('upload.create'),  'show' => $u->hasFeature('bulk_upload')],
+                    ['label' => 'Upload History', 'url' => route('upload.history'), 'icon' => 'history', 'on' => request()->routeIs('upload.history'), 'show' => $u->hasFeature('bulk_upload')],
+                    ['label' => 'Image Audit',    'url' => route('image-audit.index'), 'icon' => 'photo', 'on' => request()->routeIs('image-audit.*'), 'show' => $u->hasFeature('image_audit')],
+                ],
+            ],
+            [
+                'label' => 'Catalogue',
+                'items' => [
+                    ['label' => 'Product Migration',    'url' => route('store-image-sync.index'),  'icon' => 'swap',   'on' => request()->routeIs('store-image-sync.*'),  'show' => $u->hasFeature('store_sync')],
+                    ['label' => 'SKU Checker',          'url' => route('sku-checker.index'),       'icon' => 'check',  'on' => request()->routeIs('sku-checker.*'),       'show' => $u->hasFeature('sku_checker')],
+                    ['label' => 'Metafield Checker',    'url' => route('metafield-update.index'),  'icon' => 'doc',    'on' => request()->routeIs('metafield-update.*'),  'show' => $u->hasFeature('metafield_update')],
+                    ['label' => 'AI Content Generator', 'url' => route('ai-content.index'),        'icon' => 'screen', 'on' => request()->routeIs('ai-content.*'),        'show' => $u->hasFeature('ai_content')],
+                ],
+            ],
+            [
+                'label' => 'Configuration',
+                'items' => [
+                    ['label' => 'Stores',   'url' => route('stores.index'),   'icon' => 'store', 'on' => request()->routeIs('stores.*')],
+                    ['label' => 'Settings', 'url' => route('settings.index'), 'icon' => 'cog',   'on' => request()->routeIs('settings.*')],
+                ],
+            ],
+            [
+                'label' => 'Super Admin',
+                'items' => [
+                    ['label' => 'Admin Panel',  'url' => route('super-admin.index'),    'icon' => 'shield', 'on' => request()->routeIs('super-admin.index'),    'show' => (bool) $u?->is_super_admin],
+                    ['label' => 'Activity Log', 'url' => route('super-admin.activity'), 'icon' => 'clock',  'on' => request()->routeIs('super-admin.activity'), 'show' => (bool) $u?->is_super_admin],
+                ],
+            ],
+        ];
+
+        // Drop hidden items, then any group left with nothing in it — so a
+        // section heading never sits above an empty space.
+        $navGroups = collect($navGroups)
+            ->map(fn ($g) => [...$g, 'items' => array_values(array_filter($g['items'], fn ($i) => $i['show'] ?? true))])
+            ->filter(fn ($g) => count($g['items']) > 0)
+            ->values();
+
+        $pcrActive = request()->routeIs('product-requests.*');
+        $pcrUnread = $bellUnreadCount ?? 0;
+    @endphp
+
+    {{-- Backdrop for the mobile drawer --}}
+    <div x-show="nav" x-cloak @click="nav = false"
+         x-transition:enter="transition ease-out duration-200"
+         x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
+         x-transition:leave="transition ease-in duration-150"
+         x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"
+         class="fixed inset-0 z-30 bg-slate-900/60 backdrop-blur-sm lg:hidden"></div>
+
+    <aside class="app-sidebar fixed inset-y-0 left-0 z-40 flex w-64 shrink-0 flex-col overflow-hidden
+                  transform transition-transform duration-200 ease-out
+                  lg:static lg:h-screen lg:translate-x-0 lg:transition-none"
+           :class="nav ? 'translate-x-0 shadow-2xl' : '-translate-x-full'">
+
+        {{-- Brand --}}
+        <div class="relative flex flex-col gap-3 px-4 pb-4 pt-5">
+            <div class="flex items-start justify-between gap-2">
+                <img src="{{ asset('aih_logo_whitegray-3.png') }}" alt="Abuissa Holding" class="h-9 w-auto">
+                <button type="button" @click="nav = false"
+                        class="-mr-1 grid h-8 w-8 shrink-0 place-items-center rounded-lg text-white/60 transition hover:bg-white/10 hover:text-white lg:hidden"
+                        aria-label="Close menu">
+                    <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </button>
+            </div>
+            <div>
+                <p class="text-sm font-semibold leading-tight text-white">AI Ecommerce Studio</p>
+                <p class="mt-0.5 text-[10px] uppercase tracking-[.14em] text-white/40">Abuissa Holding</p>
             </div>
         </div>
+
+        <div class="relative mx-4 h-px bg-gradient-to-r from-transparent via-white/15 to-transparent"></div>
 
         {{-- Navigation --}}
-        <nav class="flex-1 px-3 py-4 space-y-0.5">
+        <nav class="nav-scroll relative flex-1 overflow-y-auto px-3 py-4">
+            @foreach($navGroups as $gi => $group)
+                @if($group['label'])
+                    <p class="{{ $gi === 0 ? '' : 'mt-5' }} mb-1.5 px-3 text-[10px] font-semibold uppercase tracking-[.14em] text-white/35">
+                        {{ $group['label'] }}
+                    </p>
+                @endif
 
-            <a href="{{ route('dashboard') }}"
-               class="flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors
-                      {{ request()->routeIs('dashboard') ? 'bg-white/20 text-white' : 'text-white/70 hover:bg-white/10 hover:text-white' }}">
-                <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>
-                </svg>
-                <span>Dashboard</span>
-            </a>
-
-            @if(auth()->user()->hasFeature('bulk_upload'))
-            <a href="{{ route('upload.create') }}"
-               class="flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors
-                      {{ request()->routeIs('upload.create') ? 'bg-white/20 text-white' : 'text-white/70 hover:bg-white/10 hover:text-white' }}">
-                <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
-                </svg>
-                <span>Image Upload</span>
-            </a>
-
-            <a href="{{ route('upload.history') }}"
-               class="flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors
-                      {{ request()->routeIs('upload.history') ? 'bg-white/20 text-white' : 'text-white/70 hover:bg-white/10 hover:text-white' }}">
-                <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
-                </svg>
-                <span>Image Upload History</span>
-            </a>
-            @endif
-
-            @if(auth()->user()->hasFeature('sku_checker'))
-            <a href="{{ route('sku-checker.index') }}"
-               class="flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors
-                      {{ request()->routeIs('sku-checker.*') ? 'bg-white/20 text-white' : 'text-white/70 hover:bg-white/10 hover:text-white' }}">
-                <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                </svg>
-                <span>SKU Checker</span>
-            </a>
-            @endif
-
-            @if(auth()->user()->hasFeature('image_audit'))
-            <a href="{{ route('image-audit.index') }}"
-               class="flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors
-                      {{ request()->routeIs('image-audit.*') ? 'bg-white/20 text-white' : 'text-white/70 hover:bg-white/10 hover:text-white' }}">
-                <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
-                </svg>
-                <span>Image Audit</span>
-            </a>
-            @endif
-
-            @if(auth()->user()->hasFeature('store_sync'))
-            <a href="{{ route('store-image-sync.index') }}"
-               class="flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors
-                      {{ request()->routeIs('store-image-sync.*') ? 'bg-white/20 text-white' : 'text-white/70 hover:bg-white/10 hover:text-white' }}">
-                <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/>
-                </svg>
-                <span>Product Migration</span>
-            </a>
-            @endif
-
-            @if(auth()->user()->hasFeature('metafield_update'))
-            <a href="{{ route('metafield-update.index') }}"
-               class="flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors
-                      {{ request()->routeIs('metafield-update.*') ? 'bg-white/20 text-white' : 'text-white/70 hover:bg-white/10 hover:text-white' }}">
-                <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
-                </svg>
-                <span>Metafield Checker</span>
-            </a>
-            @endif
-
-            @if(auth()->user()->hasFeature('ai_content'))
-            <a href="{{ route('ai-content.index') }}"
-               class="flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors
-                      {{ request()->routeIs('ai-content.*') ? 'bg-white/20 text-white' : 'text-white/70 hover:bg-white/10 hover:text-white' }}">
-                <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
-                </svg>
-                <span>AI Content Generator</span>
-            </a>
-            @endif
-
-            @if(auth()->user()->hasFeature('product_request'))
-            @php
-                $pcrActive = request()->routeIs('product-requests.*');
-                $pcrUnread = $bellUnreadCount ?? 0;
-            @endphp
-            <div x-data="{ open: {{ $pcrActive ? 'true' : 'false' }} }">
-
-                {{-- Parent: the link goes to the dashboard, the chevron just expands. --}}
-                <div class="flex items-stretch rounded-md transition-colors
-                            {{ $pcrActive ? 'bg-white/20' : 'hover:bg-white/10' }}">
-                    {{-- Label wraps rather than truncating: "Product Creation Request"
-                         does not fit the sidebar on one line, and the badge that used
-                         to sit here now lives in the top bar. --}}
-                    <a href="{{ route('product-requests.index') }}"
-                       @click="open = true"
-                       class="flex-1 min-w-0 flex items-start gap-3 px-3 py-2 text-sm font-medium
-                              {{ $pcrActive ? 'text-white' : 'text-white/70 hover:text-white' }}">
-                        <svg class="w-4 h-4 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"/>
-                        </svg>
-                        <span class="flex-1 leading-tight">Product Creation Request</span>
-                    </a>
-                    <button type="button" @click.stop="open = !open"
-                            class="px-2 flex items-center shrink-0 {{ $pcrActive ? 'text-white' : 'text-white/50 hover:text-white' }}"
-                            :aria-expanded="open" aria-label="Toggle Product Creation Request menu">
-                        <svg :class="open ? 'rotate-180' : ''" class="w-3.5 h-3.5 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7"/>
-                        </svg>
-                    </button>
-                </div>
-
-                {{-- Sub-menu --}}
-                <div x-show="open" x-cloak class="mt-0.5 ml-5 pl-3 border-l border-white/15 space-y-0.5">
-                    @php
-                        // No "Dashboard" entry — the parent link already goes there.
-                        $pcrLinks = [
-                            ['label' => 'All Requests',     'url' => route('product-requests.list'),                             'on' => request()->routeIs('product-requests.list')],
-                            ['label' => 'Photoshoot Room',  'url' => route('product-requests.photoshoot-room'),                  'on' => request()->routeIs('product-requests.photoshoot-room*')],
-                            ['label' => 'Assigned to Me',   'url' => route('product-requests.my-tasks'),                         'on' => request()->routeIs('product-requests.my-tasks')],
-                            ['label' => 'Notifications',    'url' => route('product-requests.notifications'),                    'on' => request()->routeIs('product-requests.notifications')],
-                        ];
-                    @endphp
-                    @foreach($pcrLinks as $link)
-                        <a href="{{ $link['url'] }}"
-                           class="flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-medium transition-colors
-                                  {{ $link['on'] ? 'bg-white/15 text-white' : 'text-white/60 hover:bg-white/10 hover:text-white' }}">
-                            <span class="flex-1 truncate">{{ $link['label'] }}</span>
-                            @if($link['label'] === 'Notifications' && $pcrUnread > 0)
-                                <span class="shrink-0 text-[10px] text-red-300 font-semibold">{{ $pcrUnread > 99 ? '99+' : $pcrUnread }}</span>
+                <div class="space-y-0.5">
+                    @foreach($group['items'] as $item)
+                        <a href="{{ $item['url'] }}"
+                           @if($item['on']) aria-current="page" @endif
+                           class="relative flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium transition-colors
+                                  {{ $item['on']
+                                      ? 'bg-white/[.13] text-white ring-1 ring-inset ring-white/10'
+                                      : 'text-white/65 hover:bg-white/[.07] hover:text-white' }}">
+                            @if($item['on'])
+                                {{-- Accent rail: marks the current page without relying on tint alone --}}
+                                <span class="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-brand-300"></span>
                             @endif
+                            <svg class="h-4 w-4 shrink-0 {{ $item['on'] ? 'text-brand-200' : 'text-white/45' }}"
+                                 fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.85">
+                                @foreach($ico[$item['icon']] as $d)
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="{{ $d }}"/>
+                                @endforeach
+                            </svg>
+                            <span class="truncate">{{ $item['label'] }}</span>
                         </a>
                     @endforeach
+
+                    {{-- Workflow sits inside Catalogue's slot in the order but owns
+                         a sub-menu, so it is rendered on its own after that group. --}}
+                    @if($group['label'] === 'Catalogue' && $u->hasFeature('product_request'))
+                        <div x-data="{ open: {{ $pcrActive ? 'true' : 'false' }} }">
+                            <div class="relative flex items-stretch rounded-lg transition-colors
+                                        {{ $pcrActive ? 'bg-white/[.13] ring-1 ring-inset ring-white/10' : 'hover:bg-white/[.07]' }}">
+                                @if($pcrActive)
+                                    <span class="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-brand-300"></span>
+                                @endif
+                                <a href="{{ route('product-requests.index') }}" @click="open = true"
+                                   class="flex min-w-0 flex-1 items-center gap-2.5 px-3 py-2 text-[13px] font-medium
+                                          {{ $pcrActive ? 'text-white' : 'text-white/65 hover:text-white' }}">
+                                    <svg class="h-4 w-4 shrink-0 {{ $pcrActive ? 'text-brand-200' : 'text-white/45' }}"
+                                         fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.85">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="{{ $ico['tasks'][0] }}"/>
+                                    </svg>
+                                    <span class="truncate">Product Requests</span>
+                                </a>
+                                @if($pcrUnread > 0)
+                                    <span class="flex shrink-0 items-center pr-1">
+                                        <span class="rounded-full bg-red-500/90 px-1.5 py-px text-[10px] font-semibold tabular-nums text-white">
+                                            {{ $pcrUnread > 99 ? '99+' : $pcrUnread }}
+                                        </span>
+                                    </span>
+                                @endif
+                                <button type="button" @click.stop="open = !open"
+                                        class="flex shrink-0 items-center px-2 {{ $pcrActive ? 'text-white/70' : 'text-white/40 hover:text-white' }}"
+                                        :aria-expanded="open" aria-label="Toggle Product Requests menu">
+                                    <svg :class="open ? 'rotate-180' : ''" class="h-3.5 w-3.5 transition-transform"
+                                         fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
+                                    </svg>
+                                </button>
+                            </div>
+
+                            <div x-show="open" x-cloak
+                                 x-transition:enter="transition ease-out duration-150"
+                                 x-transition:enter-start="opacity-0 -translate-y-1"
+                                 x-transition:enter-end="opacity-100 translate-y-0"
+                                 class="ml-[1.4rem] mt-0.5 space-y-0.5 border-l border-white/15 pl-3">
+                                @php
+                                    // No "Dashboard" entry — the parent link already goes there.
+                                    $pcrLinks = [
+                                        ['label' => 'All Requests',    'url' => route('product-requests.list'),            'on' => request()->routeIs('product-requests.list')],
+                                        ['label' => 'Photoshoot Room', 'url' => route('product-requests.photoshoot-room'), 'on' => request()->routeIs('product-requests.photoshoot-room*')],
+                                        ['label' => 'Assigned to Me',  'url' => route('product-requests.my-tasks'),        'on' => request()->routeIs('product-requests.my-tasks')],
+                                        ['label' => 'Notifications',   'url' => route('product-requests.notifications'),   'on' => request()->routeIs('product-requests.notifications')],
+                                    ];
+                                @endphp
+                                @foreach($pcrLinks as $link)
+                                    <a href="{{ $link['url'] }}"
+                                       class="flex items-center gap-2 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors
+                                              {{ $link['on'] ? 'bg-white/[.12] text-white' : 'text-white/55 hover:bg-white/[.07] hover:text-white' }}">
+                                        <span class="flex-1 truncate">{{ $link['label'] }}</span>
+                                        @if($link['label'] === 'Notifications' && $pcrUnread > 0)
+                                            <span class="shrink-0 text-[10px] font-semibold tabular-nums text-red-300">
+                                                {{ $pcrUnread > 99 ? '99+' : $pcrUnread }}
+                                            </span>
+                                        @endif
+                                    </a>
+                                @endforeach
+                            </div>
+                        </div>
+                    @endif
                 </div>
-            </div>
-            @endif
-
-            <a href="{{ route('stores.index') }}"
-               class="flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors
-                      {{ request()->routeIs('stores.*') ? 'bg-white/20 text-white' : 'text-white/70 hover:bg-white/10 hover:text-white' }}">
-                <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/>
-                </svg>
-                <span>Stores</span>
-            </a>
-
-            <a href="{{ route('settings.index') }}"
-               class="flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors
-                      {{ request()->routeIs('settings.*') ? 'bg-white/20 text-white' : 'text-white/70 hover:bg-white/10 hover:text-white' }}">
-                <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
-                </svg>
-                <span>Settings</span>
-            </a>
-
+            @endforeach
         </nav>
 
-        {{-- Super admin section --}}
-        @if(auth()->user()?->is_super_admin)
-        <div class="px-3 pb-4">
-            <div class="border-t border-white/10 pt-3 mb-1">
-                <p class="px-3 text-xs font-semibold uppercase tracking-wider mb-1" style="color:rgba(255,255,255,0.35)">Super Admin</p>
-            </div>
-            <a href="{{ route('super-admin.index') }}"
-               class="flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors
-                      {{ request()->routeIs('super-admin.index') ? 'bg-white/20 text-white' : 'text-white/70 hover:bg-white/10 hover:text-white' }}">
-                <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
-                </svg>
-                <span>Admin Panel</span>
-            </a>
-            <a href="{{ route('super-admin.activity') }}"
-               class="flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors
-                      {{ request()->routeIs('super-admin.activity') ? 'bg-white/20 text-white' : 'text-white/70 hover:bg-white/10 hover:text-white' }}">
-                <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                </svg>
-                <span>Activity Log</span>
-            </a>
-        </div>
-        @endif
-
         {{-- Clock --}}
-        <div class="px-3 py-3 border-t border-white/10 text-center"
+        <div class="relative border-t border-white/10 px-4 py-3"
              x-data="{
                  tz: '{{ config('app.timezone') }}',
                  time: '',
@@ -348,8 +357,13 @@
                  }
              }"
              x-init="tick(); setInterval(() => tick(), 1000)">
-            <p class="text-lg font-semibold text-white tabular-nums" x-text="time">{{ now()->format('H:i') }}</p>
-            <p class="text-xs text-white/50" x-text="date">{{ now()->format('D, d M Y') }}</p>
+            <div class="flex items-baseline justify-between gap-2">
+                <p class="flex items-center gap-2 text-base font-semibold tabular-nums text-white">
+                    <span class="live-dot h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400"></span>
+                    <span x-text="time">{{ now()->format('H:i') }}</span>
+                </p>
+                <p class="truncate text-[11px] text-white/45" x-text="date">{{ now()->format('D, d M Y') }}</p>
+            </div>
         </div>
 
     </aside>
@@ -358,8 +372,17 @@
     <div class="flex-1 flex flex-col overflow-hidden">
 
         {{-- Top bar --}}
-        <header class="relative bg-white border-b border-gray-200 px-8 py-4 flex items-center justify-between shrink-0">
-            <h1 class="text-xl font-semibold text-gray-800">@yield('page-title', 'Dashboard')</h1>
+        <header class="relative bg-white border-b border-gray-200 px-4 sm:px-8 py-4 flex items-center justify-between gap-3 shrink-0">
+            <div class="flex min-w-0 items-center gap-3">
+                <button type="button" @click="nav = true"
+                        class="-ml-1 grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-gray-200 text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-700 lg:hidden"
+                        aria-label="Open menu">
+                    <svg class="h-4.5 w-4.5" style="width:1.125rem;height:1.125rem" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16"/>
+                    </svg>
+                </button>
+                <h1 class="truncate text-lg sm:text-xl font-semibold text-gray-800">@yield('page-title', 'Dashboard')</h1>
+            </div>
 
             <div class="flex items-center gap-4">
                 {{-- Store switcher --}}

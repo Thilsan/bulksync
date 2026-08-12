@@ -91,19 +91,6 @@
                 radial-gradient(760px 480px at 92% 105%, rgba(48,131,166,.42), transparent 62%),
                 linear-gradient(160deg, #1c4961 0%, #1d5a74 45%, #12333f 100%);
         }
-        .showcase::before {
-            content: "";
-            position: absolute;
-            inset: 0;
-            background-image:
-                linear-gradient(rgba(255,255,255,.055) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(255,255,255,.055) 1px, transparent 1px);
-            background-size: 46px 46px;
-            mask-image: radial-gradient(80% 70% at 50% 40%, #000 40%, transparent 100%);
-            -webkit-mask-image: radial-gradient(80% 70% at 50% 40%, #000 40%, transparent 100%);
-            pointer-events: none;
-        }
-
         /* ---------- Slider ---------- */
         .slide {
             position: absolute;
