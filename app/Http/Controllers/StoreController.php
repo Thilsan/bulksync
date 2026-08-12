@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Store;
+use App\Models\User;
 use App\Services\ShopifyService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -13,14 +14,16 @@ class StoreController extends Controller
 {
     public function index(): View
     {
-        $user = auth()->user();
+        $user          = auth()->user();
+        $activeStoreId = Store::getActive()?->id;
 
-        $user   = auth()->user();
-        $stores = $user->is_super_admin
-            ? Store::orderByDesc('is_active')->orderBy('name')->get()
-            : $user->stores()->orderByDesc('is_active')->orderBy('name')->get();
+        // Whatever this person has active sits on top — that is theirs alone,
+        // so the ordering cannot come from the database.
+        $stores = Store::accessibleBy($user)->orderBy('name')->get()
+            ->sortByDesc(fn (Store $store) => $store->id === $activeStoreId)
+            ->values();
 
-        return view('stores.index', compact('stores'));
+        return view('stores.index', compact('stores', 'activeStoreId'));
     }
 
     public function store(Request $request): RedirectResponse
@@ -36,21 +39,20 @@ class StoreController extends Controller
 
         $validated['requires_sku_mapping'] = $request->boolean('requires_sku_mapping');
 
-        $userId  = auth()->id();
-        $isFirst = Store::count() === 0;
+        $user = auth()->user();
 
-        $store = Store::create(array_merge($validated, [
-            'user_id'   => $userId,
-            'is_active' => $isFirst,
-        ]));
+        $store = Store::create(array_merge($validated, ['user_id' => $user->id]));
+
+        // Nothing picked yet — start them off in the store they just added.
+        if (!$user->active_store_id) {
+            $user->forceFill(['active_store_id' => $store->id])->save();
+        }
 
         return back()->with('success', "Store \"{$store->name}\" added.");
     }
 
     public function update(Request $request, Store $store): RedirectResponse
     {
-        $user = auth()->user();
-
         $validated = $request->validate([
             'name'                  => ['required', 'string', 'max:255'],
             'shopify_domain'        => ['required', 'string', 'max:255'],
@@ -69,9 +71,9 @@ class StoreController extends Controller
 
     public function destroy(Store $store): RedirectResponse
     {
-        if ($store->is_active) {
-            Store::where('id', '!=', $store->id)->first()?->update(['is_active' => true]);
-        }
+        // Anyone sitting in this store falls back to their first store instead
+        // of pointing at a row that is about to disappear.
+        User::where('active_store_id', $store->id)->update(['active_store_id' => null]);
 
         $name = $store->name;
         $store->delete();
@@ -81,16 +83,13 @@ class StoreController extends Controller
 
     public function switch(Store $store): RedirectResponse
     {
-        $user = auth()->user();
+        abort_unless(Store::switchTo($store->id), 403);
 
-        Store::switchTo($store->id);
         return back()->with('success', "Switched to \"{$store->name}\".");
     }
 
     public function test(Store $store): JsonResponse
     {
-        $user = auth()->user();
-
         $ok = (new ShopifyService($store))->testConnection();
 
         return response()->json([

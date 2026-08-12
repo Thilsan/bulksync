@@ -50,7 +50,7 @@
                   get categoryOwner() { return this.categoryOwners[this.category] || ''; },
                   // No brand manager set for the category: the owner keeps the role.
                   get categoryBrandManager() { return this.categoryBrandManagers[this.category] || this.categoryOwner; },
-                  storeId: '{{ old('store_id', $stores->firstWhere('is_active', true)?->id ?? $stores->first()?->id) }}',
+                  storeId: '{{ old('store_id', $stores->contains('id', $activeStoreId) ? $activeStoreId : $stores->first()?->id) }}',
                   mappingSites: {{ Illuminate\Support\Js::from($stores->where('requires_sku_mapping', true)->pluck('id')->map(fn ($id) => (string) $id)->values()) }},
                   get usesMapping() { return this.mappingSites.includes(String(this.storeId)) },
               }">

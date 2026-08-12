@@ -20,6 +20,67 @@ class BulkUploadController extends Controller
 
     // ── Views ──────────────────────────────────────────────────────────────
 
+    /**
+     * Overview of image-upload activity: lifetime totals, anything still
+     * running, the last 14 days of throughput, and the newest sessions.
+     *
+     * Scoped the same way as history() — a super admin sees everyone's
+     * sessions, everyone else sees only their own.
+     */
+    public function dashboard(): View
+    {
+        $user = auth()->user();
+
+        $scope = fn () => $user->is_super_admin
+            ? UploadSession::query()
+            : UploadSession::where('user_id', $user->id);
+
+        $totals = $scope()
+            ->selectRaw('COUNT(*) AS sessions')
+            ->selectRaw('COALESCE(SUM(total_files), 0)    AS total')
+            ->selectRaw('COALESCE(SUM(uploaded_files), 0) AS uploaded')
+            ->selectRaw('COALESCE(SUM(skipped_files), 0)  AS skipped')
+            ->selectRaw('COALESCE(SUM(failed_files), 0)   AS failed')
+            ->first();
+
+        $running = $scope()
+            ->whereIn('status', ['pending', 'processing'])
+            ->with('store')
+            ->latest()
+            ->limit(4)
+            ->get();
+
+        $recent = $scope()->with('store')->latest()->limit(6)->get();
+
+        // 14 days of daily throughput, zero-filled so the chart has no gaps.
+        $since = now()->subDays(13)->startOfDay();
+
+        $rows = $scope()
+            ->where('created_at', '>=', $since)
+            ->selectRaw('DATE(created_at) AS day')
+            ->selectRaw('COALESCE(SUM(uploaded_files), 0) AS uploaded')
+            ->groupBy('day')
+            ->pluck('uploaded', 'day');
+
+        $daily = collect(range(13, 0))->map(function ($back) use ($rows) {
+            $date = now()->subDays($back)->startOfDay();
+
+            return [
+                'date'     => $date,
+                'uploaded' => (int) ($rows[$date->format('Y-m-d')] ?? 0),
+            ];
+        });
+
+        $activeStore        = \App\Models\Store::getActive();
+        $shopifyConfigured  = $activeStore && $activeStore->shopify_access_token;
+        $onedriveConfigured = !empty($user->onedrive_access_token);
+
+        return view('upload.dashboard', compact(
+            'totals', 'running', 'recent', 'daily',
+            'shopifyConfigured', 'onedriveConfigured',
+        ));
+    }
+
     public function create(): View
     {
         $activeStore        = \App\Models\Store::getActive();
@@ -27,7 +88,8 @@ class BulkUploadController extends Controller
         $onedriveConfigured = !empty(auth()->user()->onedrive_access_token);
         $dimensionPresets   = $this->imageService->dimensionPresets();
 
-        return view('upload.create', compact('shopifyConfigured', 'onedriveConfigured', 'dimensionPresets'));
+        // $activeStore is composed into the layout only, so the page needs its own copy.
+        return view('upload.create', compact('activeStore', 'shopifyConfigured', 'onedriveConfigured', 'dimensionPresets'));
     }
 
     public function history(): View

@@ -7,6 +7,8 @@
 
     {{-- Store list --}}
     @forelse($stores as $store)
+    {{-- Active is per person, so it is the viewer's own choice being shown here. --}}
+    @php $isActive = $store->id === $activeStoreId; @endphp
     <div class="bg-white rounded-xl border border-gray-200 overflow-hidden"
          x-data="{ editing: false }">
 
@@ -14,11 +16,11 @@
         <div x-show="!editing">
             <div class="px-6 py-4 flex items-center justify-between gap-4">
                 <div class="flex items-center gap-3 min-w-0">
-                    <div class="w-2.5 h-2.5 rounded-full shrink-0 {{ $store->is_active ? 'bg-green-500' : 'bg-gray-300' }}"></div>
+                    <div class="w-2.5 h-2.5 rounded-full shrink-0 {{ $isActive ? 'bg-green-500' : 'bg-gray-300' }}"></div>
                     <div class="min-w-0">
                         <div class="flex items-center gap-2">
                             <p class="font-semibold text-gray-900 truncate">{{ $store->name }}</p>
-                            @if($store->is_active)
+                            @if($isActive)
                             <span class="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">Active</span>
                             @endif
                         </div>
@@ -36,7 +38,7 @@
                         Connected
                     </span>
                     @else
-                    @if($store->is_active && $store->shopify_client_id)
+                    @if($isActive && $store->shopify_client_id)
                     <a href="{{ route('shopify.auth.redirect') }}"
                        class="text-xs bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded-lg transition-colors font-medium">
                         Connect Shopify
@@ -51,7 +53,7 @@
                     </button>
 
                     {{-- Set active --}}
-                    @if(!$store->is_active)
+                    @if(!$isActive)
                     <form method="POST" action="{{ route('stores.switch', $store) }}">
                         @csrf
                         <button type="submit"

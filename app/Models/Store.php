@@ -2,20 +2,31 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 
 class Store extends Model
 {
-    protected $fillable = ['name', 'shopify_domain', 'shopify_client_id', 'shopify_client_secret', 'shopify_access_token', 'is_active', 'requires_sku_mapping', 'user_id'];
+    protected $fillable = ['name', 'shopify_domain', 'shopify_client_id', 'shopify_client_secret', 'shopify_access_token', 'requires_sku_mapping', 'user_id'];
 
-    protected $casts = ['is_active' => 'boolean', 'requires_sku_mapping' => 'boolean'];
+    protected $casts = ['requires_sku_mapping' => 'boolean'];
 
     /** Websites this user may raise a product creation request against. */
     public static function selectableFor(User $user)
     {
-        return $user->is_super_admin
-            ? static::orderBy('name')->get()
-            : $user->stores()->orderBy('name')->get();
+        return static::accessibleBy($user)->orderBy('name')->get();
+    }
+
+    /** Every store this user is allowed to work in — super admins see them all. */
+    public static function accessibleBy(User $user): Builder
+    {
+        $query = static::query();
+
+        if (!$user->is_super_admin) {
+            $query->whereHas('users', fn ($q) => $q->where('user_id', $user->id));
+        }
+
+        return $query;
     }
 
     public function users(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
@@ -23,31 +34,44 @@ class Store extends Model
         return $this->belongsToMany(User::class);
     }
 
+    /**
+     * The store this person is currently working in. Their own choice, never
+     * anyone else's — two people can sit on different websites at once.
+     */
     public static function getActive(?int $userId = null): ?static
     {
         $user = $userId ? User::find($userId) : auth()->user();
 
-        $query = static::where('is_active', true);
-
-        if ($user && !$user->is_super_admin) {
-            $query->whereHas('users', fn ($q) => $q->where('user_id', $user->id));
+        if (!$user) {
+            // Console / queue work with no owner attached. Only meaningful on a
+            // single-store install; anything user-facing passes a user id.
+            return static::orderBy('name')->first();
         }
 
-        return $query->first();
+        // Access can be taken away after someone picked a store, so the saved
+        // choice is re-checked rather than trusted.
+        if ($user->active_store_id) {
+            $store = static::accessibleBy($user)->whereKey($user->active_store_id)->first();
+
+            if ($store) {
+                return $store;
+            }
+        }
+
+        return static::accessibleBy($user)->orderBy('name')->first();
     }
 
-    public static function switchTo(int $id): void
+    /** Returns false when the user has no business in that store. */
+    public static function switchTo(int $id, ?User $user = null): bool
     {
-        $user = auth()->user();
+        $user ??= auth()->user();
 
-        if ($user && !$user->is_super_admin) {
-            // Only deactivate stores this user has access to
-            static::whereHas('users', fn ($q) => $q->where('user_id', $user->id))
-                ->update(['is_active' => false]);
-        } else {
-            static::query()->update(['is_active' => false]);
+        if (!$user || !static::accessibleBy($user)->whereKey($id)->exists()) {
+            return false;
         }
 
-        static::where('id', $id)->update(['is_active' => true]);
+        $user->forceFill(['active_store_id' => $id])->save();
+
+        return true;
     }
 }

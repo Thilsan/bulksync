@@ -28,6 +28,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/', [DashboardController::class, 'index'])->name('dashboard');
 
     // Bulk upload
+    Route::get('/upload',           [BulkUploadController::class, 'dashboard'])->name('upload.dashboard');
     Route::get('/upload/history',   [BulkUploadController::class, 'history'])->name('upload.history');
 
     Route::post('/image-audit/start',                          [ImageAuditController::class, 'start'])->name('image-audit.start');

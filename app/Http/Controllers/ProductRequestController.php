@@ -133,10 +133,11 @@ class ProductRequestController extends Controller implements HasMiddleware
 
         // Websites the requester can raise a request against. Who does the work
         // is decided by the category, not chosen on the form.
-        $stores = Store::selectableFor($user);
+        $stores        = Store::selectableFor($user);
+        $activeStoreId = Store::getActive($user->id)?->id;
 
         return view('product-requests.index', compact(
-            'stats', 'breakdown', 'recent', 'deadlines', 'topBrands', 'activity', 'stores'
+            'stats', 'breakdown', 'recent', 'deadlines', 'topBrands', 'activity', 'stores', 'activeStoreId'
         ) + $this->categoryStaffing());
     }
 
@@ -177,10 +178,11 @@ class ProductRequestController extends Controller implements HasMiddleware
 
         // The New Request slide-over lives on this page too, and needs the
         // websites this user may file against.
-        $stores   = Store::selectableFor($user);
-        $teamPool = User::where('is_active', true)->orderBy('name')->get(['id', 'name', 'pcr_role']);
+        $stores        = Store::selectableFor($user);
+        $activeStoreId = Store::getActive($user->id)?->id;
+        $teamPool      = User::where('is_active', true)->orderBy('name')->get(['id', 'name', 'pcr_role']);
 
-        return view('product-requests.list', compact('requests', 'brands', 'stores', 'teamPool') + $this->categoryStaffing());
+        return view('product-requests.list', compact('requests', 'brands', 'stores', 'activeStoreId', 'teamPool') + $this->categoryStaffing());
     }
 
     /**

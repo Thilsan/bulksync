@@ -171,9 +171,19 @@
             [
                 'label' => 'Media',
                 'items' => [
-                    ['label' => 'Image Upload',   'url' => route('upload.create'),  'icon' => 'upload',  'on' => request()->routeIs('upload.create'),  'show' => $u->hasFeature('bulk_upload')],
-                    ['label' => 'Upload History', 'url' => route('upload.history'), 'icon' => 'history', 'on' => request()->routeIs('upload.history'), 'show' => $u->hasFeature('bulk_upload')],
-                    ['label' => 'Image Audit',    'url' => route('image-audit.index'), 'icon' => 'photo', 'on' => request()->routeIs('image-audit.*'), 'show' => $u->hasFeature('image_audit')],
+                    [
+                        'label' => 'Image Upload',
+                        'url'   => route('upload.dashboard'),
+                        'icon'  => 'upload',
+                        'on'    => request()->routeIs('upload.*'),
+                        'show'  => $u->hasFeature('bulk_upload'),
+                        // Parent links to the upload dashboard, so it isn't repeated here.
+                        'children' => [
+                            ['label' => 'New Upload',     'url' => route('upload.create'),  'on' => request()->routeIs('upload.create')],
+                            ['label' => 'Upload History', 'url' => route('upload.history'), 'on' => request()->routeIs('upload.history')],
+                        ],
+                    ],
+                    ['label' => 'Image Audit', 'url' => route('image-audit.index'), 'icon' => 'photo', 'on' => request()->routeIs('image-audit.*'), 'show' => $u->hasFeature('image_audit')],
                 ],
             ],
             [
@@ -183,6 +193,21 @@
                     ['label' => 'SKU Checker',          'url' => route('sku-checker.index'),       'icon' => 'check',  'on' => request()->routeIs('sku-checker.*'),       'show' => $u->hasFeature('sku_checker')],
                     ['label' => 'Metafield Checker',    'url' => route('metafield-update.index'),  'icon' => 'doc',    'on' => request()->routeIs('metafield-update.*'),  'show' => $u->hasFeature('metafield_update')],
                     ['label' => 'AI Content Generator', 'url' => route('ai-content.index'),        'icon' => 'screen', 'on' => request()->routeIs('ai-content.*'),        'show' => $u->hasFeature('ai_content')],
+                    [
+                        'label' => 'Product Requests',
+                        'url'   => route('product-requests.index'),
+                        'icon'  => 'tasks',
+                        'on'    => request()->routeIs('product-requests.*'),
+                        'show'  => $u->hasFeature('product_request'),
+                        'badge' => $bellUnreadCount ?? 0,
+                        // No "Dashboard" entry — the parent link already goes there.
+                        'children' => [
+                            ['label' => 'All Requests',    'url' => route('product-requests.list'),            'on' => request()->routeIs('product-requests.list')],
+                            ['label' => 'Photoshoot Room', 'url' => route('product-requests.photoshoot-room'), 'on' => request()->routeIs('product-requests.photoshoot-room*')],
+                            ['label' => 'Assigned to Me',  'url' => route('product-requests.my-tasks'),        'on' => request()->routeIs('product-requests.my-tasks')],
+                            ['label' => 'Notifications',   'url' => route('product-requests.notifications'),   'on' => request()->routeIs('product-requests.notifications'), 'badge' => $bellUnreadCount ?? 0],
+                        ],
+                    ],
                 ],
             ],
             [
@@ -208,8 +233,6 @@
             ->filter(fn ($g) => count($g['items']) > 0)
             ->values();
 
-        $pcrActive = request()->routeIs('product-requests.*');
-        $pcrUnread = $bellUnreadCount ?? 0;
     @endphp
 
     {{-- Backdrop for the mobile drawer --}}
@@ -256,90 +279,91 @@
 
                 <div class="space-y-0.5">
                     @foreach($group['items'] as $item)
-                        <a href="{{ $item['url'] }}"
-                           @if($item['on']) aria-current="page" @endif
-                           class="relative flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium transition-colors
-                                  {{ $item['on']
-                                      ? 'bg-white/[.13] text-white ring-1 ring-inset ring-white/10'
-                                      : 'text-white/65 hover:bg-white/[.07] hover:text-white' }}">
-                            @if($item['on'])
-                                {{-- Accent rail: marks the current page without relying on tint alone --}}
-                                <span class="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-brand-300"></span>
-                            @endif
-                            <svg class="h-4 w-4 shrink-0 {{ $item['on'] ? 'text-brand-200' : 'text-white/45' }}"
-                                 fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.85">
-                                @foreach($ico[$item['icon']] as $d)
-                                    <path stroke-linecap="round" stroke-linejoin="round" d="{{ $d }}"/>
-                                @endforeach
-                            </svg>
-                            <span class="truncate">{{ $item['label'] }}</span>
-                        </a>
-                    @endforeach
+                        @php
+                            $kids  = $item['children'] ?? [];
+                            $badge = (int) ($item['badge'] ?? 0);
+                        @endphp
 
-                    {{-- Workflow sits inside Catalogue's slot in the order but owns
-                         a sub-menu, so it is rendered on its own after that group. --}}
-                    @if($group['label'] === 'Catalogue' && $u->hasFeature('product_request'))
-                        <div x-data="{ open: {{ $pcrActive ? 'true' : 'false' }} }">
-                            <div class="relative flex items-stretch rounded-lg transition-colors
-                                        {{ $pcrActive ? 'bg-white/[.13] ring-1 ring-inset ring-white/10' : 'hover:bg-white/[.07]' }}">
-                                @if($pcrActive)
+                        @if($kids)
+                            {{-- Parent with a sub-menu: the label navigates, the chevron only expands.
+                                 It starts open whenever you are anywhere inside its section. --}}
+                            <div x-data="{ open: {{ $item['on'] ? 'true' : 'false' }} }">
+                                <div class="relative flex items-stretch rounded-lg transition-colors
+                                            {{ $item['on'] ? 'bg-white/[.13] ring-1 ring-inset ring-white/10' : 'hover:bg-white/[.07]' }}">
+                                    @if($item['on'])
+                                        <span class="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-brand-300"></span>
+                                    @endif
+                                    <a href="{{ $item['url'] }}" @click="open = true"
+                                       @if($item['on']) aria-current="page" @endif
+                                       class="flex min-w-0 flex-1 items-center gap-2.5 px-3 py-2 text-[13px] font-medium
+                                              {{ $item['on'] ? 'text-white' : 'text-white/65 hover:text-white' }}">
+                                        <svg class="h-4 w-4 shrink-0 {{ $item['on'] ? 'text-brand-200' : 'text-white/45' }}"
+                                             fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.85">
+                                            @foreach($ico[$item['icon']] as $d)
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="{{ $d }}"/>
+                                            @endforeach
+                                        </svg>
+                                        <span class="truncate">{{ $item['label'] }}</span>
+                                    </a>
+                                    @if($badge > 0)
+                                        <span class="flex shrink-0 items-center pr-1">
+                                            <span class="rounded-full bg-red-500/90 px-1.5 py-px text-[10px] font-semibold tabular-nums text-white">
+                                                {{ $badge > 99 ? '99+' : $badge }}
+                                            </span>
+                                        </span>
+                                    @endif
+                                    <button type="button" @click.stop="open = !open"
+                                            class="flex shrink-0 items-center px-2 {{ $item['on'] ? 'text-white/70' : 'text-white/40 hover:text-white' }}"
+                                            :aria-expanded="open" aria-label="Toggle {{ $item['label'] }} menu">
+                                        <svg :class="open ? 'rotate-180' : ''" class="h-3.5 w-3.5 transition-transform"
+                                             fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
+                                        </svg>
+                                    </button>
+                                </div>
+
+                                <div x-show="open" x-cloak
+                                     x-transition:enter="transition ease-out duration-150"
+                                     x-transition:enter-start="opacity-0 -translate-y-1"
+                                     x-transition:enter-end="opacity-100 translate-y-0"
+                                     class="ml-[1.4rem] mt-0.5 space-y-0.5 border-l border-white/15 pl-3">
+                                    @foreach($kids as $kid)
+                                        @php $kidBadge = (int) ($kid['badge'] ?? 0); @endphp
+                                        <a href="{{ $kid['url'] }}"
+                                           @if($kid['on']) aria-current="page" @endif
+                                           class="flex items-center gap-2 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors
+                                                  {{ $kid['on'] ? 'bg-white/[.12] text-white' : 'text-white/55 hover:bg-white/[.07] hover:text-white' }}">
+                                            <span class="flex-1 truncate">{{ $kid['label'] }}</span>
+                                            @if($kidBadge > 0)
+                                                <span class="shrink-0 text-[10px] font-semibold tabular-nums text-red-300">
+                                                    {{ $kidBadge > 99 ? '99+' : $kidBadge }}
+                                                </span>
+                                            @endif
+                                        </a>
+                                    @endforeach
+                                </div>
+                            </div>
+                        @else
+                            <a href="{{ $item['url'] }}"
+                               @if($item['on']) aria-current="page" @endif
+                               class="relative flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium transition-colors
+                                      {{ $item['on']
+                                          ? 'bg-white/[.13] text-white ring-1 ring-inset ring-white/10'
+                                          : 'text-white/65 hover:bg-white/[.07] hover:text-white' }}">
+                                @if($item['on'])
+                                    {{-- Accent rail: marks the current page without relying on tint alone --}}
                                     <span class="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-brand-300"></span>
                                 @endif
-                                <a href="{{ route('product-requests.index') }}" @click="open = true"
-                                   class="flex min-w-0 flex-1 items-center gap-2.5 px-3 py-2 text-[13px] font-medium
-                                          {{ $pcrActive ? 'text-white' : 'text-white/65 hover:text-white' }}">
-                                    <svg class="h-4 w-4 shrink-0 {{ $pcrActive ? 'text-brand-200' : 'text-white/45' }}"
-                                         fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.85">
-                                        <path stroke-linecap="round" stroke-linejoin="round" d="{{ $ico['tasks'][0] }}"/>
-                                    </svg>
-                                    <span class="truncate">Product Requests</span>
-                                </a>
-                                @if($pcrUnread > 0)
-                                    <span class="flex shrink-0 items-center pr-1">
-                                        <span class="rounded-full bg-red-500/90 px-1.5 py-px text-[10px] font-semibold tabular-nums text-white">
-                                            {{ $pcrUnread > 99 ? '99+' : $pcrUnread }}
-                                        </span>
-                                    </span>
-                                @endif
-                                <button type="button" @click.stop="open = !open"
-                                        class="flex shrink-0 items-center px-2 {{ $pcrActive ? 'text-white/70' : 'text-white/40 hover:text-white' }}"
-                                        :aria-expanded="open" aria-label="Toggle Product Requests menu">
-                                    <svg :class="open ? 'rotate-180' : ''" class="h-3.5 w-3.5 transition-transform"
-                                         fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5">
-                                        <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
-                                    </svg>
-                                </button>
-                            </div>
-
-                            <div x-show="open" x-cloak
-                                 x-transition:enter="transition ease-out duration-150"
-                                 x-transition:enter-start="opacity-0 -translate-y-1"
-                                 x-transition:enter-end="opacity-100 translate-y-0"
-                                 class="ml-[1.4rem] mt-0.5 space-y-0.5 border-l border-white/15 pl-3">
-                                @php
-                                    // No "Dashboard" entry — the parent link already goes there.
-                                    $pcrLinks = [
-                                        ['label' => 'All Requests',    'url' => route('product-requests.list'),            'on' => request()->routeIs('product-requests.list')],
-                                        ['label' => 'Photoshoot Room', 'url' => route('product-requests.photoshoot-room'), 'on' => request()->routeIs('product-requests.photoshoot-room*')],
-                                        ['label' => 'Assigned to Me',  'url' => route('product-requests.my-tasks'),        'on' => request()->routeIs('product-requests.my-tasks')],
-                                        ['label' => 'Notifications',   'url' => route('product-requests.notifications'),   'on' => request()->routeIs('product-requests.notifications')],
-                                    ];
-                                @endphp
-                                @foreach($pcrLinks as $link)
-                                    <a href="{{ $link['url'] }}"
-                                       class="flex items-center gap-2 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors
-                                              {{ $link['on'] ? 'bg-white/[.12] text-white' : 'text-white/55 hover:bg-white/[.07] hover:text-white' }}">
-                                        <span class="flex-1 truncate">{{ $link['label'] }}</span>
-                                        @if($link['label'] === 'Notifications' && $pcrUnread > 0)
-                                            <span class="shrink-0 text-[10px] font-semibold tabular-nums text-red-300">
-                                                {{ $pcrUnread > 99 ? '99+' : $pcrUnread }}
-                                            </span>
-                                        @endif
-                                    </a>
-                                @endforeach
-                            </div>
-                        </div>
-                    @endif
+                                <svg class="h-4 w-4 shrink-0 {{ $item['on'] ? 'text-brand-200' : 'text-white/45' }}"
+                                     fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.85">
+                                    @foreach($ico[$item['icon']] as $d)
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="{{ $d }}"/>
+                                    @endforeach
+                                </svg>
+                                <span class="truncate">{{ $item['label'] }}</span>
+                            </a>
+                        @endif
+                    @endforeach
                 </div>
             @endforeach
         </nav>
@@ -399,14 +423,15 @@
                     <div x-show="open" @click.outside="open = false" x-cloak
                          class="absolute right-0 mt-1 w-56 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50">
                         @foreach($allStores as $s)
+                        @php $isActive = $s->id === $activeStore?->id; @endphp
                         <form method="POST" action="{{ route('stores.switch', $s) }}">
                             @csrf
                             <button type="submit"
                                 class="w-full flex items-center gap-3 px-4 py-2 text-sm hover:bg-gray-50 transition-colors
-                                       {{ $s->is_active ? 'text-gray-900 font-medium' : 'text-gray-500' }}">
-                                <div class="w-2 h-2 rounded-full shrink-0 {{ $s->is_active ? 'bg-green-500' : 'bg-gray-300' }}"></div>
+                                       {{ $isActive ? 'text-gray-900 font-medium' : 'text-gray-500' }}">
+                                <div class="w-2 h-2 rounded-full shrink-0 {{ $isActive ? 'bg-green-500' : 'bg-gray-300' }}"></div>
                                 <span class="flex-1 text-left truncate">{{ $s->name }}</span>
-                                @if($s->is_active)
+                                @if($isActive)
                                 <svg class="w-3.5 h-3.5 text-green-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/>
                                 </svg>

@@ -16,7 +16,7 @@ class SuperAdminController extends Controller
     public function index(): View
     {
         $users  = User::orderByDesc('is_super_admin')->orderBy('name')->get();
-        $stores = Store::orderByDesc('is_active')->orderBy('name')->get();
+        $stores = Store::orderBy('name')->get();
 
         return view('super-admin.index', [
             'users'          => $users,

@@ -487,7 +487,7 @@
                             <li class="px-5 py-3">
                                 <div class="flex items-center gap-2">
                                     <p class="text-sm font-medium text-gray-800 truncate">{{ $row['model']->name }}</p>
-                                    @if($row['model']->is_active)
+                                    @if($row['active'])
                                         <span class="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-brand-50 text-brand-600 shrink-0">Active</span>
                                     @endif
                                     <span class="ml-auto w-2 h-2 rounded-full shrink-0 {{ $row['connected'] ? 'bg-emerald-500' : 'bg-red-400' }}"

@@ -265,7 +265,7 @@
                                     {{ in_array($store->id, $userStoreIds) ? 'checked' : '' }}
                                     class="w-4 h-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500">
                                 <span class="text-sm text-gray-700 group-hover:text-gray-900">{{ $store->name }}</span>
-                                @if($store->is_active)
+                                @if($store->id === $user->active_store_id)
                                     <span class="text-xs bg-green-100 text-green-600 px-1.5 py-0.5 rounded-full">Active</span>
                                 @endif
                             </label>

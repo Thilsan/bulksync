@@ -743,17 +743,17 @@ class DashboardController extends Controller
     /** The stores this account can reach, and how much work each has taken. */
     private function stores(User $user): Collection
     {
-        $stores = $user->is_super_admin
-            ? Store::orderBy('name')->get()
-            : $user->stores()->orderBy('name')->get();
+        $stores   = Store::accessibleBy($user)->orderBy('name')->get();
+        $activeId = Store::getActive($user->id)?->id;
 
-        return $stores->map(function (Store $store) use ($user) {
+        return $stores->map(function (Store $store) use ($user, $activeId) {
             $scope = function ($query) use ($user) {
                 return $user->is_super_admin ? $query : $query->where('user_id', $user->id);
             };
 
             return [
                 'model'      => $store,
+                'active'     => $store->id === $activeId,
                 'connected'  => filled($store->shopify_access_token),
                 'uploads'    => $scope(UploadSession::where('store_id', $store->id))->count(),
                 'checks'     => $scope(SkuCheckSession::where('store_id', $store->id))->count(),
@@ -769,7 +769,7 @@ class DashboardController extends Controller
      */
     private function health(User $user): array
     {
-        $activeStore = Store::where('is_active', true)->first();
+        $activeStore = Store::getActive($user->id);
 
         return [
             [
