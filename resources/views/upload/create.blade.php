@@ -8,7 +8,8 @@
     .mode-card:focus-within { outline: 2px solid #439fc1; outline-offset: 2px; }
 </style>
 
-<div class="mx-auto max-w-6xl" x-data="uploadForm()">
+{{-- Full-bleed, matching the upload dashboard --}}
+<div x-data="uploadForm()">
 
     {{-- Full-page loading overlay — shown while the server scans OneDrive + processes all images --}}
     <div x-show="loading" x-cloak
@@ -49,7 +50,7 @@
     @endif
 
     <form method="POST" action="{{ route('upload.store') }}" @submit="loading = true"
-          class="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_19rem]">
+          class="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_20rem] xl:grid-cols-[minmax(0,1fr)_23rem]">
         @csrf
 
         {{-- ─────────────────────────── Main column ─────────────────────────── --}}
@@ -106,7 +107,9 @@
             <div class="border-t border-gray-100 px-6 py-5">
                 <h2 class="text-sm font-semibold text-gray-800">Where are the images?</h2>
 
-                <div class="mt-4 space-y-4">
+                {{-- Side by side only at 2xl: below that the helper column leaves the
+                     main column too narrow, and a truncated OneDrive URL is worse than a wide one. --}}
+                <div class="mt-4 grid gap-4 2xl:grid-cols-2">
                     <div>
                         <label for="onedrive_link" class="mb-1.5 block text-sm font-medium text-gray-700">
                             OneDrive shared folder link <span class="text-red-500">*</span>
