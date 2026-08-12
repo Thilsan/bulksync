@@ -591,6 +591,16 @@ class ProductRequestController extends Controller implements HasMiddleware
             'not_mapped'        => $productRequest->not_mapped_skus,
             'progress'          => $productRequest->progressPercent(),
             'validated_at'      => $productRequest->validated_at?->toIso8601String(),
+            // AI content generation runs on the queue; the show page polls this
+            // so the progress bar moves without a manual reload.
+            'ai_content'        => ($ai = $productRequest->aiContentSession) ? [
+                'status'          => $ai->status,
+                'status_label'    => $ai->statusLabel(),
+                'total_items'     => $ai->total_items,
+                'processed_items' => $ai->processed_items,
+                'progress'        => $ai->progressPercent(),
+                'error_message'   => $ai->error_message,
+            ] : null,
         ]);
     }
 

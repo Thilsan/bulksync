@@ -104,6 +104,7 @@ class AiContentController extends Controller
 
         return response()->json([
             'status'           => $aiContentSession->status,
+            'status_label'     => $aiContentSession->statusLabel(),
             'total_items'      => $aiContentSession->total_items,
             'processed_items'  => $aiContentSession->processed_items,
             'progress'         => $aiContentSession->progressPercent(),

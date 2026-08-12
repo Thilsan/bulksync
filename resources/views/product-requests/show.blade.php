@@ -650,30 +650,82 @@
                     @php $eligible = $request->skus()->where('in_shopify', true)->count(); @endphp
 
                     @if($aiSession)
-                        <div class="flex flex-wrap items-center gap-x-6 gap-y-2">
-                            <div>
-                                <p class="text-xs text-gray-500">Status</p>
-                                <p class="text-sm font-medium text-gray-800">{{ ucfirst($aiSession->status) }}</p>
-                            </div>
-                            <div>
-                                <p class="text-xs text-gray-500">Progress</p>
-                                <p class="text-sm font-medium text-gray-800">
-                                    {{ $aiSession->processed_items }} / {{ $aiSession->total_items }}
-                                </p>
-                            </div>
-                            <div class="flex-1 min-w-[8rem]">
-                                <div class="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                                    <div class="h-full bg-brand-600 rounded-full" style="width: {{ $aiSession->progressPercent() }}%"></div>
+                        {{-- Generation runs on the queue, so this block polls itself instead of
+                             leaving a stale "Pending 0 / 1" on screen until someone reloads. --}}
+                        <div x-data="{
+                                status: @js($aiSession->status),
+                                label: @js($aiSession->statusLabel()),
+                                processed: {{ $aiSession->processed_items }},
+                                total: {{ $aiSession->total_items }},
+                                percent: {{ $aiSession->progressPercent() }},
+                                error: @js($aiSession->error_message),
+                                working: {{ $aiSession->isWorking() ? 'true' : 'false' }},
+                                poll() {
+                                    if (!this.working) return;
+                                    fetch('{{ route('product-requests.status', $request) }}')
+                                        .then(r => r.json())
+                                        .then(d => {
+                                            const ai = d.ai_content;
+                                            if (!ai) return;
+                                            const wasWorking = this.working;
+                                            this.status    = ai.status;
+                                            this.label     = ai.status_label;
+                                            this.processed = ai.processed_items;
+                                            this.total     = ai.total_items;
+                                            this.percent   = ai.progress;
+                                            this.error     = ai.error_message;
+                                            this.working   = ['pending', 'processing', 'translating', 'pushing'].includes(ai.status);
+                                            // Finishing can unlock push actions elsewhere on the page.
+                                            if (wasWorking && !this.working) window.location.reload();
+                                        })
+                                        .catch(() => {});
+                                }
+                             }"
+                             x-init="setInterval(() => poll(), 4000)">
+                            <div class="flex flex-wrap items-center gap-x-6 gap-y-2">
+                                <div>
+                                    <p class="text-xs text-gray-500">Status</p>
+                                    <p class="text-sm font-medium"
+                                       :class="status === 'failed' ? 'text-red-600' : (status === 'ready' || status === 'done' ? 'text-emerald-700' : 'text-gray-800')"
+                                       x-text="label">{{ $aiSession->statusLabel() }}</p>
                                 </div>
+                                <div>
+                                    <p class="text-xs text-gray-500">Progress</p>
+                                    <p class="text-sm font-medium text-gray-800">
+                                        <span x-text="`${processed} / ${total} SKUs`">{{ $aiSession->processed_items }} / {{ $aiSession->total_items }} SKUs</span>
+                                    </p>
+                                </div>
+                                <div class="flex-1 min-w-40">
+                                    <div class="flex items-center gap-2">
+                                        <div class="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                                            <div class="h-full rounded-full transition-all duration-500"
+                                                 :class="status === 'failed' ? 'bg-red-500' : (status === 'ready' || status === 'done' ? 'bg-emerald-500' : 'bg-brand-600')"
+                                                 :style="`width: ${percent}%`"
+                                                 style="width: {{ $aiSession->progressPercent() }}%"></div>
+                                        </div>
+                                        <span class="text-xs font-medium text-gray-600 tabular-nums w-9 text-right"
+                                              x-text="`${percent}%`">{{ $aiSession->progressPercent() }}%</span>
+                                    </div>
+                                    <p class="text-[11px] text-gray-400 mt-1"
+                                       x-text="working
+                                            ? `${label} — ${processed} of ${total} done`
+                                            : (status === 'ready'
+                                                ? 'Generation finished. Review it and push to Shopify.'
+                                                : (status === 'done' ? 'Content is live on Shopify.' : label))">
+                                        {{ $aiSession->isWorking()
+                                            ? $aiSession->statusLabel() . ' — ' . $aiSession->processed_items . ' of ' . $aiSession->total_items . ' done'
+                                            : ($aiSession->status === 'ready'
+                                                ? 'Generation finished. Review it and push to Shopify.'
+                                                : ($aiSession->status === 'done' ? 'Content is live on Shopify.' : $aiSession->statusLabel())) }}
+                                    </p>
+                                </div>
+                                <a href="{{ route('ai-content.show', $aiSession) }}"
+                                   class="text-xs text-brand-600 hover:text-brand-700 font-medium shrink-0">
+                                    Open in AI Content Generator &rarr;
+                                </a>
                             </div>
-                            <a href="{{ route('ai-content.show', $aiSession) }}"
-                               class="text-xs text-brand-600 hover:text-brand-700 font-medium shrink-0">
-                                Open in AI Content Generator &rarr;
-                            </a>
+                            <p class="text-xs text-red-600 mt-2" x-show="error" x-cloak x-text="error">{{ $aiSession->error_message }}</p>
                         </div>
-                        @if($aiSession->error_message)
-                            <p class="text-xs text-red-600 mt-2">{{ $aiSession->error_message }}</p>
-                        @endif
                     @elseif($eligible === 0)
                         <div class="bg-amber-50 border border-amber-200 text-amber-900 rounded-lg px-4 py-3 text-sm">
                             <p class="font-medium">No SKUs are in Shopify yet.</p>

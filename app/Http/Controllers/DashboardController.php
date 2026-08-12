@@ -36,6 +36,17 @@ class DashboardController extends Controller
     /** How far back the throughput chart and the "recent" numbers look. */
     private const TREND_DAYS = 14;
 
+    /**
+     * A job is only "running" if something has touched it lately.
+     *
+     * Every module queues its work and bumps the session row as it progresses,
+     * so a live job is never quiet for long. A row left pending or processing
+     * beyond this window is stalled — a stopped queue worker, a killed process
+     * — and showing it as active is worse than not showing it at all: the panel
+     * fills with checks that will never move and hides the ones that will.
+     */
+    private const STALE_AFTER_MINUTES = 30;
+
     public function index(#[CurrentUser] User $user): View
     {
         $can = fn (string $feature) => $user->hasFeature($feature);
@@ -76,6 +87,31 @@ class DashboardController extends Controller
 
     // ── Per-module roll-ups ──────────────────────────────────────────────────
 
+    /**
+     * The statuses each module uses while work is still in flight.
+     *
+     * They do not agree: the SKU checker and image audit call it "running",
+     * uploads call it "processing", and AI content adds a translation pass on
+     * the end. Anything not listed here is finished, one way or another.
+     */
+    private const BUSY_STATUSES = [
+        UploadSession::class         => ['pending', 'processing'],
+        SkuCheckSession::class       => ['pending', 'running'],
+        ImageAuditSession::class     => ['pending', 'running'],
+        AiContentSession::class      => ['pending', 'processing', 'translating'],
+        StoreMigrationSession::class => ['pending', 'running'],
+    ];
+
+    /** Narrows a session query to work that is genuinely in flight. */
+    private function live($query)
+    {
+        $busy = self::BUSY_STATUSES[$query->getModel()::class] ?? ['pending', 'processing'];
+
+        return $query
+            ->whereIn('status', $busy)
+            ->where('updated_at', '>=', Carbon::now()->subMinutes(self::STALE_AFTER_MINUTES));
+    }
+
     private function uploadStats(callable $mine, Carbon $since): array
     {
         $all = $mine(UploadSession::class);
@@ -88,7 +124,7 @@ class DashboardController extends Controller
             'skipped'   => (int) (clone $all)->sum('skipped_files'),
             'failed'    => (int) (clone $all)->sum('failed_files'),
             'scanned'   => (int) (clone $all)->sum('total_files'),
-            'running'   => (clone $all)->whereIn('status', ['pending', 'processing'])->count(),
+            'running'   => $this->live((clone $all))->count(),
             'latest'    => (clone $all)->latest()->first(),
         ];
     }
@@ -103,7 +139,7 @@ class DashboardController extends Controller
             'skus'      => (int) (clone $all)->sum('total_skus'),
             'available' => (int) (clone $all)->sum('available_count'),
             'missing'   => (int) (clone $all)->sum('not_available_count'),
-            'running'   => (clone $all)->whereIn('status', ['pending', 'processing'])->count(),
+            'running'   => $this->live((clone $all))->count(),
             'sessions'  => (clone $all)->with('store')->latest()->limit(5)->get(),
         ];
     }
@@ -118,7 +154,7 @@ class DashboardController extends Controller
             'products' => (int) (clone $all)->sum('total_products'),
             'with'     => (int) (clone $all)->sum('with_images'),
             'without'  => (int) (clone $all)->sum('without_images'),
-            'running'  => (clone $all)->whereIn('status', ['pending', 'processing'])->count(),
+            'running'  => $this->live((clone $all))->count(),
             'latest'   => (clone $all)->with('store')->latest()->first(),
         ];
     }
@@ -133,7 +169,7 @@ class DashboardController extends Controller
             'skus'    => (int) (clone $all)->sum('total_skus'),
             'success' => (int) (clone $all)->sum('success_count'),
             'failed'  => (int) (clone $all)->sum('failed_count'),
-            'running' => (clone $all)->whereIn('status', ['pending', 'processing'])->count(),
+            'running' => $this->live((clone $all))->count(),
             'latest'  => (clone $all)->with(['fromStore', 'toStore'])->latest()->first(),
         ];
     }
@@ -154,7 +190,7 @@ class DashboardController extends Controller
             'processed' => (int) (clone $all)->sum('processed_items'),
             'confirmed' => AiContentItem::whereIn('session_id', $itemIds)->where('is_confirmed', true)->count(),
             'translated'=> AiContentItem::whereIn('session_id', $itemIds)->whereNotNull('ai_description_ar')->count(),
-            'running'   => (clone $all)->whereIn('status', ['pending', 'processing'])->count(),
+            'running'   => $this->live((clone $all))->count(),
             'latest'    => (clone $all)->with('store')->latest()->first(),
         ];
     }
@@ -486,11 +522,10 @@ class DashboardController extends Controller
     private function running(callable $mine, callable $can): Collection
     {
         $live = collect();
-        $busy = ['pending', 'processing'];
 
         if ($can('bulk_upload')) {
             $live = $live->concat(
-                $mine(UploadSession::class)->whereIn('status', $busy)->latest()->limit(5)->get()
+                $this->live($mine(UploadSession::class))->latest()->limit(5)->get()
                     ->map(fn (UploadSession $s) => [
                         'module'   => 'Image Upload',
                         'tone'     => 'brand',
@@ -506,7 +541,7 @@ class DashboardController extends Controller
 
         if ($can('sku_checker')) {
             $live = $live->concat(
-                $mine(SkuCheckSession::class)->whereIn('status', $busy)->latest()->limit(5)->get()
+                $this->live($mine(SkuCheckSession::class))->latest()->limit(5)->get()
                     ->map(fn (SkuCheckSession $s) => [
                         'module'  => 'SKU Checker',
                         'tone'    => 'emerald',
@@ -522,7 +557,7 @@ class DashboardController extends Controller
 
         if ($can('image_audit')) {
             $live = $live->concat(
-                $mine(ImageAuditSession::class)->whereIn('status', $busy)->latest()->limit(5)->get()
+                $this->live($mine(ImageAuditSession::class))->latest()->limit(5)->get()
                     ->map(fn (ImageAuditSession $s) => [
                         'module'  => 'Image Audit',
                         'tone'    => 'sky',
@@ -538,7 +573,7 @@ class DashboardController extends Controller
 
         if ($can('ai_content')) {
             $live = $live->concat(
-                $mine(AiContentSession::class)->whereIn('status', $busy)->latest()->limit(5)->get()
+                $this->live($mine(AiContentSession::class))->latest()->limit(5)->get()
                     ->map(fn (AiContentSession $s) => [
                         'module'  => 'AI Content',
                         'tone'    => 'violet',
@@ -554,7 +589,7 @@ class DashboardController extends Controller
 
         if ($can('store_sync')) {
             $live = $live->concat(
-                $mine(StoreMigrationSession::class)->whereIn('status', $busy)->latest()->limit(5)->get()
+                $this->live($mine(StoreMigrationSession::class))->latest()->limit(5)->get()
                     ->map(function (StoreMigrationSession $s) {
                         $done = $s->success_count + $s->failed_count;
 

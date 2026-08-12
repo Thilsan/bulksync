@@ -18,11 +18,17 @@
         'gray'    => ['bg' => 'bg-gray-100',   'text' => 'text-gray-600',    'fill' => 'bg-gray-400',    'ring' => 'border-gray-200'],
     ];
 
+    // Modules disagree on wording — "running" here, "processing" there, "ready"
+    // and "done" both meaning finished — so every value they can hold is mapped.
     $statusPill = [
-        'completed'  => 'bg-emerald-50 text-emerald-700 border-emerald-200',
-        'processing' => 'bg-blue-50 text-blue-700 border-blue-200',
-        'pending'    => 'bg-gray-100 text-gray-600 border-gray-200',
-        'failed'     => 'bg-red-50 text-red-700 border-red-200',
+        'completed'   => 'bg-emerald-50 text-emerald-700 border-emerald-200',
+        'done'        => 'bg-emerald-50 text-emerald-700 border-emerald-200',
+        'ready'       => 'bg-emerald-50 text-emerald-700 border-emerald-200',
+        'processing'  => 'bg-blue-50 text-blue-700 border-blue-200',
+        'running'     => 'bg-blue-50 text-blue-700 border-blue-200',
+        'translating' => 'bg-violet-50 text-violet-700 border-violet-200',
+        'pending'     => 'bg-gray-100 text-gray-600 border-gray-200',
+        'failed'      => 'bg-red-50 text-red-700 border-red-200',
     ];
 @endphp
 

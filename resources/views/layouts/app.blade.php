@@ -5,6 +5,90 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>@yield('title', 'BulkSync') – AI Ecommerce Studio</title>
+    @include('partials.favicon')
+    <script>
+        /*
+            Unread notifications are badged onto the favicon and the tab title,
+            so a request waiting on you is visible from a background tab. The
+            bell component below calls window.faviconBadge(n) whenever its
+            count changes; 0 restores the plain icon and title.
+        */
+        window.faviconBadge = (function () {
+            const staticLinks = Array.from(document.querySelectorAll('link[rel~="icon"]'));
+            const baseTitle = document.title;
+            let dynamic = null, base = null, current = null;
+
+            const img = new Image();
+            img.src = '{{ asset('favicon-96x96.png') }}';
+            img.onload = () => { base = img; if (current) draw(current); };
+
+            function draw(count) {
+                if (!base) return;   // redrawn from onload once the icon lands
+                const S = 64, canvas = document.createElement('canvas');
+                canvas.width = canvas.height = S;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(base, 0, 0, S, S);
+
+                const r = S * 0.22, cx = S - r - 1, cy = r + 1;
+                // Knock a transparent ring out of the tile first so the dot
+                // still reads as a dot against a dark tab strip.
+                ctx.globalCompositeOperation = 'destination-out';
+                ctx.beginPath();
+                ctx.arc(cx, cy, r + S * 0.05, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.globalCompositeOperation = 'source-over';
+
+                ctx.fillStyle = '#ef4444';
+                ctx.beginPath();
+                ctx.arc(cx, cy, r, 0, Math.PI * 2);
+                ctx.fill();
+
+                // Two digits are unreadable at 16px, so anything past 9 is "9+".
+                const label = count > 9 ? '9+' : String(count);
+                ctx.fillStyle = '#ffffff';
+                ctx.font = 'bold ' + Math.round(r * (label.length > 1 ? 1.05 : 1.35)) +
+                           'px -apple-system, "Segoe UI", Helvetica, sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(label, cx, cy);
+
+                try {
+                    apply(canvas.toDataURL('image/png'));
+                } catch (e) {
+                    // Tainted canvas (icon served from another origin) — the
+                    // title counter alone still carries the signal.
+                }
+            }
+
+            function apply(href) {
+                if (!dynamic) {
+                    staticLinks.forEach(l => l.remove());
+                    dynamic = document.createElement('link');
+                    dynamic.rel = 'icon';
+                    dynamic.type = 'image/png';
+                    document.head.appendChild(dynamic);
+                }
+                dynamic.href = href;
+            }
+
+            function restore() {
+                if (!dynamic) return;
+                dynamic.remove();
+                dynamic = null;
+                staticLinks.forEach(l => document.head.appendChild(l));
+            }
+
+            return function (count) {
+                count = parseInt(count, 10) || 0;
+                if (count === current) return;
+                current = count;
+                document.title = count > 0
+                    ? '(' + (count > 99 ? '99+' : count) + ') ' + baseTitle
+                    : baseTitle;
+                count > 0 ? draw(count) : restore();
+            };
+        })();
+    </script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
@@ -354,7 +438,9 @@
                         },
                         dismiss(id) { this.toasts = this.toasts.filter(t => t.id !== id) },
                      }"
-                     x-init="setInterval(() => poll(), 30000)"
+                     x-init="faviconBadge(unread);
+                             $watch('unread', v => faviconBadge(v));
+                             setInterval(() => poll(), 30000)"
                      class="relative">
                     <button @click="bell = !bell"
                             class="relative flex items-center justify-center w-9 h-9 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 hover:text-gray-700 transition-colors"

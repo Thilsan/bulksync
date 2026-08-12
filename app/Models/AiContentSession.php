@@ -22,4 +22,28 @@ class AiContentSession extends Model
         if ($this->total_items === 0) return 0;
         return (int) min(100, round($this->processed_items / $this->total_items * 100));
     }
+
+    /**
+     * What the session is actually doing, in words a merchandiser can act on —
+     * the raw status column is for code, not for the screen.
+     */
+    public function statusLabel(): string
+    {
+        return match ($this->status) {
+            'pending'     => 'Queued',
+            'processing'  => 'Generating content',
+            'ready'       => 'Ready to push to Shopify',
+            'translating' => 'Translating',
+            'pushing'     => 'Pushing to Shopify',
+            'done'        => 'Pushed to Shopify',
+            'failed'      => 'Failed',
+            default       => ucfirst($this->status),
+        };
+    }
+
+    /** Statuses where work is still moving — used to decide whether to keep polling. */
+    public function isWorking(): bool
+    {
+        return in_array($this->status, ['pending', 'processing', 'translating', 'pushing'], true);
+    }
 }
