@@ -67,4 +67,23 @@ return [
         'api_key' => env('FANAR_API_KEY'),
     ],
 
+    'photoroom' => [
+        'api_key' => env('PHOTOROOM_API_KEY'),
+
+        /*
+         * Photoroom bills per image edited, and a OneDrive link pasted by
+         * mistake can point at a folder holding thousands. A run refuses to
+         * start above this rather than discovering the bill afterwards.
+         */
+        'max_images' => (int) env('PHOTOROOM_MAX_IMAGES', 300),
+
+        /*
+         * Edited images have to sit on disk between editing and review, which
+         * is the one part of this feature that grows on its own. Full-size
+         * edits are dropped as soon as they reach Shopify; whatever is left is
+         * swept after this many days. The disk has filled twice before.
+         */
+        'retention_days' => (int) env('PHOTOROOM_RETENTION_DAYS', 7),
+    ],
+
 ];

@@ -314,24 +314,43 @@
         </template>
     </div>
 
-    {{-- Launcher --}}
-    <button type="button" @click="toggle()"
-            class="fixed bottom-5 right-5 z-50 grid h-14 w-14 place-items-center rounded-full bg-brand-600 text-white shadow-lg
-                   ring-1 ring-black/5 transition-all hover:bg-brand-700 hover:shadow-xl focus:outline-none focus:ring-2 focus:ring-brand-400 focus:ring-offset-2"
-            :class="ring && 'chat-ring'"
-            :aria-expanded="open" aria-label="Chat">
-        <svg x-show="!open" class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.8">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.9 9.9 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
-        </svg>
-        <svg x-show="open" x-cloak class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
-        </svg>
+    {{--
+        Launcher, with a label beside it.
 
-        {{-- A waiting count sits on the bubble even when the panel is shut. --}}
-        <span x-show="unread > 0 && !open" x-cloak
-              class="absolute -right-0.5 -top-0.5 grid h-5 min-w-5 place-items-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white ring-2 ring-white"
-              x-text="unread > 9 ? '9+' : unread"></span>
-    </button>
+        A bare bubble does not say what it is, and a chat nobody notices is a chat
+        nobody uses. The label sits to its left while the panel is closed, and is
+        dropped on narrow screens where there is no room for it — the icon carries
+        the meaning once someone has used it once.
+    --}}
+    <div class="fixed bottom-5 right-5 z-50 flex items-center gap-2.5">
+        <button type="button" @click="toggle()" x-show="!open" x-cloak
+                x-transition:enter="transition ease-out duration-200"
+                x-transition:enter-start="opacity-0 translate-x-2"
+                x-transition:enter-end="opacity-100 translate-x-0"
+                class="hidden rounded-full border border-gray-200 bg-white px-3.5 py-2 text-[13px] font-medium text-gray-600
+                       shadow-md transition-colors hover:border-gray-300 hover:text-gray-900 sm:block"
+                tabindex="-1" aria-hidden="true">
+            Chat with team
+        </button>
+
+        <button type="button" @click="toggle()"
+                class="relative grid h-14 w-14 place-items-center rounded-full bg-brand-600 text-white shadow-lg
+                       ring-1 ring-black/5 transition-all hover:bg-brand-700 hover:shadow-xl focus:outline-none focus:ring-2 focus:ring-brand-400 focus:ring-offset-2"
+                :class="ring && 'chat-ring'"
+                :aria-expanded="open" aria-label="Chat with team">
+            <svg x-show="!open" class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.8">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.9 9.9 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
+            </svg>
+            <svg x-show="open" x-cloak class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+            </svg>
+
+            {{-- A waiting count sits on the bubble even when the panel is shut. --}}
+            <span x-show="unread > 0 && !open" x-cloak
+                  class="absolute -right-0.5 -top-0.5 grid h-5 min-w-5 place-items-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white ring-2 ring-white"
+                  x-text="unread > 9 ? '9+' : unread"></span>
+        </button>
+    </div>
 </div>
 
 <style>

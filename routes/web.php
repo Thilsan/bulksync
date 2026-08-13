@@ -14,6 +14,7 @@ use App\Http\Controllers\SkuCheckerController;
 use App\Http\Controllers\StoreImageSyncController;
 use App\Http\Controllers\MetafieldUpdateController;
 use App\Http\Controllers\AiContentController;
+use App\Http\Controllers\PhotoEditorController;
 use App\Http\Controllers\PhotoshootRoomController;
 use App\Http\Controllers\ProductRequestController;
 use Illuminate\Support\Facades\Route;
@@ -65,6 +66,24 @@ Route::middleware('auth')->group(function () {
 
     // Warm Shopify SKU cache on demand
     Route::post('/upload/warm-cache', [BulkUploadController::class, 'warmCache'])->name('upload.warm-cache');
+
+    /*
+     * Photo Editor — OneDrive → Photoroom → review → Shopify.
+     * "history" is declared before "{session}", or the word would be read as a
+     * session id and 404 every time.
+     */
+    Route::get('/photo-editor',                  [PhotoEditorController::class, 'index'])->name('photo-editor.index');
+    Route::post('/photo-editor',                 [PhotoEditorController::class, 'store'])->name('photo-editor.store');
+    Route::get('/photo-editor/history',          [PhotoEditorController::class, 'history'])->name('photo-editor.history');
+    Route::get('/photo-editor/{session}',        [PhotoEditorController::class, 'show'])->name('photo-editor.show');
+    Route::get('/photo-editor/{session}/status', [PhotoEditorController::class, 'status'])->name('photo-editor.status');
+    Route::post('/photo-editor/{session}/push',  [PhotoEditorController::class, 'push'])->name('photo-editor.push');
+    Route::delete('/photo-editor/{session}',     [PhotoEditorController::class, 'destroy'])->name('photo-editor.destroy');
+
+    // Edited files live outside the web root, so every read comes back through here.
+    Route::get('/photo-editor/{session}/item/{item}/{variant}', [PhotoEditorController::class, 'preview'])
+        ->whereIn('variant', ['before', 'after', 'full'])
+        ->name('photo-editor.preview');
 
     // Settings
     Route::get('/settings',                [SettingsController::class, 'index'])->name('settings.index');

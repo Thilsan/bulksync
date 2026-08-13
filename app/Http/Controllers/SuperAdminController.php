@@ -116,6 +116,7 @@ class SuperAdminController extends Controller
             'perm_ai_content'       => $request->boolean('perm_ai_content'),
             'perm_metafield_update' => $request->boolean('perm_metafield_update'),
             'perm_product_request'  => $request->boolean('perm_product_request'),
+            'perm_photo_editor'     => $request->boolean('perm_photo_editor'),
             'pcr_role'              => $request->input('pcr_role') ?: null,
             'pcr_categories'        => $categories ?: null,
             'pcr_brand_categories'  => $brandCategories ?: null,

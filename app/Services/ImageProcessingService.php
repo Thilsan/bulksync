@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use Intervention\Image\Encoders\JpegEncoder;
+use Intervention\Image\Encoders\PngEncoder;
 use Intervention\Image\ImageManager;
 use Intervention\Image\Drivers\Gd\Driver as GdDriver;
 use Intervention\Image\Drivers\Imagick\Driver as ImagickDriver;
@@ -46,6 +47,24 @@ class ImageProcessingService
         }
 
         return $this->compressOnly($result, $maxBytes);
+    }
+
+    /**
+     * A small preview copy for the Photoroom editor's review grid — a page of
+     * 300 results cannot pull 300 full-size images.
+     *
+     * $preserveAlpha keeps a transparent cutout as PNG. Encoding one as JPEG
+     * fills the transparency with black, which in a before/after comparison
+     * reads as a botched edit rather than as a working cutout.
+     */
+    public function thumbnail(string $imageContent, int $maxDimension = 420, bool $preserveAlpha = false): string
+    {
+        $img = $this->manager->decode($imageContent);
+        $img->scaleDown($maxDimension, $maxDimension);
+
+        return $preserveAlpha
+            ? $img->encode(new PngEncoder())->toString()
+            : $img->encode(new JpegEncoder(quality: 82))->toString();
     }
 
     public function compressOnly(string $imageContent, int $maxBytes = 1_000_000): string

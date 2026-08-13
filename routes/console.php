@@ -2,6 +2,8 @@
 
 use App\Jobs\RecheckProductRequestMappingsJob;
 use App\Jobs\WarmSkuCacheJob;
+use App\Models\PhotoEditItem;
+use App\Models\PhotoEditSession;
 use App\Models\ProductRequest;
 use App\Models\ProductRequestAttachment;
 use App\Models\Store;
@@ -142,6 +144,64 @@ $pruneChatFiles = function () {
 };
 
 Schedule::call($pruneChatFiles)->hourly()->name('prune-chat-files')->withoutOverlapping();
+
+// Photoroom edits are the heaviest thing this app writes and keeps: a full-size
+// edit per image, plus two thumbnails, for every image in a run.
+//
+// A pushed image drops its full-size copy immediately — Shopify has those bytes
+// permanently by then — but that only covers the images somebody actually
+// approved. A session reviewed and abandoned, or never opened again, keeps
+// everything it produced, and nothing else would ever remove it.
+//
+// So whole sessions are swept once they are past the retention window. The rows
+// stay, with their file paths cleared, so the history still records what was run
+// against which folder; only the images go.
+$prunePhotoEditorFiles = function () {
+    $days   = max(1, (int) config('services.photoroom.retention_days', 7));
+    $cutoff = now()->subDays($days);
+    $freed  = 0;
+    $live   = [];
+
+    PhotoEditSession::select('id')->chunkById(500, function ($sessions) use (&$live) {
+        foreach ($sessions as $session) {
+            $live[$session->id] = true;
+        }
+    });
+
+    PhotoEditSession::where('created_at', '<', $cutoff)
+        ->whereHas('items', fn ($q) => $q->whereNotNull('edited_path')
+            ->orWhereNotNull('edited_thumb_path')
+            ->orWhereNotNull('original_thumb_path'))
+        ->chunkById(50, function ($sessions) use (&$freed) {
+            foreach ($sessions as $session) {
+                $freed += $session->deleteFiles();
+
+                PhotoEditItem::where('photo_edit_session_id', $session->id)->update([
+                    'edited_path'         => null,
+                    'edited_thumb_path'   => null,
+                    'original_thumb_path' => null,
+                ]);
+            }
+        });
+
+    // Directories whose session row is already gone — a delete that half
+    // finished, or a database restored from behind the filesystem. Nothing
+    // references these, so nothing else would ever find them again.
+    foreach (glob(storage_path('app/' . PhotoEditSession::STORAGE_ROOT . '/*'), GLOB_ONLYDIR) ?: [] as $dir) {
+        if (!isset($live[(int) basename($dir)])) {
+            $freed += PhotoEditSession::deleteDirectory($dir);
+        }
+    }
+
+    if ($freed > 0) {
+        \Illuminate\Support\Facades\Log::info('Pruned photo editor files', [
+            'freed_mb'     => round($freed / 1048576, 2),
+            'remaining_mb' => round(PhotoEditSession::totalBytes() / 1048576, 2),
+        ]);
+    }
+};
+
+Schedule::call($prunePhotoEditorFiles)->daily()->name('prune-photo-editor-files')->withoutOverlapping();
 
 // Product Creation Requests parked in "Waiting for Mapping" are released as soon
 // as their SKUs resolve — this is what removes the re-submission step the old

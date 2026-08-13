@@ -151,6 +151,7 @@
                                     'ai_content'       => 'AI Content',
                                     'metafield_update' => 'Metafield Update',
                                     'product_request'  => 'Product Creation Request',
+                                    'photo_editor'     => 'Photo Editor (Photoroom)',
                                 ];
                             @endphp
                             @foreach($features as $key => $label)
