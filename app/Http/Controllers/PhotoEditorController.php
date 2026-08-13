@@ -7,6 +7,7 @@ use App\Jobs\ScanPhotoEditFolderJob;
 use App\Models\PhotoEditItem;
 use App\Models\PhotoEditSession;
 use App\Models\Store;
+use App\Services\ImageProcessingService;
 use App\Services\PhotoroomService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -73,6 +74,10 @@ class PhotoEditorController extends Controller implements HasMiddleware
             'shadowPoses'   => PhotoroomService::SHADOW_POSES,
             'beautifyModes' => PhotoroomService::BEAUTIFY_MODES,
             'textModes'     => PhotoroomService::TEXT_REMOVAL_MODES,
+
+            // Straightening happens on our side, before the upload, so its
+            // options belong to the local image service rather than Photoroom.
+            'rotations'     => ImageProcessingService::INPUT_ROTATIONS,
         ]);
     }
 
@@ -107,6 +112,12 @@ class PhotoEditorController extends Controller implements HasMiddleware
             'name'            => ['nullable', 'string', 'max:255'],
             'onedrive_link'   => ['required', 'url'],
             'matching_mode'   => ['required', 'in:sku_barcode,style_code'],
+
+            // ── Straightening (applied before the upload, not by Photoroom) ──
+            'input_rotation'   => ['nullable', Rule::in(array_keys(ImageProcessingService::INPUT_ROTATIONS))],
+            'rotate_wide_only' => ['nullable', 'boolean'],
+            'trim_top'         => ['nullable', 'numeric', 'min:0', 'max:0.4'],
+            'trim_bottom'      => ['nullable', 'numeric', 'min:0', 'max:0.4'],
 
             // ── Background ──
             'remove_background'      => ['nullable', 'boolean'],
@@ -174,9 +185,11 @@ class PhotoEditorController extends Controller implements HasMiddleware
             'shadow', 'shadow_softness', 'shadow_intensity', 'shadow_spread',
             'shadow_direction', 'shadow_pose', 'text_removal', 'beautify',
             'outline_color', 'outline_width', 'image_width', 'image_height',
-            'padding', 'reference_box', 'dpi',
+            'padding', 'reference_box', 'dpi', 'input_rotation',
+            'trim_top', 'trim_bottom',
         ], null) + array_fill_keys([
             'remove_background', 'ironing', 'lighting', 'upscale', 'expand', 'uncrop',
+            'rotate_wide_only',
         ], false);
 
         // Blurring keeps the original scene, so it is the one mode that is not
@@ -186,8 +199,22 @@ class PhotoEditorController extends Controller implements HasMiddleware
 
         $hasSize  = filled($validated['image_width']) && filled($validated['image_height']);
         $apparel  = $validated['apparel_mode'];
+        $rotation = (string) ($validated['input_rotation'] ?: '');
 
         $edits = [
+            /*
+             * Straightening. "Only the wide ones" is a quarter-turn idea — a
+             * half turn leaves the shape alone, so which photos are landscape
+             * says nothing about which ones are upside down. The form hides the
+             * tickbox for 180°, but a hidden checkbox still posts, so drop it
+             * here rather than let a stale tick quietly skip portrait photos.
+             */
+            'input_rotation'   => $rotation ?: null,
+            'rotate_wide_only' => in_array($rotation, ['right', 'left'], true)
+                && (bool) $validated['rotate_wide_only'],
+            'trim_top'         => filled($validated['trim_top'])    ? (float) $validated['trim_top']    : null,
+            'trim_bottom'      => filled($validated['trim_bottom']) ? (float) $validated['trim_bottom'] : null,
+
             // Background
             'remove_background'      => $removeBackground,
             'background_mode'        => $validated['background_mode'],

@@ -13,6 +13,14 @@ class ImageProcessingService
     private const START_QUALITY = 100;
     private const MIN_QUALITY   = 30;
 
+    /** Quarter and half turns offered for straightening an input photo. */
+    public const INPUT_ROTATIONS = [
+        ''      => 'Leave as it is',
+        'right' => 'Turn right 90°',
+        'left'  => 'Turn left 90°',
+        '180'   => 'Turn upside down 180°',
+    ];
+
     /**
      * Shopify rejects any image above 20 megapixels with a 422, independent of
      * file size — a heavily compressed 6000×4000 shot can sit well under the
@@ -77,6 +85,114 @@ class ImageProcessingService
             ->orient()
             ->encode(new JpegEncoder(quality: 95))
             ->toString();
+    }
+
+    /**
+     * Turn an image a quarter or a half circle.
+     *
+     * normalizeOrientation() can only undo a rotation the camera bothered to
+     * record. A garment photographed lying across the frame — a mannequin on
+     * its side, a rail shot sideways so the whole length fits — produces
+     * genuinely landscape pixels with no flag to read, and everything
+     * downstream then has to guess which way is up. Ghost mannequin and flat
+     * lay guess worst of all: they redraw the garment, and a sideways subject
+     * is what makes them invent a front where the photo showed a back.
+     *
+     * $onlyWhenWide leaves portrait shots alone, so one setting can be applied
+     * to a folder where only some of the photos are on their side.
+     */
+    public function rotate(string $imageContent, string $direction, bool $onlyWhenWide = false): string
+    {
+        // A positive angle turns the picture clockwise — Intervention negates
+        // it for GD, whose own imagerotate() goes the other way. Verified by
+        // where a corner lands, not by reading either set of docs.
+        $degrees = match ($direction) {
+            'right' => 90,
+            'left'  => -90,
+            '180'   => 180,
+            default => 0,
+        };
+
+        if ($degrees === 0 || ($onlyWhenWide && !$this->isWide($imageContent))) {
+            return $imageContent;
+        }
+
+        // No background is exposed by a quarter or half turn, so the fill
+        // colour rotate() would use never reaches a pixel.
+        $img = $this->manager->decode($imageContent)->rotate($degrees);
+
+        // A cutout has to stay a PNG on the way out: JPEG has no alpha, so
+        // re-encoding one here would hand Photoroom a subject sitting on
+        // black before it ever got the chance to mask it.
+        return $this->isPng($imageContent)
+            ? $img->encode(new PngEncoder())->toString()
+            : $img->encode(new JpegEncoder(quality: 95))->toString();
+    }
+
+    /**
+     * Cut a band off the top and/or bottom of a photo before it is edited.
+     *
+     * This is the non-generative answer to a mannequin in shot. Background
+     * removal keeps the garment pixel-for-pixel, but it cuts out the mannequin
+     * along with it — the torso form, the legs, the stand. Ghost mannequin does
+     * remove those, at the price of redrawing the garment into something that
+     * is no longer the product photographed.
+     *
+     * A studio batch is shot at one distance against one mannequin, so where
+     * the garment ends is the same fraction down every frame. Setting that
+     * fraction once trims the whole folder, and nothing is invented.
+     *
+     * Fractions of the height, capped at 0.4 each so a trim can never take more
+     * of the picture than it leaves.
+     */
+    public function trimEdges(string $imageContent, float $top = 0.0, float $bottom = 0.0): string
+    {
+        $top    = max(0.0, min(0.4, $top));
+        $bottom = max(0.0, min(0.4, $bottom));
+
+        if ($top + $bottom <= 0.0) {
+            return $imageContent;
+        }
+
+        $img    = $this->manager->decode($imageContent);
+        $height = $img->height();
+        $offset = (int) round($height * $top);
+        $keep   = $height - $offset - (int) round($height * $bottom);
+
+        // Unreachable at a 0.4 cap on each side, but cropping to nothing throws
+        // and a guard costs less than the exception it prevents.
+        if ($keep < 1) {
+            return $imageContent;
+        }
+
+        // Offsets run from the top-left, so this keeps the band between the two
+        // trims rather than a centred crop of that height.
+        $img->crop($img->width(), $keep, 0, $offset);
+
+        return $this->isPng($imageContent)
+            ? $img->encode(new PngEncoder())->toString()
+            : $img->encode(new JpegEncoder(quality: 95))->toString();
+    }
+
+    private function isPng(string $imageContent): bool
+    {
+        return str_starts_with($imageContent, "\x89PNG\r\n\x1a\n");
+    }
+
+    private function isWide(string $imageContent): bool
+    {
+        // Header only — most of a portrait batch is answered here without ever
+        // decoding a full-size photo.
+        $info = @getimagesizefromstring($imageContent);
+
+        if ($info) {
+            return (int) $info[0] > (int) $info[1];
+        }
+
+        // Unreadable header (CMYK TIFF and friends) — pay for the decode.
+        $img = $this->manager->decode($imageContent);
+
+        return $img->width() > $img->height();
     }
 
     private function readOrientation(string $imageContent): ?int

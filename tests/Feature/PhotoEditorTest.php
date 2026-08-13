@@ -374,6 +374,220 @@ class PhotoEditorTest extends TestCase
         $this->assertSame($plain, app(ImageProcessingService::class)->normalizeOrientation($plain));
     }
 
+    /**
+     * A plain JPEG at the given size, no EXIF — pixels genuinely that shape.
+     * A red block marks the top-left corner so a rotation can be told apart
+     * from its mirror image.
+     */
+    private function plainJpeg(int $w, int $h): string
+    {
+        $im = imagecreatetruecolor($w, $h);
+        imagefilledrectangle($im, 0, 0, $w, $h, imagecolorallocate($im, 240, 210, 40));
+        imagefilledrectangle($im, 0, 0, (int) ($w / 10), (int) ($h / 10), imagecolorallocate($im, 255, 0, 0));
+        ob_start();
+        imagejpeg($im, null, 95);
+
+        return ob_get_clean();
+    }
+
+    /** True when the marker block sits within a few pixels of ($x, $y). */
+    private function isRed(string $jpeg, int $x, int $y): bool
+    {
+        $im    = imagecreatefromstring($jpeg);
+        $rgb   = imagecolorat($im, $x, $y);
+
+        return (($rgb >> 16) & 255) > 200 && (($rgb >> 8) & 255) < 80;
+    }
+
+    /**
+     * The case EXIF cannot reach: a garment photographed lying across the frame.
+     * There is no flag to read, so the operator's quarter turn has to do it.
+     *
+     * The corner is what makes this a real test — a turn the wrong way also
+     * swaps width for height, so dimensions alone cannot tell the two apart.
+     */
+    public function test_a_quarter_turn_right_moves_the_top_left_corner_to_the_top_right(): void
+    {
+        $turned = app(ImageProcessingService::class)->rotate($this->plainJpeg(400, 200), 'right');
+
+        $this->assertSame([200, 400], array_slice(getimagesizefromstring($turned), 0, 2));
+        $this->assertTrue($this->isRed($turned, 195, 4), 'turning right should carry the corner clockwise');
+    }
+
+    public function test_a_quarter_turn_left_moves_the_top_left_corner_to_the_bottom_left(): void
+    {
+        $turned = app(ImageProcessingService::class)->rotate($this->plainJpeg(400, 200), 'left');
+
+        $this->assertSame([200, 400], array_slice(getimagesizefromstring($turned), 0, 2));
+        $this->assertTrue($this->isRed($turned, 4, 395), 'turning left should carry the corner anti-clockwise');
+    }
+
+    public function test_turning_only_the_wide_ones_leaves_an_upright_photo_alone(): void
+    {
+        $upright = $this->plainJpeg(200, 400);
+
+        $this->assertSame(
+            $upright,
+            app(ImageProcessingService::class)->rotate($upright, 'right', onlyWhenWide: true),
+            'a photo that is already tall has nothing to turn, so it should not even be re-encoded',
+        );
+    }
+
+    // ── Trimming ───────────────────────────────────────────────────────────
+
+    /**
+     * The non-generative answer to a mannequin in shot: cut the stand off
+     * rather than have Photoroom redraw the garment without it.
+     */
+    public function test_trimming_keeps_only_the_band_between_the_two_cuts(): void
+    {
+        $trimmed = app(ImageProcessingService::class)->trimEdges($this->plainJpeg(400, 1000), 0.1, 0.3);
+
+        // 1000 px less 100 off the top and 300 off the bottom.
+        $this->assertSame([400, 600], array_slice(getimagesizefromstring($trimmed), 0, 2));
+    }
+
+    /**
+     * Trimming the bottom must take the bottom, not a centred crop of the same
+     * height — the whole point is to lose the mannequin's legs and keep the hem.
+     */
+    public function test_trimming_the_bottom_keeps_the_top_of_the_photo(): void
+    {
+        $im = imagecreatetruecolor(200, 400);
+        imagefilledrectangle($im, 0, 0, 199, 199, imagecolorallocate($im, 255, 0, 0));    // top half red
+        imagefilledrectangle($im, 0, 200, 199, 399, imagecolorallocate($im, 0, 0, 255));  // bottom half blue
+        ob_start();
+        imagejpeg($im, null, 95);
+        $split = ob_get_clean();
+
+        $trimmed = app(ImageProcessingService::class)->trimEdges($split, 0.0, 0.4);
+
+        $this->assertSame([200, 240], array_slice(getimagesizefromstring($trimmed), 0, 2));
+        $this->assertTrue($this->isRed($trimmed, 100, 4), 'the surviving band should still start at the original top edge');
+    }
+
+    public function test_a_zero_trim_returns_the_original_bytes(): void
+    {
+        $photo = $this->plainJpeg(400, 400);
+
+        $this->assertSame($photo, app(ImageProcessingService::class)->trimEdges($photo, 0, 0));
+    }
+
+    /** Half the picture is the most a trim may take, whatever the form posts. */
+    public function test_a_trim_can_never_take_more_than_it_leaves(): void
+    {
+        $trimmed = app(ImageProcessingService::class)->trimEdges($this->plainJpeg(400, 1000), 5.0, 5.0);
+
+        // Both fractions clamp to 0.4, leaving the middle 20%.
+        $this->assertSame([400, 200], array_slice(getimagesizefromstring($trimmed), 0, 2));
+    }
+
+    /**
+     * The order of the two is the subtle part, so it is pinned end to end rather
+     * than inferred from the two units passing separately.
+     *
+     * A photo on its side is turned upright first, and only then trimmed — so
+     * "off the bottom" means the bottom of the picture the operator was looking
+     * at when they set the slider. Trim first and it would cut a side instead.
+     */
+    public function test_a_photo_is_turned_upright_before_it_is_trimmed(): void
+    {
+        // Wide, so a quarter turn makes it 200 × 400. Trimming 25% off the
+        // bottom of that leaves 200 × 300. Had the trim run first it would have
+        // taken 25% off a 400-wide edge and left 200 × 400 turned to 400 × 200.
+        $sideways = $this->plainJpeg(400, 200);
+
+        $this->mock(\App\Services\OneDriveService::class, function ($mock) use ($sideways) {
+            $mock->shouldReceive('setUser')->andReturnSelf();
+            $mock->shouldReceive('downloadFileById')->andReturn($sideways);
+        });
+
+        // Photoroom hands back raw image bytes, so the fake echoes the input —
+        // whatever reaches the API is what lands on disk as the result.
+        \Illuminate\Support\Facades\Http::fake([
+            'image-api.photoroom.com/*' => function ($request) {
+                foreach ($request->data() as $part) {
+                    if (($part['name'] ?? '') === 'imageFile') {
+                        return \Illuminate\Support\Facades\Http::response($part['contents'], 200, ['Content-Type' => 'image/jpeg']);
+                    }
+                }
+
+                return \Illuminate\Support\Facades\Http::response('', 500);
+            },
+        ]);
+
+        $session = PhotoEditSession::create([
+            'user_id'       => $this->editor()->id,
+            'name'          => 'Run',
+            'onedrive_link' => 'https://example.com',
+            'edits'         => ['input_rotation' => 'right', 'trim_bottom' => 0.25],
+        ]);
+
+        $item = PhotoEditItem::create([
+            'photo_edit_session_id' => $session->id,
+            'filename'              => 'a.jpg',
+            'status'                => 'pending',
+            'onedrive_drive_id'     => 'drive-1',
+            'onedrive_item_id'      => 'item-1',
+        ]);
+
+        (new \App\Jobs\EditPhotoItemJob($item->id))->handle(
+            app(\App\Services\OneDriveService::class),
+            app(ImageProcessingService::class),
+            app(PhotoroomService::class),
+        );
+
+        $this->assertSame('edited', $item->fresh()->status, $item->fresh()->error_message ?? '');
+
+        $result = file_get_contents(storage_path('app/' . $item->fresh()->edited_path));
+
+        $this->assertSame([200, 300], array_slice(getimagesizefromstring($result), 0, 2));
+    }
+
+    /** A half turn keeps the shape, so "only the wide ones" cannot gate it. */
+    public function test_asking_for_no_rotation_returns_the_original_bytes(): void
+    {
+        $photo = $this->plainJpeg(400, 200);
+
+        $this->assertSame($photo, app(ImageProcessingService::class)->rotate($photo, ''));
+    }
+
+    /**
+     * A hidden tickbox still posts. Pairing "only the wide ones" with a half
+     * turn would otherwise skip every portrait photo for no stated reason.
+     */
+    public function test_the_wide_only_limit_is_dropped_when_the_turn_is_180(): void
+    {
+        Queue::fake();
+
+        $this->actingAs($this->editor())
+            ->post(route('photo-editor.store'), $this->validPayload([
+                'input_rotation'   => '180',
+                'rotate_wide_only' => '1',
+            ]))->assertRedirect();
+
+        $edits = PhotoEditSession::sole()->edits;
+
+        $this->assertSame('180', $edits['input_rotation']);
+        $this->assertFalse($edits['rotate_wide_only']);
+    }
+
+    public function test_a_quarter_turn_keeps_the_wide_only_limit(): void
+    {
+        Queue::fake();
+
+        $this->actingAs($this->editor())
+            ->post(route('photo-editor.store'), $this->validPayload([
+                'input_rotation'   => 'left',
+                'rotate_wide_only' => '1',
+            ]))->assertRedirect();
+
+        $edits = PhotoEditSession::sole()->edits;
+
+        $this->assertSame('left', $edits['input_rotation']);
+        $this->assertTrue($edits['rotate_wide_only']);
+    }
+
     // ── The wider Photoroom feature set ────────────────────────────────────
 
     public function test_virtual_model_presets_map_to_photoroom_parameters(): void

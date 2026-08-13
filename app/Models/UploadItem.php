@@ -11,6 +11,7 @@ class UploadItem extends Model
         'upload_session_id',
         'filename',
         'sku_detected',
+        'filename_sku',
         'product_id',
         'product_title',
         'variant_id',

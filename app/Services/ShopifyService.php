@@ -701,6 +701,68 @@ class ShopifyService
     }
 
     /**
+     * Does this variant already have a photo of its OWN — one assigned to the
+     * variant, not merely sitting in its product's gallery?
+     *
+     * This is the question the bulk upload's skip rule turns on. Alt text alone
+     * could not answer it: an image only carries the SKU as alt text when this
+     * tool uploaded it, so photos that arrived by AutoImport or by hand were
+     * invisible and their SKUs got a second copy of every file.
+     *
+     * Both signals are checked in one call — `image` is the legacy variant
+     * image_id link, `media` is the newer variant media attachment, and a photo
+     * added through the Shopify admin may show up under either.
+     *
+     * $throwOnFailure: callers deciding whether to skip an upload MUST pass
+     * true. Swallowing an API error here reads as "no image" and uploads a
+     * duplicate, which a retry cannot undo.
+     */
+    public function variantHasOwnImage(string $variantId, bool $throwOnFailure = false): bool
+    {
+        $this->throttle();
+
+        $gid = "gid://shopify/ProductVariant/{$variantId}";
+
+        try {
+            $response = $this->http->post("admin/api/{$this->apiVersion}/graphql.json", [
+                'json' => [
+                    'query' => 'query($id: ID!) {
+                        productVariant(id: $id) {
+                            image { id }
+                            media(first: 1) { edges { node { id } } }
+                        }
+                    }',
+                    'variables' => ['id' => $gid],
+                ],
+            ]);
+
+            $data = json_decode((string) $response->getBody(), true);
+            $this->assertNoGraphQlErrors($data, "variantHasOwnImage({$variantId})");
+
+            $variant = $data['data']['productVariant'] ?? null;
+
+            // A variant Shopify no longer knows about has no image to protect.
+            // Let the upload proceed and fail loudly on the write instead.
+            if (!is_array($variant)) {
+                return false;
+            }
+
+            return !empty($variant['image']['id']) || !empty($variant['media']['edges']);
+
+        } catch (\Throwable $e) {
+            Log::error("Shopify variantHasOwnImage({$variantId}) failed: " . $e->getMessage());
+
+            if ($throwOnFailure) {
+                throw new \RuntimeException(
+                    "Shopify variant image lookup failed for {$variantId}: " . $e->getMessage(), 0, $e
+                );
+            }
+
+            return false;
+        }
+    }
+
+    /**
      * Delete a single product image by image ID.
      */
     public function deleteProductImage(string $productId, string $imageId): void

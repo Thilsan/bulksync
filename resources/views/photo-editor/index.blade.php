@@ -120,6 +120,67 @@
                             @endforeach
                         </div>
                     </div>
+
+                    {{-- Straightening happens here, before the upload. A garment
+                         lying across the frame gives every AI step below it the
+                         wrong idea of which way is up — and the redrawing ones
+                         answer that by inventing a front where the photo had a
+                         back. --}}
+                    <div class="border-t border-gray-100 pt-4">
+                        <span class="mb-2 block text-sm font-medium text-gray-700">Are the photos lying on their side?</span>
+                        <div class="grid gap-3 sm:grid-cols-2">
+                            <div>
+                                <select id="input_rotation" name="input_rotation" x-model="inputRotation"
+                                        class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none">
+                                    @foreach ($rotations as $value => $label)
+                                        <option value="{{ $value }}">{{ $label }}</option>
+                                    @endforeach
+                                </select>
+                            </div>
+                            <label x-show="inputRotation === 'right' || inputRotation === 'left'" x-cloak
+                                   class="flex cursor-pointer items-start gap-2.5 text-xs text-gray-600">
+                                <input type="checkbox" name="rotate_wide_only" value="1" x-model="rotateWideOnly"
+                                       class="mt-0.5 h-4 w-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500">
+                                <span>Only turn the ones that are wider than they are tall — leave photos that are already upright alone.</span>
+                            </label>
+                        </div>
+                        <p class="mt-2 text-xs leading-relaxed text-gray-400">
+                            Photos that only <em>look</em> sideways because the camera stored a rotation flag are
+                            straightened automatically. This is for the ones whose pixels really are on their side.
+                        </p>
+                    </div>
+
+                    {{-- The honest way to get a mannequin out of shot: cut it
+                         off. A whole folder shot at one distance puts the hem at
+                         the same fraction down every frame, so one number does
+                         the batch — and nothing about the garment is invented. --}}
+                    <div class="border-t border-gray-100 pt-4">
+                        <span class="mb-1 block text-sm font-medium text-gray-700">Trim the mannequin or stand out of shot</span>
+                        <p class="mb-3 text-xs leading-relaxed text-gray-500">
+                            Cut off the top and bottom before editing. Set it from one photo and it applies to the
+                            whole folder — the garment itself is never touched.
+                        </p>
+                        <div class="grid gap-4 sm:grid-cols-2">
+                            <div>
+                                <div class="mb-1 flex items-baseline justify-between">
+                                    <span class="text-xs font-medium text-gray-600">Off the top</span>
+                                    <span class="text-xs font-semibold tabular-nums text-brand-700" x-text="Math.round(trimTop * 100) + '%'"></span>
+                                </div>
+                                <input type="range" name="trim_top" x-model="trimTop" min="0" max="0.4" step="0.01" class="w-full accent-brand-600">
+                            </div>
+                            <div>
+                                <div class="mb-1 flex items-baseline justify-between">
+                                    <span class="text-xs font-medium text-gray-600">Off the bottom</span>
+                                    <span class="text-xs font-semibold tabular-nums text-brand-700" x-text="Math.round(trimBottom * 100) + '%'"></span>
+                                </div>
+                                <input type="range" name="trim_bottom" x-model="trimBottom" min="0" max="0.4" step="0.01" class="w-full accent-brand-600">
+                            </div>
+                        </div>
+                        <p x-show="trimTop > 0 || trimBottom > 0" x-cloak class="mt-2 text-xs text-amber-700">
+                            Keeping the middle <strong class="font-semibold" x-text="Math.round((1 - trimTop - trimBottom) * 100) + '%'"></strong>
+                            of every photo. Check the first few results before letting the whole folder run.
+                        </p>
+                    </div>
                 </div>
             </div>
 
@@ -213,18 +274,31 @@
                 </div>
 
                 <div class="space-y-4 px-6 py-5">
+                    {{-- The badge is the whole point of this card. "Remove
+                         mannequin" sounds like masking, so people reach for it
+                         expecting their photo back minus a mannequin — and get a
+                         garment Photoroom drew from scratch, with a different
+                         fit, collar and drape. Say which options keep the
+                         photograph and which replace it, on the option itself. --}}
                     <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                         @foreach ([
-                            ['none',            'Leave as shot',    'No reshaping.'],
-                            ['ghost_mannequin', 'Remove mannequin', 'Takes out the mannequin and rebuilds the garment so it holds its own shape.'],
-                            ['flat_lay',        'Flat lay',         'Rebuilds the garment laid flat, shot from above.'],
-                            ['virtual_model',   'On a model',       'Puts the garment on an AI model, in a scene and pose you choose.'],
-                        ] as [$value, $label, $help])
+                            ['none',            'Keep the photo',   'Cuts out the background and leaves the garment exactly as it was shot. The mannequin stays in frame — trim it off in step 1.', false],
+                            ['ghost_mannequin', 'Remove mannequin', 'Draws a new garment holding its own shape. The mannequin goes, but so does the real fit, collar and drape.', true],
+                            ['flat_lay',        'Flat lay',         'Draws the garment again, laid flat and shot from above.', true],
+                            ['virtual_model',   'On a model',       'Draws the garment onto an AI model, in a scene and pose you choose.', true],
+                        ] as [$value, $label, $help, $redraws])
                         <label class="opt-card cursor-pointer rounded-xl border p-4 transition-colors"
                                :class="apparelMode === '{{ $value }}' ? 'border-brand-500 bg-brand-50/60 ring-1 ring-brand-500' : 'border-gray-200 hover:border-gray-300'">
                             <input type="radio" name="apparel_mode" value="{{ $value }}" x-model="apparelMode" class="sr-only"
                                    @checked(old('apparel_mode', 'none') === $value)>
-                            <span class="text-sm font-semibold text-gray-800">{{ $label }}</span>
+                            <span class="flex items-center gap-1.5">
+                                <span class="text-sm font-semibold text-gray-800">{{ $label }}</span>
+                                @if ($redraws)
+                                    <span class="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700">Redraws</span>
+                                @else
+                                    <span class="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700">Real pixels</span>
+                                @endif
+                            </span>
                             <p class="mt-1 text-xs leading-relaxed text-gray-500">{{ $help }}</p>
                         </label>
                         @endforeach
@@ -291,7 +365,10 @@
 
                         <p class="text-xs leading-relaxed text-amber-700">
                             These redraw the garment rather than masking it — slower per image, and worth checking
-                            one by one on the review screen before pushing.
+                            one by one on the review screen before pushing. They also decide for themselves which
+                            face of the garment they are looking at, so a photo of a back can come out with a collar
+                            and a button placket on it. Feed them upright photos, and for a back view say so in
+                            <strong class="font-semibold">Guidance</strong> — e.g. "back view, no buttons or placket".
                         </p>
                     </div>
                 </div>
@@ -628,6 +705,17 @@ function photoEditForm() {
         showAdvanced: false,
 
         matchingMode: '{{ old('matching_mode', 'sku_barcode') }}',
+
+        // Straightening
+        inputRotation:  '{{ old('input_rotation', '') }}',
+        {{-- Ticked by default, unlike every other checkbox here — for a mixed
+             folder, turning only the sideways photos is the safe answer. An
+             unticked box posts nothing, so old() cannot tell "left off" from
+             "never submitted"; $errors->any() is what says this is a redisplay
+             and the absence is therefore a real choice. --}}
+        rotateWideOnly: {{ $errors->any() ? (old('rotate_wide_only') ? 'true' : 'false') : 'true' }},
+        trimTop:        {{ old('trim_top', '0') ?: '0' }},
+        trimBottom:     {{ old('trim_bottom', '0') ?: '0' }},
 
         // Background
         backgroundMode:       '{{ old('background_mode', 'white') }}',

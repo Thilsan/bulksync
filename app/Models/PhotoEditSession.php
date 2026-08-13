@@ -145,6 +145,21 @@ class PhotoEditSession extends Model
         $edits = $this->edits ?? [];
         $parts = [];
 
+        // Straightening leads because it happened first, and because it is the
+        // setting people go hunting for when a result came out on its side.
+        $parts[] = match ($edits['input_rotation'] ?? null) {
+            'right' => 'Turned right' . (!empty($edits['rotate_wide_only']) ? ' (wide only)' : ''),
+            'left'  => 'Turned left'  . (!empty($edits['rotate_wide_only']) ? ' (wide only)' : ''),
+            '180'   => 'Turned 180°',
+            default => null,
+        };
+
+        $trimmed = (float) ($edits['trim_top'] ?? 0) + (float) ($edits['trim_bottom'] ?? 0);
+
+        if ($trimmed > 0) {
+            $parts[] = 'Trimmed ' . round($trimmed * 100) . '%';
+        }
+
         $parts[] = match ($edits['background_mode'] ?? null) {
             'blur'   => 'Background blurred',
             'prompt' => 'AI background',

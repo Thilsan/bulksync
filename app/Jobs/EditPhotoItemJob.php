@@ -75,6 +75,25 @@ class EditPhotoItemJob implements ShouldQueue
             // leave the garment lying on its side.
             $raw = $imageService->normalizeOrientation($raw);
 
+            // EXIF only fixes what the camera flagged. A garment shot lying
+            // across the frame carries no flag, so the operator's own answer is
+            // applied here — before the "before" thumbnail, so the review
+            // screen compares against the image Photoroom was actually given.
+            $raw = $imageService->rotate(
+                $raw,
+                (string) ($edits['input_rotation'] ?? ''),
+                !empty($edits['rotate_wide_only']),
+            );
+
+            // Trimming comes after the turn on purpose: "the bottom" has to mean
+            // the bottom of the upright photo the operator was picturing when
+            // they set it, not whichever edge happened to be down in the file.
+            $raw = $imageService->trimEdges(
+                $raw,
+                (float) ($edits['trim_top'] ?? 0),
+                (float) ($edits['trim_bottom'] ?? 0),
+            );
+
             // Photoroom refuses anything over 30 MB or 5000 px on its widest
             // side. Shrinking here costs one local decode; finding out from the
             // API costs a round trip and the whole upload.
