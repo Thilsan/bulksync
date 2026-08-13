@@ -63,11 +63,14 @@ class PushEditedPhotoJob implements ShouldQueue
         $matchingMode = $session->matching_mode ?? 'sku_barcode';
 
         try {
+            // Live lookup, not the warm SKU cache — see ProcessUploadItemJob:
+            // a snapshot older than the product records a false No Match.
+            //
             // throwOnFailure: a network blip must surface as a retryable failure
             // rather than being recorded as "this SKU does not exist".
             $variants = $matchingMode === 'style_code'
                 ? $shopify->findProductsByStyleCode($item->sku_detected, true)
-                : $shopify->findVariantsBySkuOrBarcodeCached($item->sku_detected, true);
+                : $shopify->findVariantsBySkuOrBarcode($item->sku_detected, true);
 
             if (empty($variants)) {
                 $label = $matchingMode === 'style_code' ? 'style code' : 'SKU or barcode';

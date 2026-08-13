@@ -13,6 +13,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
+use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
@@ -59,6 +60,19 @@ class PhotoEditorController extends Controller implements HasMiddleware
             'maxImages'            => (int) config('services.photoroom.max_images', 300),
             'retentionDays'        => (int) config('services.photoroom.retention_days', 7),
             'recent'               => $this->scope()->with('store')->latest()->limit(5)->get(),
+
+            // The option lists live on the service, so the form, the validation
+            // rules and the API mapping can never disagree about what exists.
+            'sizePresets'   => PhotoroomService::SIZE_PRESETS,
+            'vmModels'      => PhotoroomService::VIRTUAL_MODEL_PRESETS,
+            'vmScenes'      => PhotoroomService::VIRTUAL_MODEL_SCENES,
+            'vmPoses'       => PhotoroomService::VIRTUAL_MODEL_POSES,
+            'shadowModes'   => PhotoroomService::SHADOW_MODES,
+            'shadowSpreads' => PhotoroomService::SHADOW_SPREADS,
+            'shadowDirs'    => PhotoroomService::SHADOW_DIRECTIONS,
+            'shadowPoses'   => PhotoroomService::SHADOW_POSES,
+            'beautifyModes' => PhotoroomService::BEAUTIFY_MODES,
+            'textModes'     => PhotoroomService::TEXT_REMOVAL_MODES,
         ]);
     }
 
@@ -94,24 +108,57 @@ class PhotoEditorController extends Controller implements HasMiddleware
             'onedrive_link'   => ['required', 'url'],
             'matching_mode'   => ['required', 'in:sku_barcode,style_code'],
 
-            'remove_background' => ['nullable', 'boolean'],
-            'background_mode'   => ['required', 'in:transparent,white,custom'],
-            'background_color'  => ['nullable', 'string', 'regex:/^#?[0-9A-Fa-f]{6}$/'],
+            // ── Background ──
+            'remove_background'      => ['nullable', 'boolean'],
+            'background_mode'        => ['required', Rule::in(PhotoroomService::BACKGROUND_MODES)],
+            'background_color'       => ['nullable', 'string', 'regex:/^#?[0-9A-Fa-f]{6}$/'],
+            'background_prompt'      => ['nullable', 'string', 'max:500', 'required_if:background_mode,prompt'],
+            'background_image_url'   => ['nullable', 'url', 'required_if:background_mode,image'],
+            'background_seed'        => ['nullable', 'integer', 'min:0'],
+            'background_blur_mode'   => ['nullable', 'in:gaussian,bokeh'],
+            'background_blur_radius' => ['nullable', 'numeric', 'min:0', 'max:0.05'],
 
-            'apparel_mode'  => ['required', 'in:none,ghost_mannequin,flat_lay'],
-            'shadow'        => ['nullable', 'in:ai.soft,ai.hard,ai.floating'],
-            'text_removal'  => ['nullable', 'in:ai.artificial,ai.natural,ai.all'],
+            // ── Clothing ──
+            'apparel_mode'   => ['required', 'in:none,ghost_mannequin,flat_lay,virtual_model'],
+            'apparel_size'   => ['nullable', Rule::in(array_keys(PhotoroomService::SIZE_PRESETS))],
+            'apparel_prompt' => ['nullable', 'string', 'max:500'],
+            'vm_model'       => ['nullable', Rule::in(PhotoroomService::VIRTUAL_MODEL_PRESETS)],
+            'vm_scene'       => ['nullable', Rule::in(PhotoroomService::VIRTUAL_MODEL_SCENES)],
+            'vm_pose'        => ['nullable', Rule::in(PhotoroomService::VIRTUAL_MODEL_POSES)],
+            'ironing'        => ['nullable', 'boolean'],
+
+            // ── Shadow ──
+            'shadow'           => ['nullable', Rule::in(array_keys(PhotoroomService::SHADOW_MODES))],
+            'shadow_softness'  => ['nullable', 'numeric', 'min:0', 'max:1'],
+            'shadow_intensity' => ['nullable', 'numeric', 'min:0', 'max:1'],
+            'shadow_spread'    => ['nullable', Rule::in(PhotoroomService::SHADOW_SPREADS)],
+            'shadow_direction' => ['nullable', Rule::in(PhotoroomService::SHADOW_DIRECTIONS)],
+            'shadow_pose'      => ['nullable', Rule::in(PhotoroomService::SHADOW_POSES)],
+
+            // ── Finishing ──
+            'text_removal'  => ['nullable', Rule::in(array_keys(PhotoroomService::TEXT_REMOVAL_MODES))],
+            'beautify'      => ['nullable', Rule::in(array_keys(PhotoroomService::BEAUTIFY_MODES))],
             'lighting'      => ['nullable', 'boolean'],
             'upscale'       => ['nullable', 'boolean'],
+            'expand'        => ['nullable', 'boolean'],
+            'uncrop'        => ['nullable', 'boolean'],
+            'outline_color' => ['nullable', 'string', 'regex:/^#?[0-9A-Fa-f]{6}$/'],
+            'outline_width' => ['nullable', 'numeric', 'min:0', 'max:0.1'],
 
-            'image_width'  => ['nullable', 'integer', 'min:100', 'max:5000'],
-            'image_height' => ['nullable', 'integer', 'min:100', 'max:5000'],
-            'padding'      => ['nullable', 'numeric', 'min:0', 'max:0.49'],
-            'h_align'      => ['required', 'in:left,center,right'],
-            'v_align'      => ['required', 'in:top,center,bottom'],
-            'scaling'      => ['required', 'in:fit,fill'],
+            // ── Output ──
+            'image_width'   => ['nullable', 'integer', 'min:100', 'max:5000'],
+            'image_height'  => ['nullable', 'integer', 'min:100', 'max:5000'],
+            'padding'       => ['nullable', 'numeric', 'min:0', 'max:0.49'],
+            'h_align'       => ['required', 'in:left,center,right'],
+            'v_align'       => ['required', 'in:top,center,bottom'],
+            'scaling'       => ['required', 'in:fit,fill'],
+            'reference_box' => ['nullable', 'in:subjectBox,originalImage'],
+            'dpi'           => ['nullable', 'integer', 'min:72', 'max:1200'],
         ], [
-            'background_color.regex' => 'The background colour must be a 6-digit hex value, e.g. #F5F5F5.',
+            'background_color.regex'     => 'The background colour must be a 6-digit hex value, e.g. #F5F5F5.',
+            'outline_color.regex'        => 'The outline colour must be a 6-digit hex value, e.g. #222222.',
+            'background_prompt.required_if'    => 'Describe the background you want generating.',
+            'background_image_url.required_if' => 'Give the URL of the background image to use.',
         ]);
 
         /*
@@ -120,45 +167,77 @@ class PhotoEditorController extends Controller implements HasMiddleware
          * the optional keys in first, so reading them below cannot fail on a
          * form that simply left something out.
          */
-        $validated += [
-            'name'              => null,
-            'remove_background' => false,
-            'background_color'  => null,
-            'shadow'            => null,
-            'text_removal'      => null,
-            'lighting'          => false,
-            'upscale'           => false,
-            'image_width'       => null,
-            'image_height'      => null,
-            'padding'           => null,
-        ];
+        $validated += array_fill_keys([
+            'name', 'background_color', 'background_prompt', 'background_image_url',
+            'background_seed', 'background_blur_mode', 'background_blur_radius',
+            'apparel_size', 'apparel_prompt', 'vm_model', 'vm_scene', 'vm_pose',
+            'shadow', 'shadow_softness', 'shadow_intensity', 'shadow_spread',
+            'shadow_direction', 'shadow_pose', 'text_removal', 'beautify',
+            'outline_color', 'outline_width', 'image_width', 'image_height',
+            'padding', 'reference_box', 'dpi',
+        ], null) + array_fill_keys([
+            'remove_background', 'ironing', 'lighting', 'upscale', 'expand', 'uncrop',
+        ], false);
 
-        $removeBackground = (bool) $validated['remove_background'];
+        // Blurring keeps the original scene, so it is the one mode that is not
+        // a kind of background removal.
+        $removeBackground = $validated['background_mode'] !== 'blur'
+            && (bool) $validated['remove_background'];
 
-        // The colour is only meaningful when there is a cutout to place on it.
-        $backgroundColor = match ($validated['background_mode']) {
-            'white'  => 'FFFFFF',
-            'custom' => ltrim((string) ($validated['background_color'] ?? ''), '#') ?: 'FFFFFF',
-            default  => null, // transparent
-        };
-
-        $hasSize = filled($validated['image_width']) && filled($validated['image_height']);
+        $hasSize  = filled($validated['image_width']) && filled($validated['image_height']);
+        $apparel  = $validated['apparel_mode'];
 
         $edits = [
-            'remove_background' => $removeBackground,
-            'background_color'  => $removeBackground ? $backgroundColor : null,
-            'ghost_mannequin'   => $validated['apparel_mode'] === 'ghost_mannequin',
-            'flat_lay'          => $validated['apparel_mode'] === 'flat_lay',
-            'shadow'            => $validated['shadow'] ?: null,
-            'text_removal'      => $validated['text_removal'] ?: null,
-            'lighting'          => (bool) ($validated['lighting'] ?? false),
-            'upscale'           => (bool) ($validated['upscale'] ?? false),
-            'width'             => $hasSize ? (int) $validated['image_width']  : null,
-            'height'            => $hasSize ? (int) $validated['image_height'] : null,
-            'padding'           => filled($validated['padding']) ? (float) $validated['padding'] : null,
-            'h_align'           => $validated['h_align'],
-            'v_align'           => $validated['v_align'],
-            'scaling'           => $validated['scaling'],
+            // Background
+            'remove_background'      => $removeBackground,
+            'background_mode'        => $validated['background_mode'],
+            'background_color'       => $validated['background_mode'] === 'custom'
+                ? (ltrim((string) $validated['background_color'], '#') ?: 'FFFFFF')
+                : ($validated['background_mode'] === 'white' ? 'FFFFFF' : null),
+            'background_prompt'      => $validated['background_prompt'] ?: null,
+            'background_image_url'   => $validated['background_image_url'] ?: null,
+            'background_seed'        => filled($validated['background_seed']) ? (int) $validated['background_seed'] : null,
+            'background_blur_mode'   => $validated['background_blur_mode'] ?: null,
+            'background_blur_radius' => filled($validated['background_blur_radius']) ? (float) $validated['background_blur_radius'] : null,
+
+            // Clothing
+            'ghost_mannequin' => $apparel === 'ghost_mannequin',
+            'flat_lay'        => $apparel === 'flat_lay',
+            'virtual_model'   => $apparel === 'virtual_model',
+            'apparel_size'    => $apparel !== 'none' ? $validated['apparel_size'] : null,
+            'apparel_prompt'  => $apparel !== 'none' ? ($validated['apparel_prompt'] ?: null) : null,
+            'vm_model'        => $apparel === 'virtual_model' ? $validated['vm_model'] : null,
+            'vm_scene'        => $apparel === 'virtual_model' ? $validated['vm_scene'] : null,
+            'vm_pose'         => $apparel === 'virtual_model' ? $validated['vm_pose'] : null,
+            'ironing'         => (bool) $validated['ironing'],
+
+            // Shadow
+            'shadow'           => $validated['shadow'] ?: null,
+            'shadow_softness'  => filled($validated['shadow_softness'])  ? (float) $validated['shadow_softness']  : null,
+            'shadow_intensity' => filled($validated['shadow_intensity']) ? (float) $validated['shadow_intensity'] : null,
+            'shadow_spread'    => $validated['shadow_spread'] ?: null,
+            'shadow_direction' => $validated['shadow_direction'] ?: null,
+            'shadow_pose'      => $validated['shadow_pose'] ?: null,
+
+            // Finishing
+            'text_removal'  => $validated['text_removal'] ?: null,
+            'beautify'      => $validated['beautify'] ?: null,
+            'lighting'      => (bool) $validated['lighting'],
+            'upscale'       => (bool) $validated['upscale'],
+            'expand'        => (bool) $validated['expand'],
+            'uncrop'        => (bool) $validated['uncrop'],
+            'outline_color' => $validated['outline_color'] ? ltrim((string) $validated['outline_color'], '#') : null,
+            'outline_width' => filled($validated['outline_width']) ? (float) $validated['outline_width'] : null,
+
+            // Output
+            'width'         => $hasSize ? (int) $validated['image_width']  : null,
+            'height'        => $hasSize ? (int) $validated['image_height'] : null,
+            'padding'       => filled($validated['padding']) ? (float) $validated['padding'] : null,
+            'h_align'       => $validated['h_align'],
+            'v_align'       => $validated['v_align'],
+            'scaling'       => $validated['scaling'],
+            'reference_box' => $validated['reference_box'] ?: null,
+            'dpi'           => filled($validated['dpi']) ? (int) $validated['dpi'] : null,
         ];
 
         $session = PhotoEditSession::create([

@@ -50,6 +50,65 @@ class ImageProcessingService
     }
 
     /**
+     * Rotate an image so its pixels sit the way the photographer saw them.
+     *
+     * Cameras and phones very often leave the sensor data landscape and record
+     * the rotation as an EXIF flag instead. Viewers honour that flag, so the
+     * file looks upright on a laptop — but the moment anything decodes the
+     * pixels and writes them out again the flag is dropped and the picture
+     * turns on its side. That is why a shirt shot upright arrives lying down.
+     *
+     * Returns the original bytes untouched when there is nothing to correct, so
+     * an already-upright photo is never re-encoded for no reason.
+     */
+    public function normalizeOrientation(string $imageContent): string
+    {
+        $orientation = $this->readOrientation($imageContent);
+
+        // 1 is "already upright"; null means no EXIF to read (PNG, WebP, or a
+        // JPEG that never carried the tag).
+        if ($orientation === null || $orientation === 1) {
+            return $imageContent;
+        }
+
+        // orient() applies the flag to the pixels and clears it, so every later
+        // decode in the pipeline sees an image that needs no interpretation.
+        return $this->manager->decode($imageContent)
+            ->orient()
+            ->encode(new JpegEncoder(quality: 95))
+            ->toString();
+    }
+
+    private function readOrientation(string $imageContent): ?int
+    {
+        if (!function_exists('exif_read_data')) {
+            return null;
+        }
+
+        // A stream rather than a data: URI — the URI form base64-encodes the
+        // whole file to read two bytes, which on a 10 MB photo is 13 MB of
+        // pointless memory.
+        $stream = fopen('php://temp', 'r+');
+
+        if ($stream === false) {
+            return null;
+        }
+
+        try {
+            fwrite($stream, $imageContent);
+            rewind($stream);
+
+            $exif = @exif_read_data($stream);
+        } catch (\Throwable) {
+            return null;
+        } finally {
+            fclose($stream);
+        }
+
+        return isset($exif['Orientation']) ? (int) $exif['Orientation'] : null;
+    }
+
+    /**
      * A small preview copy for the Photoroom editor's review grid — a page of
      * 300 results cannot pull 300 full-size images.
      *

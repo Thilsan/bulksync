@@ -145,23 +145,38 @@ class PhotoEditSession extends Model
         $edits = $this->edits ?? [];
         $parts = [];
 
-        if (!empty($edits['remove_background'])) {
-            $parts[] = empty($edits['background_color'])
-                ? 'Background removed (transparent)'
-                : 'Background → #' . ltrim((string) $edits['background_color'], '#');
-        }
+        $parts[] = match ($edits['background_mode'] ?? null) {
+            'blur'   => 'Background blurred',
+            'prompt' => 'AI background',
+            'image'  => 'Custom background image',
+            default  => !empty($edits['remove_background'])
+                ? (empty($edits['background_color'])
+                    ? 'Background removed (transparent)'
+                    : 'Background → #' . ltrim((string) $edits['background_color'], '#'))
+                : null,
+        };
 
         if (!empty($edits['ghost_mannequin'])) $parts[] = 'Mannequin removed';
         if (!empty($edits['flat_lay']))        $parts[] = 'Flat lay';
+        if (!empty($edits['virtual_model']))   $parts[] = 'Virtual model';
+        if (!empty($edits['ironing']))         $parts[] = 'Ironed';
         if (!empty($edits['shadow']))          $parts[] = 'Shadow';
         if (!empty($edits['lighting']))        $parts[] = 'Relit';
         if (!empty($edits['upscale']))         $parts[] = 'Upscaled';
+        if (!empty($edits['beautify']))        $parts[] = 'Beautified';
+        if (!empty($edits['expand']))          $parts[] = 'Expanded';
+        if (!empty($edits['uncrop']))          $parts[] = 'Uncropped';
         if (!empty($edits['text_removal']))    $parts[] = 'Text removed';
+        if (!empty($edits['outline_color']))   $parts[] = 'Outlined';
 
-        if (!empty($edits['width']) && !empty($edits['height'])) {
+        // A generated canvas sets its own dimensions, so quoting a pixel size
+        // next to it would describe something that never happened.
+        if (!empty($edits['apparel_size'])) {
+            $parts[] = str_replace('_', ' ', $edits['apparel_size']);
+        } elseif (!empty($edits['width']) && !empty($edits['height'])) {
             $parts[] = $edits['width'] . ' × ' . $edits['height'];
         }
 
-        return $parts ? implode(' · ', $parts) : 'No edits';
+        return array_filter($parts) ? implode(' · ', array_filter($parts)) : 'No edits';
     }
 }

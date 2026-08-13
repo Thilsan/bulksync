@@ -58,12 +58,17 @@ class ProcessUploadItemJob implements ShouldQueue
 
         try {
             // ── 1. Look up matching Shopify product(s) — may match multiple ──
+            // Asked live, never against the warm SKU cache: that snapshot is
+            // rebuilt four times a day, so a product added to Shopify since the
+            // last warm is absent from it and would be recorded as No Match
+            // even though the SKU is sitting right there in the admin.
+            //
             // throwOnFailure: a transient API/network error (DNS blip, timeout) must
             // surface as a retryable failure, NOT be mistaken for "no match"
             // and permanently marked No Match.
             $variants = $matchingMode === 'style_code'
                 ? $shopify->findProductsByStyleCode($item->sku_detected, true)
-                : $shopify->findVariantsBySkuOrBarcodeCached($item->sku_detected, true);
+                : $shopify->findVariantsBySkuOrBarcode($item->sku_detected, true);
 
             if (empty($variants)) {
                 $label = $matchingMode === 'style_code' ? 'style code' : 'SKU or barcode';

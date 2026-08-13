@@ -327,7 +327,7 @@ class ShopifyService
      * The REST GET /variants.json?sku= endpoint silently ignores the sku
      * filter and returns unrelated variants, so GraphQL is the reliable path.
      */
-    public function findVariantsBySku(string $sku, bool $throwOnFailure = false): array
+    public function findVariantsBySku(string $sku, bool $throwOnFailure = false, bool $lean = false): array
     {
         if (!$sku) {
             return [];
@@ -340,13 +340,15 @@ class ShopifyService
                 "admin/api/{$this->apiVersion}/graphql.json",
                 [
                     'json' => [
-                        'query'     => 'query($q:String!){productVariants(first:250,query:$q){edges{node{id sku product{id title status vendor productType tags descriptionHtml collections(first:20){edges{node{title}}}}}}}}',
+                        'query'     => $this->variantLookupQuery('sku', $lean),
                         'variables' => ['q' => "sku:'{$sku}'"],
                     ],
                 ]
             );
 
-            $data  = json_decode((string) $response->getBody(), true);
+            $data = json_decode((string) $response->getBody(), true);
+            $this->assertNoGraphQlErrors($data, "findVariantsBySku({$sku})");
+
             $edges = $data['data']['productVariants']['edges'] ?? [];
 
             return array_map(function ($edge) {
@@ -383,7 +385,7 @@ class ShopifyService
      * Fallback for when the OneDrive folder/filename identifier doesn't
      * match any SKU — some catalogues are organised by barcode instead.
      */
-    public function findVariantsByBarcode(string $barcode, bool $throwOnFailure = false): array
+    public function findVariantsByBarcode(string $barcode, bool $throwOnFailure = false, bool $lean = false): array
     {
         if (!$barcode) {
             return [];
@@ -396,13 +398,15 @@ class ShopifyService
                 "admin/api/{$this->apiVersion}/graphql.json",
                 [
                     'json' => [
-                        'query'     => 'query($q:String!){productVariants(first:250,query:$q){edges{node{id sku barcode product{id title status vendor productType tags collections(first:20){edges{node{title}}}}}}}}',
+                        'query'     => $this->variantLookupQuery('barcode', $lean),
                         'variables' => ['q' => "barcode:'{$barcode}'"],
                     ],
                 ]
             );
 
-            $data  = json_decode((string) $response->getBody(), true);
+            $data = json_decode((string) $response->getBody(), true);
+            $this->assertNoGraphQlErrors($data, "findVariantsByBarcode({$barcode})");
+
             $edges = $data['data']['productVariants']['edges'] ?? [];
 
             return array_map(function ($edge) {
@@ -431,6 +435,34 @@ class ShopifyService
             }
             return [];
         }
+    }
+
+    /**
+     * Live SKU-then-barcode lookup — the uncached twin of
+     * findVariantsBySkuOrBarcodeCached.
+     *
+     * The image upload paths use this one. They write to Shopify, so they need
+     * the store as it is right now: the warm snapshot is up to a day old, and
+     * anything created since the last warm reads back as "no such SKU" while
+     * anything deleted or re-SKU'd since reads back as a product that is no
+     * longer there. A report can tolerate that; an upload cannot.
+     */
+    public function findVariantsBySkuOrBarcode(string $identifier, bool $throwOnFailure = false): array
+    {
+        // lean: the upload path needs an id to attach the image to, nothing else.
+        // The full query drags in collections/tags/description for the AI content
+        // generator, and Shopify prices a GraphQL call by the fields it asks for —
+        // paying that on every image is what pushes a large batch into throttling.
+        $variants = $this->findVariantsBySku($identifier, $throwOnFailure, true);
+
+        if ($variants) {
+            return $variants;
+        }
+
+        $variants = $this->findVariantsByBarcode($identifier, $throwOnFailure, true);
+
+        // Tag the fallback path so callers can report accurately (e.g. "Duplicate barcode" vs "Duplicate SKU")
+        return array_map(fn ($v) => $v + ['matched_via' => 'barcode'], $variants);
     }
 
     /**
@@ -470,7 +502,9 @@ class ShopifyService
                 ]
             );
 
-            $data  = json_decode((string) $response->getBody(), true);
+            $data = json_decode((string) $response->getBody(), true);
+            $this->assertNoGraphQlErrors($data, "findProductsByStyleCode({$styleCode})");
+
             $edges = $data['data']['products']['edges'] ?? [];
 
             $matches = [];
@@ -1193,6 +1227,75 @@ class ShopifyService
      * Shopify: 40-call burst, 2 calls/s refill.
      * Sleeps only when the bucket is empty.
      */
+    /**
+     * The variant lookup query, keyed by SKU or barcode.
+     *
+     * Lean asks only for what identifies a product; the full form adds the
+     * merchandising fields the AI content generator reads. Shopify charges a
+     * GraphQL call by requested cost, and `collections(first:20)` alone costs
+     * more than the rest of the node put together — so the lean form is
+     * roughly an order of magnitude cheaper per call, and correspondingly
+     * further from the throttle ceiling on a long batch.
+     */
+    private function variantLookupQuery(string $field, bool $lean): string
+    {
+        // A shared identifier lands on several variants of ONE product; callers
+        // treat a spread across multiple products as ambiguous and skip it. 50 is
+        // far past any real variant count while costing a fifth of 250.
+        return $lean
+            ? 'query($q:String!){productVariants(first:50,query:$q){edges{node{id sku ' . ($field === 'barcode' ? 'barcode ' : '') . 'product{id title status}}}}}'
+            // descriptionHtml is read back only on the SKU path (the content
+            // generator's "existing description"), so the barcode form leaves it out.
+            : 'query($q:String!){productVariants(first:250,query:$q){edges{node{id sku ' . ($field === 'barcode' ? 'barcode ' : '') . 'product{id title status vendor productType tags ' . ($field === 'sku' ? 'descriptionHtml ' : '') . 'collections(first:20){edges{node{title}}}}}}}}';
+    }
+
+    /**
+     * Shopify reports a throttled or rejected GraphQL call with HTTP 200 and an
+     * `errors` array — there is no status code for Guzzle to raise and no
+     * ClientException for handleClientException to see. Left unchecked, `data`
+     * arrives null, the edge list reads as empty, and the caller records "no
+     * such SKU" for a product sitting right there in the admin — the same false
+     * No Match a stale cache produced, now caused by load instead of staleness.
+     *
+     * Raising it lets the job's retry/backoff handle it as the transient
+     * condition it is.
+     */
+    private function assertNoGraphQlErrors(?array $data, string $context): void
+    {
+        $errors = $data['errors'] ?? null;
+
+        if (empty($errors)) {
+            return;
+        }
+
+        $messages = [];
+        $throttled = false;
+
+        foreach ((array) $errors as $error) {
+            if (!is_array($error)) {
+                $messages[] = (string) $error;
+                continue;
+            }
+
+            $messages[] = $error['message'] ?? 'unknown error';
+
+            if (strtoupper($error['extensions']['code'] ?? '') === 'THROTTLED') {
+                $throttled = true;
+            }
+        }
+
+        $detail = implode('; ', array_filter($messages)) ?: 'unknown error';
+
+        if ($throttled || stripos($detail, 'throttl') !== false) {
+            // Empty the local bucket so this worker's next call waits rather
+            // than charging straight back into the same ceiling.
+            self::$callBucket = 0.0;
+            Log::warning("Shopify GraphQL throttled in {$context} — backing off");
+        }
+
+        throw new \RuntimeException("Shopify GraphQL error in {$context}: {$detail}");
+    }
+
     private function throttle(): void
     {
         $now     = microtime(true);

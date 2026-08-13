@@ -69,6 +69,12 @@ class EditPhotoItemJob implements ShouldQueue
                 $item->onedrive_download_url ?? '',
             );
 
+            // Straighten first, before anything decodes the pixels. Studio
+            // cameras record rotation as an EXIF flag rather than rotating the
+            // image, and every step after this one would drop that flag and
+            // leave the garment lying on its side.
+            $raw = $imageService->normalizeOrientation($raw);
+
             // Photoroom refuses anything over 30 MB or 5000 px on its widest
             // side. Shrinking here costs one local decode; finding out from the
             // API costs a round trip and the whole upload.

@@ -7,6 +7,7 @@ use App\Jobs\ScanPhotoEditFolderJob;
 use App\Models\PhotoEditItem;
 use App\Models\PhotoEditSession;
 use App\Models\User;
+use App\Services\ImageProcessingService;
 use App\Services\PhotoroomService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
@@ -160,7 +161,6 @@ class PhotoEditorTest extends TestCase
         $fields = app(PhotoroomService::class)->buildFields([
             'remove_background' => true,
             'background_color'  => '#F5F5F5',
-            'ghost_mannequin'   => true,
             'width'             => 1200,
             'height'            => 1200,
             'padding'           => 0.15,
@@ -169,8 +169,8 @@ class PhotoEditorTest extends TestCase
 
         $this->assertSame('true',      $fields['removeBackground']);
         $this->assertSame('F5F5F5',    $fields['background.color']);   // no leading #
-        $this->assertSame('ai.auto',   $fields['ghostMannequin.mode']);
         $this->assertSame('1200x1200', $fields['outputSize']);
+        $this->assertSame('0.15',      $fields['padding']);
         $this->assertSame('ai.soft',   $fields['shadow.mode']);
         $this->assertSame('jpg',       $fields['export.format']);
     }
@@ -316,5 +316,226 @@ class PhotoEditorTest extends TestCase
 
         $this->assertSame(2048, $freed);
         $this->assertDirectoryDoesNotExist($root);
+    }
+
+    // ── Orientation ────────────────────────────────────────────────────────
+
+    /**
+     * A landscape JPEG carrying an EXIF orientation flag: the pixels are wide,
+     * the flag says "turn this to display". Exactly what a studio camera hands
+     * over, and the reason a shirt shot upright arrives lying on its side.
+     */
+    private function jpegWithOrientation(int $orientation, int $w = 400, int $h = 200): string
+    {
+        $im = imagecreatetruecolor($w, $h);
+        imagefilledrectangle($im, 0, 0, $w, $h, imagecolorallocate($im, 200, 40, 40));
+        ob_start();
+        imagejpeg($im, null, 90);
+        $plain = ob_get_clean();
+
+        $ifd = pack('v', 1)                              // one entry
+             . pack('v', 0x0112)                         // Orientation tag
+             . pack('v', 3)                              // type SHORT
+             . pack('V', 1)                              // count
+             . pack('v', $orientation) . "\x00\x00"      // value, padded to 4 bytes
+             . pack('V', 0);                             // no next IFD
+
+        $payload = "Exif\x00\x00" . "II\x2A\x00\x08\x00\x00\x00" . $ifd;
+        $app1    = "\xFF\xE1" . pack('n', strlen($payload) + 2) . $payload;
+
+        return "\xFF\xD8" . $app1 . substr($plain, 2);
+    }
+
+    public function test_a_sideways_photo_is_straightened_before_it_is_edited(): void
+    {
+        $sideways = $this->jpegWithOrientation(6);
+
+        // The fixture has to actually carry the flag, or this proves nothing.
+        $this->assertSame([400, 200], array_slice(getimagesizefromstring($sideways), 0, 2));
+
+        $fixed = app(ImageProcessingService::class)->normalizeOrientation($sideways);
+
+        $this->assertSame(
+            [200, 400],
+            array_slice(getimagesizefromstring($fixed), 0, 2),
+            'the pixels themselves should have been rotated upright',
+        );
+    }
+
+    /** Nothing to correct means nothing to recompress — quality is not spent for free. */
+    public function test_an_already_upright_photo_passes_through_untouched(): void
+    {
+        $im = imagecreatetruecolor(300, 200);
+        imagefilledrectangle($im, 0, 0, 300, 200, imagecolorallocate($im, 20, 120, 220));
+        ob_start();
+        imagejpeg($im, null, 90);
+        $plain = ob_get_clean();
+
+        $this->assertSame($plain, app(ImageProcessingService::class)->normalizeOrientation($plain));
+    }
+
+    // ── The wider Photoroom feature set ────────────────────────────────────
+
+    public function test_virtual_model_presets_map_to_photoroom_parameters(): void
+    {
+        $fields = app(PhotoroomService::class)->buildFields([
+            'virtual_model' => true,
+            'vm_model'      => 'avery',
+            'vm_scene'      => 'street',
+            'vm_pose'       => 'standing',
+            'apparel_size'  => 'PORTRAIT_HD_3_2',
+            'apparel_prompt' => 'street style',
+            'ironing'       => true,
+        ]);
+
+        $this->assertSame('ai.auto',         $fields['virtualModel.mode']);
+        $this->assertSame('avery',           $fields['virtualModel.model.preset.name']);
+        $this->assertSame('street',          $fields['virtualModel.scene.preset.name']);
+        $this->assertSame('standing',        $fields['virtualModel.pose']);
+        $this->assertSame('PORTRAIT_HD_3_2', $fields['virtualModel.size']);
+        $this->assertSame('street style',    $fields['virtualModel.prompt']);
+
+        // Ironing is independent — a garment can be pressed on a model too.
+        $this->assertSame('ai.auto', $fields['ironing.mode']);
+    }
+
+    public function test_an_invented_preset_name_is_dropped_rather_than_sent(): void
+    {
+        $fields = app(PhotoroomService::class)->buildFields([
+            'virtual_model' => true,
+            'vm_model'      => 'not-a-real-model',
+        ]);
+
+        $this->assertArrayNotHasKey('virtualModel.model.preset.name', $fields);
+    }
+
+    /**
+     * The generated canvas already has a shape. Forcing a pixel size on top is
+     * what produces a 1024 image stretched to 2048 and blamed on the AI.
+     */
+    public function test_a_generated_canvas_is_not_also_forced_to_a_pixel_size(): void
+    {
+        $fields = app(PhotoroomService::class)->buildFields([
+            'ghost_mannequin' => true,
+            'apparel_size'    => 'SQUARE_HD',
+            'width'           => 2048,
+            'height'          => 2048,
+        ]);
+
+        $this->assertSame('ai.auto',   $fields['ghostMannequin.mode']);
+        $this->assertSame('SQUARE_HD', $fields['ghostMannequin.size']);
+        $this->assertArrayNotHasKey('outputSize', $fields);
+    }
+
+    public function test_a_plain_edit_still_gets_its_exact_pixel_size(): void
+    {
+        $fields = app(PhotoroomService::class)->buildFields([
+            'remove_background' => true,
+            'width'             => 2048,
+            'height'            => 2048,
+        ]);
+
+        $this->assertSame('2048x2048', $fields['outputSize']);
+    }
+
+    public function test_blurring_keeps_the_background_instead_of_removing_it(): void
+    {
+        $fields = app(PhotoroomService::class)->buildFields([
+            'remove_background'      => true,   // blur overrules it
+            'background_mode'        => 'blur',
+            'background_blur_mode'   => 'bokeh',
+            'background_blur_radius' => 0.03,
+        ]);
+
+        $this->assertSame('false', $fields['removeBackground']);
+        $this->assertSame('bokeh', $fields['background.blur.mode']);
+        $this->assertSame('0.03',  $fields['background.blur.radius']);
+    }
+
+    public function test_an_ai_background_prompt_replaces_the_colour(): void
+    {
+        $fields = app(PhotoroomService::class)->buildFields([
+            'remove_background' => true,
+            'background_mode'   => 'prompt',
+            'background_prompt' => 'sunlit marble table',
+        ]);
+
+        $this->assertSame('sunlit marble table', $fields['background.prompt']);
+        $this->assertArrayNotHasKey('background.color', $fields);
+    }
+
+    /** Without the version header the override fields are ignored in silence. */
+    public function test_shadow_overrides_request_the_newer_shadow_model(): void
+    {
+        $service = app(PhotoroomService::class);
+
+        $edits = [
+            'shadow'           => 'ai.auto-with-overrides',
+            'shadow_softness'  => 0.8,
+            'shadow_direction' => 'behindLeft',
+            'shadow_pose'      => 'upright',
+        ];
+
+        $fields = $service->buildFields($edits);
+
+        $this->assertSame('0.8',        $fields['shadow.softnessOverride']);
+        $this->assertSame('behindLeft', $fields['shadow.directionOverride']);
+        $this->assertSame('upright',    $fields['shadow.subjectPoseOverride']);
+
+        $this->assertArrayHasKey('pr-ai-shadows-model-version', $service->buildHeaders($edits));
+        $this->assertSame([], $service->buildHeaders(['shadow' => 'ai.soft']));
+    }
+
+    public function test_a_preset_shadow_sends_no_override_fields(): void
+    {
+        $fields = app(PhotoroomService::class)->buildFields([
+            'shadow'          => 'ai.soft',
+            'shadow_softness' => 0.8,
+        ]);
+
+        $this->assertSame('ai.soft', $fields['shadow.mode']);
+        $this->assertArrayNotHasKey('shadow.softnessOverride', $fields);
+    }
+
+    public function test_the_form_can_start_a_virtual_model_run(): void
+    {
+        Queue::fake();
+
+        $this->actingAs($this->editor())
+            ->post(route('photo-editor.store'), $this->validPayload([
+                'apparel_mode' => 'virtual_model',
+                'vm_model'     => 'maya',
+                'vm_scene'     => 'studio',
+                'vm_pose'      => 'crossedarms',
+                'apparel_size' => 'PORTRAIT_HD_4_3',
+                'ironing'      => '1',
+                'beautify'     => 'ai.auto',
+                'expand'       => '1',
+            ]))
+            ->assertRedirect();
+
+        $edits = PhotoEditSession::sole()->edits;
+
+        $this->assertTrue($edits['virtual_model']);
+        $this->assertFalse($edits['ghost_mannequin']);
+        $this->assertSame('maya', $edits['vm_model']);
+        $this->assertSame('PORTRAIT_HD_4_3', $edits['apparel_size']);
+        $this->assertTrue($edits['ironing']);
+        $this->assertSame('ai.auto', $edits['beautify']);
+        $this->assertTrue($edits['expand']);
+    }
+
+    /** Model-only options are dropped when the run isn't using a model. */
+    public function test_model_options_are_not_kept_for_a_ghost_mannequin_run(): void
+    {
+        Queue::fake();
+
+        $this->actingAs($this->editor())
+            ->post(route('photo-editor.store'), $this->validPayload([
+                'apparel_mode' => 'ghost_mannequin',
+                'vm_model'     => 'maya',
+            ]));
+
+        $this->assertNull(PhotoEditSession::sole()->edits['vm_model']);
     }
 }

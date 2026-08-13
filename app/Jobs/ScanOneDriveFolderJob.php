@@ -5,7 +5,6 @@ namespace App\Jobs;
 use App\Models\UploadItem;
 use App\Models\UploadSession;
 use App\Services\OneDriveService;
-use App\Services\ShopifyService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -40,9 +39,6 @@ class ScanOneDriveFolderJob implements ShouldQueue
                 $oneDrive->setUser($user);
             }
         }
-
-        $store   = $session->store_id ? \App\Models\Store::find($session->store_id) : \App\Models\Store::getActive($session->user_id);
-        $shopify = new ShopifyService($store);
 
         try {
             $totalScanned = 0;
@@ -98,25 +94,12 @@ class ScanOneDriveFolderJob implements ShouldQueue
                 'total_files' => $totalScanned,
             ]);
 
-            Log::info("ScanOneDriveFolderJob: scan complete — {$totalScanned} files. Warming SKU cache…");
+            Log::info("ScanOneDriveFolderJob: scan complete — {$totalScanned} files.");
 
-            // Only warm SKU cache for small stores — large stores (150k+ products)
-            // take too long to cache and will timeout. Use live GraphQL lookup instead.
-            try {
-                $productCount = $shopify->getProductCount();
-                if ($productCount < 10000) {
-                    if ($shopify->isSkuCacheWarmed()) {
-                        Log::info("ScanOneDriveFolderJob: SKU cache already warm — skipping re-warm.");
-                    } else {
-                        $count = $shopify->warmSkuCache();
-                        Log::info("ScanOneDriveFolderJob: SKU cache ready — {$count} SKUs mapped.");
-                    }
-                } else {
-                    Log::info("ScanOneDriveFolderJob: large store ({$productCount} products) — skipping cache warm, using live GraphQL lookup.");
-                }
-            } catch (\Throwable $e) {
-                Log::warning("ScanOneDriveFolderJob: SKU cache warm failed (jobs will use live lookup): " . $e->getMessage());
-            }
+            // No SKU cache warm here any more. ProcessUploadItemJob asks Shopify
+            // live for every item, so warming bought the upload nothing while
+            // costing it up to an hour of dead wait before the first image moved.
+            // The SKU Checker still uses the cache; the schedule keeps it warm.
 
             // Dispatch a ProcessUploadItemJob for every pending item in chunks
             // to avoid loading all 30k models at once.
