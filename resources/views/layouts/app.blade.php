@@ -737,7 +737,7 @@
                                  has to take it with it — otherwise the next person
                                  at a shared desk could read the conversations. --}}
                             <form method="POST" action="{{ route('logout') }}"
-                                  @submit="window.chatHistory?.forgetAll(); window.chatCrypto?.forgetDerived()">
+                                  @submit="window.chatHistory?.forgetAll()">
                                 @csrf
                                 <button type="submit"
                                         class="flex w-full items-center gap-2.5 px-4 py-2 text-sm text-gray-600 transition-colors hover:bg-gray-50 hover:text-gray-900">
@@ -798,10 +798,9 @@
 
     </div>
 
-    {{-- Chat. Crypto and the local-history runtime must both load before the
-         widget or the full-page view, which use them. --}}
+    {{-- Chat. The runtime holds this browser's own history and must load before
+         either the widget or the full-page view reads from it. --}}
     @auth
-        @include('partials.chat-crypto')
         @include('partials.chat-runtime')
         @include('partials.chat-widget')
     @endauth

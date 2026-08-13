@@ -16,11 +16,10 @@
 <div x-data="chatWidget({
         meId: {{ auth()->id() }},
         unread: {{ (int) ($chatUnreadCount ?? 0) }},
-        maxLength: {{ \App\Support\EphemeralChat::MAX_PLAINTEXT }},
+        maxLength: {{ \App\Support\EphemeralChat::MAX_LENGTH }},
         localKeep: {{ \App\Support\EphemeralChat::LOCAL_KEEP }},
         urls: {
             inbox: '{{ route('chat.inbox') }}',
-            keys:  '{{ route('chat.keys.publish') }}',
             base:  '{{ url('chat') }}',
             page:  '{{ route('chat.index') }}',
         },
@@ -66,8 +65,7 @@
                    x-text="peer ? peer.name : 'Chat'"></p>
                 <p class="truncate text-[11px]" :class="peer && peer.online ? 'text-emerald-600' : 'text-gray-400'">
                     <template x-if="!peer">
-                        <span x-text="cryptoError || 'Encrypted end-to-end · kept in your browser'"
-                              :class="cryptoError && 'text-red-600'"></span>
+                        <span>Kept in your browser, not on the server</span>
                     </template>
                     <template x-if="peer">
                         <span>
@@ -137,18 +135,6 @@
         {{-- Conversation --}}
         <template x-if="peer">
             <div class="flex min-h-0 flex-1 flex-col">
-                {{-- The fingerprint of their key. Two people reading the same eight
-                     bytes to each other is the only way to be sure this server did
-                     not hand over a substituted key. --}}
-                <div x-show="fingerprint" x-cloak
-                     class="flex shrink-0 items-center gap-1.5 border-b border-gray-100 bg-gray-50 px-3 py-1.5">
-                    <svg class="h-3 w-3 shrink-0 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
-                    </svg>
-                    <span class="text-[10px] text-gray-500">Their key</span>
-                    <span class="font-mono text-[10px] tracking-wide text-gray-700" x-text="fingerprint"></span>
-                </div>
-
                 <div x-ref="scroller" class="flex-1 space-y-1.5 overflow-y-auto bg-gray-50/60 px-3 py-3">
                     <div x-show="messages.length === 0" class="flex h-full flex-col items-center justify-center px-6 text-center">
                         <p class="text-xs text-gray-400">No messages. Nothing said here is written down.</p>
@@ -158,16 +144,7 @@
                          buffer is rebuilt, so a long history has several id 1s. --}}
                     <template x-for="message in messages" :key="message.uid">
                         <div class="flex" :class="message.from === meId ? 'justify-end' : 'justify-start'">
-                            {{-- An envelope that would not open is shown as such.
-                                 Dropping it would quietly hide that something was
-                                 said and could not be read. --}}
-                            <div x-show="message.unreadable"
-                                 class="max-w-[80%] rounded-2xl rounded-bl-md border border-dashed border-amber-300 bg-amber-50 px-3 py-1.5 text-[12px] italic text-amber-700">
-                                Cannot be decrypted — sent to a key this browser no longer has.
-                            </div>
-
-                            <div x-show="!message.unreadable"
-                                 class="max-w-[80%] rounded-2xl px-3 py-1.5 text-[13px] shadow-sm"
+                            <div class="max-w-[80%] rounded-2xl px-3 py-1.5 text-[13px] shadow-sm"
                                  :class="message.from === meId
                                      ? 'rounded-br-md bg-brand-600 text-white'
                                      : 'rounded-bl-md border border-gray-200 bg-white text-gray-800'">
@@ -199,21 +176,14 @@
                 <div class="shrink-0 border-t border-gray-200 p-2">
                     <p x-show="error" x-cloak class="mb-1.5 rounded-md bg-red-50 px-2 py-1 text-[11px] text-red-700" x-text="error"></p>
 
-                    {{-- Nobody can write to someone who has no published key. Said
-                         up front rather than after they have typed a message. --}}
-                    <p x-show="peer && !peer.key" x-cloak class="mb-1.5 rounded-md bg-amber-50 px-2 py-1 text-[11px] text-amber-800">
-                        No encryption key for <span x-text="peer?.name"></span> yet — they need to open the app once.
-                    </p>
-
                     <form @submit.prevent="send()" class="flex items-end gap-1.5">
                         <textarea x-ref="input" x-model="draft" rows="1" :maxlength="maxLength"
-                                  :disabled="peer && !peer.key"
                                   @input="grow(); announceTyping()"
                                   @keydown.enter.exact.prevent="send()"
-                                  :placeholder="peer && !peer.key ? 'Cannot encrypt to them yet' : 'Message…'"
+                                  placeholder="Message…"
                                   class="max-h-24 min-h-[2.25rem] flex-1 resize-none rounded-lg border border-gray-200 px-2.5 py-1.5 text-[13px] text-gray-800 placeholder-gray-400 focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400"></textarea>
 
-                        <button type="submit" :disabled="sending || draft.trim() === '' || (peer && !peer.key)"
+                        <button type="submit" :disabled="sending || draft.trim() === ''"
                                 class="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-brand-600 text-white transition-colors hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-40"
                                 aria-label="Send">
                             <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
@@ -316,8 +286,6 @@
             toasts: [],
             ring: false,
             muted: false,
-            cryptoError: '',
-            fingerprint: '',
             csrf: document.querySelector('meta[name="csrf-token"]').content,
 
             // ── Local history (window.chatHistory) ──────────────────────────
@@ -329,45 +297,6 @@
                     epoch: this.epoch,
                     cursor: this.cursor,
                 }, this.localKeep);
-            },
-
-            /**
-             * Unseal a batch, then fold it into the local history.
-             *
-             * Envelopes are opened here, once, and the history keeps plaintext —
-             * so scrolling back does not re-run the crypto for every message.
-             * Anything that will not open is kept as a visible placeholder rather
-             * than dropped, because a message that silently vanishes is worse
-             * than one you can see you cannot read.
-             */
-            async absorb(payload) {
-                if (payload.messages?.length && this.peer?.key) {
-                    payload = {
-                        ...payload,
-                        messages: await Promise.all(payload.messages.map(async message => {
-                            const text = await window.chatCrypto.open(this.peer.key, this.envelopeOf(message));
-
-                            return {
-                                ...message,
-                                body: text ?? null,
-                                unreadable: text === null,
-                            };
-                        })),
-                    };
-                }
-
-                return this.store(payload);
-            },
-
-            /** The stored body is compact JSON; tolerate it arriving either way. */
-            envelopeOf(message) {
-                if (message.body && typeof message.body === 'object') return message.body;
-
-                try {
-                    return JSON.parse(message.body);
-                } catch (e) {
-                    return null;
-                }
             },
 
             /** Fold a decrypted response in, then persist and scroll if it added anything. */
@@ -399,18 +328,6 @@
             // ── Lifecycle ──────────────────────────────────────────────────
             start() {
                 this.muted = localStorage.getItem('bulksync.chat.muted') === '1';
-
-                /*
-                 * Publish this browser's public key before anything else. Until
-                 * it lands, colleagues have nothing to encrypt to — so a failure
-                 * here is shown rather than swallowed.
-                 */
-                if (!window.chatCrypto.available()) {
-                    this.cryptoError = 'This browser cannot encrypt messages, so chat is unavailable.';
-                } else {
-                    window.chatCrypto.start(this.urls.keys, this.csrf, this.meId)
-                        .catch(() => { this.cryptoError = 'Could not set up encryption. Reload the page.'; });
-                }
 
                 window.tabBadge('chat', this.unread);
                 this.$watch('unread', value => window.tabBadge('chat', value));
@@ -460,11 +377,10 @@
                     this.people = data.people;
                     this.unread = data.unread;
 
-                    // A peer can rotate keys mid-conversation (they cleared their
-                    // browser). Pick up the new one so replies still reach them.
+                    // Keep the open conversation's presence in step with the list.
                     if (this.peer) {
                         const fresh = data.people.find(person => person.id === this.peer.id);
-                        if (fresh) this.peer.key = fresh.key;
+                        if (fresh) this.peer.online = fresh.online;
                     }
                 } catch (e) {
                     // Offline or a dropped request; the next tick will catch up.
@@ -577,7 +493,6 @@
                 this.peer = person;
                 this.error = '';
                 this.draft = '';
-                this.fingerprint = '';
 
                 // This browser's history is the transcript. Show it at once, then
                 // ask the server only for what it has not delivered yet.
@@ -585,13 +500,6 @@
                 this.messages = local.messages;
                 this.epoch = local.epoch;
                 this.cursor = local.cursor;
-
-                // Shown so two people can confirm out loud that they hold each
-                // other's real keys, which is the only check on this server having
-                // handed over a substituted one.
-                window.chatCrypto.fingerprint(person.key)
-                    .then(value => { this.fingerprint = value || ''; })
-                    .catch(() => {});
 
                 this.$nextTick(() => this.toBottom());
 
@@ -639,7 +547,7 @@
                      * browser's, and it outlives the server's copy on purpose.
                      * A reset only means our id cursor has to start over.
                      */
-                    await this.absorb(data);
+                    this.store(data);
                 } catch (e) {
                     // Ignored on purpose; polling again in 2s.
                 }
@@ -649,20 +557,10 @@
                 const text = this.draft.trim();
                 if (text === '' || this.sending || !this.peer) return;
 
-                // No key, no message. There is deliberately no plaintext path to
-                // fall back to: silently sending in the clear because encryption
-                // was unavailable is the one failure that must never happen.
-                if (!this.peer.key) {
-                    this.error = `${this.peer.name} has not opened the app yet, so there is no key to encrypt to.`;
-                    return;
-                }
-
                 this.sending = true;
                 this.error = '';
 
                 try {
-                    const envelope = await window.chatCrypto.seal(this.peer.key, text);
-
                     const response = await fetch(`${this.urls.base}/${this.peer.id}/messages`, {
                         method: 'POST',
                         headers: {
@@ -670,7 +568,7 @@
                             'Accept': 'application/json',
                             'X-CSRF-TOKEN': this.csrf,
                         },
-                        body: JSON.stringify({ body: envelope }),
+                        body: JSON.stringify({ body: text }),
                     });
 
                     if (!response.ok) {
@@ -681,25 +579,15 @@
 
                     const data = await response.json();
 
-                    /*
-                     * Stored with the text we just typed. ECDH agrees one shared
-                     * key per pair, so we could open our own envelope just as the
-                     * recipient will — there is simply no reason to, when the
-                     * plaintext is right here. store() rather than absorb() skips
-                     * that pointless round trip, while still merging so the message
-                     * gets a uid and the cursor moves past it; otherwise the next
-                     * poll would hand it back and show it twice.
-                     */
-                    this.store({
-                        messages: [{ ...data.sent, body: text }],
-                        epoch: data.epoch,
-                        reset: false,
-                    });
+                    // Through the same merge as an incoming message, so it gets a
+                    // uid and the cursor moves past it; otherwise the next poll
+                    // would hand it back and show it twice.
+                    this.store({ messages: [data.sent], epoch: data.epoch, reset: false });
 
                     this.draft = '';
                     this.$nextTick(() => { this.grow(); this.toBottom(); });
                 } catch (e) {
-                    this.error = 'Message not sent — encryption failed or you are offline.';
+                    this.error = 'Message not sent — you may be offline.';
                 } finally {
                     this.sending = false;
                     this.$refs.input?.focus();

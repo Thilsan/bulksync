@@ -162,9 +162,8 @@ Route::middleware('auth')->group(function () {
     // Chat — messages live in the 'chat' cache store only, never in a table.
     Route::prefix('chat')->name('chat.')->group(function () {
         Route::get('/', [ChatController::class, 'index'])->name('index');
-        // Both must stay above /{peer}, or the words get bound as a user id.
+        // Must stay above /{peer}, or the word gets bound as a user id.
         Route::get('/inbox', [ChatController::class, 'inbox'])->name('inbox');
-        Route::post('/keys', [ChatController::class, 'publishKey'])->name('keys.publish');
         Route::get('/{peer}',           [ChatController::class, 'show'])->name('show');
         Route::get('/{peer}/messages',  [ChatController::class, 'messages'])->name('messages');
         Route::post('/{peer}/messages', [ChatController::class, 'send'])->name('send');

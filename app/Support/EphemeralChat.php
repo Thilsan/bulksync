@@ -14,13 +14,18 @@ use Illuminate\Support\Facades\Cache;
  * here is just the pending delivery: a short-lived buffer in the file-backed
  * 'chat' cache store, so a message written on one screen can be picked up on
  * another. There is no messages table and no model — nothing a conversation
- * says is recoverable from this server once the buffer expires, by anyone,
- * including a super admin reading the database.
+ * says survives on this server past the buffer expiring, and none of it is ever
+ * queryable from the database.
  *
- * The limits are therefore sized for delivery, not for keeping a record:
+ * Messages pass through in plain text. That is a deliberate scope decision, not
+ * an oversight: while the buffer holds one, anyone who can read this server's
+ * disk can read it. What the design does guarantee is that it is never written
+ * to a table and never kept beyond the delivery window.
+ *
+ * The limits are sized for delivery, not for keeping a record:
  *
  *   - the buffer holds at most MAX_MESSAGES per pair, oldest dropped first
- *   - a message body is truncated at MAX_LENGTH
+ *   - a message longer than MAX_LENGTH is refused
  *   - BUFFER_TTL is pushed forward on every send, so an active conversation
  *     stays deliverable and a finished one drains away
  *
@@ -43,22 +48,8 @@ final class EphemeralChat
     /** Kept per conversation in the delivery buffer; the oldest fall off the top. */
     public const MAX_MESSAGES = 50;
 
-    /**
-     * The longest message someone may type, in characters.
-     *
-     * Enforced in the browser, because by the time a message reaches this server
-     * it is ciphertext and its original length is not knowable from here.
-     */
-    public const MAX_PLAINTEXT = 2000;
-
-    /**
-     * The longest sealed envelope the buffer will hold, in bytes.
-     *
-     * Sized to fit MAX_PLAINTEXT even when every character is four bytes:
-     * ~8 KB of UTF-8, plus the GCM tag, base64-encoded to ~10.7 KB. Encryption
-     * is why this is not simply MAX_PLAINTEXT.
-     */
-    public const MAX_LENGTH = 12000;
+    /** The longest message someone may send, in characters. */
+    public const MAX_LENGTH = 2000;
 
     /**
      * How long an undelivered message waits.
@@ -166,11 +157,11 @@ final class EphemeralChat
         }
 
         /*
-         * Rejected rather than trimmed. The body is a sealed envelope, and
-         * cutting one short does not shorten a message — it destroys it, and the
-         * recipient would see an undecryptable blob with no explanation.
+         * Refused rather than trimmed. Silently delivering half of what someone
+         * wrote is worse than telling them it did not send — the route validates
+         * the same limit first, so reaching this is a caller's mistake.
          */
-        if (strlen($body) > self::MAX_LENGTH) {
+        if (mb_strlen($body) > self::MAX_LENGTH) {
             return null;
         }
 
@@ -372,8 +363,6 @@ final class EphemeralChat
             ->where('is_active', true)
             ->whereKeyNot($userId)
             ->orderBy('name')
-            // chat_public_key comes along because a browser cannot address anyone
-            // without it. It is public by definition; nothing secret is loaded.
-            ->get(['id', 'name', 'email', 'pcr_role', 'chat_public_key']);
+            ->get(['id', 'name', 'email', 'pcr_role']);
     }
 }

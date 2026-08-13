@@ -10,7 +10,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 
-#[Fillable(['name', 'email', 'password', 'is_super_admin', 'is_active', 'active_store_id', 'perm_bulk_upload', 'perm_sku_checker', 'perm_image_audit', 'perm_store_sync', 'perm_ai_content', 'perm_metafield_update', 'perm_product_request', 'pcr_role', 'pcr_categories', 'pcr_brand_categories', 'pcr_notify_all', 'onedrive_access_token', 'onedrive_refresh_token', 'onedrive_token_expiry', 'chat_public_key', 'chat_key_at'])]
+#[Fillable(['name', 'email', 'password', 'is_super_admin', 'is_active', 'active_store_id', 'perm_bulk_upload', 'perm_sku_checker', 'perm_image_audit', 'perm_store_sync', 'perm_ai_content', 'perm_metafield_update', 'perm_product_request', 'pcr_role', 'pcr_categories', 'pcr_brand_categories', 'pcr_notify_all', 'onedrive_access_token', 'onedrive_refresh_token', 'onedrive_token_expiry'])]
 #[Hidden(['password', 'remember_token', 'onedrive_access_token', 'onedrive_refresh_token', 'onedrive_token_expiry'])]
 class User extends Authenticatable
 {
@@ -34,20 +34,7 @@ class User extends Authenticatable
             'pcr_categories'         => 'array',
             'pcr_brand_categories'   => 'array',
             'pcr_notify_all'         => 'boolean',
-            'chat_key_at'            => 'datetime',
         ];
-    }
-
-    /**
-     * Can this person be sent an encrypted message yet?
-     *
-     * False until they have opened the app once since chat encryption went in —
-     * their browser publishes a public key on first load. Nobody can write to
-     * them before that, because there is nothing to encrypt to.
-     */
-    public function canReceiveChat(): bool
-    {
-        return filled($this->chat_public_key);
     }
 
     /** Product Creation Request workflow roles — drive notification routing. */

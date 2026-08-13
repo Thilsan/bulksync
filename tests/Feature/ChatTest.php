@@ -10,12 +10,12 @@ use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 /**
- * Chat must leave no readable trace on this server: messages are sealed in the
- * browser, and the buffer they pass through is a cache entry that expires.
+ * Chat leaves no trace in the database: a message lives in a cache-backed
+ * delivery buffer that expires, and the lasting copy belongs to each person's
+ * browser.
  *
- * These tests cover the delivery path, that nothing reaches a table, and — the
- * guarantee that matters most — that the server refuses to accept a message it
- * could read.
+ * These tests cover the delivery path, the read receipts, and — the promise the
+ * feature rests on — that nothing a conversation says reaches a table.
  */
 class ChatTest extends TestCase
 {
@@ -38,31 +38,7 @@ class ChatTest extends TestCase
             'email'     => "{$name}@example.test",
             'password'  => 'password',
             'is_active' => true,
-            // A published key, so this person can be written to. The real one is
-            // generated in the browser; only its shape matters to the server.
-            'chat_public_key' => json_encode([
-                'kty' => 'EC',
-                'crv' => 'P-256',
-                'x'   => 'f83OJ3D2xF1Bg8vub9tLe1gHMzV76e8Tus9uPHvRVEU',
-                'y'   => 'x_FEzRu9m36HLN_tue659LNpXW6pCyStikYjKIWI5a0',
-            ]),
-            'chat_key_at' => now(),
         ]);
-    }
-
-    /**
-     * A stand-in for what the browser produces.
-     *
-     * The server never opens one, so a test does not need real ciphertext — only
-     * something with the right shape. That is precisely what send() checks.
-     */
-    private function envelope(string $ciphertext = 'c2VhbGVkLW1lc3NhZ2U='): array
-    {
-        return [
-            'v'  => 1,
-            'iv' => 'YWJjZGVmZ2hpamts',   // 12 bytes, base64
-            'ct' => $ciphertext,
-        ];
     }
 
     public function test_the_people_list_shows_colleagues_and_what_is_waiting(): void
@@ -83,173 +59,49 @@ class ChatTest extends TestCase
             ->assertDontSee(route('chat.show', $ann));      // nor can you open a chat with yourself
     }
 
-    public function test_a_sealed_message_reaches_the_other_person(): void
+    public function test_a_message_reaches_the_other_person(): void
     {
         $ann = $this->user('ann');
         $bob = $this->user('bob');
 
-        $sealed = $this->envelope('bm90LXJlYWRhYmxl');
-
         $this->actingAs($ann)
-            ->postJson(route('chat.send', $bob), ['body' => $sealed])
-            ->assertOk();
+            ->postJson(route('chat.send', $bob), ['body' => 'are you on the Nike shoot?'])
+            ->assertOk()
+            ->assertJsonPath('sent.body', 'are you on the Nike shoot?');
 
-        $delivered = $this->actingAs($bob)
+        $this->actingAs($bob)
             ->getJson(route('chat.messages', $ann))
             ->assertOk()
-            ->assertJsonPath('messages.0.from', $ann->id)
-            ->json('messages.0.body');
-
-        // Handed over exactly as sealed — the server neither reads nor rewrites it.
-        $this->assertSame($sealed, json_decode($delivered, true));
+            ->assertJsonPath('messages.0.body', 'are you on the Nike shoot?')
+            ->assertJsonPath('messages.0.from', $ann->id);
     }
 
     /**
-     * The guarantee the whole feature rests on.
+     * An over-long message is refused, not silently shortened.
      *
-     * If this ever passes plaintext through, messages are readable on the server
-     * and the encryption is decoration.
+     * Delivering half of what someone wrote, without telling them, is worse than
+     * refusing it.
      */
-    public function test_the_server_refuses_a_message_it_could_read(): void
+    public function test_an_over_long_message_is_refused_rather_than_truncated(): void
     {
         $ann = $this->user('ann');
         $bob = $this->user('bob');
 
         $this->actingAs($ann)
-            ->postJson(route('chat.send', $bob), ['body' => 'this is plain text'])
-            ->assertStatus(422);
-
-        $this->assertSame([], EphemeralChat::transcript($ann->id, $bob->id), 'Nothing should have been stored.');
-    }
-
-    /** @return list<array{0: string, 1: mixed}> */
-    public static function malformedEnvelopes(): array
-    {
-        return [
-            'plain string'      => ['body' => 'hello'],
-            'missing version'   => ['body' => ['iv' => 'YWJjZGVmZ2hpamts', 'ct' => 'abc']],
-            'wrong version'     => ['body' => ['v' => 2, 'iv' => 'YWJjZGVmZ2hpamts', 'ct' => 'abc']],
-            'missing nonce'     => ['body' => ['v' => 1, 'ct' => 'abc']],
-            'nonce too short'   => ['body' => ['v' => 1, 'iv' => 'abc', 'ct' => 'abc']],
-            'missing ciphertext' => ['body' => ['v' => 1, 'iv' => 'YWJjZGVmZ2hpamts']],
-            'empty ciphertext'  => ['body' => ['v' => 1, 'iv' => 'YWJjZGVmZ2hpamts', 'ct' => '']],
-        ];
-    }
-
-    #[\PHPUnit\Framework\Attributes\DataProvider('malformedEnvelopes')]
-    public function test_anything_that_is_not_a_sealed_envelope_is_rejected(mixed $body): void
-    {
-        $ann = $this->user('ann');
-        $bob = $this->user('bob');
-
-        $this->actingAs($ann)
-            ->postJson(route('chat.send', $bob), ['body' => $body])
-            ->assertStatus(422);
-
-        $this->assertSame([], EphemeralChat::transcript($ann->id, $bob->id));
-    }
-
-    /**
-     * Over-length envelopes are refused, never trimmed.
-     *
-     * Trimming ciphertext does not shorten a message, it destroys it — the
-     * recipient would get an envelope that cannot be opened, for no visible
-     * reason.
-     */
-    public function test_an_oversized_envelope_is_refused_rather_than_truncated(): void
-    {
-        $ann = $this->user('ann');
-        $bob = $this->user('bob');
-
-        $this->actingAs($ann)
-            ->postJson(route('chat.send', $bob), [
-                'body' => $this->envelope(str_repeat('A', EphemeralChat::MAX_LENGTH + 1)),
-            ])
+            ->postJson(route('chat.send', $bob), ['body' => str_repeat('x', EphemeralChat::MAX_LENGTH + 1)])
             ->assertStatus(422);
 
         $this->assertSame([], EphemeralChat::transcript($ann->id, $bob->id));
 
         // And the store refuses one directly, so nothing can slip past the route.
         $this->assertNull(
-            EphemeralChat::send($ann->id, $bob->id, str_repeat('B', EphemeralChat::MAX_LENGTH + 1)),
+            EphemeralChat::send($ann->id, $bob->id, str_repeat('y', EphemeralChat::MAX_LENGTH + 1)),
         );
-    }
 
-    // ── Keys ─────────────────────────────────────────────────────────────────
-
-    public function test_a_browser_publishes_its_public_key(): void
-    {
-        $ann = $this->user('ann');
-        $ann->update(['chat_public_key' => null, 'chat_key_at' => null]);
-
-        $this->actingAs($ann)->postJson(route('chat.keys.publish'), [
-            'key' => [
-                'kty' => 'EC',
-                'crv' => 'P-256',
-                'x'   => 'f83OJ3D2xF1Bg8vub9tLe1gHMzV76e8Tus9uPHvRVEU',
-                'y'   => 'x_FEzRu9m36HLN_tue659LNpXW6pCyStikYjKIWI5a0',
-            ],
-        ])->assertOk();
-
-        $ann->refresh();
-
-        $this->assertTrue($ann->canReceiveChat());
-        $this->assertNotNull($ann->chat_key_at);
-        $this->assertSame('P-256', json_decode($ann->chat_public_key, true)['crv']);
-    }
-
-    /**
-     * A private scalar must never be stored, even if a client sends one.
-     *
-     * 'd' is the private half of an EC key. Keeping it would hand the server the
-     * ability to decrypt everything, which is the one thing it must not have.
-     */
-    public function test_publishing_keeps_only_the_public_half(): void
-    {
-        $ann = $this->user('ann');
-
-        $this->actingAs($ann)->postJson(route('chat.keys.publish'), [
-            'key' => [
-                'kty' => 'EC',
-                'crv' => 'P-256',
-                'x'   => 'f83OJ3D2xF1Bg8vub9tLe1gHMzV76e8Tus9uPHvRVEU',
-                'y'   => 'x_FEzRu9m36HLN_tue659LNpXW6pCyStikYjKIWI5a0',
-                'd'   => 'THIS-IS-A-PRIVATE-KEY-AND-MUST-NOT-BE-STORED',
-            ],
-        ])->assertOk();
-
-        $ann->refresh();
-
-        $this->assertStringNotContainsString('THIS-IS-A-PRIVATE-KEY', $ann->chat_public_key);
-        $this->assertArrayNotHasKey('d', json_decode($ann->chat_public_key, true));
-    }
-
-    public function test_a_key_on_the_wrong_curve_is_rejected(): void
-    {
-        $ann = $this->user('ann');
-
-        $this->actingAs($ann)->postJson(route('chat.keys.publish'), [
-            'key' => ['kty' => 'EC', 'crv' => 'P-521', 'x' => 'aaa', 'y' => 'bbb'],
-        ])->assertStatus(422);
-
-        $this->actingAs($ann)->postJson(route('chat.keys.publish'), [
-            'key' => ['kty' => 'RSA', 'crv' => 'P-256', 'x' => 'aaa', 'y' => 'bbb'],
-        ])->assertStatus(422);
-    }
-
-    public function test_the_inbox_carries_each_persons_key_so_a_browser_can_encrypt(): void
-    {
-        $ann     = $this->user('ann');
-        $bob     = $this->user('bob');
-        $keyless = $this->user('cat');
-        $keyless->update(['chat_public_key' => null]);
-
-        $people = $this->actingAs($ann)->getJson(route('chat.inbox'))->assertOk()->json('people');
-
-        $byName = collect($people)->keyBy('name');
-
-        $this->assertSame('P-256', $byName['bob']['key']['crv']);
-        $this->assertNull($byName['cat']['key'], 'Someone with no key must be reported as having none.');
+        // Exactly at the limit is fine.
+        $this->assertNotNull(
+            EphemeralChat::send($ann->id, $bob->id, str_repeat('z', EphemeralChat::MAX_LENGTH)),
+        );
     }
 
     public function test_polling_only_returns_what_the_client_has_not_seen(): void
@@ -511,7 +363,7 @@ class ChatTest extends TestCase
         $bob = $this->user('bob');
 
         $response = $this->actingAs($ann)
-            ->postJson(route('chat.send', $bob), ['body' => $this->envelope()])
+            ->postJson(route('chat.send', $bob), ['body' => 'opening line'])
             ->assertOk();
 
         $this->assertNotNull($response->json('epoch'));
@@ -579,24 +431,20 @@ class ChatTest extends TestCase
     /**
      * The reason this feature exists at all.
      *
-     * Two separate promises checked together: what a person typed cannot appear
-     * in a table, and neither can it appear in the delivery buffer — because the
-     * server was never given it in readable form.
+     * A message passes through the delivery buffer in plain text — that is the
+     * accepted scope — but it must never be written to a table, where it would
+     * outlive the conversation and be queryable for ever.
      */
     public function test_nothing_a_conversation_says_is_written_to_the_database(): void
     {
         $ann = $this->user('ann');
         $bob = $this->user('bob');
 
-        $typed = 'this must never appear in a table';
+        $secret = 'this must never appear in a table';
 
-        // What the browser actually sends: the typed text, sealed. Standing in
-        // for AES-GCM output, which the server cannot tell apart from this.
-        $sealed = $this->envelope(base64_encode('~~~sealed~~~' . strrev($typed)));
+        $this->actingAs($ann)->postJson(route('chat.send', $bob), ['body' => $secret])->assertOk();
 
-        $this->actingAs($ann)->postJson(route('chat.send', $bob), ['body' => $sealed])->assertOk();
-
-        // Walk every table in the schema looking for the typed text.
+        // Walk every table in the schema looking for the message text.
         $tables = collect(DB::select("SELECT name FROM sqlite_master WHERE type = 'table'"))
             ->pluck('name')
             ->reject(fn ($table) => str_starts_with($table, 'sqlite_'));
@@ -605,17 +453,11 @@ class ChatTest extends TestCase
             $columns = collect(DB::select("PRAGMA table_info({$table})"))->pluck('name');
 
             foreach ($columns as $column) {
-                $hit = DB::table($table)->where($column, 'like', "%{$typed}%")->exists();
+                $hit = DB::table($table)->where($column, 'like', "%{$secret}%")->exists();
 
                 $this->assertFalse($hit, "Chat text leaked into {$table}.{$column}.");
             }
         }
-
-        // Nor is it readable in the buffer the message did pass through.
-        $buffered = EphemeralChat::transcript($ann->id, $bob->id);
-
-        $this->assertCount(1, $buffered);
-        $this->assertStringNotContainsString($typed, $buffered[0]['body']);
     }
 
     public function test_the_chat_store_is_never_the_database_store(): void
