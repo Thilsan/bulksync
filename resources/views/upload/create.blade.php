@@ -216,14 +216,8 @@
                 </div>
             </div>
 
-            {{-- ⚠ TEMPORARY — REVERT THIS LINE TO value="skip" WHEN THE CLEANUP RUN IS DONE.
-                 'replace' DELETES the images BulkSync previously uploaded for every SKU in
-                 the batch and uploads fresh ones. It is on to clear SKUs that were uploaded
-                 twice. Left on by accident, every later batch keeps re-deleting and
-                 re-uploading instead of skipping SKUs that already have their photo.
-
-                 Normal setting:  <input type="hidden" name="duplicate_handling" value="skip"> --}}
-            <input type="hidden" name="duplicate_handling" value="replace">
+            {{-- Duplicate handling: don't re-upload if the SKU/barcode already has an image on Shopify --}}
+            <input type="hidden" name="duplicate_handling" value="skip">
 
             {{-- Actions --}}
             <div class="flex items-center justify-between gap-3 border-t border-gray-100 bg-gray-50 px-6 py-4">
