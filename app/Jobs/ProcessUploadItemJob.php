@@ -146,11 +146,30 @@ class ProcessUploadItemJob implements ShouldQueue
                     $item->upload_session_id,
                     $scope,
                     $scopeId,
-                    fn () => $scope === UploadBaselineResolver::SCOPE_VARIANT
+                    function () use ($shopify, $scope, $scopeId, $variant, $item, $duplicateHandling) {
                         // throwOnFailure: an API blip must retry the job, never
                         // read as "no image" and add a duplicate.
-                        ? $shopify->variantHasOwnImage($scopeId, true)
-                        : $this->productHasImageForIdentifier($shopify, $variant['product_id'], $item->sku_detected),
+                        $hasImage = $scope === UploadBaselineResolver::SCOPE_VARIANT
+                            ? $shopify->variantHasOwnImage($scopeId, true)
+                            : $this->productHasImageForIdentifier($shopify, $variant['product_id'], $item->sku_detected);
+
+                        // Clearing the old photos belongs HERE, not per file.
+                        // This closure runs once per SKU and — because every
+                        // sibling blocks on its verdict — strictly before any of
+                        // them uploads. Purging per file instead would have each
+                        // one delete what the previous had just uploaded, leaving
+                        // only the last file of the folder standing.
+                        if ($hasImage && $duplicateHandling === 'replace') {
+                            $this->purgeOwnImages($shopify, $variant['product_id'], $item->sku_detected);
+
+                            // Cleared — so as far as the rest of the batch is
+                            // concerned this SKU now has no photo and every file
+                            // in its folder uploads normally.
+                            return false;
+                        }
+
+                        return $hasImage;
+                    },
                 );
 
                 if ($hadImageBefore && $duplicateHandling === 'skip') {
@@ -160,7 +179,6 @@ class ProcessUploadItemJob implements ShouldQueue
                 $targets[] = [
                     'variant'  => $variant,
                     'scope_id' => $scopeId,
-                    'replace'  => $hadImageBefore && $duplicateHandling === 'replace',
                 ];
             }
 
@@ -201,17 +219,6 @@ class ProcessUploadItemJob implements ShouldQueue
             foreach ($targets as $target) {
                 $variant = $target['variant'];
                 $scopeId = $target['scope_id'];
-
-                if ($target['replace']) {
-                    // Replace still works off alt text, so it only clears images
-                    // this tool put there — deleting a supplier's photos on a
-                    // filename match is not a call this job should make.
-                    foreach ($shopify->getProductImages($variant['product_id']) as $img) {
-                        if (($img['alt'] ?? '') === $item->sku_detected) {
-                            $shopify->deleteProductImage($variant['product_id'], (string) $img['id']);
-                        }
-                    }
-                }
 
                 if ($matchingMode === 'style_code') {
                     // Gallery-only upload — never linked to a variant.
@@ -328,6 +335,30 @@ class ProcessUploadItemJob implements ShouldQueue
         return $matchingMode === 'style_code'
             ? $shopify->findProductsByStyleCode($identifier, true)
             : $shopify->findVariantsBySkuOrBarcode($identifier, true);
+    }
+
+    /**
+     * Delete the photos THIS tool previously uploaded for one identifier.
+     *
+     * Scoped by alt text on purpose: an image only carries the SKU as alt text
+     * when this job wrote it, so a supplier's or a photographer's own gallery
+     * shots are never touched. Deleting those on a filename or position match is
+     * not a call this job should make on its own.
+     */
+    private function purgeOwnImages(ShopifyService $shopify, string $productId, string $identifier): void
+    {
+        $deleted = 0;
+
+        foreach ($shopify->getProductImages($productId) as $img) {
+            if (($img['alt'] ?? '') === $identifier) {
+                $shopify->deleteProductImage($productId, (string) $img['id']);
+                $deleted++;
+            }
+        }
+
+        if ($deleted) {
+            Log::info("ProcessUploadItemJob: replaced {$deleted} existing image(s) for {$identifier} on product {$productId}");
+        }
     }
 
     /**
