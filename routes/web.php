@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Auth\LoginController;
 use App\Http\Controllers\BulkUploadController;
+use App\Http\Controllers\ChatController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\OneDriveAuthController;
@@ -156,6 +157,16 @@ Route::middleware('auth')->group(function () {
         Route::post('/{productRequest}/attachments',                          [ProductRequestController::class, 'uploadAttachments'])->name('attachments.store');
         Route::get('/{productRequest}/attachments/{attachment}',              [ProductRequestController::class, 'downloadAttachment'])->name('attachments.download');
         Route::delete('/{productRequest}/attachments/{attachment}',           [ProductRequestController::class, 'destroyAttachment'])->name('attachments.destroy');
+    });
+
+    // Chat — messages live in the 'chat' cache store only, never in a table.
+    Route::prefix('chat')->name('chat.')->group(function () {
+        Route::get('/', [ChatController::class, 'index'])->name('index');
+        Route::get('/{peer}',           [ChatController::class, 'show'])->name('show');
+        Route::get('/{peer}/messages',  [ChatController::class, 'messages'])->name('messages');
+        Route::post('/{peer}/messages', [ChatController::class, 'send'])->name('send');
+        Route::post('/{peer}/typing',   [ChatController::class, 'typing'])->name('typing');
+        Route::delete('/{peer}',        [ChatController::class, 'clear'])->name('clear');
     });
 
     // Shopify OAuth

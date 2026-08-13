@@ -60,6 +60,10 @@ class AppServiceProvider extends ServiceProvider
                     'allStores'         => $storeQuery->get(),
                     'bellNotifications' => $notifications,
                     'bellUnreadCount'   => $unreadCount,
+                    // Waiting chat messages, read from the chat cache store. Only
+                    // for pages that already have a user; costs one small file
+                    // read per peer and no queries beyond the user list.
+                    'chatUnreadCount'   => $user ? \App\Support\EphemeralChat::totalUnread($user->id) : 0,
                 ]);
             } catch (\Throwable) {
                 $view->with([
@@ -67,6 +71,7 @@ class AppServiceProvider extends ServiceProvider
                     'allStores'         => collect(),
                     'bellNotifications' => collect(),
                     'bellUnreadCount'   => 0,
+                    'chatUnreadCount'   => 0,
                 ]);
             }
         });

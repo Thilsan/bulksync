@@ -69,6 +69,41 @@ $pruneExpiredCache = function () {
 
 Schedule::call($pruneExpiredCache)->hourly()->name('prune-expired-cache')->withoutOverlapping();
 
+// Chat transcripts live in the file-backed 'chat' cache store and expire on
+// their own — but the file driver, like the database one above, only reclaims an
+// entry when that exact key is read again. A conversation nobody reopens leaves
+// its file behind for good, so sweep the directory by mtime instead of waiting
+// for a read that may never come.
+//
+// Anything untouched for twice the chat idle window is finished by definition:
+// the entry inside it has already expired, and no client is still polling it.
+$pruneStaleChat = function () {
+    $root = config('cache.stores.chat.path');
+
+    if (!$root || !is_dir($root)) {
+        return;
+    }
+
+    $cutoff = now()->timestamp - (\App\Support\EphemeralChat::IDLE_TTL * 2);
+
+    $entries = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS),
+        RecursiveIteratorIterator::CHILD_FIRST,
+    );
+
+    foreach ($entries as $entry) {
+        if ($entry->isFile() && $entry->getMTime() < $cutoff) {
+            @unlink($entry->getPathname());
+        } elseif ($entry->isDir()) {
+            // The file driver nests keys two levels deep; drop the hash
+            // directories once their contents are gone.
+            @rmdir($entry->getPathname());
+        }
+    }
+};
+
+Schedule::call($pruneStaleChat)->hourly()->name('prune-stale-chat')->withoutOverlapping();
+
 // Product Creation Requests parked in "Waiting for Mapping" are released as soon
 // as their SKUs resolve — this is what removes the re-submission step the old
 // email process needed. Runs on 'maintenance' so a long read-only Shopify check

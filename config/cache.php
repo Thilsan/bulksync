@@ -53,6 +53,22 @@ return [
             'lock_path' => storage_path('framework/cache/data'),
         ],
 
+        /*
+         * Live chat, deliberately kept off the default store.
+         *
+         * Chat is ephemeral by design — nothing a conversation says is ever
+         * meant to reach a table. The default store is the database, so chat
+         * gets its own file-backed store instead: no rows, no migrations, and
+         * `settings > clear cache` cannot wipe a conversation mid-sentence.
+         * Its own path also means the scheduled prune can sweep abandoned
+         * conversations without touching real cache entries.
+         */
+        'chat' => [
+            'driver' => 'file',
+            'path' => storage_path('framework/cache/chat'),
+            'lock_path' => storage_path('framework/cache/chat'),
+        ],
+
         'storage' => [
             'driver' => 'storage',
             'disk' => env('CACHE_STORAGE_DISK'),
