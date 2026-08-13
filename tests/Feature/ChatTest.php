@@ -219,6 +219,102 @@ class ChatTest extends TestCase
         $this->assertSame(0, EphemeralChat::unreadCount($bob->id, $ann->id));
     }
 
+    public function test_the_inbox_endpoint_feeds_the_floating_widget(): void
+    {
+        $ann = $this->user('ann');
+        $bob = $this->user('bob');
+
+        EphemeralChat::send($bob->id, $ann->id, 'ping');
+
+        $this->actingAs($ann)
+            ->getJson(route('chat.inbox'))
+            ->assertOk()
+            ->assertJsonPath('unread', 1)
+            ->assertJsonPath('people.0.name', 'bob')
+            ->assertJsonPath('people.0.unread', 1)
+            ->assertJsonPath('people.0.initials', 'b');
+    }
+
+    /**
+     * Polling the inbox must not make you look available for chat.
+     *
+     * The widget is on every page, so if this heartbeat counted, everyone would
+     * permanently read as online and the dot would mean nothing.
+     */
+    public function test_the_inbox_poll_does_not_mark_you_online(): void
+    {
+        $ann = $this->user('ann');
+        $bob = $this->user('bob');
+
+        $this->actingAs($ann)->getJson(route('chat.inbox'))->assertOk();
+
+        $this->assertFalse(EphemeralChat::isOnline($ann->id));
+    }
+
+    /**
+     * A browser holding a copy of a finished conversation must not merge it into
+     * the next one — message ids restart at 1, so they would interleave.
+     */
+    public function test_a_rebuilt_conversation_tells_the_client_to_replace_its_copy(): void
+    {
+        $ann = $this->user('ann');
+        $bob = $this->user('bob');
+
+        EphemeralChat::send($ann->id, $bob->id, 'first conversation');
+        $firstEpoch = EphemeralChat::epoch($ann->id, $bob->id);
+
+        $this->assertNotNull($firstEpoch);
+
+        // The conversation ends and a new one starts — ids begin at 1 again.
+        EphemeralChat::clear($ann->id, $bob->id);
+        EphemeralChat::send($ann->id, $bob->id, 'second conversation');
+        $secondEpoch = EphemeralChat::epoch($ann->id, $bob->id);
+
+        $this->assertNotSame($firstEpoch, $secondEpoch, 'A rebuilt transcript needs a new epoch.');
+
+        // Bob's browser still holds message 1 from the old epoch.
+        $response = $this->actingAs($bob)
+            ->getJson(route('chat.messages', $ann) . '?after=1&epoch=' . $firstEpoch)
+            ->assertOk()
+            ->assertJsonPath('reset', true)
+            ->assertJsonPath('epoch', $secondEpoch);
+
+        // It gets the whole new transcript, not "nothing after id 1".
+        $this->assertSame('second conversation', $response->json('messages.0.body'));
+    }
+
+    public function test_a_continuing_conversation_is_not_reset(): void
+    {
+        $ann = $this->user('ann');
+        $bob = $this->user('bob');
+
+        EphemeralChat::send($ann->id, $bob->id, 'one');
+        $epoch = EphemeralChat::epoch($ann->id, $bob->id);
+        EphemeralChat::send($ann->id, $bob->id, 'two');
+
+        $response = $this->actingAs($bob)
+            ->getJson(route('chat.messages', $ann) . '?after=1&epoch=' . $epoch)
+            ->assertOk()
+            ->assertJsonPath('reset', false);
+
+        // Only the message it had not seen.
+        $this->assertCount(1, $response->json('messages'));
+        $this->assertSame('two', $response->json('messages.0.body'));
+    }
+
+    public function test_sending_returns_the_epoch_so_the_sender_can_stamp_its_copy(): void
+    {
+        $ann = $this->user('ann');
+        $bob = $this->user('bob');
+
+        $response = $this->actingAs($ann)
+            ->postJson(route('chat.send', $bob), ['body' => 'opening line'])
+            ->assertOk();
+
+        $this->assertNotNull($response->json('epoch'));
+        $this->assertSame(EphemeralChat::epoch($ann->id, $bob->id), $response->json('epoch'));
+    }
+
     /** The reason this feature exists at all. */
     public function test_nothing_a_conversation_says_is_written_to_the_database(): void
     {

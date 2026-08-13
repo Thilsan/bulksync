@@ -71,7 +71,13 @@ final class EphemeralChat
     /**
      * Messages in a conversation after $afterId.
      *
-     * @return array{messages: list<array{id: int, from: int, body: string, at: int}>, exists: bool}
+     * The epoch identifies this particular transcript. Message ids restart at 1
+     * every time a conversation is rebuilt from nothing, so a browser holding a
+     * local copy needs a way to notice that ids it already has now belong to a
+     * different conversation — otherwise old and new messages merge into
+     * nonsense. A changed epoch means "throw your copy away".
+     *
+     * @return array{messages: list<array{id: int, from: int, body: string, at: int}>, exists: bool, epoch: string|null}
      */
     public static function since(int $userId, int $peerId, int $afterId = 0): array
     {
@@ -81,7 +87,7 @@ final class EphemeralChat
             // Nothing there: either they have never spoken or the transcript has
             // already expired. The caller tells those apart by whether the
             // client was holding a message id.
-            return ['messages' => [], 'exists' => false];
+            return ['messages' => [], 'exists' => false, 'epoch' => null];
         }
 
         $messages = array_values(array_filter(
@@ -89,7 +95,15 @@ final class EphemeralChat
             fn ($message) => ($message['id'] ?? 0) > $afterId,
         ));
 
-        return ['messages' => $messages, 'exists' => true];
+        return ['messages' => $messages, 'exists' => true, 'epoch' => $convo['epoch'] ?? null];
+    }
+
+    /** The epoch of the current transcript, or null if there isn't one. */
+    public static function epoch(int $userId, int $peerId): ?string
+    {
+        $convo = self::store()->get(self::key($userId, $peerId));
+
+        return is_array($convo) ? ($convo['epoch'] ?? null) : null;
     }
 
     /** The whole current transcript, for the initial page render. */
@@ -133,7 +147,11 @@ final class EphemeralChat
 
         try {
             $convo = self::store()->get($key);
-            $convo = is_array($convo) ? $convo : ['next_id' => 1, 'messages' => []];
+            // A fresh transcript gets a new epoch, which is what tells the
+            // browsers holding a local copy of the old one to discard it.
+            $convo = is_array($convo)
+                ? $convo
+                : ['next_id' => 1, 'messages' => [], 'epoch' => bin2hex(random_bytes(8))];
 
             $message = [
                 'id'   => $convo['next_id'],
@@ -263,6 +281,26 @@ final class EphemeralChat
     }
 
     // ── People ───────────────────────────────────────────────────────────────
+
+    /**
+     * The people list with presence and what is waiting, ready for display.
+     *
+     * Anyone with unread messages sorts first, then whoever is online — so the
+     * person you most likely need is at the top of a short list.
+     *
+     * @return \Illuminate\Support\Collection<int, array{user: User, online: bool, unread: int}>
+     */
+    public static function inbox(int $userId): \Illuminate\Support\Collection
+    {
+        $peers  = self::peers($userId);
+        $online = self::onlineMap($peers->pluck('id')->all());
+
+        return $peers->map(fn (User $peer) => [
+            'user'   => $peer,
+            'online' => $online[$peer->id] ?? false,
+            'unread' => self::unreadCount($userId, $peer->id),
+        ])->sortByDesc(fn ($row) => [$row['unread'] > 0, $row['online']])->values();
+    }
 
     /**
      * Everyone this person can talk to: active accounts other than their own.

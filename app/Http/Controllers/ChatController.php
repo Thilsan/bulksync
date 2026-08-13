@@ -8,6 +8,7 @@ use Illuminate\Container\Attributes\CurrentUser;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Str;
 use Illuminate\View\View;
 
 /**
@@ -21,19 +22,36 @@ class ChatController extends Controller
     /** Who is around to talk to. */
     public function index(#[CurrentUser] User $user): View
     {
-        $peers  = EphemeralChat::peers($user->id);
-        $online = EphemeralChat::onlineMap($peers->pluck('id')->all());
-
-        // Anyone with something waiting sorts to the top, then whoever is online.
-        $people = $peers->map(fn (User $peer) => [
-            'user'   => $peer,
-            'online' => $online[$peer->id] ?? false,
-            'unread' => EphemeralChat::unreadCount($user->id, $peer->id),
-        ])->sortByDesc(fn ($row) => [$row['unread'] > 0, $row['online']])->values();
+        $people = EphemeralChat::inbox($user->id);
 
         EphemeralChat::heartbeat($user->id);
 
         return view('chat.index', compact('people'));
+    }
+
+    /**
+     * The people list as JSON, for the floating widget.
+     *
+     * Deliberately does not heartbeat: the widget polls this from every page in
+     * the app, and answering it would mark someone "online" for chat while they
+     * are busy doing something else entirely. Only an open conversation counts.
+     */
+    public function inbox(#[CurrentUser] User $user): JsonResponse
+    {
+        $people = EphemeralChat::inbox($user->id);
+
+        return response()->json([
+            'unread' => $people->sum('unread'),
+            'people' => $people->map(fn ($row) => [
+                'id'      => $row['user']->id,
+                'name'    => $row['user']->name,
+                'subtitle' => $row['user']->pcrRoleLabel() ?? $row['user']->email,
+                'initials' => Str::of($row['user']->name)->explode(' ')->take(2)
+                    ->map(fn ($word) => mb_substr($word, 0, 1))->implode(''),
+                'online'  => $row['online'],
+                'unread'  => $row['unread'],
+            ])->values(),
+        ]);
     }
 
     public function show(#[CurrentUser] User $user, User $peer): View
@@ -65,8 +83,19 @@ class ChatController extends Controller
     {
         $this->guard($user, $peer);
 
-        $after  = max(0, (int) $request->query('after', 0));
-        $result = EphemeralChat::since($user->id, $peer->id, $after);
+        $after = max(0, (int) $request->query('after', 0));
+
+        /*
+         * If the caller's copy belongs to an older transcript, its message ids
+         * mean nothing here — ids restart at 1 whenever a conversation is
+         * rebuilt. Send the whole current transcript and tell the client to
+         * replace what it has rather than merge into it.
+         */
+        $reset = $after > 0
+            && ($clientEpoch = $request->query('epoch'))
+            && $clientEpoch !== EphemeralChat::epoch($user->id, $peer->id);
+
+        $result = EphemeralChat::since($user->id, $peer->id, $reset ? 0 : $after);
 
         EphemeralChat::heartbeat($user->id);
 
@@ -75,6 +104,8 @@ class ChatController extends Controller
 
         return response()->json([
             'messages' => $result['messages'],
+            'epoch'    => $result['epoch'],
+            'reset'    => (bool) $reset,
             'online'   => EphemeralChat::isOnline($peer->id),
             'typing'   => EphemeralChat::isTyping($peer->id, $user->id),
             // The client was holding messages the server no longer has, so the
@@ -108,7 +139,12 @@ class ChatController extends Controller
             return response()->json(['message' => 'Message could not be sent — try again.'], 409);
         }
 
-        return response()->json(['sent' => $message]);
+        // The epoch goes back too: this send may be what created the transcript,
+        // and the sender's local copy needs to be stamped with it.
+        return response()->json([
+            'sent'  => $message,
+            'epoch' => EphemeralChat::epoch($user->id, $peer->id),
+        ]);
     }
 
     public function typing(#[CurrentUser] User $user, User $peer): JsonResponse

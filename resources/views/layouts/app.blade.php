@@ -718,7 +718,11 @@
                                 </svg>
                                 Settings
                             </a>
-                            <form method="POST" action="{{ route('logout') }}">
+                            {{-- Chat transcripts are cached in this browser; signing
+                                 out has to take them with it, or the next person
+                                 at a shared desk could reopen them. --}}
+                            <form method="POST" action="{{ route('logout') }}"
+                                  @submit="Object.keys(localStorage).filter(k => k.startsWith('bulksync.chat.')).forEach(k => localStorage.removeItem(k))">
                                 @csrf
                                 <button type="submit"
                                         class="flex w-full items-center gap-2.5 px-4 py-2 text-sm text-gray-600 transition-colors hover:bg-gray-50 hover:text-gray-900">
@@ -778,6 +782,11 @@
         </footer>
 
     </div>
+
+    {{-- Floating chat. Outside the page column so it stays put while content scrolls. --}}
+    @auth
+        @include('partials.chat-widget')
+    @endauth
 
 </body>
 </html>
