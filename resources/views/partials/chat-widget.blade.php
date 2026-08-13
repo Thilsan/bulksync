@@ -1,24 +1,23 @@
 {{--
     Floating chat, present on every page.
 
-    Two things worth knowing about how this stores messages:
+    Where the messages are:
 
-    1. The server keeps a conversation only while it is active (see
-       App\Support\EphemeralChat) and never writes it to the database.
-    2. Each browser also keeps its own copy in localStorage, so a page load or a
-       navigation does not wipe what you were reading. That copy lives on the
-       person's own machine, is capped, and is cleared when they clear the
-       conversation or sign out.
+    1. This browser keeps the history, in localStorage, via window.chatHistory
+       (partials/chat-runtime.blade.php). It is not deleted when the server's
+       delivery buffer expires — that is the whole arrangement. It goes when the
+       person clears the conversation or signs out.
+    2. The server only buffers a message long enough to hand it over, and never
+       writes it to the database.
 
-    Because ids restart at 1 whenever a transcript is rebuilt, every local copy
-    is stamped with the server's epoch; a changed epoch means discard and reload.
+    So a conversation you were part of stays readable to you, while the company's
+    server holds no record of it.
 --}}
 <div x-data="chatWidget({
         meId: {{ auth()->id() }},
         unread: {{ (int) ($chatUnreadCount ?? 0) }},
         maxLength: {{ \App\Support\EphemeralChat::MAX_LENGTH }},
-        localKeep: {{ \App\Support\EphemeralChat::MAX_MESSAGES }},
-        idleMinutes: {{ (int) (\App\Support\EphemeralChat::IDLE_TTL / 60) }},
+        localKeep: {{ \App\Support\EphemeralChat::LOCAL_KEEP }},
         urls: {
             inbox: '{{ route('chat.inbox') }}',
             base:  '{{ url('chat') }}',
@@ -66,7 +65,7 @@
                    x-text="peer ? peer.name : 'Chat'"></p>
                 <p class="truncate text-[11px]" :class="peer && peer.online ? 'text-emerald-600' : 'text-gray-400'">
                     <template x-if="!peer">
-                        <span>Nothing is saved — <span x-text="idleMinutes"></span> min of quiet and it's gone</span>
+                        <span>Kept in your browser, not on the server</span>
                     </template>
                     <template x-if="peer">
                         <span>
@@ -128,7 +127,9 @@
                         <p class="text-xs text-gray-400">No messages. Nothing said here is written down.</p>
                     </div>
 
-                    <template x-for="message in messages" :key="message.id">
+                    {{-- Keyed by uid, not id: server ids restart at 1 each time the
+                         buffer is rebuilt, so a long history has several id 1s. --}}
+                    <template x-for="message in messages" :key="message.uid">
                         <div class="flex" :class="message.from === meId ? 'justify-end' : 'justify-start'">
                             <div class="max-w-[80%] rounded-2xl px-3 py-1.5 text-[13px] shadow-sm"
                                  :class="message.from === meId
@@ -204,40 +205,40 @@
             error: '',
             lastTypingPing: 0,
             timer: null,
+            cursor: 0,
             csrf: document.querySelector('meta[name="csrf-token"]').content,
 
-            // ── Local copy, kept on this machine only ───────────────────────
-            storeKey(peerId) {
-                return `bulksync.chat.${this.meId}.${peerId}`;
-            },
-
-            loadLocal(peerId) {
-                try {
-                    const raw = localStorage.getItem(this.storeKey(peerId));
-                    if (!raw) return { epoch: null, messages: [] };
-                    const saved = JSON.parse(raw);
-                    return { epoch: saved.epoch ?? null, messages: saved.messages ?? [] };
-                } catch (e) {
-                    return { epoch: null, messages: [] };
-                }
-            },
-
+            // ── Local history (window.chatHistory) ──────────────────────────
             saveLocal() {
                 if (!this.peer) return;
-                try {
-                    localStorage.setItem(this.storeKey(this.peer.id), JSON.stringify({
-                        epoch: this.epoch,
-                        // Capped so a browser cannot accumulate transcripts for ever.
-                        messages: this.messages.slice(-this.localKeep),
-                    }));
-                } catch (e) {
-                    // Storage full or blocked (private window) — the conversation
-                    // still works, it just will not survive a reload.
-                }
+
+                window.chatHistory.save(this.meId, this.peer.id, {
+                    messages: this.messages,
+                    epoch: this.epoch,
+                    cursor: this.cursor,
+                }, this.localKeep);
             },
 
-            forgetLocal(peerId) {
-                try { localStorage.removeItem(this.storeKey(peerId)); } catch (e) {}
+            /** Fold a server response in, then persist and scroll if it added anything. */
+            absorb(payload) {
+                const wasAtBottom = this.atBottom();
+
+                const { state, added } = window.chatHistory.merge({
+                    messages: this.messages,
+                    epoch: this.epoch,
+                    cursor: this.cursor,
+                }, payload);
+
+                this.messages = state.messages;
+                this.epoch = state.epoch;
+                this.cursor = state.cursor;
+
+                if (added > 0 || payload.reset) {
+                    this.saveLocal();
+                    if (wasAtBottom) this.$nextTick(() => this.toBottom());
+                }
+
+                return added;
             },
 
             // ── Lifecycle ──────────────────────────────────────────────────
@@ -262,10 +263,6 @@
                 this.closeConversation();
             },
 
-            get lastId() {
-                return this.messages.length ? this.messages[this.messages.length - 1].id : 0;
-            },
-
             // ── People ─────────────────────────────────────────────────────
             async refreshInbox() {
                 try {
@@ -286,11 +283,12 @@
                 this.error = '';
                 this.draft = '';
 
-                // Show this browser's own copy immediately, then reconcile with
-                // the server — so opening a chat is never a blank box.
-                const local = this.loadLocal(person.id);
-                this.epoch = local.epoch;
+                // This browser's history is the transcript. Show it at once, then
+                // ask the server only for what it has not delivered yet.
+                const local = window.chatHistory.load(this.meId, person.id);
                 this.messages = local.messages;
+                this.epoch = local.epoch;
+                this.cursor = local.cursor;
 
                 this.$nextTick(() => this.toBottom());
 
@@ -304,6 +302,7 @@
                 this.peer = null;
                 this.messages = [];
                 this.epoch = null;
+                this.cursor = 0;
                 this.typing = false;
                 this.refreshInbox();
             },
@@ -311,7 +310,7 @@
             async pollConversation() {
                 if (!this.peer) return;
 
-                const query = new URLSearchParams({ after: this.lastId });
+                const query = new URLSearchParams({ after: this.cursor });
                 if (this.epoch) query.set('epoch', this.epoch);
 
                 try {
@@ -331,35 +330,13 @@
                     this.peer.online = data.online;
                     this.typing = data.typing;
 
-                    // The transcript on the server was rebuilt, so ids we hold
-                    // refer to a different conversation. Replace, do not merge.
-                    if (data.reset) {
-                        this.messages = data.messages;
-                        this.epoch = data.epoch;
-                        this.saveLocal();
-                        this.$nextTick(() => this.toBottom());
-                        return;
-                    }
-
-                    // Expired with nothing new: the conversation is over. Drop the
-                    // local copy too, so it does not reappear on the next visit.
-                    if (data.expired) {
-                        this.messages = [];
-                        this.epoch = null;
-                        this.forgetLocal(this.peer.id);
-                        return;
-                    }
-
-                    if (data.messages.length) {
-                        const wasAtBottom = this.atBottom();
-                        this.messages.push(...data.messages);
-                        this.epoch = data.epoch ?? this.epoch;
-                        this.saveLocal();
-                        if (wasAtBottom) this.$nextTick(() => this.toBottom());
-                    } else if (data.epoch && !this.epoch) {
-                        this.epoch = data.epoch;
-                        this.saveLocal();
-                    }
+                    /*
+                     * Note what is NOT here: the server saying its buffer expired
+                     * is not a reason to drop anything. The history is this
+                     * browser's, and it outlives the server's copy on purpose.
+                     * A reset only means our id cursor has to start over.
+                     */
+                    this.absorb(data);
                 } catch (e) {
                     // Ignored on purpose; polling again in 2s.
                 }
@@ -391,9 +368,11 @@
 
                     const data = await response.json();
 
-                    this.messages.push(data.sent);
-                    this.epoch = data.epoch ?? this.epoch;
-                    this.saveLocal();
+                    // Through the same merge as an incoming message, so it gets a
+                    // uid and moves the cursor past itself — otherwise the next
+                    // poll would hand our own message back and show it twice.
+                    this.absorb({ messages: [data.sent], epoch: data.epoch, reset: false });
+                    this.$nextTick(() => this.toBottom());
 
                     this.draft = '';
                     this.$nextTick(() => { this.grow(); this.toBottom(); });
@@ -416,9 +395,14 @@
                 }).catch(() => {});
             },
 
+            /*
+             * Clear is honest about its reach: it deletes this browser's history
+             * and drains the server's buffer, but it cannot reach into the other
+             * person's browser — their copy is theirs.
+             */
             async clearConversation() {
                 if (!this.peer) return;
-                if (!confirm('Delete this conversation for both of you? It cannot be recovered.')) return;
+                if (!confirm('Delete this conversation from this browser? The other person keeps their own copy.')) return;
 
                 const peerId = this.peer.id;
 
@@ -427,9 +411,11 @@
                     headers: { 'X-CSRF-TOKEN': this.csrf, 'Accept': 'application/json' },
                 }).catch(() => {});
 
+                window.chatHistory.forget(this.meId, peerId);
+
                 this.messages = [];
                 this.epoch = null;
-                this.forgetLocal(peerId);
+                this.cursor = 0;
             },
 
             // ── Small helpers ──────────────────────────────────────────────

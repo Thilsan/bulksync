@@ -89,7 +89,13 @@ class ChatTest extends TestCase
         $this->assertSame('second', $response->json('messages.0.body'));
     }
 
-    public function test_an_expired_transcript_is_reported_rather_than_silently_empty(): void
+    /**
+     * A drained buffer is reported, but is not an instruction to forget anything.
+     *
+     * The browser owns the history; the server saying "I no longer have this"
+     * only means there is nothing left to deliver.
+     */
+    public function test_a_drained_buffer_is_reported_without_pretending_it_never_happened(): void
     {
         $ann = $this->user('ann');
         $bob = $this->user('bob');
@@ -97,8 +103,6 @@ class ChatTest extends TestCase
         EphemeralChat::send($ann->id, $bob->id, 'said out loud, written nowhere');
         EphemeralChat::clear($ann->id, $bob->id);
 
-        // The client is still holding message 1, so the server should say the
-        // conversation went away instead of returning a plausible empty list.
         $this->actingAs($bob)
             ->getJson(route('chat.messages', $ann) . '?after=1')
             ->assertOk()
@@ -106,7 +110,7 @@ class ChatTest extends TestCase
             ->assertJsonPath('messages', []);
     }
 
-    public function test_either_side_can_clear_the_conversation_for_both(): void
+    public function test_clearing_drains_the_servers_buffer(): void
     {
         $ann = $this->user('ann');
         $bob = $this->user('bob');
@@ -115,7 +119,25 @@ class ChatTest extends TestCase
 
         $this->actingAs($bob)->deleteJson(route('chat.clear', $ann))->assertOk();
 
+        // Gone from the server. Each browser's own copy is removed client-side,
+        // and neither person can reach into the other's.
         $this->assertSame([], EphemeralChat::transcript($ann->id, $bob->id));
+    }
+
+    /**
+     * The delivery window has to be long enough to be useful.
+     *
+     * It was 15 minutes, which meant stepping away from your desk lost whatever
+     * arrived while you were gone. The browsers keep the history now, so this
+     * value only governs delivery — but it still must not be tiny.
+     */
+    public function test_the_delivery_window_survives_someone_leaving_their_desk(): void
+    {
+        $this->assertGreaterThanOrEqual(
+            3600,
+            EphemeralChat::BUFFER_TTL,
+            'A delivery buffer under an hour drops messages for anyone briefly away.',
+        );
     }
 
     public function test_presence_follows_whoever_is_polling(): void
@@ -203,7 +225,7 @@ class ChatTest extends TestCase
         $this->getJson(route('chat.messages', $bob))->assertRedirect(route('login'));
     }
 
-    public function test_unread_counts_drop_once_the_conversation_is_opened(): void
+    public function test_unread_counts_drop_once_the_messages_are_collected(): void
     {
         $ann = $this->user('ann');
         $bob = $this->user('bob');
@@ -214,7 +236,9 @@ class ChatTest extends TestCase
         $this->assertSame(2, EphemeralChat::unreadCount($bob->id, $ann->id));
         $this->assertSame(0, EphemeralChat::unreadCount($ann->id, $bob->id), 'Your own messages are not unread.');
 
-        $this->actingAs($bob)->get(route('chat.show', $ann))->assertOk();
+        // Reading is the poll collecting them, not the page being opened — the
+        // page renders no messages, so opening it proves nothing was read.
+        $this->actingAs($bob)->getJson(route('chat.messages', $ann))->assertOk();
 
         $this->assertSame(0, EphemeralChat::unreadCount($bob->id, $ann->id));
     }

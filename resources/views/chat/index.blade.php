@@ -9,7 +9,7 @@
         <div>
             <h2 class="text-lg font-semibold text-gray-900">People</h2>
             <p class="mt-0.5 text-sm text-gray-500">
-                Direct messages that are never saved — a quiet conversation disappears on its own.
+                Direct messages. Your conversations are kept in your browser, never in the company database.
             </p>
         </div>
     </div>
@@ -20,10 +20,11 @@
             <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
         </svg>
         <p class="text-sm text-amber-800">
-            <span class="font-semibold">Nothing here is stored.</span>
-            Messages are held in memory only, for {{ (int) (\App\Support\EphemeralChat::IDLE_TTL / 60) }} minutes of quiet
-            at most, and the last {{ \App\Support\EphemeralChat::MAX_MESSAGES }} lines of a conversation.
-            There is no history to come back to, and someone offline will not receive what you send.
+            <span class="font-semibold">Your history is on this computer only.</span>
+            Messages are kept in this browser — the last {{ \App\Support\EphemeralChat::LOCAL_KEEP }} per conversation —
+            and are cleared when you sign out. The server only passes a message along and forgets it, so you will not
+            see this conversation on another computer, and anyone who does not open the app within
+            {{ (int) (\App\Support\EphemeralChat::BUFFER_TTL / 3600) }} hours will never receive what you sent.
         </p>
     </div>
 

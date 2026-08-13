@@ -54,22 +54,24 @@ class ChatController extends Controller
         ]);
     }
 
+    /**
+     * The full-page view of one conversation.
+     *
+     * Deliberately renders no messages. The transcript belongs to the browser,
+     * which loads it from its own storage — the server only knows what it still
+     * has buffered, which is not the same thing and would show a truncated
+     * conversation for a moment before the first poll corrected it.
+     */
     public function show(#[CurrentUser] User $user, User $peer): View
     {
         $this->guard($user, $peer);
 
-        $messages = EphemeralChat::transcript($user->id, $peer->id);
-
         EphemeralChat::heartbeat($user->id);
-        EphemeralChat::markRead($user->id, $peer->id, collect($messages)->max('id') ?? 0);
 
         return view('chat.show', [
-            'peer'         => $peer,
-            'messages'     => $messages,
-            'peerOnline'   => EphemeralChat::isOnline($peer->id),
-            'idleMinutes'  => (int) (EphemeralChat::IDLE_TTL / 60),
-            'maxMessages'  => EphemeralChat::MAX_MESSAGES,
-            'maxLength'    => EphemeralChat::MAX_LENGTH,
+            'peer'       => $peer,
+            'peerOnline' => EphemeralChat::isOnline($peer->id),
+            'maxLength'  => EphemeralChat::MAX_LENGTH,
         ]);
     }
 

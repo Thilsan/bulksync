@@ -4,18 +4,24 @@
 
 @section('content')
 {{--
-    The whole conversation is one Alpine component polling a JSON endpoint every
-    two seconds — the same shape as the notification bell in the layout, because
-    this app has no websocket process to talk to. Two seconds is fast enough to
-    feel live for a handful of internal users and cheap enough that an idle
-    window costs nothing but a cache read.
+    The full-page view of one conversation. The floating widget in the layout is
+    the same feature in a smaller box; both read and write the same local history
+    through window.chatHistory, so a conversation looks identical either way.
+
+    Polls a JSON endpoint every two seconds — the same shape as the notification
+    bell in the layout, because this app has no websocket process to talk to.
+
+    The transcript is NOT rendered server-side. It cannot be: the history lives in
+    this browser, and the server only knows what it still has buffered for
+    delivery. The component loads from localStorage on init instead.
 --}}
 <div class="mx-auto flex h-[calc(100vh-9rem)] max-w-3xl flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm"
      x-data="chat({
          peerId: {{ $peer->id }},
          meId: {{ auth()->id() }},
          online: {{ $peerOnline ? 'true' : 'false' }},
-         messages: @js($messages),
+         localKeep: {{ \App\Support\EphemeralChat::LOCAL_KEEP }},
+         maxLength: {{ $maxLength }},
          urls: {
              poll:   '{{ route('chat.messages', $peer) }}',
              send:   '{{ route('chat.send', $peer) }}',
@@ -66,20 +72,13 @@
                     <path stroke-linecap="round" stroke-linejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.9 9.9 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
                 </svg>
                 <p class="mt-2 text-sm text-gray-500">No messages.</p>
-                <p class="text-xs text-gray-400">Nothing said here is written down.</p>
+                <p class="text-xs text-gray-400">This conversation is kept in your browser, not on the server.</p>
             </div>
         </template>
 
-        {{-- Shown when the transcript expired while the window was open. --}}
-        <template x-if="expired">
-            <div class="flex items-center gap-3 py-2">
-                <div class="h-px flex-1 bg-gray-200"></div>
-                <span class="text-[11px] font-medium uppercase tracking-wide text-gray-400">Conversation cleared</span>
-                <div class="h-px flex-1 bg-gray-200"></div>
-            </div>
-        </template>
-
-        <template x-for="message in messages" :key="message.id">
+        {{-- Keyed by uid, not id: server ids restart at 1 each time the delivery
+             buffer is rebuilt, so a long history contains several id 1s. --}}
+        <template x-for="message in messages" :key="message.uid">
             <div class="flex" :class="message.from === meId ? 'justify-end' : 'justify-start'">
                 <div class="max-w-[75%] rounded-2xl px-3.5 py-2 text-sm shadow-sm"
                      :class="message.from === meId
@@ -122,7 +121,9 @@
         return {
             ...config,
             peerTyping: false,
-            expired: false,
+            messages: [],
+            epoch: null,
+            cursor: 0,
             draft: '',
             sending: false,
             error: '',
@@ -130,20 +131,57 @@
             csrf: document.querySelector('meta[name="csrf-token"]').content,
 
             start() {
+                // The transcript comes from this browser, not from the page.
+                const local = window.chatHistory.load(this.meId, this.peerId);
+                this.messages = local.messages;
+                this.epoch = local.epoch;
+                this.cursor = local.cursor;
+
                 this.$nextTick(() => this.toBottom());
                 this.poll();
                 setInterval(() => this.poll(), 2000);
             },
 
-            get lastId() {
-                return this.messages.length ? this.messages[this.messages.length - 1].id : 0;
+            saveLocal() {
+                window.chatHistory.save(this.meId, this.peerId, {
+                    messages: this.messages,
+                    epoch: this.epoch,
+                    cursor: this.cursor,
+                }, this.localKeep);
+            },
+
+            absorb(payload) {
+                const wasAtBottom = this.atBottom();
+
+                const { state, added } = window.chatHistory.merge({
+                    messages: this.messages,
+                    epoch: this.epoch,
+                    cursor: this.cursor,
+                }, payload);
+
+                this.messages = state.messages;
+                this.epoch = state.epoch;
+                this.cursor = state.cursor;
+
+                if (added > 0 || payload.reset) {
+                    this.saveLocal();
+                    // Only follow the conversation if they were already at the
+                    // bottom; yanking the view while someone reads back is worse
+                    // than making them scroll down themselves.
+                    if (wasAtBottom) this.$nextTick(() => this.toBottom());
+                }
+
+                return added;
             },
 
             async poll() {
                 // A tab in the background still polls: presence and the unread
                 // badge both depend on it, and the cost is one cache read.
                 try {
-                    const response = await fetch(`${this.urls.poll}?after=${this.lastId}`, {
+                    const query = new URLSearchParams({ after: this.cursor });
+                    if (this.epoch) query.set('epoch', this.epoch);
+
+                    const response = await fetch(`${this.urls.poll}?${query}`, {
                         headers: { 'Accept': 'application/json' },
                     });
 
@@ -162,23 +200,10 @@
                     this.online = data.online;
                     this.peerTyping = data.typing;
 
-                    // The transcript aged out from under us — drop what we are
-                    // holding rather than showing messages the server forgot.
-                    if (data.expired) {
-                        this.messages = [];
-                        this.expired = true;
-                        return;
-                    }
-
-                    if (data.messages.length) {
-                        const wasAtBottom = this.atBottom();
-                        this.messages.push(...data.messages);
-                        this.expired = false;
-                        // Only follow the conversation if they were already at the
-                        // bottom; yanking the view while someone reads back is worse
-                        // than making them scroll down themselves.
-                        if (wasAtBottom) this.$nextTick(() => this.toBottom());
-                    }
+                    // The server's buffer expiring is not a reason to forget
+                    // anything: this browser owns the history. A reset only means
+                    // the id cursor has to start over.
+                    this.absorb(data);
                 } catch (e) {
                     // A dropped poll is not worth surfacing — the next one is 2s away.
                 }
@@ -209,11 +234,10 @@
 
                     const data = await response.json();
 
-                    // Append the stored message rather than the draft, so the id
-                    // and timestamp are the server's and the next poll will not
-                    // hand us a duplicate.
-                    this.messages.push(data.sent);
-                    this.expired = false;
+                    // Through the same merge as an incoming message, so it gets a
+                    // uid and moves the cursor past itself — otherwise the next
+                    // poll would hand our own message back and show it twice.
+                    this.absorb({ messages: [data.sent], epoch: data.epoch, reset: false });
                     this.draft = '';
                     this.$nextTick(() => { this.grow(); this.toBottom(); });
                 } catch (e) {
@@ -236,16 +260,23 @@
                 }).catch(() => {});
             },
 
+            /*
+             * Clears this browser's history and drains the server's buffer. It
+             * cannot reach the other person's browser — their copy is theirs.
+             */
             async clearConversation() {
-                if (!confirm('Delete this conversation for both of you? It cannot be recovered.')) return;
+                if (!confirm('Delete this conversation from this browser? The other person keeps their own copy.')) return;
 
                 await fetch(this.urls.clear, {
                     method: 'DELETE',
                     headers: { 'X-CSRF-TOKEN': this.csrf, 'Accept': 'application/json' },
                 }).catch(() => {});
 
+                window.chatHistory.forget(this.meId, this.peerId);
+
                 this.messages = [];
-                this.expired = false;
+                this.epoch = null;
+                this.cursor = 0;
             },
 
             grow() {

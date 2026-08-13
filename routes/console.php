@@ -69,14 +69,16 @@ $pruneExpiredCache = function () {
 
 Schedule::call($pruneExpiredCache)->hourly()->name('prune-expired-cache')->withoutOverlapping();
 
-// Chat transcripts live in the file-backed 'chat' cache store and expire on
-// their own — but the file driver, like the database one above, only reclaims an
-// entry when that exact key is read again. A conversation nobody reopens leaves
-// its file behind for good, so sweep the directory by mtime instead of waiting
-// for a read that may never come.
+// The chat delivery buffer lives in the file-backed 'chat' cache store and
+// expires on its own — but the file driver, like the database one above, only
+// reclaims an entry when that exact key is read again. A conversation nobody
+// reopens leaves its file behind for good, so sweep the directory by mtime
+// instead of waiting for a read that may never come.
 //
-// Anything untouched for twice the chat idle window is finished by definition:
+// Anything untouched for twice the delivery window is finished by definition:
 // the entry inside it has already expired, and no client is still polling it.
+// The people talking keep their own copies in their browsers, so nothing of
+// value is lost here.
 $pruneStaleChat = function () {
     $root = config('cache.stores.chat.path');
 
@@ -84,7 +86,7 @@ $pruneStaleChat = function () {
         return;
     }
 
-    $cutoff = now()->timestamp - (\App\Support\EphemeralChat::IDLE_TTL * 2);
+    $cutoff = now()->timestamp - (\App\Support\EphemeralChat::BUFFER_TTL * 2);
 
     $entries = new RecursiveIteratorIterator(
         new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS),

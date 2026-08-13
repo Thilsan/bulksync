@@ -7,19 +7,27 @@ use Illuminate\Contracts\Cache\Repository;
 use Illuminate\Support\Facades\Cache;
 
 /**
- * Person-to-person chat that is never written down.
+ * Person-to-person chat where the server is only the postman.
  *
- * Every conversation lives in the file-backed 'chat' cache store and expires on
- * its own. There is no messages table and no model: once a pair stops talking
- * for IDLE_TTL, the transcript is gone and cannot be recovered by anyone,
+ * The history belongs to the people talking, not to this application. Each
+ * browser keeps its own copy of a conversation in localStorage, and what lives
+ * here is just the pending delivery: a short-lived buffer in the file-backed
+ * 'chat' cache store, so a message written on one screen can be picked up on
+ * another. There is no messages table and no model — nothing a conversation
+ * says is recoverable from this server once the buffer expires, by anyone,
  * including a super admin reading the database.
  *
- * That is the feature, so the limits below are the whole design:
+ * The limits are therefore sized for delivery, not for keeping a record:
  *
- *   - a conversation holds at most MAX_MESSAGES, oldest dropped first
+ *   - the buffer holds at most MAX_MESSAGES per pair, oldest dropped first
  *   - a message body is truncated at MAX_LENGTH
- *   - the transcript's TTL is pushed forward on every send, so it survives an
- *     active conversation and dies shortly after one goes quiet
+ *   - BUFFER_TTL is pushed forward on every send, so an active conversation
+ *     stays deliverable and a finished one drains away
+ *
+ * Two consequences worth knowing, because they are properties of the design and
+ * not bugs to be fixed here: a browser only ever holds what was actually
+ * delivered to it, so two people's histories can differ; and a message sent to
+ * someone who does not connect within BUFFER_TTL is never delivered at all.
  *
  * Together those bound what a pair of users can occupy to a few KB. The file
  * driver only reclaims an expired entry when that exact key is read again,
@@ -32,13 +40,23 @@ final class EphemeralChat
     /** Cache store from config/cache.php — never the default (database) store. */
     private const STORE = 'chat';
 
-    /** Kept per conversation; the oldest fall off the top. */
+    /** Kept per conversation in the delivery buffer; the oldest fall off the top. */
     public const MAX_MESSAGES = 50;
 
     public const MAX_LENGTH = 2000;
 
-    /** A conversation with no traffic for this long ceases to exist. */
-    public const IDLE_TTL = 900;
+    /**
+     * How long an undelivered message waits.
+     *
+     * This is a delivery window, not a retention policy — the browsers keep the
+     * history. Long enough that stepping away from your desk does not lose what
+     * someone sent you; short enough that this server is never where a
+     * conversation lives.
+     */
+    public const BUFFER_TTL = 28800;   // 8 hours
+
+    /** How much of a conversation each browser keeps for itself. */
+    public const LOCAL_KEEP = 500;
 
     /** A heartbeat is written on every poll, so this only needs to outlive one. */
     public const PRESENCE_TTL = 45;
@@ -71,11 +89,12 @@ final class EphemeralChat
     /**
      * Messages in a conversation after $afterId.
      *
-     * The epoch identifies this particular transcript. Message ids restart at 1
-     * every time a conversation is rebuilt from nothing, so a browser holding a
-     * local copy needs a way to notice that ids it already has now belong to a
-     * different conversation — otherwise old and new messages merge into
-     * nonsense. A changed epoch means "throw your copy away".
+     * The epoch identifies this particular buffer. Message ids restart at 1
+     * every time one is rebuilt from nothing, so a browser needs a way to notice
+     * that ids it has already seen now refer to different messages — otherwise
+     * old and new interleave into nonsense. A changed epoch means "your id
+     * cursor is meaningless, start counting again"; it does not mean the
+     * browser's own history is wrong, only that it cannot be indexed by id.
      *
      * @return array{messages: list<array{id: int, from: int, body: string, at: int}>, exists: bool, epoch: string|null}
      */
@@ -147,8 +166,9 @@ final class EphemeralChat
 
         try {
             $convo = self::store()->get($key);
-            // A fresh transcript gets a new epoch, which is what tells the
-            // browsers holding a local copy of the old one to discard it.
+            // A fresh buffer gets a new epoch, which is what tells a browser its
+            // saved id cursor no longer lines up with what the server is handing
+            // out. Its own history is untouched.
             $convo = is_array($convo)
                 ? $convo
                 : ['next_id' => 1, 'messages' => [], 'epoch' => bin2hex(random_bytes(8))];
@@ -168,9 +188,9 @@ final class EphemeralChat
                 $convo['messages'] = array_slice($convo['messages'], -self::MAX_MESSAGES);
             }
 
-            // Every send pushes the expiry out, so the transcript lives as long
-            // as the conversation does and no longer.
-            self::store()->put($key, $convo, self::IDLE_TTL);
+            // Every send pushes the expiry out, so an active conversation stays
+            // deliverable and a finished one drains away.
+            self::store()->put($key, $convo, self::BUFFER_TTL);
 
             return $message;
         } finally {
@@ -253,7 +273,7 @@ final class EphemeralChat
 
         $key = self::key($userId, $peerId);
 
-        self::store()->put("seen:{$key}:{$userId}", $lastId, self::IDLE_TTL);
+        self::store()->put("seen:{$key}:{$userId}", $lastId, self::BUFFER_TTL);
     }
 
     /** How many messages from $peerId this person has not looked at yet. */
