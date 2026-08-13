@@ -43,7 +43,22 @@ final class EphemeralChat
     /** Kept per conversation in the delivery buffer; the oldest fall off the top. */
     public const MAX_MESSAGES = 50;
 
-    public const MAX_LENGTH = 2000;
+    /**
+     * The longest message someone may type, in characters.
+     *
+     * Enforced in the browser, because by the time a message reaches this server
+     * it is ciphertext and its original length is not knowable from here.
+     */
+    public const MAX_PLAINTEXT = 2000;
+
+    /**
+     * The longest sealed envelope the buffer will hold, in bytes.
+     *
+     * Sized to fit MAX_PLAINTEXT even when every character is four bytes:
+     * ~8 KB of UTF-8, plus the GCM tag, base64-encoded to ~10.7 KB. Encryption
+     * is why this is not simply MAX_PLAINTEXT.
+     */
+    public const MAX_LENGTH = 12000;
 
     /**
      * How long an undelivered message waits.
@@ -150,8 +165,16 @@ final class EphemeralChat
             return null;
         }
 
-        $body = mb_substr($body, 0, self::MAX_LENGTH);
-        $key  = self::key($senderId, $peerId);
+        /*
+         * Rejected rather than trimmed. The body is a sealed envelope, and
+         * cutting one short does not shorten a message — it destroys it, and the
+         * recipient would see an undecryptable blob with no explanation.
+         */
+        if (strlen($body) > self::MAX_LENGTH) {
+            return null;
+        }
+
+        $key = self::key($senderId, $peerId);
 
         $lock = self::store()->lock("lock:{$key}", 5);
 
@@ -276,6 +299,22 @@ final class EphemeralChat
         self::store()->put("seen:{$key}:{$userId}", $lastId, self::BUFFER_TTL);
     }
 
+    /**
+     * How far $peerId has read in their conversation with $userId.
+     *
+     * This is what read receipts are built on. The pointer only moves when
+     * someone's open conversation collects messages, so it genuinely means "they
+     * were looking at this" — not merely "it reached their device". There is no
+     * separate delivered-but-unread signal to report, because nothing in this
+     * design produces one.
+     */
+    public static function readPointer(int $userId, int $peerId): int
+    {
+        $key = self::key($userId, $peerId);
+
+        return (int) self::store()->get("seen:{$key}:{$peerId}", 0);
+    }
+
     /** How many messages from $peerId this person has not looked at yet. */
     public static function unreadCount(int $userId, int $peerId): int
     {
@@ -333,6 +372,8 @@ final class EphemeralChat
             ->where('is_active', true)
             ->whereKeyNot($userId)
             ->orderBy('name')
-            ->get(['id', 'name', 'email', 'pcr_role']);
+            // chat_public_key comes along because a browser cannot address anyone
+            // without it. It is public by definition; nothing secret is loaded.
+            ->get(['id', 'name', 'email', 'pcr_role', 'chat_public_key']);
     }
 }

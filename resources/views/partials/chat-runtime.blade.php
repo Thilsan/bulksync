@@ -113,6 +113,34 @@
             };
         }
 
-        return { load, save, forget, forgetAll, merge };
+        /**
+         * Mark our own messages as read, up to the pointer the server reports.
+         *
+         * Only messages belonging to the CURRENT epoch can be compared: ids
+         * restart whenever the buffer is rebuilt, so a pointer of 3 says nothing
+         * about a message with id 3 from an earlier one. Those keep whatever
+         * status they already had.
+         *
+         * Once read, always read — the flag is stored, so it survives the buffer
+         * draining and the pointer going back to zero.
+         */
+        function applyRead(state, meId, upTo) {
+            if (!upTo || !state.epoch) return { state, changed: false };
+
+            let changed = false;
+
+            const messages = state.messages.map(message => {
+                if (message.read || message.from !== meId) return message;
+                if (message.uid !== `${state.epoch}:${message.id}`) return message;
+                if (message.id > upTo) return message;
+
+                changed = true;
+                return { ...message, read: true };
+            });
+
+            return { state: changed ? { ...state, messages } : state, changed };
+        }
+
+        return { load, save, forget, forgetAll, merge, applyRead };
     })();
 </script>

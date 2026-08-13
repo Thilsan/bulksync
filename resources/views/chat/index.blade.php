@@ -14,20 +14,6 @@
         </div>
     </div>
 
-    {{-- Said once, here, so the chat window itself does not need a banner. --}}
-    <div class="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
-        <svg class="mt-0.5 h-4 w-4 shrink-0 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
-        </svg>
-        <p class="text-sm text-amber-800">
-            <span class="font-semibold">Your history is on this computer only.</span>
-            Messages are kept in this browser — the last {{ \App\Support\EphemeralChat::LOCAL_KEEP }} per conversation —
-            and are cleared when you sign out. The server only passes a message along and forgets it, so you will not
-            see this conversation on another computer, and anyone who does not open the app within
-            {{ (int) (\App\Support\EphemeralChat::BUFFER_TTL / 3600) }} hours will never receive what you sent.
-        </p>
-    </div>
-
     <div class="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
         @forelse($people as $row)
             @php($peer = $row['user'])

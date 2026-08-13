@@ -14,8 +14,13 @@ use Illuminate\View\View;
 /**
  * Direct chat between two signed-in people.
  *
- * Nothing here touches the database except to look up who exists — the
- * conversation itself lives and dies in App\Support\EphemeralChat.
+ * Messages are end-to-end encrypted in the browser, so nothing here can read
+ * one. This controller moves sealed envelopes around and stores the public keys
+ * that let people address each other; the conversation itself lives and dies in
+ * App\Support\EphemeralChat, as ciphertext.
+ *
+ * send() enforces that: a body which is not a sealed envelope is rejected, so a
+ * bug in the client cannot quietly post readable text to the server.
  */
 class ChatController extends Controller
 {
@@ -50,8 +55,62 @@ class ChatController extends Controller
                     ->map(fn ($word) => mb_substr($word, 0, 1))->implode(''),
                 'online'  => $row['online'],
                 'unread'  => $row['unread'],
+                // Their public key travels with the list, so the browser can
+                // encrypt to whoever you pick without a second request.
+                'key'     => $row['user']->chat_public_key
+                    ? json_decode($row['user']->chat_public_key, true)
+                    : null,
             ])->values(),
         ]);
+    }
+
+    /**
+     * Publish this browser's public key.
+     *
+     * Called on load. The private half is generated in the browser and never
+     * sent — this is only the half other people need in order to write to you.
+     *
+     * Overwriting is allowed and expected: clearing your browser loses the
+     * private key, so the next visit publishes a new pair. Old messages then
+     * become unreadable, which is the honest consequence of the private key
+     * having existed only on that machine.
+     */
+    public function publishKey(Request $request, #[CurrentUser] User $user): JsonResponse
+    {
+        $validator = Validator::make($request->all(), [
+            'key'     => ['required', 'array'],
+            'key.kty' => ['required', 'string', 'in:EC'],
+            'key.crv' => ['required', 'string', 'in:P-256'],
+            'key.x'   => ['required', 'string', 'max:128'],
+            'key.y'   => ['required', 'string', 'max:128'],
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['message' => 'That is not a usable public key.'], 422);
+        }
+
+        // Only the public fields are kept. If a client ever sent 'd' — the
+        // private scalar — by mistake, it is dropped here rather than stored.
+        $key = $validator->validated()['key'];
+
+        $public = [
+            'kty' => $key['kty'],
+            'crv' => $key['crv'],
+            'x'   => $key['x'],
+            'y'   => $key['y'],
+        ];
+
+        $encoded = json_encode($public);
+
+        // Only write when it actually changed, so chat_key_at means "rotated".
+        if ($user->chat_public_key !== $encoded) {
+            $user->update([
+                'chat_public_key' => $encoded,
+                'chat_key_at'     => now(),
+            ]);
+        }
+
+        return response()->json(['published' => true]);
     }
 
     /**
@@ -71,7 +130,9 @@ class ChatController extends Controller
         return view('chat.show', [
             'peer'       => $peer,
             'peerOnline' => EphemeralChat::isOnline($peer->id),
-            'maxLength'  => EphemeralChat::MAX_LENGTH,
+            'maxLength'  => EphemeralChat::MAX_PLAINTEXT,
+            // Their public key, so the page can encrypt without waiting on a poll.
+            'peerKey'    => $peer->chat_public_key ? json_decode($peer->chat_public_key, true) : null,
         ]);
     }
 
@@ -110,6 +171,8 @@ class ChatController extends Controller
             'reset'    => (bool) $reset,
             'online'   => EphemeralChat::isOnline($peer->id),
             'typing'   => EphemeralChat::isTyping($peer->id, $user->id),
+            // How far they have read, for the receipts on our own messages.
+            'peerRead' => EphemeralChat::readPointer($user->id, $peer->id),
             // The client was holding messages the server no longer has, so the
             // transcript expired underneath it. Say so rather than silently
             // showing a conversation that no longer exists.
@@ -126,16 +189,34 @@ class ChatController extends Controller
          * app only renders exceptions as JSON under api/* (see bootstrap/app.php).
          * A thrown ValidationException here would redirect, and the composer is
          * a fetch() call that needs a status and a message it can show.
+         *
+         * The shape rules are the point, not politeness: a body must be a sealed
+         * envelope — version, nonce, ciphertext — and nothing else is accepted.
+         * If the browser code ever regressed and posted what someone typed, this
+         * refuses it rather than storing readable text on the server.
          */
         $validator = Validator::make($request->all(), [
-            'body' => ['required', 'string', 'max:' . EphemeralChat::MAX_LENGTH],
+            'body'      => ['required', 'array'],
+            'body.v'    => ['required', 'integer', 'in:1'],
+            'body.iv'   => ['required', 'string', 'min:16', 'max:32'],
+            'body.ct'   => ['required', 'string', 'min:1', 'max:' . EphemeralChat::MAX_LENGTH],
         ]);
 
         if ($validator->fails()) {
-            return response()->json(['message' => $validator->errors()->first('body')], 422);
+            return response()->json([
+                'message' => 'Message rejected: it was not sealed for the recipient.',
+            ], 422);
         }
 
-        $message = EphemeralChat::send($user->id, $peer->id, $validator->validated()['body']);
+        // Stored as the compact JSON it arrived as. The server has no key and no
+        // reason to look inside.
+        $envelope = $validator->validated()['body'];
+
+        $message = EphemeralChat::send($user->id, $peer->id, json_encode([
+            'v'  => 1,
+            'iv' => $envelope['iv'],
+            'ct' => $envelope['ct'],
+        ]));
 
         if ($message === null) {
             return response()->json(['message' => 'Message could not be sent — try again.'], 409);

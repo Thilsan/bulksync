@@ -88,6 +88,21 @@
                 count > 0 ? draw(count) : restore();
             };
         })();
+
+        /*
+            faviconBadge takes one absolute number, so two features calling it
+            directly would each erase the other's count. Everything that wants the
+            tab to show something reports its own tally here instead, and the badge
+            is drawn from the sum: notifications and chat can both be waiting.
+        */
+        window.tabBadge = (function () {
+            const counts = {};
+
+            return function (source, count) {
+                counts[source] = parseInt(count, 10) || 0;
+                window.faviconBadge(Object.values(counts).reduce((a, b) => a + b, 0));
+            };
+        })();
     </script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
@@ -553,8 +568,8 @@
                         },
                         dismiss(id) { this.toasts = this.toasts.filter(t => t.id !== id) },
                      }"
-                     x-init="faviconBadge(unread);
-                             $watch('unread', v => faviconBadge(v));
+                     x-init="tabBadge('bell', unread);
+                             $watch('unread', v => tabBadge('bell', v));
                              setInterval(() => poll(), 30000)"
                      class="relative">
                     <button @click="bell = !bell" :aria-expanded="bell"
@@ -722,7 +737,7 @@
                                  has to take it with it — otherwise the next person
                                  at a shared desk could read the conversations. --}}
                             <form method="POST" action="{{ route('logout') }}"
-                                  @submit="window.chatHistory?.forgetAll()">
+                                  @submit="window.chatHistory?.forgetAll(); window.chatCrypto?.forgetDerived()">
                                 @csrf
                                 <button type="submit"
                                         class="flex w-full items-center gap-2.5 px-4 py-2 text-sm text-gray-600 transition-colors hover:bg-gray-50 hover:text-gray-900">
@@ -783,9 +798,10 @@
 
     </div>
 
-    {{-- Chat. The runtime holds this browser's own history and must load before
-         either the widget or the full-page view reads from it. --}}
+    {{-- Chat. Crypto and the local-history runtime must both load before the
+         widget or the full-page view, which use them. --}}
     @auth
+        @include('partials.chat-crypto')
         @include('partials.chat-runtime')
         @include('partials.chat-widget')
     @endauth
