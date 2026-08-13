@@ -734,36 +734,95 @@ class ChatTest extends TestCase
         $this->assertSame(0, EphemeralChat::readPointer($bob->id, $ann->id), 'Ann has read nothing.');
     }
 
+    /** Every table in the schema, ignoring SQLite's own. */
+    private function tableNames(): array
+    {
+        return collect(DB::select("SELECT name FROM sqlite_master WHERE type = 'table'"))
+            ->pluck('name')
+            ->reject(fn ($table) => str_starts_with($table, 'sqlite_'))
+            ->values()
+            ->all();
+    }
+
+    /** @return array<string, int> table => row count */
+    private function rowCounts(): array
+    {
+        $counts = [];
+
+        foreach ($this->tableNames() as $table) {
+            $counts[$table] = DB::table($table)->count();
+        }
+
+        return $counts;
+    }
+
     /**
      * The reason this feature exists at all.
      *
-     * A message passes through the delivery buffer in plain text — that is the
-     * accepted scope — but it must never be written to a table, where it would
-     * outlive the conversation and be queryable for ever.
+     * A message passes through the delivery buffer, and an attachment through
+     * the filesystem — both accepted, both bounded and expiring. What must never
+     * happen is a row: anything written to a table outlives the conversation and
+     * stays queryable for ever, which is exactly what this chat promises not to
+     * do.
+     *
+     * Checked two ways, because either alone could pass while the promise was
+     * broken. Row counts catch a table gaining an entry even if the text were
+     * hashed or encoded; the text search catches a leak into a row that already
+     * existed, such as a column being updated in place.
      */
-    public function test_nothing_a_conversation_says_is_written_to_the_database(): void
+    public function test_a_whole_conversation_adds_no_database_rows(): void
     {
         $ann = $this->user('ann');
         $bob = $this->user('bob');
 
-        $secret = 'this must never appear in a table';
+        $typed      = 'CONFIDENTIAL-SUPPLIER-PRICING-2026';
+        $insideFile = 'SECRET-BYTES-INSIDE-THE-FILE';
 
-        $this->actingAs($ann)->postJson(route('chat.send', $bob), ['body' => $secret])->assertOk();
+        // Baseline taken after the accounts exist, so only chat is measured.
+        $before = $this->rowCounts();
 
-        // Walk every table in the schema looking for the message text.
-        $tables = collect(DB::select("SELECT name FROM sqlite_master WHERE type = 'table'"))
-            ->pluck('name')
-            ->reject(fn ($table) => str_starts_with($table, 'sqlite_'));
+        // A realistic exchange: text, an image, a document, typing, polling, a reply.
+        $this->actingAs($ann)->postJson(route('chat.send', $bob), ['body' => $typed])->assertOk();
 
-        foreach ($tables as $table) {
-            $columns = collect(DB::select("PRAGMA table_info({$table})"))->pluck('name');
+        $this->actingAs($ann)->post(route('chat.send', $bob), [
+            'body'  => 'and the sheet',
+            'files' => [
+                UploadedFile::fake()->image('leak.png', 20, 20),
+                UploadedFile::fake()->createWithContent('prices.csv', $insideFile),
+            ],
+        ])->assertOk();
 
-            foreach ($columns as $column) {
-                $hit = DB::table($table)->where($column, 'like', "%{$secret}%")->exists();
+        $this->actingAs($ann)->postJson(route('chat.typing', $bob))->assertOk();
+        $this->actingAs($bob)->getJson(route('chat.messages', $ann))->assertOk();
+        $this->actingAs($bob)->postJson(route('chat.send', $ann), ['body' => 'got it'])->assertOk();
+        $this->actingAs($ann)->getJson(route('chat.messages', $bob))->assertOk();
+        $this->actingAs($ann)->getJson(route('chat.inbox'))->assertOk();
 
-                $this->assertFalse($hit, "Chat text leaked into {$table}.{$column}.");
+        // 1. Not one new row, in any table.
+        foreach ($this->rowCounts() as $table => $count) {
+            $added = $count - $before[$table];
+
+            $this->assertSame(0, $added, "Chat added {$added} row(s) to '{$table}'.");
+        }
+
+        // 2. And nothing that was said appears in any column.
+        $needles = [$typed, $insideFile, 'and the sheet', 'got it', 'prices.csv', 'leak.png'];
+
+        foreach ($this->tableNames() as $table) {
+            foreach (collect(DB::select("PRAGMA table_info({$table})"))->pluck('name') as $column) {
+                foreach ($needles as $needle) {
+                    $this->assertFalse(
+                        DB::table($table)->where($column, 'like', "%{$needle}%")->exists(),
+                        "'{$needle}' leaked into {$table}.{$column}.",
+                    );
+                }
             }
         }
+
+        // 3. Proof the exchange really happened — a test that silently sent
+        //    nothing would pass the two checks above for the wrong reason.
+        $this->assertCount(3, EphemeralChat::transcript($ann->id, $bob->id));
+        $this->assertCount(2, glob(EphemeralChat::filesPath() . '/*') ?: []);
     }
 
     public function test_the_chat_store_is_never_the_database_store(): void
