@@ -167,6 +167,7 @@ Route::middleware('auth')->group(function () {
         Route::get('/{peer}',           [ChatController::class, 'show'])->name('show');
         Route::get('/{peer}/messages',  [ChatController::class, 'messages'])->name('messages');
         Route::post('/{peer}/messages', [ChatController::class, 'send'])->name('send');
+        Route::get('/{peer}/files/{token}', [ChatController::class, 'download'])->name('files.download');
         Route::post('/{peer}/typing',   [ChatController::class, 'typing'])->name('typing');
         Route::delete('/{peer}',        [ChatController::class, 'clear'])->name('clear');
     });

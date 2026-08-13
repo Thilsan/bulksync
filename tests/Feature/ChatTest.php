@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\User;
 use App\Support\EphemeralChat;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
@@ -29,6 +30,33 @@ class ChatTest extends TestCase
         // driver keeps the suite from writing real transcripts to storage.
         config(['cache.stores.chat' => ['driver' => 'array', 'serialize' => false]]);
         Cache::purge('chat');
+
+        // Attachments do have to hit a real filesystem — the code moves uploaded
+        // files and later unlinks them. A disposable directory per test keeps that
+        // out of real storage and makes leftovers detectable.
+        config(['chat.files_path' => sys_get_temp_dir() . '/bulksync-chat-test-' . getmypid()]);
+
+        $this->emptyFilesDir();
+    }
+
+    protected function tearDown(): void
+    {
+        $this->emptyFilesDir();
+
+        parent::tearDown();
+    }
+
+    private function emptyFilesDir(): void
+    {
+        $root = EphemeralChat::filesPath();
+
+        if (is_dir($root)) {
+            foreach (glob("{$root}/*") ?: [] as $file) {
+                if (is_file($file)) {
+                    @unlink($file);
+                }
+            }
+        }
     }
 
     private function user(string $name): User
@@ -368,6 +396,284 @@ class ChatTest extends TestCase
 
         $this->assertNotNull($response->json('epoch'));
         $this->assertSame(EphemeralChat::epoch($ann->id, $bob->id), $response->json('epoch'));
+    }
+
+    // ── Attachments ──────────────────────────────────────────────────────────
+
+    public function test_an_image_can_be_sent_and_fetched_by_the_recipient(): void
+    {
+        $ann = $this->user('ann');
+        $bob = $this->user('bob');
+
+        $sent = $this->actingAs($ann)
+            ->post(route('chat.send', $bob), [
+                'body'  => 'the shoot reference',
+                'files' => [UploadedFile::fake()->image('reference.jpg', 40, 40)],
+            ])
+            ->assertOk()
+            ->json('sent');
+
+        $this->assertCount(1, $sent['files']);
+        $this->assertSame('reference.jpg', $sent['files'][0]['name']);
+        $this->assertTrue($sent['files'][0]['image'], 'A jpeg should be marked as showable inline.');
+
+        $token = $sent['files'][0]['token'];
+
+        // The recipient can fetch it, and it comes back as an image.
+        $response = $this->actingAs($bob)
+            ->get(route('chat.files.download', ['peer' => $ann, 'token' => $token]))
+            ->assertOk();
+
+        $this->assertSame('image/jpeg', $response->headers->get('Content-Type'));
+        $this->assertStringStartsWith('inline', (string) $response->headers->get('Content-Disposition'));
+        $this->assertSame('nosniff', $response->headers->get('X-Content-Type-Options'));
+    }
+
+    public function test_a_file_can_be_sent_with_no_message_at_all(): void
+    {
+        $ann = $this->user('ann');
+        $bob = $this->user('bob');
+
+        $sent = $this->actingAs($ann)
+            ->post(route('chat.send', $bob), ['files' => [UploadedFile::fake()->create('skus.csv', 8)]])
+            ->assertOk()
+            ->json('sent');
+
+        $this->assertSame('', $sent['body']);
+        $this->assertCount(1, $sent['files']);
+    }
+
+    /**
+     * A file must not render in the browser unless it is a known image type.
+     *
+     * An HTML file or an SVG served inline runs on this origin — which would turn
+     * "share a file with a colleague" into cross-site scripting.
+     */
+    public function test_anything_that_is_not_a_known_image_is_forced_to_download(): void
+    {
+        $ann = $this->user('ann');
+        $bob = $this->user('bob');
+
+        $dangerous = UploadedFile::fake()->createWithContent(
+            'payload.html',
+            '<script>alert(document.cookie)</script>',
+        );
+
+        $sent = $this->actingAs($ann)
+            ->post(route('chat.send', $bob), ['files' => [$dangerous]])
+            ->assertOk()
+            ->json('sent');
+
+        $this->assertFalse($sent['files'][0]['image'], 'HTML must never be marked as an inline image.');
+
+        $response = $this->actingAs($bob)
+            ->get(route('chat.files.download', ['peer' => $ann, 'token' => $sent['files'][0]['token']]))
+            ->assertOk();
+
+        $this->assertSame('application/octet-stream', $response->headers->get('Content-Type'));
+        $this->assertStringStartsWith('attachment', (string) $response->headers->get('Content-Disposition'));
+        $this->assertSame('nosniff', $response->headers->get('X-Content-Type-Options'));
+    }
+
+    /** An SVG is a document that can carry script, so it downloads too. */
+    public function test_an_svg_is_not_shown_inline(): void
+    {
+        $ann = $this->user('ann');
+        $bob = $this->user('bob');
+
+        $svg = UploadedFile::fake()->createWithContent(
+            'logo.svg',
+            '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>',
+        );
+
+        $sent = $this->actingAs($ann)
+            ->post(route('chat.send', $bob), ['files' => [$svg]])
+            ->assertOk()
+            ->json('sent');
+
+        $this->assertFalse($sent['files'][0]['image']);
+
+        $this->actingAs($bob)
+            ->get(route('chat.files.download', ['peer' => $ann, 'token' => $sent['files'][0]['token']]))
+            ->assertOk()
+            ->assertHeader('Content-Type', 'application/octet-stream');
+    }
+
+    /** The property that keeps a conversation private. */
+    public function test_someone_outside_the_conversation_cannot_fetch_the_file(): void
+    {
+        $ann = $this->user('ann');
+        $bob = $this->user('bob');
+        $eve = $this->user('eve');
+
+        $token = $this->actingAs($ann)
+            ->post(route('chat.send', $bob), ['files' => [UploadedFile::fake()->image('private.png')]])
+            ->assertOk()
+            ->json('sent.files.0.token');
+
+        // Eve knows the token but it is not named in any conversation of hers.
+        $this->actingAs($eve)
+            ->get(route('chat.files.download', ['peer' => $ann, 'token' => $token]))
+            ->assertNotFound();
+
+        $this->actingAs($eve)
+            ->get(route('chat.files.download', ['peer' => $bob, 'token' => $token]))
+            ->assertNotFound();
+
+        // And a signed-out request gets nowhere either.
+        auth()->logout();
+        $this->get(route('chat.files.download', ['peer' => $ann, 'token' => $token]))
+            ->assertRedirect(route('login'));
+    }
+
+    /**
+     * A token is not a path.
+     *
+     * The shape is checked before the value is used for anything, so traversal
+     * cannot reach outside the upload directory.
+     */
+    public function test_a_token_cannot_be_used_to_reach_another_file(): void
+    {
+        $ann = $this->user('ann');
+        $bob = $this->user('bob');
+
+        foreach ([
+            '../../../.env',
+            '..%2F..%2F.env',
+            'not-a-token',
+            str_repeat('z', 32),          // right length, wrong alphabet
+            str_repeat('a', 31),          // right alphabet, wrong length
+        ] as $attempt) {
+            $this->actingAs($ann)
+                ->get(url("chat/{$bob->id}/files/" . $attempt))
+                ->assertNotFound();
+        }
+    }
+
+    public function test_more_files_than_allowed_is_rejected(): void
+    {
+        $ann = $this->user('ann');
+        $bob = $this->user('bob');
+
+        $tooMany = array_map(
+            fn ($i) => UploadedFile::fake()->image("shot-{$i}.png"),
+            range(1, EphemeralChat::MAX_FILES_PER_MESSAGE + 1),
+        );
+
+        $this->actingAs($ann)
+            ->post(route('chat.send', $bob), ['files' => $tooMany])
+            ->assertStatus(422);
+
+        $this->assertSame([], EphemeralChat::transcript($ann->id, $bob->id));
+    }
+
+    public function test_a_file_over_the_limit_is_rejected(): void
+    {
+        $ann = $this->user('ann');
+        $bob = $this->user('bob');
+
+        $oversized = UploadedFile::fake()->create(
+            'huge.bin',
+            (int) (EphemeralChat::maxUploadBytes() / 1024) + 64,
+        );
+
+        $this->actingAs($ann)
+            ->post(route('chat.send', $bob), ['files' => [$oversized]])
+            ->assertStatus(422);
+
+        $this->assertSame([], EphemeralChat::transcript($ann->id, $bob->id));
+    }
+
+    /**
+     * Clearing a conversation takes its files off disk.
+     *
+     * Otherwise every cleared conversation leaves its attachments behind until
+     * the scheduled sweep — on a server whose disk has filled twice.
+     */
+    public function test_clearing_a_conversation_deletes_its_files(): void
+    {
+        $ann = $this->user('ann');
+        $bob = $this->user('bob');
+
+        $token = $this->actingAs($ann)
+            ->post(route('chat.send', $bob), ['files' => [UploadedFile::fake()->image('bin-me.png')]])
+            ->assertOk()
+            ->json('sent.files.0.token');
+
+        $path = EphemeralChat::filesPath($token);
+        $this->assertFileExists($path);
+
+        $this->actingAs($bob)->deleteJson(route('chat.clear', $ann))->assertOk();
+
+        $this->assertFileDoesNotExist($path, 'Clearing must not leave the file on disk.');
+    }
+
+    /** Files that fall off the end of the buffer go with it. */
+    public function test_a_file_is_deleted_when_its_message_falls_out_of_the_buffer(): void
+    {
+        $ann = $this->user('ann');
+        $bob = $this->user('bob');
+
+        $token = $this->actingAs($ann)
+            ->post(route('chat.send', $bob), ['files' => [UploadedFile::fake()->image('oldest.png')]])
+            ->assertOk()
+            ->json('sent.files.0.token');
+
+        $path = EphemeralChat::filesPath($token);
+        $this->assertFileExists($path);
+
+        // Push it past the cap, so the message naming it is dropped.
+        foreach (range(1, EphemeralChat::MAX_MESSAGES) as $i) {
+            EphemeralChat::send($ann->id, $bob->id, "filler {$i}");
+        }
+
+        $this->assertFileDoesNotExist($path, 'A dropped message must take its file with it.');
+        $this->assertNull(EphemeralChat::findFile($bob->id, $ann->id, $token));
+    }
+
+    public function test_a_failed_send_does_not_leave_files_behind(): void
+    {
+        $ann = $this->user('ann');
+        $bob = $this->user('bob');
+
+        // Over the character limit, so the message is refused after the file
+        // has already been written to disk.
+        $this->actingAs($ann)
+            ->post(route('chat.send', $bob), [
+                'body'  => str_repeat('x', EphemeralChat::MAX_LENGTH + 1),
+                'files' => [UploadedFile::fake()->image('orphan.png')],
+            ])
+            ->assertStatus(422);
+
+        $onDisk = glob(EphemeralChat::filesPath() . '/*') ?: [];
+
+        $this->assertSame([], $onDisk, 'A rejected send must not leave an orphan on disk.');
+    }
+
+    public function test_the_upload_limit_respects_php_s_own_ceiling(): void
+    {
+        // Whatever the app would like, PHP decides what actually arrives.
+        $this->assertLessThanOrEqual(EphemeralChat::MAX_FILE_BYTES, EphemeralChat::maxUploadBytes());
+        $this->assertGreaterThan(0, EphemeralChat::maxUploadBytes());
+    }
+
+    public function test_a_filename_cannot_carry_a_path_or_run_off_the_end(): void
+    {
+        $ann = $this->user('ann');
+        $bob = $this->user('bob');
+
+        $sent = $this->actingAs($ann)
+            ->post(route('chat.send', $bob), [
+                'files' => [UploadedFile::fake()->createWithContent('../../etc/passwd', 'x')],
+            ])
+            ->assertOk()
+            ->json('sent');
+
+        $name = $sent['files'][0]['name'];
+
+        $this->assertStringNotContainsString('/', $name);
+        $this->assertStringNotContainsString('..', $name);
+        $this->assertLessThanOrEqual(120, mb_strlen($name));
     }
 
     // ── Read receipts ────────────────────────────────────────────────────────

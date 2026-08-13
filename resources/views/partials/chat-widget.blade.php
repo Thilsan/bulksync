@@ -18,6 +18,8 @@
         unread: {{ (int) ($chatUnreadCount ?? 0) }},
         maxLength: {{ \App\Support\EphemeralChat::MAX_LENGTH }},
         localKeep: {{ \App\Support\EphemeralChat::LOCAL_KEEP }},
+        maxFiles: {{ \App\Support\EphemeralChat::MAX_FILES_PER_MESSAGE }},
+        maxFileBytes: {{ \App\Support\EphemeralChat::maxUploadBytes() }},
         urls: {
             inbox: '{{ route('chat.inbox') }}',
             base:  '{{ url('chat') }}',
@@ -148,7 +150,44 @@
                                  :class="message.from === meId
                                      ? 'rounded-br-md bg-brand-600 text-white'
                                      : 'rounded-bl-md border border-gray-200 bg-white text-gray-800'">
-                                <p class="whitespace-pre-wrap break-words" x-text="message.body"></p>
+
+                                {{-- Attachments. Images show themselves; anything
+                                     else is a row you can click to download. --}}
+                                <template x-for="file in (message.files || [])" :key="file.token">
+                                    <div class="mb-1">
+                                        <template x-if="file.image">
+                                            <a :href="fileUrl(message, file)" target="_blank" rel="noopener">
+                                                {{-- A file that has expired stops loading; swap in a
+                                                     note rather than leaving a broken image icon. --}}
+                                                <img :src="fileUrl(message, file)" :alt="file.name"
+                                                     {{-- x-on:error, not @error: that one is a Blade directive. --}}
+                                                     x-on:error="file.gone = true" x-show="!file.gone"
+                                                     class="max-h-48 w-auto max-w-full rounded-lg border border-black/5 object-cover">
+                                                <span x-show="file.gone" x-cloak
+                                                      class="block rounded-lg border border-dashed px-2 py-1.5 text-[11px] italic"
+                                                      :class="message.from === meId ? 'border-white/40 text-white/70' : 'border-gray-300 text-gray-500'">
+                                                    Image no longer available
+                                                </span>
+                                            </a>
+                                        </template>
+
+                                        <template x-if="!file.image">
+                                            <a :href="fileUrl(message, file)"
+                                               class="flex items-center gap-2 rounded-lg px-2 py-1.5 transition-colors"
+                                               :class="message.from === meId ? 'bg-white/15 hover:bg-white/25' : 'bg-gray-50 hover:bg-gray-100'">
+                                                <svg class="h-4 w-4 shrink-0 opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.8">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                                                </svg>
+                                                <span class="min-w-0 flex-1">
+                                                    <span class="block truncate text-[12px] font-medium" x-text="file.name"></span>
+                                                    <span class="block text-[10px] opacity-70" x-text="fileSize(file.size)"></span>
+                                                </span>
+                                            </a>
+                                        </template>
+                                    </div>
+                                </template>
+
+                                <p x-show="message.body" class="whitespace-pre-wrap break-words" x-text="message.body"></p>
                                 <p class="mt-0.5 flex items-center justify-end gap-1 text-[9px]"
                                    :class="message.from === meId ? 'text-white/60' : 'text-gray-400'">
                                     <span x-text="time(message.at)"></span>
@@ -173,21 +212,63 @@
                     </template>
                 </div>
 
-                <div class="shrink-0 border-t border-gray-200 p-2">
+                <div class="shrink-0 border-t border-gray-200 p-2"
+                     @dragover.prevent="dragging = true"
+                     @dragleave.prevent="dragging = false"
+                     @drop.prevent="dragging = false; attach($event.dataTransfer.files)"
+                     :class="dragging && 'bg-brand-50'">
                     <p x-show="error" x-cloak class="mb-1.5 rounded-md bg-red-50 px-2 py-1 text-[11px] text-red-700" x-text="error"></p>
 
+                    {{-- Chosen files, before sending. Removable, because picking the
+                         wrong screenshot is the most likely mistake here. --}}
+                    <div x-show="pending.length > 0" x-cloak class="mb-1.5 flex flex-wrap gap-1.5">
+                        <template x-for="(file, index) in pending" :key="index">
+                            <span class="inline-flex max-w-full items-center gap-1.5 rounded-md border border-gray-200 bg-gray-50 py-1 pl-1.5 pr-1 text-[11px]">
+                                <img x-show="file.preview" :src="file.preview" alt=""
+                                     class="h-6 w-6 shrink-0 rounded object-cover">
+                                <span class="min-w-0 truncate text-gray-700" x-text="file.file.name"></span>
+                                <span class="shrink-0 text-gray-400" x-text="fileSize(file.file.size)"></span>
+                                <button type="button" @click="unattach(index)"
+                                        class="shrink-0 rounded p-0.5 text-gray-400 transition-colors hover:bg-gray-200 hover:text-gray-600"
+                                        aria-label="Remove">
+                                    <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+                                    </svg>
+                                </button>
+                            </span>
+                        </template>
+                    </div>
+
                     <form @submit.prevent="send()" class="flex items-end gap-1.5">
+                        <input type="file" x-ref="picker" multiple class="hidden"
+                               @change="attach($event.target.files); $event.target.value = ''">
+
+                        <button type="button" @click="$refs.picker.click()"
+                                class="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
+                                :title="`Attach a file (up to ${fileSize(maxFileBytes)}, ${maxFiles} at a time)`"
+                                aria-label="Attach a file">
+                            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.8">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/>
+                            </svg>
+                        </button>
+
+                        {{-- Paste works too: a screenshot goes straight in. --}}
                         <textarea x-ref="input" x-model="draft" rows="1" :maxlength="maxLength"
                                   @input="grow(); announceTyping()"
                                   @keydown.enter.exact.prevent="send()"
+                                  @paste="pasteFiles($event)"
                                   placeholder="Message…"
                                   class="max-h-24 min-h-[2.25rem] flex-1 resize-none rounded-lg border border-gray-200 px-2.5 py-1.5 text-[13px] text-gray-800 placeholder-gray-400 focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400"></textarea>
 
-                        <button type="submit" :disabled="sending || draft.trim() === ''"
+                        <button type="submit" :disabled="sending || (draft.trim() === '' && pending.length === 0)"
                                 class="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-brand-600 text-white transition-colors hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-40"
                                 aria-label="Send">
-                            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                            <svg x-show="!sending" class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
+                            </svg>
+                            <svg x-show="sending" x-cloak class="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3"/>
+                                <path class="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.4 0 0 5.4 0 12h4z"/>
                             </svg>
                         </button>
                     </form>
@@ -286,7 +367,88 @@
             toasts: [],
             ring: false,
             muted: false,
+            pending: [],
+            dragging: false,
             csrf: document.querySelector('meta[name="csrf-token"]').content,
+
+            // ── Attachments ─────────────────────────────────────────────────
+            /** Where one attachment lives, scoped to the conversation it came from. */
+            fileUrl(message, file) {
+                const peerId = message.from === this.meId ? this.peer.id : message.from;
+
+                return `${this.urls.base}/${peerId}/files/${file.token}`;
+            },
+
+            fileSize(bytes) {
+                if (!bytes) return '';
+                if (bytes < 1024) return `${bytes} B`;
+                if (bytes < 1048576) return `${Math.round(bytes / 1024)} KB`;
+
+                return `${(bytes / 1048576).toFixed(1)} MB`;
+            },
+
+            /**
+             * Queue files for the next send.
+             *
+             * Checked here as well as on the server, because a rejection the
+             * moment you pick the file is far more use than one after waiting for
+             * an 8 MB upload to fail.
+             */
+            attach(fileList) {
+                const files = Array.from(fileList || []);
+                if (!files.length) return;
+
+                this.error = '';
+
+                for (const file of files) {
+                    if (this.pending.length >= this.maxFiles) {
+                        this.error = `Up to ${this.maxFiles} files at a time.`;
+                        break;
+                    }
+
+                    if (file.size > this.maxFileBytes) {
+                        this.error = `"${file.name}" is larger than ${this.fileSize(this.maxFileBytes)}.`;
+                        continue;
+                    }
+
+                    if (file.size === 0) {
+                        this.error = `"${file.name}" is empty.`;
+                        continue;
+                    }
+
+                    // A local thumbnail for images, so the chip shows what it is.
+                    const entry = { file, preview: null };
+
+                    if (file.type.startsWith('image/')) {
+                        entry.preview = URL.createObjectURL(file);
+                    }
+
+                    this.pending.push(entry);
+                }
+            },
+
+            unattach(index) {
+                const [removed] = this.pending.splice(index, 1);
+
+                // Object URLs are held by the browser until revoked.
+                if (removed?.preview) URL.revokeObjectURL(removed.preview);
+            },
+
+            clearPending() {
+                this.pending.forEach(entry => entry.preview && URL.revokeObjectURL(entry.preview));
+                this.pending = [];
+            },
+
+            /** Pasting a screenshot attaches it instead of doing nothing. */
+            pasteFiles(event) {
+                const files = Array.from(event.clipboardData?.files || []);
+
+                if (files.length) {
+                    event.preventDefault();
+                    this.attach(files);
+                }
+            },
+
 
             // ── Local history (window.chatHistory) ──────────────────────────
             saveLocal() {
@@ -515,6 +677,9 @@
                 this.epoch = null;
                 this.cursor = 0;
                 this.typing = false;
+                // Leaving the conversation abandons anything staged but unsent,
+                // and releases the object URLs holding those previews.
+                this.clearPending();
                 this.refreshInbox();
             },
 
@@ -555,20 +720,36 @@
 
             async send() {
                 const text = this.draft.trim();
-                if (text === '' || this.sending || !this.peer) return;
+                const files = this.pending.slice();
+
+                // Either is enough: an image on its own is a message.
+                if ((text === '' && files.length === 0) || this.sending || !this.peer) return;
 
                 this.sending = true;
                 this.error = '';
 
                 try {
+                    /*
+                     * Multipart only when there is something to upload. JSON is
+                     * cheaper for the common case, and Content-Type must be left
+                     * unset for FormData so the browser can add the boundary.
+                     */
+                    const hasFiles = files.length > 0;
+                    let payload, headers = { 'Accept': 'application/json', 'X-CSRF-TOKEN': this.csrf };
+
+                    if (hasFiles) {
+                        payload = new FormData();
+                        payload.append('body', text);
+                        files.forEach(entry => payload.append('files[]', entry.file));
+                    } else {
+                        headers['Content-Type'] = 'application/json';
+                        payload = JSON.stringify({ body: text });
+                    }
+
                     const response = await fetch(`${this.urls.base}/${this.peer.id}/messages`, {
                         method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Accept': 'application/json',
-                            'X-CSRF-TOKEN': this.csrf,
-                        },
-                        body: JSON.stringify({ body: text }),
+                        headers,
+                        body: payload,
                     });
 
                     if (!response.ok) {
@@ -585,6 +766,7 @@
                     this.store({ messages: [data.sent], epoch: data.epoch, reset: false });
 
                     this.draft = '';
+                    this.clearPending();
                     this.$nextTick(() => { this.grow(); this.toBottom(); });
                 } catch (e) {
                     this.error = 'Message not sent — you may be offline.';

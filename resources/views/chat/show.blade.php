@@ -22,11 +22,14 @@
          online: {{ $peerOnline ? 'true' : 'false' }},
          localKeep: {{ \App\Support\EphemeralChat::LOCAL_KEEP }},
          maxLength: {{ $maxLength }},
+         maxFiles: {{ \App\Support\EphemeralChat::MAX_FILES_PER_MESSAGE }},
+         maxFileBytes: {{ \App\Support\EphemeralChat::maxUploadBytes() }},
          urls: {
              poll:   '{{ route('chat.messages', $peer) }}',
              send:   '{{ route('chat.send', $peer) }}',
              typing: '{{ route('chat.typing', $peer) }}',
              clear:  '{{ route('chat.clear', $peer) }}',
+             files:  '{{ url('chat/' . $peer->id . '/files') }}',
          },
      })"
      x-init="start()">
@@ -84,7 +87,41 @@
                      :class="message.from === meId
                          ? 'rounded-br-md bg-brand-600 text-white'
                          : 'rounded-bl-md border border-gray-200 bg-white text-gray-800'">
-                    <p class="whitespace-pre-wrap break-words" x-text="message.body"></p>
+
+                    {{-- Attachments: images inline, anything else a download row. --}}
+                    <template x-for="file in (message.files || [])" :key="file.token">
+                        <div class="mb-1.5">
+                            <template x-if="file.image">
+                                <a :href="fileUrl(file)" target="_blank" rel="noopener">
+                                    <img :src="fileUrl(file)" :alt="file.name"
+                                         {{-- x-on:error, not @error: that one is a Blade directive. --}}
+                                         x-on:error="file.gone = true" x-show="!file.gone"
+                                         class="max-h-72 w-auto max-w-full rounded-lg border border-black/5">
+                                    <span x-show="file.gone" x-cloak
+                                          class="block rounded-lg border border-dashed px-3 py-2 text-xs italic"
+                                          :class="message.from === meId ? 'border-white/40 text-white/70' : 'border-gray-300 text-gray-500'">
+                                        Image no longer available
+                                    </span>
+                                </a>
+                            </template>
+
+                            <template x-if="!file.image">
+                                <a :href="fileUrl(file)"
+                                   class="flex items-center gap-2.5 rounded-lg px-3 py-2 transition-colors"
+                                   :class="message.from === meId ? 'bg-white/15 hover:bg-white/25' : 'bg-gray-50 hover:bg-gray-100'">
+                                    <svg class="h-5 w-5 shrink-0 opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.8">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                                    </svg>
+                                    <span class="min-w-0 flex-1">
+                                        <span class="block truncate font-medium" x-text="file.name"></span>
+                                        <span class="block text-[11px] opacity-70" x-text="fileSize(file.size)"></span>
+                                    </span>
+                                </a>
+                            </template>
+                        </div>
+                    </template>
+
+                    <p x-show="message.body" class="whitespace-pre-wrap break-words" x-text="message.body"></p>
                     <p class="mt-1 flex items-center justify-end gap-1 text-[10px]"
                        :class="message.from === meId ? 'text-white/60' : 'text-gray-400'">
                         <span x-text="time(message.at)"></span>
@@ -109,21 +146,60 @@
     </div>
 
     {{-- Composer --}}
-    <div class="border-t border-gray-200 px-3 py-3">
+    <div class="border-t border-gray-200 px-3 py-3"
+         @dragover.prevent="dragging = true"
+         @dragleave.prevent="dragging = false"
+         @drop.prevent="dragging = false; attach($event.dataTransfer.files)"
+         :class="dragging && 'bg-brand-50'">
         <div x-show="error" x-cloak class="mb-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700" x-text="error"></div>
 
+        {{-- Staged files, removable before sending. --}}
+        <div x-show="pending.length > 0" x-cloak class="mb-2 flex flex-wrap gap-2">
+            <template x-for="(file, index) in pending" :key="index">
+                <span class="inline-flex max-w-full items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 py-1.5 pl-2 pr-1.5 text-xs">
+                    <img x-show="file.preview" :src="file.preview" alt="" class="h-7 w-7 shrink-0 rounded object-cover">
+                    <span class="min-w-0 truncate text-gray-700" x-text="file.file.name"></span>
+                    <span class="shrink-0 text-gray-400" x-text="fileSize(file.file.size)"></span>
+                    <button type="button" @click="unattach(index)"
+                            class="shrink-0 rounded p-0.5 text-gray-400 transition-colors hover:bg-gray-200 hover:text-gray-600"
+                            aria-label="Remove">
+                        <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+                        </svg>
+                    </button>
+                </span>
+            </template>
+        </div>
+
         <form @submit.prevent="send()" class="flex items-end gap-2">
+            <input type="file" x-ref="picker" multiple class="hidden"
+                   @change="attach($event.target.files); $event.target.value = ''">
+
+            <button type="button" @click="$refs.picker.click()"
+                    class="grid h-10 w-10 shrink-0 place-items-center rounded-lg border border-gray-200 text-gray-400 transition-colors hover:bg-gray-50 hover:text-gray-600"
+                    :title="`Attach a file (up to ${fileSize(maxFileBytes)}, ${maxFiles} at a time)`"
+                    aria-label="Attach a file">
+                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.8">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/>
+                </svg>
+            </button>
+
             <textarea x-ref="input" x-model="draft" rows="1"
                       maxlength="{{ $maxLength }}"
                       @input="grow(); announceTyping()"
                       @keydown.enter.exact.prevent="send()"
+                      @paste="pasteFiles($event)"
                       placeholder="Write a message… (Enter sends, Shift+Enter for a new line)"
                       class="max-h-32 min-h-[2.5rem] flex-1 resize-none rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 placeholder-gray-400 focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400"></textarea>
 
-            <button type="submit" :disabled="sending || draft.trim() === ''"
+            <button type="submit" :disabled="sending || (draft.trim() === '' && pending.length === 0)"
                     class="inline-flex h-10 shrink-0 items-center gap-2 rounded-lg bg-brand-600 px-4 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-40">
-                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                <svg x-show="!sending" class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
+                </svg>
+                <svg x-show="sending" x-cloak class="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3"/>
+                    <path class="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.4 0 0 5.4 0 12h4z"/>
                 </svg>
                 Send
             </button>
@@ -143,7 +219,71 @@
             sending: false,
             error: '',
             lastTypingPing: 0,
+            pending: [],
+            dragging: false,
             csrf: document.querySelector('meta[name="csrf-token"]').content,
+
+            // ── Attachments ─────────────────────────────────────────────────
+            fileUrl(file) {
+                return `${this.urls.files}/${file.token}`;
+            },
+
+            fileSize(bytes) {
+                if (!bytes) return '';
+                if (bytes < 1024) return `${bytes} B`;
+                if (bytes < 1048576) return `${Math.round(bytes / 1024)} KB`;
+
+                return `${(bytes / 1048576).toFixed(1)} MB`;
+            },
+
+            /** Checked here too, so an oversized file is refused before uploading. */
+            attach(fileList) {
+                const files = Array.from(fileList || []);
+                if (!files.length) return;
+
+                this.error = '';
+
+                for (const file of files) {
+                    if (this.pending.length >= this.maxFiles) {
+                        this.error = `Up to ${this.maxFiles} files at a time.`;
+                        break;
+                    }
+
+                    if (file.size > this.maxFileBytes) {
+                        this.error = `"${file.name}" is larger than ${this.fileSize(this.maxFileBytes)}.`;
+                        continue;
+                    }
+
+                    if (file.size === 0) {
+                        this.error = `"${file.name}" is empty.`;
+                        continue;
+                    }
+
+                    this.pending.push({
+                        file,
+                        preview: file.type.startsWith('image/') ? URL.createObjectURL(file) : null,
+                    });
+                }
+            },
+
+            unattach(index) {
+                const [removed] = this.pending.splice(index, 1);
+                if (removed?.preview) URL.revokeObjectURL(removed.preview);
+            },
+
+            clearPending() {
+                this.pending.forEach(entry => entry.preview && URL.revokeObjectURL(entry.preview));
+                this.pending = [];
+            },
+
+            pasteFiles(event) {
+                const files = Array.from(event.clipboardData?.files || []);
+
+                if (files.length) {
+                    event.preventDefault();
+                    this.attach(files);
+                }
+            },
 
             start() {
                 // The transcript comes from this browser, not from the page.
@@ -229,20 +369,31 @@
 
             async send() {
                 const text = this.draft.trim();
-                if (text === '' || this.sending) return;
+                const files = this.pending.slice();
+
+                if ((text === '' && files.length === 0) || this.sending) return;
 
                 this.sending = true;
                 this.error = '';
 
                 try {
+                    // Multipart only when uploading; Content-Type is left unset for
+                    // FormData so the browser can add its boundary.
+                    let payload, headers = { 'Accept': 'application/json', 'X-CSRF-TOKEN': this.csrf };
+
+                    if (files.length) {
+                        payload = new FormData();
+                        payload.append('body', text);
+                        files.forEach(entry => payload.append('files[]', entry.file));
+                    } else {
+                        headers['Content-Type'] = 'application/json';
+                        payload = JSON.stringify({ body: text });
+                    }
+
                     const response = await fetch(this.urls.send, {
                         method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Accept': 'application/json',
-                            'X-CSRF-TOKEN': this.csrf,
-                        },
-                        body: JSON.stringify({ body: text }),
+                        headers,
+                        body: payload,
                     });
 
                     if (!response.ok) {
@@ -257,6 +408,7 @@
                     // cursor moves past it and the next poll cannot duplicate it.
                     this.store({ messages: [data.sent], epoch: data.epoch, reset: false });
                     this.draft = '';
+                    this.clearPending();
                     this.$nextTick(() => { this.grow(); this.toBottom(); });
                 } catch (e) {
                     this.error = 'Message not sent — you may be offline.';

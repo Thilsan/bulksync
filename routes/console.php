@@ -106,6 +106,43 @@ $pruneStaleChat = function () {
 
 Schedule::call($pruneStaleChat)->hourly()->name('prune-stale-chat')->withoutOverlapping();
 
+// Chat attachments. A file is deleted as soon as the message naming it goes —
+// when a conversation is cleared, or when it falls off the end of the buffer —
+// but not every path gets that chance: the buffer entry can simply expire, and
+// then nothing is left that knows the file existed.
+//
+// So the directory is also swept by mtime, on the same reasoning as the cache
+// above. Anything older than the delivery window cannot still be referenced by a
+// live message, because the buffer entry naming it has certainly expired.
+$pruneChatFiles = function () {
+    $root = \App\Support\EphemeralChat::filesPath();
+
+    if (!is_dir($root)) {
+        return;
+    }
+
+    $cutoff = now()->timestamp - (\App\Support\EphemeralChat::BUFFER_TTL * 2);
+    $freed  = 0;
+
+    foreach (glob("{$root}/*") ?: [] as $file) {
+        if (is_file($file) && filemtime($file) < $cutoff) {
+            $freed += (int) filesize($file);
+            @unlink($file);
+        }
+    }
+
+    // Worth a line in the log: this directory is the one part of chat that can
+    // grow without a person deleting anything, and the disk has filled twice.
+    if ($freed > 0) {
+        \Illuminate\Support\Facades\Log::info('Pruned chat attachments', [
+            'freed_mb'    => round($freed / 1048576, 2),
+            'remaining_mb' => round(\App\Support\EphemeralChat::totalFileBytes() / 1048576, 2),
+        ]);
+    }
+};
+
+Schedule::call($pruneChatFiles)->hourly()->name('prune-chat-files')->withoutOverlapping();
+
 // Product Creation Requests parked in "Waiting for Mapping" are released as soon
 // as their SKUs resolve — this is what removes the re-submission step the old
 // email process needed. Runs on 'maintenance' so a long read-only Shopify check

@@ -10,6 +10,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use Illuminate\View\View;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 /**
  * Direct chat between two signed-in people.
@@ -129,18 +130,54 @@ class ChatController extends Controller
          * app only renders exceptions as JSON under api/* (see bootstrap/app.php).
          * A thrown ValidationException here would redirect, and the composer is
          * a fetch() call that needs a status and a message it can show.
+         *
+         * Either a body or a file is enough — an image on its own is a message.
          */
         $validator = Validator::make($request->all(), [
-            'body' => ['required', 'string', 'max:' . EphemeralChat::MAX_LENGTH],
+            'body'    => ['nullable', 'string', 'max:' . EphemeralChat::MAX_LENGTH],
+            'files'   => ['nullable', 'array', 'max:' . EphemeralChat::MAX_FILES_PER_MESSAGE],
+            // 'file' rather than 'image': anything may be sent, and the type is
+            // read from the contents when it is stored.
+            'files.*' => ['file', 'max:' . (int) (EphemeralChat::maxUploadBytes() / 1024)],
         ]);
 
         if ($validator->fails()) {
-            return response()->json(['message' => $validator->errors()->first('body')], 422);
+            return response()->json(['message' => $validator->errors()->first()], 422);
         }
 
-        $message = EphemeralChat::send($user->id, $peer->id, $validator->validated()['body']);
+        $body    = (string) $request->input('body', '');
+        $uploads = $request->file('files', []);
+
+        if (trim($body) === '' && $uploads === []) {
+            return response()->json(['message' => 'Nothing to send.'], 422);
+        }
+
+        /*
+         * Files are written first, then named by the message. If the message
+         * itself cannot be stored the files are removed again, so a failed send
+         * never leaves anything behind on disk.
+         */
+        $stored = [];
+
+        foreach ($uploads as $upload) {
+            $file = EphemeralChat::storeFile($upload);
+
+            if ($file === null) {
+                EphemeralChat::discardFiles($stored);
+
+                return response()->json([
+                    'message' => 'That file could not be attached — it may be too large, or storage is full.',
+                ], 422);
+            }
+
+            $stored[] = $file;
+        }
+
+        $message = EphemeralChat::send($user->id, $peer->id, $body, $stored);
 
         if ($message === null) {
+            EphemeralChat::discardFiles($stored);
+
             return response()->json(['message' => 'Message could not be sent — try again.'], 409);
         }
 
@@ -149,6 +186,49 @@ class ChatController extends Controller
         return response()->json([
             'sent'  => $message,
             'epoch' => EphemeralChat::epoch($user->id, $peer->id),
+        ]);
+    }
+
+    /**
+     * Serve one attachment from a conversation.
+     *
+     * Two things this must never become: a way to read files it was not meant to,
+     * and a way to run someone else's markup on this origin.
+     *
+     * The first is handled by looking the token up inside the caller's own
+     * conversation — a token that is not named by a message they can see does not
+     * resolve, so there is nothing to enumerate and no path to traverse.
+     *
+     * The second is handled by the headers. Only a short allowlist of image types
+     * is shown inline; everything else is forced to download, because a file that
+     * renders in the browser can carry script — an HTML file or an SVG most
+     * obviously. nosniff stops the browser second-guessing the type we declare.
+     */
+    public function download(#[CurrentUser] User $user, User $peer, string $token): BinaryFileResponse
+    {
+        $this->guard($user, $peer);
+
+        // The token shape is checked before it is used for anything at all.
+        abort_unless(preg_match('/^[a-f0-9]{32}$/', $token) === 1, 404);
+
+        $file = EphemeralChat::findFile($user->id, $peer->id, $token);
+
+        abort_if($file === null, 404, 'That file is no longer available.');
+
+        $path = EphemeralChat::filesPath($token);
+
+        abort_unless(is_file($path), 404, 'That file is no longer available.');
+
+        $inline = in_array($file['mime'], EphemeralChat::INLINE_IMAGE_MIMES, true);
+
+        return response()->file($path, [
+            'Content-Type'              => $inline ? $file['mime'] : 'application/octet-stream',
+            'Content-Disposition'       => ($inline ? 'inline' : 'attachment')
+                . '; filename="' . $file['name'] . '"',
+            'X-Content-Type-Options'    => 'nosniff',
+            // Not something to keep: the file is gone within the delivery window.
+            'Cache-Control'             => 'private, max-age=300, no-transform',
+            'Content-Security-Policy'   => "default-src 'none'; sandbox",
         ]);
     }
 
