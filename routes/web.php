@@ -80,6 +80,9 @@ Route::middleware('auth')->group(function () {
     Route::post('/photo-editor/{session}/push',  [PhotoEditorController::class, 'push'])->name('photo-editor.push');
     Route::delete('/photo-editor/{session}',     [PhotoEditorController::class, 'destroy'])->name('photo-editor.destroy');
 
+    Route::post('/photo-editor/{session}/item/{item}/reedit', [PhotoEditorController::class, 'reedit'])
+        ->name('photo-editor.item.reedit');
+
     // Edited files live outside the web root, so every read comes back through here.
     Route::get('/photo-editor/{session}/item/{item}/{variant}', [PhotoEditorController::class, 'preview'])
         ->whereIn('variant', ['before', 'after', 'full'])

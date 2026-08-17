@@ -89,6 +89,15 @@ class PhotoroomService
 
     public const BACKGROUND_MODES = ['transparent', 'white', 'custom', 'prompt', 'image', 'blur'];
 
+    /**
+     * Ghost Mannequin only reconstructs front views, so it can't help a back
+     * or side shot where the stand is left visible. This is the closest
+     * Photoroom gets to "erase that object" for such a photo.
+     */
+    private const MANNEQUIN_REMOVAL_PROMPT = 'Remove the mannequin, dress form, or headless body stand visible in this photo. '
+        . 'Keep the garment exactly as it is, in the same position and shape, floating in its place. '
+        . 'Do not add a person or any other object.';
+
     private string $apiKey;
 
     public function __construct()
@@ -132,6 +141,30 @@ class PhotoroomService
             $this->buildFields($edits),
             $this->buildHeaders($edits),
         );
+    }
+
+    /**
+     * Erase a visible mannequin/dress-form stand from a photo via Photoroom's
+     * generative editWithAI mode, returning the cleaned-up bytes.
+     *
+     * Deliberately its own request rather than a field folded into edit():
+     * Photoroom warns that mixing editWithAI with removeBackground in one
+     * call gives unpredictable results, so this pass runs first and its
+     * output becomes the input to the normal edit() call.
+     *
+     * @throws \RuntimeException  when Photoroom refuses the image outright
+     */
+    public function removeMannequin(string $imageContent, string $filename = 'image.jpg'): string
+    {
+        if (!$this->isConfigured()) {
+            throw new \RuntimeException('No Photoroom API key is configured. Add PHOTOROOM_API_KEY to the environment.');
+        }
+
+        return $this->postWithRetry($imageContent, $filename, [
+            'editWithAI.mode'   => 'ai.auto',
+            'editWithAI.prompt' => self::MANNEQUIN_REMOVAL_PROMPT,
+            'export.format'     => 'jpg',
+        ]);
     }
 
     /**

@@ -130,6 +130,19 @@ class EditPhotoItemJob implements ShouldQueue
                 $itemEdits['virtual_model']     = false;
                 $itemEdits['remove_background'] = true;
                 $appliedMode = 'none';
+
+                // Ghost Mannequin can't help here — it only builds front
+                // views — so the stand would otherwise stay in frame under a
+                // plain cutout. Run the generative removal pass first and
+                // feed its output onward as if it were the original photo.
+                if (!empty($classification['mannequin_visible'])) {
+                    try {
+                        $raw         = $photoroom->removeMannequin($raw, $item->filename);
+                        $appliedMode = 'mannequin_removed';
+                    } catch (\Throwable $e) {
+                        Log::warning("EditPhotoItemJob item {$this->itemId} mannequin removal failed: " . $e->getMessage());
+                    }
+                }
             }
 
             // Photoroom refuses anything over 30 MB or 5000 px on its widest

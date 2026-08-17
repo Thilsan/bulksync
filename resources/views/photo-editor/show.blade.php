@@ -183,8 +183,9 @@
                          Bottom-left, clear of both the "Before" hover label
                          and the status badge, so nothing overlaps on hover. --}}
                     <template x-if="item.view_type === 'back' || item.view_type === 'side'">
-                        <span class="pointer-events-none absolute bottom-2 left-2 rounded-md bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700"
-                              x-text="item.view_type === 'back' ? 'Back view · cutout only' : 'Side view · cutout only'"></span>
+                        <span class="pointer-events-none absolute bottom-2 left-2 rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
+                              :class="item.apparel_mode_applied === 'mannequin_removed' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'"
+                              x-text="(item.view_type === 'back' ? 'Back view' : 'Side view') + (item.apparel_mode_applied === 'mannequin_removed' ? ' · mannequin removed' : ' · cutout only')"></span>
                     </template>
 
                     <span class="absolute right-2 top-2 rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
@@ -198,10 +199,21 @@
                           }"
                           x-text="item.status_label"></span>
 
-                    <button type="button" x-show="item.full_url" @click="lightbox = item"
-                            class="absolute bottom-2 right-2 rounded-md bg-gray-900/70 px-2 py-1 text-[10px] font-medium text-white opacity-0 transition-opacity group-hover:opacity-100">
-                        Full size
-                    </button>
+                    <div class="absolute bottom-2 right-2 flex items-center gap-1.5">
+                        {{-- Generative steps (AI backgrounds, mannequin removal) are
+                             non-deterministic, so a disliked result is often worth
+                             just trying again rather than reworking the whole session. --}}
+                        <button type="button"
+                                x-show="item.after_url && !['editing', 'pushing', 'pending'].includes(item.status)"
+                                @click="reedit(item)"
+                                class="rounded-md bg-gray-900/70 px-2 py-1 text-[10px] font-medium text-white opacity-0 transition-opacity hover:bg-gray-900 group-hover:opacity-100">
+                            Re-edit
+                        </button>
+                        <button type="button" x-show="item.full_url" @click="lightbox = item"
+                                class="rounded-md bg-gray-900/70 px-2 py-1 text-[10px] font-medium text-white opacity-0 transition-opacity group-hover:opacity-100">
+                            Full size
+                        </button>
+                    </div>
                 </div>
 
                 <div class="space-y-2 border-t border-gray-100 px-3.5 py-3">
@@ -422,6 +434,51 @@ function photoReview(sessionId) {
                 this.pushResult = { error: e.message || String(e) };
             } finally {
                 this.pushing = false;
+            }
+        },
+
+        /*
+         * Sends one photo back through Photoroom. The item is mutated in
+         * place (rather than waiting for the next poll) so the button
+         * disappears immediately instead of staying clickable for up to 4s.
+         */
+        async reedit(item) {
+            if (['editing', 'pushing', 'pending'].includes(item.status)) return;
+
+            const previous = { status: item.status, status_label: item.status_label, error: item.error, pushable: item.pushable };
+            item.status       = 'pending';
+            item.status_label = 'Queued';
+            item.error         = null;
+            item.pushable      = false;
+            this.selectedIds[item.id] = false;
+
+            try {
+                const res = await fetch(`/photo-editor/${sessionId}/item/${item.id}/reedit`, {
+                    method:  'POST',
+                    headers: {
+                        'Accept':       'application/json',
+                        'X-CSRF-TOKEN': '{{ csrf_token() }}',
+                    },
+                });
+
+                if (res.status === 419) throw new Error('Session expired — refresh the page and try again.');
+                if (!res.ok) {
+                    const body = await res.json().catch(() => null);
+                    throw new Error(body?.error || 'Could not queue this photo for re-edit.');
+                }
+
+                // Polling may have stopped once the session first finished;
+                // start it again so the new result actually shows up.
+                this.isFinished = false;
+                if (!this.timer) {
+                    this.timer = setInterval(() => this.poll(), 4000);
+                }
+                this.poll();
+            } catch (e) {
+                item.status       = previous.status;
+                item.status_label = previous.status_label;
+                item.pushable      = previous.pushable;
+                item.error         = e.message || String(e);
             }
         },
     };

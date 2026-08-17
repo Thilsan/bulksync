@@ -182,10 +182,11 @@
                         </p>
                         <p x-show="apparelMode !== 'none'" x-cloak class="mt-2 text-xs leading-relaxed text-gray-500">
                             Back and side views skip Ghost Mannequin/Flat Lay/Virtual Model automatically (they only
-                            know how to build a front view) and fall back to a plain cutout instead — which does
-                            <strong class="font-semibold">not</strong> remove the mannequin itself. If your back
-                            shots still show the stand, raise <strong class="font-semibold">Off the bottom</strong>
-                            above to crop it out.
+                            know how to build a front view) and fall back to a plain cutout instead. When a mannequin
+                            or dress form is visible in that shot, an AI pass tries to erase it before the cutout runs
+                            — check those results before pushing, since it's a generative edit and can occasionally
+                            distort the garment. If the stand is still visible, raise
+                            <strong class="font-semibold">Off the bottom</strong> above to crop it out instead.
                         </p>
                     </div>
                 </div>

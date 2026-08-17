@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Jobs\EditPhotoItemJob;
 use App\Jobs\PushEditedPhotoJob;
 use App\Jobs\ScanPhotoEditFolderJob;
 use App\Models\PhotoEditItem;
@@ -427,6 +428,35 @@ class PhotoEditorController extends Controller implements HasMiddleware
             'queued'  => $pushable->count(),
             'skipped' => count($ids) - $pushable->count(),
         ]);
+    }
+
+    /**
+     * Send one photo back through Photoroom. Worth having on its own: the
+     * generative steps (AI background, mannequin removal) are non-deterministic,
+     * so a disliked result often comes out differently on a second attempt
+     * without touching anything else in the session.
+     */
+    public function reedit(PhotoEditSession $session, PhotoEditItem $item): JsonResponse
+    {
+        $this->authorizeSession($session);
+
+        abort_unless($item->photo_edit_session_id === $session->id, 404);
+
+        if (in_array($item->status, ['editing', 'pushing'], true)) {
+            return response()->json(['error' => 'This photo is still processing.'], 409);
+        }
+
+        // Reset away from a terminal status: EditPhotoItemJob refuses to
+        // touch an item that already reads 'edited'/'pushed'/'skipped', on
+        // the assumption that status means the work is done.
+        $item->update([
+            'status'        => 'pending',
+            'error_message' => null,
+        ]);
+
+        EditPhotoItemJob::dispatch($item->id)->onQueue('bulkupload');
+
+        return response()->json(['status' => 'queued']);
     }
 
     public function destroy(PhotoEditSession $session): RedirectResponse
