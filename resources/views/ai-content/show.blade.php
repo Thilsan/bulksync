@@ -414,8 +414,8 @@ function aiContentShow(sessionId, initialStatus) {
                 ...i,
                 confirmed: i.is_confirmed,
                 overwrite_title: false,
-                selected_tags: [...(i.ai_new_tags || [])],
-                selected_collections: [...(i.ai_new_collections || [])],
+                selected_tags: [],
+                selected_collections: [],
             }));
         },
 
