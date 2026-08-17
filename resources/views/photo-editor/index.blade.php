@@ -180,6 +180,13 @@
                             Keeping the middle <strong class="font-semibold" x-text="Math.round((1 - trimTop - trimBottom) * 100) + '%'"></strong>
                             of every photo. Check the first few results before letting the whole folder run.
                         </p>
+                        <p x-show="apparelMode !== 'none'" x-cloak class="mt-2 text-xs leading-relaxed text-gray-500">
+                            Back and side views skip Ghost Mannequin/Flat Lay/Virtual Model automatically (they only
+                            know how to build a front view) and fall back to a plain cutout instead — which does
+                            <strong class="font-semibold">not</strong> remove the mannequin itself. If your back
+                            shots still show the stand, raise <strong class="font-semibold">Off the bottom</strong>
+                            above to crop it out.
+                        </p>
                     </div>
                 </div>
             </div>
