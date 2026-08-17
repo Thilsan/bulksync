@@ -163,6 +163,11 @@ class PhotoroomService
         return $this->postWithRetry($imageContent, $filename, [
             'editWithAI.mode'   => 'ai.auto',
             'editWithAI.prompt' => self::MANNEQUIN_REMOVAL_PROMPT,
+            // Left unset, Photoroom defaults to removing the background on
+            // its own — which then collides with the forced jpg export below
+            // (JPEG can't hold transparency). Background removal is this
+            // request's job, not this pass's, so it's explicitly turned off.
+            'removeBackground'  => 'false',
             'export.format'     => 'jpg',
         ]);
     }
