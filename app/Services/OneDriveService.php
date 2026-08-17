@@ -11,16 +11,11 @@ use Illuminate\Support\Facades\Log;
 class OneDriveService
 {
     /**
-     * Deliberately narrowed back to Files.Read.
-     *
-     * Files.Read.All would let us read a folder somebody else shared — Graph
-     * answers 403 on their link with Files.Read alone — but the Blue Salon
-     * tenant does not allow users to consent for themselves, so it needs a
-     * directory admin to grant it. Until that happens Files.Read.All refuses
-     * every refresh with AADSTS65001 and nothing works at all, which is worse
-     * than not supporting shared links. Widen it again once an admin has
-     * granted consent, and add Files.Read.All to the app registration's API
-     * permissions at the same time.
+     * Widened to Files.Read.All so links shared by other users resolve via
+     * /shares/{shareId}/driveItem instead of 403ing. This depends on the
+     * Blue Salon tenant admin having granted consent for Files.Read.All on
+     * the app registration — if that consent is ever revoked, every token
+     * refresh fails with AADSTS65001 and nothing works at all.
      *
      * Changing this line invalidates every stored refresh token: they carry the
      * scopes they were consented under, so a refresh asking for anything more is
@@ -29,7 +24,7 @@ class OneDriveService
      * Both the initial consent and every token refresh must ask for the same
      * scopes, so they live here rather than in two places that can drift.
      */
-    public const SCOPES = 'Files.Read offline_access User.Read';
+    public const SCOPES = 'Files.Read.All offline_access User.Read';
 
     private Client $http;
     private ?string $accessToken   = null;

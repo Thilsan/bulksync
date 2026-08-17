@@ -55,12 +55,11 @@ class OneDriveServiceTest extends TestCase
         );
     }
 
-    public function test_the_requested_scopes_stay_within_what_a_user_can_consent_to(): void
+    public function test_the_requested_scopes_include_admin_consented_files_read_all(): void
     {
-        // Files.Read.All needs a directory admin in this tenant, and asking for a
-        // scope nobody has granted breaks every refresh, not just shared links.
-        $this->assertStringContainsString('Files.Read', OneDriveService::SCOPES);
-        $this->assertStringNotContainsString('Files.Read.All', OneDriveService::SCOPES);
+        // The Blue Salon tenant admin has granted Files.Read.All, so shared
+        // links from other users can resolve via /shares/{shareId}/driveItem.
+        $this->assertStringContainsString('Files.Read.All', OneDriveService::SCOPES);
 
         // Without offline_access there is no refresh token, so the connection
         // would die an hour after every sign-in.
