@@ -135,9 +135,7 @@ class EditPhotoItemJob implements ShouldQueue
                 // views — so the stand would otherwise stay in frame under a
                 // plain cutout. Run the generative removal pass first and
                 // feed its output onward as if it were the original photo.
-                // Opt-in only: it's a second Photoroom credit per photo, so
-                // it only runs when the session explicitly asked for it.
-                if (!empty($edits['remove_mannequin_ai']) && !empty($classification['mannequin_visible'])) {
+                if (!empty($classification['mannequin_visible'])) {
                     try {
                         $raw         = $photoroom->removeMannequin($raw, $item->filename);
                         $appliedMode = 'mannequin_removed';
