@@ -5,6 +5,7 @@ namespace App\Jobs;
 use App\Models\PhotoEditItem;
 use App\Models\PhotoEditSession;
 use App\Models\User;
+use App\Services\GeminiService;
 use App\Services\ImageProcessingService;
 use App\Services\OneDriveService;
 use App\Services\PhotoroomService;
@@ -38,6 +39,7 @@ class EditPhotoItemJob implements ShouldQueue
         OneDriveService        $oneDrive,
         ImageProcessingService $imageService,
         PhotoroomService       $photoroom,
+        GeminiService          $gemini,
     ): void {
         $item = PhotoEditItem::find($this->itemId);
 
@@ -94,6 +96,42 @@ class EditPhotoItemJob implements ShouldQueue
                 (float) ($edits['trim_bottom'] ?? 0),
             );
 
+            // Ghost mannequin / flat lay / virtual model only know how to
+            // build a FRONT view — asked to regenerate one from a back or
+            // side photo, they still produce a front (collar, buttons, and
+            // all), which is wrong for that shot. Classify first so a
+            // wrongly-angled photo falls back to a plain cutout instead.
+            // Skipped entirely when nothing would generate its own canvas —
+            // no point spending a Gemini call on a session that never asked
+            // for one. A classification failure fails open: the session's
+            // original apparel mode still applies rather than derailing the
+            // whole item over an unrelated API hiccup.
+            $classification = null;
+
+            if ($photoroom->generatesOwnCanvas($edits)) {
+                try {
+                    $classification = $gemini->classifyGarmentView($raw);
+                } catch (\Throwable $e) {
+                    Log::warning("EditPhotoItemJob item {$this->itemId} classification failed: " . $e->getMessage());
+                }
+            }
+
+            $itemEdits   = $edits;
+            $appliedMode = match (true) {
+                !empty($edits['ghost_mannequin']) => 'ghost_mannequin',
+                !empty($edits['flat_lay'])        => 'flat_lay',
+                !empty($edits['virtual_model'])   => 'virtual_model',
+                default                            => 'none',
+            };
+
+            if ($classification && in_array($classification['view_type'], ['back', 'side'], true)) {
+                $itemEdits['ghost_mannequin']   = false;
+                $itemEdits['flat_lay']          = false;
+                $itemEdits['virtual_model']     = false;
+                $itemEdits['remove_background'] = true;
+                $appliedMode = 'none';
+            }
+
             // Photoroom refuses anything over 30 MB or 5000 px on its widest
             // side. Shrinking here costs one local decode; finding out from the
             // API costs a round trip and the whole upload.
@@ -111,10 +149,10 @@ class EditPhotoItemJob implements ShouldQueue
             $beforeRel = $session->storageDir() . "/{$item->id}-before.jpg";
             file_put_contents(storage_path('app/' . $beforeRel), $imageService->thumbnail($input, 420));
 
-            $edited = $photoroom->edit($input, $edits, $item->filename);
+            $edited = $photoroom->edit($input, $itemEdits, $item->filename);
             unset($input);
 
-            $isJpeg = $photoroom->producesJpeg($edits);
+            $isJpeg = $photoroom->producesJpeg($itemEdits);
 
             // Only JPEG output goes through the compressor: it re-encodes as
             // JPEG, which would flatten a transparent PNG cutout onto black.
@@ -131,12 +169,15 @@ class EditPhotoItemJob implements ShouldQueue
             file_put_contents(storage_path('app/' . $thumbRel), $imageService->thumbnail($edited, 420, !$isJpeg));
 
             $item->update([
-                'status'              => 'edited',
-                'original_thumb_path' => $beforeRel,
-                'edited_path'         => $editedRel,
-                'edited_thumb_path'   => $thumbRel,
-                'edited_size_kb'      => (int) round(strlen($edited) / 1024),
-                'error_message'       => null,
+                'status'               => 'edited',
+                'original_thumb_path'  => $beforeRel,
+                'edited_path'          => $editedRel,
+                'edited_thumb_path'    => $thumbRel,
+                'edited_size_kb'       => (int) round(strlen($edited) / 1024),
+                'error_message'        => null,
+                'view_type'            => $classification['view_type'] ?? null,
+                'mannequin_visible'    => $classification['mannequin_visible'] ?? null,
+                'apparel_mode_applied' => $appliedMode,
             ]);
 
         } catch (\Throwable $e) {

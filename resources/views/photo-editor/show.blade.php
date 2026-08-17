@@ -176,6 +176,17 @@
                         Before
                     </span>
 
+                    {{-- The generative apparel modes only know how to build a
+                         front view — this flags when a back/side photo was
+                         auto-detected and given a plain cutout instead, so it
+                         is not mistaken for the apparel mode having failed.
+                         Bottom-left, clear of both the "Before" hover label
+                         and the status badge, so nothing overlaps on hover. --}}
+                    <template x-if="item.view_type === 'back' || item.view_type === 'side'">
+                        <span class="pointer-events-none absolute bottom-2 left-2 rounded-md bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700"
+                              x-text="item.view_type === 'back' ? 'Back view · cutout only' : 'Side view · cutout only'"></span>
+                    </template>
+
                     <span class="absolute right-2 top-2 rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
                           :class="{
                               'bg-emerald-100 text-emerald-700': item.status === 'edited',

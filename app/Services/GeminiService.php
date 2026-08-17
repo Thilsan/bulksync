@@ -309,6 +309,69 @@ Return a JSON object: {\"alt_text\": \"...\"}. No markdown, no code blocks, no e
         return mb_substr(trim($data['alt_text'] ?? ''), 0, 125);
     }
 
+    /**
+     * Look at a product photo and say which side of the garment is showing,
+     * so the caller can decide whether a generative apparel mode (which only
+     * knows how to build a front view) is appropriate for this specific shot.
+     *
+     * Never returns null — an unreadable response degrades to the same
+     * 'unknown'/false sentinel as a low-confidence read, so a Gemini hiccup
+     * fails open (caller keeps its original behaviour) instead of failing
+     * the whole item edit.
+     *
+     * @return array{view_type: string, mannequin_visible: bool}
+     */
+    public function classifyGarmentView(string $imageBytes): array
+    {
+        $fallback = ['view_type' => 'unknown', 'mannequin_visible' => false];
+
+        $imageBytes = $this->shrinkForApi($imageBytes);
+        $mimeType   = $this->detectMimeType($imageBytes);
+        $base64     = base64_encode($imageBytes);
+
+        $prompt = "Look at this product photo and classify which side of the garment/item is facing the camera.
+
+Return a JSON object with exactly these fields:
+- \"view_type\": one of \"front\", \"back\", \"side\", \"flat_lay\", \"unknown\".
+  - \"front\": the front of the garment is visible (buttons, collar front, logo placement, the side you'd normally photograph for a catalog).
+  - \"back\": the reverse/back of the garment is visible (back of collar, no buttons/placket, back seams).
+  - \"side\": a profile or three-quarter angle — neither clearly front nor back.
+  - \"flat_lay\": the item is laid flat or hung against a background with no mannequin, dress form, or body in frame at all.
+  - \"unknown\": you cannot confidently tell from this image.
+- \"mannequin_visible\": true if any part of a mannequin, dress form, bust, or headless body is visible in the frame; false otherwise.
+
+Return only valid JSON. No markdown, no code blocks, no extra text.";
+
+        $payload = [
+            'contents' => [[
+                'parts' => [
+                    ['text' => $prompt],
+                    ['inline_data' => ['mime_type' => $mimeType, 'data' => $base64]],
+                ],
+            ]],
+            'generationConfig' => [
+                'responseMimeType' => 'application/json',
+                'temperature'      => 0.1,
+            ],
+        ];
+
+        $response = $this->postWithRetry($payload);
+        if (!$response) return $fallback;
+
+        $text = $response->json('candidates.0.content.parts.0.text') ?? '';
+        if (!$text) return $fallback;
+
+        $data = json_decode($text, true);
+        if (!is_array($data)) return $fallback;
+
+        $viewType = $data['view_type'] ?? 'unknown';
+
+        return [
+            'view_type'         => in_array($viewType, ['front', 'back', 'side', 'flat_lay', 'unknown'], true) ? $viewType : 'unknown',
+            'mannequin_visible' => (bool) ($data['mannequin_visible'] ?? false),
+        ];
+    }
+
     private function downloadImage(string $url): ?string
     {
         try {

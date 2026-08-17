@@ -365,10 +365,11 @@
 
                         <p class="text-xs leading-relaxed text-amber-700">
                             These redraw the garment rather than masking it — slower per image, and worth checking
-                            one by one on the review screen before pushing. They also decide for themselves which
-                            face of the garment they are looking at, so a photo of a back can come out with a collar
-                            and a button placket on it. Feed them upright photos, and for a back view say so in
-                            <strong class="font-semibold">Guidance</strong> — e.g. "back view, no buttons or placket".
+                            one by one on the review screen before pushing. They only know how to build a front view,
+                            so each photo is auto-checked first: a detected back or side shot is given a plain cutout
+                            instead of a redrawn front, and is flagged on the review screen. Feed them upright
+                            photos, and use <strong class="font-semibold">Guidance</strong> for anything the
+                            automatic check might still get wrong — e.g. "back view, no buttons or placket".
                         </p>
                     </div>
                 </div>

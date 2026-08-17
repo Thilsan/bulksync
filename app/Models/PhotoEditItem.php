@@ -20,6 +20,9 @@ class PhotoEditItem extends Model
         'original_size_kb',
         'edited_size_kb',
         'status',
+        'view_type',
+        'mannequin_visible',
+        'apparel_mode_applied',
         'selected',
         'product_id',
         'product_title',
@@ -32,7 +35,8 @@ class PhotoEditItem extends Model
     protected function casts(): array
     {
         return [
-            'selected' => 'boolean',
+            'selected'          => 'boolean',
+            'mannequin_visible' => 'boolean',
         ];
     }
 
