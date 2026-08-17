@@ -96,16 +96,17 @@ class EditPhotoItemJob implements ShouldQueue
                 (float) ($edits['trim_bottom'] ?? 0),
             );
 
-            // Ghost mannequin / flat lay / virtual model only know how to
-            // build a FRONT view — asked to regenerate one from a back or
-            // side photo, they still produce a front (collar, buttons, and
-            // all), which is wrong for that shot. Classify first so a
-            // wrongly-angled photo falls back to a plain cutout instead.
-            // Skipped entirely when nothing would generate its own canvas —
-            // no point spending a Gemini call on a session that never asked
-            // for one. A classification failure fails open: the session's
-            // original apparel mode still applies rather than derailing the
-            // whole item over an unrelated API hiccup.
+            // Ghost mannequin / flat lay / virtual model regenerate the
+            // garment from scratch — useful for the "floating garment" look,
+            // but generative reconstruction carries no guarantee of matching
+            // the original photo's color or orientation, which matters more
+            // here than the redraw itself. Every item that asked for one of
+            // those modes gets a plain cutout instead, whatever its view.
+            // Classification is only spent on sessions that asked for a
+            // redraw mode in the first place, to know whether a mannequin is
+            // actually in frame to erase. A classification failure fails
+            // open: the item still gets the plain-cutout fallback rather than
+            // derailing over an unrelated API hiccup.
             $classification = null;
 
             if ($photoroom->generatesOwnCanvas($edits)) {
@@ -117,25 +118,19 @@ class EditPhotoItemJob implements ShouldQueue
             }
 
             $itemEdits   = $edits;
-            $appliedMode = match (true) {
-                !empty($edits['ghost_mannequin']) => 'ghost_mannequin',
-                !empty($edits['flat_lay'])        => 'flat_lay',
-                !empty($edits['virtual_model'])   => 'virtual_model',
-                default                            => 'none',
-            };
+            $appliedMode = 'none';
 
-            if ($classification && in_array($classification['view_type'], ['back', 'side'], true)) {
+            if ($photoroom->generatesOwnCanvas($edits)) {
                 $itemEdits['ghost_mannequin']   = false;
                 $itemEdits['flat_lay']          = false;
                 $itemEdits['virtual_model']     = false;
                 $itemEdits['remove_background'] = true;
-                $appliedMode = 'none';
 
-                // Ghost Mannequin can't help here — it only builds front
-                // views — so the stand would otherwise stay in frame under a
-                // plain cutout. Run the generative removal pass first and
-                // feed its output onward as if it were the original photo.
-                if (!empty($classification['mannequin_visible'])) {
+                // A visible mannequin is erased via a generative pass
+                // regardless of which side of the garment faces the camera —
+                // cutting the background alone would otherwise leave the
+                // stand in frame.
+                if ($classification && !empty($classification['mannequin_visible'])) {
                     try {
                         $raw         = $photoroom->removeMannequin($raw, $item->filename);
                         $appliedMode = 'mannequin_removed';

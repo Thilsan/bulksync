@@ -176,16 +176,17 @@
                         Before
                     </span>
 
-                    {{-- The generative apparel modes only know how to build a
-                         front view — this flags when a back/side photo was
-                         auto-detected and given a plain cutout instead, so it
-                         is not mistaken for the apparel mode having failed.
+                    {{-- The generative apparel modes are never actually used —
+                         every item that asked for one gets a plain cutout
+                         instead, to keep the original color and orientation
+                         intact. This flags that a redraw was requested but
+                         not applied, so it is not mistaken for a failure.
                          Bottom-left, clear of both the "Before" hover label
                          and the status badge, so nothing overlaps on hover. --}}
-                    <template x-if="item.view_type === 'back' || item.view_type === 'side'">
+                    <template x-if="item.view_type">
                         <span class="pointer-events-none absolute bottom-2 left-2 rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
                               :class="item.apparel_mode_applied === 'mannequin_removed' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'"
-                              x-text="(item.view_type === 'back' ? 'Back view' : 'Side view') + (item.apparel_mode_applied === 'mannequin_removed' ? ' · mannequin removed' : ' · cutout only')"></span>
+                              x-text="item.view_type.replace('_', ' ') + ' view · ' + (item.apparel_mode_applied === 'mannequin_removed' ? 'mannequin removed' : 'cutout only')"></span>
                     </template>
 
                     <span class="absolute right-2 top-2 rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide"

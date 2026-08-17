@@ -181,9 +181,8 @@
                             of every photo. Check the first few results before letting the whole folder run.
                         </p>
                         <p x-show="apparelMode !== 'none'" x-cloak class="mt-2 text-xs leading-relaxed text-gray-500">
-                            Back and side views skip Ghost Mannequin/Flat Lay/Virtual Model automatically (they only
-                            know how to build a front view) and fall back to a plain cutout instead. When a mannequin
-                            or dress form is visible in that shot, an AI pass tries to erase it before the cutout runs
+                            Every photo gets a plain cutout — colors and orientation stay exactly as shot. When a
+                            mannequin or dress form is visible, an AI pass tries to erase it before the cutout runs
                             — check those results before pushing, since it's a generative edit and can occasionally
                             distort the garment. If the stand is still visible, raise
                             <strong class="font-semibold">Off the bottom</strong> above to crop it out instead.
@@ -282,29 +281,29 @@
                 </div>
 
                 <div class="space-y-4 px-6 py-5">
-                    {{-- The badge is the whole point of this card. "Remove
-                         mannequin" sounds like masking, so people reach for it
-                         expecting their photo back minus a mannequin — and get a
-                         garment Photoroom drew from scratch, with a different
-                         fit, collar and drape. Say which options keep the
-                         photograph and which replace it, on the option itself. --}}
-                    <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                    {{-- Ghost Mannequin / Flat Lay / Virtual Model exist as
+                         Photoroom features, but this tool never actually uses
+                         their redraw: generative reconstruction carries no
+                         guarantee of keeping the garment's real color or
+                         orientation, which matters more here than the
+                         "floating garment" look. Every option below is a
+                         real-pixel cutout — the only difference is whether an
+                         AI pass first tries to erase a visible mannequin. --}}
+                    <div class="grid gap-3 sm:grid-cols-2">
                         @foreach ([
-                            ['none',            'Keep the photo',   'Cuts out the background and leaves the garment exactly as it was shot. The mannequin stays in frame — trim it off in step 1.', false],
-                            ['ghost_mannequin', 'Remove mannequin', 'Draws a new garment holding its own shape. The mannequin goes, but so does the real fit, collar and drape.', true],
-                            ['flat_lay',        'Flat lay',         'Draws the garment again, laid flat and shot from above.', true],
-                            ['virtual_model',   'On a model',       'Draws the garment onto an AI model, in a scene and pose you choose.', true],
-                        ] as [$value, $label, $help, $redraws])
+                            ['none',            'Keep the photo',              'Cuts out the background and leaves the garment exactly as it was shot — original colors and orientation untouched. The mannequin stays in frame — trim it off in step 1.', false],
+                            ['ghost_mannequin', 'Keep the photo + AI cleanup', 'Same real-pixel cutout, but if a mannequin or dress form is visible, an AI pass tries to erase it first before the cutout runs. Uses an extra Photoroom credit on photos where it runs, and — being a generative edit — can occasionally distort the garment, so check results before pushing.', true],
+                        ] as [$value, $label, $help, $usesAi])
                         <label class="opt-card cursor-pointer rounded-xl border p-4 transition-colors"
                                :class="apparelMode === '{{ $value }}' ? 'border-brand-500 bg-brand-50/60 ring-1 ring-brand-500' : 'border-gray-200 hover:border-gray-300'">
                             <input type="radio" name="apparel_mode" value="{{ $value }}" x-model="apparelMode" class="sr-only"
                                    @checked(old('apparel_mode', 'none') === $value)>
                             <span class="flex items-center gap-1.5">
                                 <span class="text-sm font-semibold text-gray-800">{{ $label }}</span>
-                                @if ($redraws)
-                                    <span class="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700">Redraws</span>
+                                @if ($usesAi)
+                                    <span class="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700">AI cleanup</span>
                                 @else
-                                    <span class="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700">Real pixels</span>
+                                    <span class="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700">No AI</span>
                                 @endif
                             </span>
                             <p class="mt-1 text-xs leading-relaxed text-gray-500">{{ $help }}</p>
@@ -322,64 +321,6 @@
                             </span>
                         </span>
                     </label>
-
-                    {{-- Shape and canvas belong to whichever AI feature is drawing it. --}}
-                    <div x-show="apparelMode !== 'none'" x-cloak class="space-y-4 rounded-xl border border-gray-200 bg-gray-50/60 p-4">
-                        <div class="grid gap-3 sm:grid-cols-2">
-                            <div>
-                                <label for="apparel_size" class="mb-1 block text-xs font-medium text-gray-600">Canvas shape</label>
-                                <select id="apparel_size" name="apparel_size" x-model="apparelSize"
-                                        class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none">
-                                    <option value="">Photoroom's default</option>
-                                    @foreach ($sizePresets as $value => $label)
-                                        <option value="{{ $value }}">{{ $label }}</option>
-                                    @endforeach
-                                </select>
-                            </div>
-                            <div>
-                                <label for="apparel_prompt" class="mb-1 block text-xs font-medium text-gray-600">Guidance <span class="font-normal text-gray-400">(optional)</span></label>
-                                <input id="apparel_prompt" type="text" name="apparel_prompt" x-model="apparelPrompt" maxlength="500"
-                                       placeholder="e.g. relaxed drape, sleeves forward"
-                                       class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none">
-                            </div>
-                        </div>
-
-                        <div x-show="apparelMode === 'virtual_model'" x-cloak class="grid gap-3 sm:grid-cols-3">
-                            <div>
-                                <label for="vm_model" class="mb-1 block text-xs font-medium text-gray-600">Model</label>
-                                <select id="vm_model" name="vm_model" x-model="vmModel"
-                                        class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm capitalize focus:border-brand-500 focus:outline-none">
-                                    <option value="">Any</option>
-                                    @foreach ($vmModels as $preset)<option value="{{ $preset }}">{{ ucfirst($preset) }}</option>@endforeach
-                                </select>
-                            </div>
-                            <div>
-                                <label for="vm_scene" class="mb-1 block text-xs font-medium text-gray-600">Scene</label>
-                                <select id="vm_scene" name="vm_scene" x-model="vmScene"
-                                        class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm capitalize focus:border-brand-500 focus:outline-none">
-                                    <option value="">Any</option>
-                                    @foreach ($vmScenes as $preset)<option value="{{ $preset }}">{{ ucfirst($preset) }}</option>@endforeach
-                                </select>
-                            </div>
-                            <div>
-                                <label for="vm_pose" class="mb-1 block text-xs font-medium text-gray-600">Pose</label>
-                                <select id="vm_pose" name="vm_pose" x-model="vmPose"
-                                        class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm capitalize focus:border-brand-500 focus:outline-none">
-                                    <option value="">Any</option>
-                                    @foreach ($vmPoses as $preset)<option value="{{ $preset }}">{{ ucfirst($preset) }}</option>@endforeach
-                                </select>
-                            </div>
-                        </div>
-
-                        <p class="text-xs leading-relaxed text-amber-700">
-                            These redraw the garment rather than masking it — slower per image, and worth checking
-                            one by one on the review screen before pushing. They only know how to build a front view,
-                            so each photo is auto-checked first: a detected back or side shot is given a plain cutout
-                            instead of a redrawn front, and is flagged on the review screen. Feed them upright
-                            photos, and use <strong class="font-semibold">Guidance</strong> for anything the
-                            automatic check might still get wrong — e.g. "back view, no buttons or placket".
-                        </p>
-                    </div>
                 </div>
             </div>
 
@@ -736,13 +677,8 @@ function photoEditForm() {
         backgroundBlurRadius: {{ old('background_blur_radius', '0.02') ?: '0.02' }},
 
         // Clothing
-        apparelMode:   '{{ old('apparel_mode', 'none') }}',
-        apparelSize:   '{{ old('apparel_size', '') }}',
-        apparelPrompt: @json(old('apparel_prompt', '')),
-        vmModel:       '{{ old('vm_model', '') }}',
-        vmScene:       '{{ old('vm_scene', '') }}',
-        vmPose:        '{{ old('vm_pose', '') }}',
-        ironing:       {{ old('ironing') ? 'true' : 'false' }},
+        apparelMode: '{{ old('apparel_mode', 'none') }}',
+        ironing:     {{ old('ironing') ? 'true' : 'false' }},
 
         // Shadow
         shadow:          '{{ old('shadow', '') }}',
