@@ -182,12 +182,28 @@
                         </p>
                         <p x-show="apparelMode !== 'none'" x-cloak class="mt-2 text-xs leading-relaxed text-gray-500">
                             Back and side views skip Ghost Mannequin/Flat Lay/Virtual Model automatically (they only
-                            know how to build a front view) and fall back to a plain cutout instead. When a mannequin
-                            or dress form is visible in that shot, an AI pass tries to erase it before the cutout runs
-                            — check those results before pushing, since it's a generative edit and can occasionally
-                            distort the garment. If the stand is still visible, raise
-                            <strong class="font-semibold">Off the bottom</strong> above to crop it out instead.
+                            know how to build a front view) and fall back to a plain cutout instead — mannequin left
+                            in frame, unless you turn on the option below. If the stand is still visible after that,
+                            raise <strong class="font-semibold">Off the bottom</strong> above to crop it out instead.
                         </p>
+
+                        <label x-show="apparelMode !== 'none'" x-cloak
+                               class="mt-3 flex cursor-pointer items-start gap-3 rounded-xl border border-gray-200 p-4 transition-colors hover:border-gray-300">
+                            <input type="checkbox" name="remove_mannequin_ai" value="1" x-model="removeMannequinAi"
+                                   class="mt-0.5 h-4 w-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500">
+                            <span>
+                                <span class="flex items-center gap-1.5">
+                                    <span class="text-sm font-medium text-gray-800">Try to remove the mannequin from those shots</span>
+                                    <span class="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700">Extra credit</span>
+                                </span>
+                                <span class="block text-xs text-gray-500">
+                                    Runs one extra generative Photoroom pass on back/side shots where a mannequin is
+                                    visible — roughly double the per-image cost for just those photos. It's a
+                                    generative edit, so check the results before pushing; it can occasionally distort
+                                    the garment.
+                                </span>
+                            </span>
+                        </label>
                     </div>
                 </div>
             </div>
@@ -743,6 +759,7 @@ function photoEditForm() {
         vmScene:       '{{ old('vm_scene', '') }}',
         vmPose:        '{{ old('vm_pose', '') }}',
         ironing:       {{ old('ironing') ? 'true' : 'false' }},
+        removeMannequinAi: {{ old('remove_mannequin_ai') ? 'true' : 'false' }},
 
         // Shadow
         shadow:          '{{ old('shadow', '') }}',

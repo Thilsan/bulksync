@@ -138,6 +138,7 @@ class PhotoEditorController extends Controller implements HasMiddleware
             'vm_scene'       => ['nullable', Rule::in(PhotoroomService::VIRTUAL_MODEL_SCENES)],
             'vm_pose'        => ['nullable', Rule::in(PhotoroomService::VIRTUAL_MODEL_POSES)],
             'ironing'        => ['nullable', 'boolean'],
+            'remove_mannequin_ai' => ['nullable', 'boolean'],
 
             // ── Shadow ──
             'shadow'           => ['nullable', Rule::in(array_keys(PhotoroomService::SHADOW_MODES))],
@@ -190,7 +191,7 @@ class PhotoEditorController extends Controller implements HasMiddleware
             'trim_top', 'trim_bottom',
         ], null) + array_fill_keys([
             'remove_background', 'ironing', 'lighting', 'upscale', 'expand', 'uncrop',
-            'rotate_wide_only',
+            'rotate_wide_only', 'remove_mannequin_ai',
         ], false);
 
         // Blurring keeps the original scene, so it is the one mode that is not
@@ -238,6 +239,7 @@ class PhotoEditorController extends Controller implements HasMiddleware
             'vm_scene'        => $apparel === 'virtual_model' ? $validated['vm_scene'] : null,
             'vm_pose'         => $apparel === 'virtual_model' ? $validated['vm_pose'] : null,
             'ironing'         => (bool) $validated['ironing'],
+            'remove_mannequin_ai' => (bool) $validated['remove_mannequin_ai'],
 
             // Shadow
             'shadow'           => $validated['shadow'] ?: null,
