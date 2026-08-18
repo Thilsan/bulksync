@@ -292,15 +292,16 @@ class PhotoEditorConfigureTest extends TestCase
         $this->actingAs($session->user)->post(route('photo-editor.start', $session), [
             'groups' => [$shoe->id => ['edits' => [
                 'width' => '2000', 'height' => '2000',
-                'padding_top' => '18', 'padding_bottom' => '4',
+                'padding_top' => '180', 'padding_bottom' => '40',
                 'v_align' => 'bottom', 'scaling' => 'fit',
             ]]],
         ]);
 
         $edits = $shoe->fresh()->edits;
 
-        // Typed as a percentage, stored as the fraction everything downstream speaks.
-        $this->assertEquals(0.18, $edits['padding_top']);
+        // Typed in pixels and stored with its unit, so nothing downstream has
+        // to infer what a bare number meant.
+        $this->assertSame('180px', $edits['padding_top']);
         $this->assertSame('bottom', $edits['v_align']);
 
         $fields = app(\App\Services\PhotoroomService::class)->buildFields(
@@ -308,8 +309,8 @@ class PhotoEditorConfigureTest extends TestCase
         );
 
         $this->assertSame('2000x2000', $fields['outputSize']);
-        $this->assertSame('0.18', $fields['paddingTop']);
-        $this->assertSame('0.04', $fields['paddingBottom']);
+        $this->assertSame('180px', $fields['paddingTop']);
+        $this->assertSame('40px', $fields['paddingBottom']);
         $this->assertSame('bottom', $fields['verticalAlignment']);
     }
 

@@ -370,15 +370,15 @@ class PhotoEditorController extends Controller implements HasMiddleware
         }
 
         /*
-         * Per-edge spacing is typed as a percentage, because that is what the
-         * slider beside it shows. Stored as a fraction, because that is what
-         * everything downstream already speaks — the conversion happens here so
-         * the two controls can never disagree about units.
+         * Per-edge spacing is typed in pixels and stored with its unit, so
+         * nothing downstream has to infer what a bare number meant. The overall
+         * slider stays a fraction — it is a proportion of whatever canvas the
+         * group ends up with, which is a different question from "40 pixels".
          */
         foreach (['padding_top', 'padding_bottom', 'padding_left', 'padding_right'] as $key) {
             if (array_key_exists($key, $input)) {
                 $input[$key] = filled($input[$key])
-                    ? round(max(0, min(49, (float) $input[$key])) / 100, 4)
+                    ? ((int) round(max(0, min(2000, (float) $input[$key])))) . 'px'
                     : null;
             }
         }
