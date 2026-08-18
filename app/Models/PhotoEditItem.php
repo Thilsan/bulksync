@@ -23,6 +23,7 @@ class PhotoEditItem extends Model
         'view_type',
         'mannequin_visible',
         'apparel_mode_applied',
+        'uncertainty_score',
         'selected',
         'product_id',
         'product_title',
@@ -37,7 +38,26 @@ class PhotoEditItem extends Model
         return [
             'selected'          => 'boolean',
             'mannequin_visible' => 'boolean',
+            'uncertainty_score' => 'float',
         ];
+    }
+
+    /**
+     * Cutouts Photoroom itself was unsure about, which is where a reviewer's
+     * attention is worth spending. The threshold is deliberately loose: a
+     * missed bad cutout costs a re-run, a needless flag costs a glance.
+     */
+    public const UNCERTAIN_ABOVE = 0.3;
+
+    public function looksUncertain(): bool
+    {
+        return $this->uncertainty_score !== null
+            && $this->uncertainty_score > self::UNCERTAIN_ABOVE;
+    }
+
+    public function scopeUncertain($query)
+    {
+        return $query->where('uncertainty_score', '>', self::UNCERTAIN_ABOVE);
     }
 
     public function session(): BelongsTo

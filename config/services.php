@@ -74,8 +74,26 @@ return [
          * Photoroom bills per image edited, and a OneDrive link pasted by
          * mistake can point at a folder holding thousands. A run refuses to
          * start above this rather than discovering the bill afterwards.
+         *
+         * The Plus plan allows 1,000 images a month. At the old ceiling of 300
+         * a single mistaken run took a third of the month with it — and items
+         * that need a mannequin erased spend two requests, so 300 images could
+         * mean 600. 120 keeps any one run recoverable.
          */
-        'max_images' => (int) env('PHOTOROOM_MAX_IMAGES', 300),
+        'max_images' => (int) env('PHOTOROOM_MAX_IMAGES', 120),
+
+        /*
+         * Images included in the plan each month. Only used to show how much of
+         * the allowance a run would take before it is started.
+         */
+        'monthly_quota' => (int) env('PHOTOROOM_MONTHLY_QUOTA', 1000),
+
+        /*
+         * Day of the month the allowance resets. Photoroom bills from the day
+         * the plan started, not from the 1st, so a calendar month would report
+         * the wrong figure for most of it.
+         */
+        'quota_resets_on' => (int) env('PHOTOROOM_QUOTA_RESETS_ON', 18),
 
         /*
          * Requests per minute to pace the whole worker fleet to. Photoroom's

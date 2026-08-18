@@ -185,8 +185,25 @@
                          and the status badge, so nothing overlaps on hover. --}}
                     <template x-if="item.view_type">
                         <span class="pointer-events-none absolute bottom-2 left-2 rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
-                              :class="item.apparel_mode_applied === 'mannequin_removed' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'"
-                              x-text="item.view_type.replace('_', ' ') + ' view · ' + (item.apparel_mode_applied === 'mannequin_removed' ? 'mannequin removed' : 'cutout only')"></span>
+                              :class="item.apparel_mode_applied === 'none' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'"
+                              x-text="item.view_type.replace('_', ' ') + ' view · ' + ({
+                                  mannequin_removed: 'mannequin removed',
+                                  segmented:         'mannequin segmented out',
+                                  generative:        'redrawn by AI',
+                              }[item.apparel_mode_applied] || 'cutout only')"></span>
+                    </template>
+
+                    {{-- Photoroom reports how sure it was of each cutout, free,
+                         in a response header. A batch is mostly fine and the
+                         eye glazes over by the tenth thumbnail, so the ones it
+                         doubted are called out rather than left to be spotted.
+                         Top-left: the status badge owns the right, the view
+                         label the bottom. --}}
+                    <template x-if="item.looks_uncertain">
+                        <span class="pointer-events-none absolute left-2 top-2 rounded-md bg-amber-500 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white"
+                              :title="'Photoroom rated this cutout ' + Math.round(item.uncertainty_score * 100) + '% uncertain'">
+                            Check cutout
+                        </span>
                     </template>
 
                     <span class="absolute right-2 top-2 rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide"

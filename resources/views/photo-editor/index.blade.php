@@ -388,13 +388,24 @@
                     </div>
 
                     <div class="grid gap-3 sm:grid-cols-2">
-                        <label class="flex cursor-pointer items-start gap-3 rounded-xl border border-gray-200 p-4 hover:border-gray-300">
-                            <input type="checkbox" name="lighting" value="1" x-model="lighting" class="mt-0.5 h-4 w-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500">
-                            <span>
-                                <span class="block text-sm font-medium text-gray-800">Even out the lighting</span>
-                                <span class="block text-xs text-gray-500">Fixes harsh or uneven studio light.</span>
-                            </span>
-                        </label>
+                        {{-- A mode, not a checkbox. The default relight is free to
+                             shift hue and saturation to make light look good, which on
+                             a garment means the photo stops matching the product. The
+                             colour-safe mode is Photoroom's own recommendation for
+                             product shots and is first here for that reason. --}}
+                        <div class="rounded-xl border border-gray-200 p-4">
+                            <label for="lighting" class="block text-sm font-medium text-gray-800">Even out the lighting</label>
+                            <p class="mt-0.5 text-xs text-gray-500">Fixes harsh or uneven studio light.</p>
+                            <select id="lighting" name="lighting" x-model="lighting"
+                                    class="mt-2 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none">
+                                @foreach (\App\Services\PhotoroomService::LIGHTING_MODES as $value => $label)
+                                    <option value="{{ $value }}" @selected(old('lighting', '') === $value)>{{ $label }}</option>
+                                @endforeach
+                            </select>
+                            <p x-show="lighting === 'ai.auto'" x-cloak class="mt-2 text-xs text-amber-700">
+                                This mode may shift colours. Use “keep original colours” for anything going on a product page.
+                            </p>
+                        </div>
                         <label class="flex cursor-pointer items-start gap-3 rounded-xl border border-gray-200 p-4 hover:border-gray-300">
                             <input type="checkbox" name="upscale" value="1" x-model="upscale" class="mt-0.5 h-4 w-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500">
                             <span>
@@ -561,6 +572,253 @@
                     </div>
                 </div>
 
+                {{-- ── 6 · Advanced ──────────────────────────────────────────
+                     Everything here has a sane default and most runs never open
+                     it. Collapsed rather than omitted: the options exist because
+                     particular product types need them, and hunting for a setting
+                     that is not in the form is worse than scrolling past one. --}}
+                <div class="border-t border-gray-100">
+                    <button type="button" @click="showAdvanced = !showAdvanced"
+                            class="flex w-full items-center justify-between px-6 py-4 text-left">
+                        <span class="text-sm font-semibold text-gray-800">6 &middot; Advanced <span class="font-normal text-gray-400">(optional)</span></span>
+                        <span class="text-xs text-gray-500" x-text="showAdvanced ? 'Hide' : 'Show'"></span>
+                    </button>
+
+                    <div x-show="showAdvanced" x-cloak class="space-y-6 border-t border-gray-100 px-6 py-5">
+
+                        {{-- File format and colour --}}
+                        <div>
+                            <span class="mb-2 block text-sm font-medium text-gray-700">File format &amp; colour</span>
+                            <div class="grid gap-4 sm:grid-cols-3">
+                                <div>
+                                    <label for="export_format" class="mb-1.5 block text-xs font-medium text-gray-600">Format</label>
+                                    <select id="export_format" name="export_format" x-model="exportFormat"
+                                            class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none">
+                                        <option value="auto" @selected(old('export_format', 'auto') === 'auto')>Automatic (JPEG, or PNG for cutouts)</option>
+                                        <option value="jpg"  @selected(old('export_format') === 'jpg')>JPEG</option>
+                                        <option value="png"  @selected(old('export_format') === 'png')>PNG</option>
+                                        <option value="webp" @selected(old('export_format') === 'webp')>WebP (smaller files)</option>
+                                        <option value="avif" @selected(old('export_format') === 'avif')>AVIF (smallest; check Shopify accepts it)</option>
+                                    </select>
+                                    <p x-show="exportFormat === 'jpg'" x-cloak class="mt-1 text-xs text-amber-700">
+                                        A transparent cutout is saved as PNG regardless — JPEG cannot hold transparency.
+                                    </p>
+                                </div>
+                                <div>
+                                    <label for="color_space" class="mb-1.5 block text-xs font-medium text-gray-600">Colour space</label>
+                                    <select id="color_space" name="color_space"
+                                            class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none">
+                                        <option value="sRGB" @selected(old('color_space', 'sRGB') === 'sRGB')>sRGB (recommended for web)</option>
+                                        <option value="original" @selected(old('color_space') === 'original')>Keep the camera's</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label for="preserve_metadata" class="mb-1.5 block text-xs font-medium text-gray-600">Metadata</label>
+                                    <select id="preserve_metadata" name="preserve_metadata"
+                                            class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none">
+                                        <option value="">Photoroom's default</option>
+                                        @foreach (\App\Services\PhotoroomService::METADATA_MODES as $value => $label)
+                                            <option value="{{ $value }}" @selected(old('preserve_metadata') === $value)>{{ $label }}</option>
+                                        @endforeach
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        {{-- Size ceilings --}}
+                        <div>
+                            <span class="mb-2 block text-sm font-medium text-gray-700">Size ceiling</span>
+                            <p class="mb-3 text-xs text-gray-500">
+                                A cap rather than a shape. Useful when a run mixes tall dresses with wide watch faces
+                                and forcing both into one square would waste the canvas.
+                            </p>
+                            <div class="grid gap-4 sm:grid-cols-3">
+                                <div>
+                                    <label for="max_width" class="mb-1.5 block text-xs font-medium text-gray-600">Max width (px)</label>
+                                    <input id="max_width" type="number" name="max_width" min="100" max="8192" value="{{ old('max_width') }}"
+                                           class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none">
+                                </div>
+                                <div>
+                                    <label for="max_height" class="mb-1.5 block text-xs font-medium text-gray-600">Max height (px)</label>
+                                    <input id="max_height" type="number" name="max_height" min="100" max="8192" value="{{ old('max_height') }}"
+                                           class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none">
+                                </div>
+                                <div>
+                                    <label for="output_size_mode" class="mb-1.5 block text-xs font-medium text-gray-600">When no exact size is set</label>
+                                    <select id="output_size_mode" name="output_size_mode" x-model="outputSizeMode"
+                                            class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none">
+                                        <option value="auto" @selected(old('output_size_mode', 'auto') === 'auto')>Let Photoroom decide</option>
+                                        <option value="originalImage" @selected(old('output_size_mode') === 'originalImage')>Same as the original</option>
+                                        <option value="croppedSubject" @selected(old('output_size_mode') === 'croppedSubject')>Crop tight to the product</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        {{-- Per-edge spacing --}}
+                        <div>
+                            <span class="mb-2 block text-sm font-medium text-gray-700">Spacing per edge</span>
+                            <p class="mb-3 text-xs text-gray-500">
+                                Overrides the overall padding on one side only — headroom above a cap, a base under a heel.
+                                Accepts a fraction (<code>0.1</code>) or pixels (<code>40px</code>).
+                            </p>
+                            <div class="grid gap-3 sm:grid-cols-4">
+                                @foreach (['top' => 'Top', 'bottom' => 'Bottom', 'left' => 'Left', 'right' => 'Right'] as $edge => $label)
+                                    <div>
+                                        <label for="padding_{{ $edge }}" class="mb-1.5 block text-xs font-medium text-gray-600">{{ $label }} padding</label>
+                                        <input id="padding_{{ $edge }}" type="text" name="padding_{{ $edge }}" value="{{ old('padding_' . $edge) }}" placeholder="—"
+                                               class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none">
+                                    </div>
+                                @endforeach
+                            </div>
+                            <div class="mt-3 grid gap-3 sm:grid-cols-4">
+                                @foreach (['top' => 'Top', 'bottom' => 'Bottom', 'left' => 'Left', 'right' => 'Right'] as $edge => $label)
+                                    <div>
+                                        <label for="margin_{{ $edge }}" class="mb-1.5 block text-xs font-medium text-gray-600">{{ $label }} margin</label>
+                                        <input id="margin_{{ $edge }}" type="text" name="margin_{{ $edge }}" value="{{ old('margin_' . $edge) }}" placeholder="—"
+                                               class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none">
+                                    </div>
+                                @endforeach
+                            </div>
+                            <label class="mt-3 flex cursor-pointer items-start gap-3">
+                                <input type="checkbox" name="snap_cropped_sides" value="1" @checked(old('snap_cropped_sides'))
+                                       class="mt-0.5 h-4 w-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500">
+                                <span class="text-xs text-gray-600">
+                                    Ignore padding on edges where the product is already cut off by the frame.
+                                </span>
+                            </label>
+                        </div>
+
+                        {{-- Text-guided segmentation --}}
+                        <div>
+                            <span class="mb-2 block text-sm font-medium text-gray-700">Describe what to keep</span>
+                            <p class="mb-3 text-xs text-gray-500">
+                                Tells the cutout what the product actually is, in words. This is the cheap way to drop a
+                                mannequin or a prop — it happens inside the one cutout request, instead of spending a
+                                second generative request to erase it first.
+                            </p>
+                            <div class="grid gap-4 sm:grid-cols-2">
+                                <div>
+                                    <label for="segmentation_prompt" class="mb-1.5 block text-xs font-medium text-gray-600">Keep</label>
+                                    <input id="segmentation_prompt" type="text" name="segmentation_prompt" maxlength="500"
+                                           value="{{ old('segmentation_prompt') }}" placeholder="the dress"
+                                           class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none">
+                                </div>
+                                <div>
+                                    <label for="segmentation_negative_prompt" class="mb-1.5 block text-xs font-medium text-gray-600">Remove</label>
+                                    <input id="segmentation_negative_prompt" type="text" name="segmentation_negative_prompt" maxlength="500"
+                                           value="{{ old('segmentation_negative_prompt') }}" placeholder="the mannequin and stand"
+                                           class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none">
+                                </div>
+                            </div>
+                            <label class="mt-3 flex cursor-pointer items-start gap-3">
+                                <input type="checkbox" name="segmentation_mode" value="keepSalientObject" @checked(old('segmentation_mode'))
+                                       class="mt-0.5 h-4 w-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500">
+                                <span class="text-xs text-gray-600">Also keep whatever the model thinks the main product is.</span>
+                            </label>
+                        </div>
+
+                        {{-- Repeatability --}}
+                        <div>
+                            <span class="mb-2 block text-sm font-medium text-gray-700">Repeatability</span>
+                            <p class="mb-3 text-xs text-gray-500">
+                                Every AI step is random unless it is given a seed. Set these to make a re-edit
+                                reproduce the run it is re-editing rather than produce a new variation.
+                            </p>
+                            <div class="grid gap-4 sm:grid-cols-4">
+                                @foreach (['beautify_seed' => 'Beautify seed', 'expand_seed' => 'Expand seed', 'uncrop_seed' => 'Uncrop seed', 'edit_seed' => 'Mannequin-erase seed'] as $field => $label)
+                                    <div>
+                                        <label for="{{ $field }}" class="mb-1.5 block text-xs font-medium text-gray-600">{{ $label }}</label>
+                                        <input id="{{ $field }}" type="number" name="{{ $field }}" min="0" value="{{ old($field) }}" placeholder="random"
+                                               class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none">
+                                    </div>
+                                @endforeach
+                            </div>
+                        </div>
+
+                        {{-- Fine tuning --}}
+                        <div>
+                            <span class="mb-2 block text-sm font-medium text-gray-700">Fine tuning</span>
+                            <div class="grid gap-4 sm:grid-cols-3">
+                                <div>
+                                    <label for="upscale_resolution" class="mb-1.5 block text-xs font-medium text-gray-600">Upscale target (px)</label>
+                                    <input id="upscale_resolution" type="number" name="upscale_resolution" min="512" max="8192"
+                                           value="{{ old('upscale_resolution') }}" placeholder="automatic"
+                                           class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none">
+                                </div>
+                                <div>
+                                    <label for="outline_blur" class="mb-1.5 block text-xs font-medium text-gray-600">Outline softness</label>
+                                    <input id="outline_blur" type="number" step="0.001" name="outline_blur" min="0" max="0.025"
+                                           value="{{ old('outline_blur') }}" placeholder="0"
+                                           class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none">
+                                </div>
+                                <div>
+                                    <label for="template_id" class="mb-1.5 block text-xs font-medium text-gray-600">Photoroom template ID</label>
+                                    <input id="template_id" type="text" name="template_id" maxlength="120" value="{{ old('template_id') }}" placeholder="—"
+                                           class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none">
+                                </div>
+                            </div>
+                            <label class="mt-3 flex cursor-pointer items-start gap-3">
+                                <input type="checkbox" name="beautify_strict" value="1" @checked(old('beautify_strict'))
+                                       class="mt-0.5 h-4 w-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500">
+                                <span class="text-xs text-gray-600">
+                                    Fail loudly when a Food or Vehicles beautify is pointed at neither, instead of quietly doing nothing.
+                                </span>
+                            </label>
+                        </div>
+
+                        {{-- Generated backgrounds --}}
+                        <div x-show="backgroundMode === 'prompt'" x-cloak>
+                            <span class="mb-2 block text-sm font-medium text-gray-700">Generated background</span>
+                            <div class="grid gap-4 sm:grid-cols-2">
+                                <div>
+                                    <label for="background_negative_prompt" class="mb-1.5 block text-xs font-medium text-gray-600">Avoid</label>
+                                    <input id="background_negative_prompt" type="text" name="background_negative_prompt" maxlength="500"
+                                           value="{{ old('background_negative_prompt') }}" placeholder="people, text, clutter"
+                                           class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none">
+                                </div>
+                                <div>
+                                    <label for="background_guidance_url" class="mb-1.5 block text-xs font-medium text-gray-600">Match this photo's look (URL)</label>
+                                    <input id="background_guidance_url" type="url" name="background_guidance_url"
+                                           value="{{ old('background_guidance_url') }}" placeholder="https://…"
+                                           class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none">
+                                </div>
+                                <div>
+                                    <label for="background_guidance_scale" class="mb-1.5 block text-xs font-medium text-gray-600">How closely (0–1)</label>
+                                    <input id="background_guidance_scale" type="number" step="0.05" name="background_guidance_scale" min="0" max="1"
+                                           value="{{ old('background_guidance_scale') }}" placeholder="0.5"
+                                           class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none">
+                                </div>
+                                <div>
+                                    <label for="background_scaling" class="mb-1.5 block text-xs font-medium text-gray-600">Background fit</label>
+                                    <select id="background_scaling" name="background_scaling"
+                                            class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none">
+                                        <option value="">Photoroom's default</option>
+                                        <option value="fit"  @selected(old('background_scaling') === 'fit')>Fit</option>
+                                        <option value="fill" @selected(old('background_scaling') === 'fill')>Fill</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        {{-- Generative redraw, off by default --}}
+                        <div x-show="apparelMode !== 'none'" x-cloak class="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
+                            <label class="flex cursor-pointer items-start gap-3">
+                                <input type="checkbox" name="allow_generative" value="1" @checked(old('allow_generative'))
+                                       class="mt-0.5 h-4 w-4 rounded border-gray-300 text-amber-600 focus:ring-amber-500">
+                                <span>
+                                    <span class="block text-sm font-medium text-amber-900">Let Photoroom redraw the garment</span>
+                                    <span class="mt-0.5 block text-xs text-amber-800">
+                                        Turns on the real Ghost Mannequin. The garment is regenerated rather than cut out,
+                                        which gives the floating look but carries no guarantee of matching the original
+                                        colour or cut. Off by default — check every result before pushing.
+                                    </span>
+                                </span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="flex items-center justify-between gap-3 border-t border-gray-100 bg-gray-50 px-6 py-4">
                     <a href="{{ route('photo-editor.history') }}" x-show="!loading" class="text-sm text-gray-500 hover:text-gray-700">Cancel</a>
                     <button type="submit" :disabled="loading || !{{ $photoroomConfigured ? 'true' : 'false' }}"
@@ -690,7 +948,7 @@ function photoEditForm() {
         // Finishing
         textRemoval:  '{{ old('text_removal', '') }}',
         beautify:     '{{ old('beautify', '') }}',
-        lighting:     {{ old('lighting') ? 'true' : 'false' }},
+        lighting:     '{{ old('lighting', '') }}',
         upscale:      {{ old('upscale') ? 'true' : 'false' }},
         expand:       {{ old('expand') ? 'true' : 'false' }},
         uncrop:       {{ old('uncrop') ? 'true' : 'false' }},
@@ -705,6 +963,9 @@ function photoEditForm() {
         padding:      {{ old('padding', '0') ?: '0' }},
         referenceBox: '{{ old('reference_box', 'subjectBox') }}',
         dpi:          '{{ old('dpi', '') }}',
+        outputSizeMode: '{{ old('output_size_mode', 'auto') }}',
+        exportFormat: '{{ old('export_format', 'auto') }}',
+        showAdvanced: false,
 
         setDimensions(w, h) {
             this.width = w;

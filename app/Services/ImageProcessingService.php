@@ -2,8 +2,11 @@
 
 namespace App\Services;
 
+use Illuminate\Support\Facades\Log;
+use Intervention\Image\Encoders\AvifEncoder;
 use Intervention\Image\Encoders\JpegEncoder;
 use Intervention\Image\Encoders\PngEncoder;
+use Intervention\Image\Encoders\WebpEncoder;
 use Intervention\Image\ImageManager;
 use Intervention\Image\Drivers\Gd\Driver as GdDriver;
 use Intervention\Image\Drivers\Imagick\Driver as ImagickDriver;
@@ -379,6 +382,49 @@ class ImageProcessingService
         return $img->scaleDown($width, $height)
             ->encode(new JpegEncoder(quality: self::START_QUALITY))
             ->toString();
+    }
+
+    /**
+     * Bring a transparent image under Shopify's megapixel ceiling without
+     * flattening it.
+     *
+     * capPixelCount() re-encodes as JPEG, which is fine for the formats that
+     * were never going to carry an alpha channel and ruinous for the ones
+     * that were — a cutout comes back on a black rectangle. PNG and WebP
+     * results go through here instead, and are returned byte-for-byte when
+     * they already fit.
+     */
+    public function capPixelCountPreservingAlpha(string $imageContent, string $format = 'png'): string
+    {
+        $info = @getimagesizefromstring($imageContent);
+
+        if ($info && ($info[0] * $info[1]) <= self::MAX_PIXELS) {
+            return $imageContent;
+        }
+
+        try {
+            $img = $this->manager->decode($imageContent);
+        } catch (\Throwable $e) {
+            // Better an image Shopify may refuse than no image at all: the
+            // caller still has bytes that a person can look at and re-run.
+            Log::warning('capPixelCountPreservingAlpha could not decode: ' . $e->getMessage());
+
+            return $imageContent;
+        }
+
+        if (($img->width() * $img->height()) <= self::MAX_PIXELS) {
+            return $imageContent;
+        }
+
+        [$width, $height] = $this->clampToPixelLimit($img->width(), $img->height());
+
+        $encoder = match ($format) {
+            'webp'  => new WebpEncoder(quality: self::START_QUALITY),
+            'avif'  => new AvifEncoder(quality: self::START_QUALITY),
+            default => new PngEncoder(),
+        };
+
+        return $img->scaleDown($width, $height)->encode($encoder)->toString();
     }
 
     /**

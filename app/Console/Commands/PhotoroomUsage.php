@@ -23,11 +23,11 @@ use Illuminate\Support\Carbon;
 class PhotoroomUsage extends Command
 {
     protected $signature = 'photoroom:usage
-                            {--hours=24 : Size of the rolling window to report on}';
+                            {--hours= : Report on this many trailing hours instead of the natural window}';
 
-    protected $description = 'Report Photoroom API requests made in the last 24 hours against the daily cap';
+    protected $description = 'Report Photoroom API requests against the plan allowance';
 
-    /** A sandbox key edits 100 images a day; a live key has no daily cap. */
+    /** A sandbox key edits 100 images a day; a live key is billed monthly. */
     private const SANDBOX_DAILY_CAP = 100;
 
     /** Statuses that can only be reached by Photoroom having answered. */
@@ -35,7 +35,13 @@ class PhotoroomUsage extends Command
 
     public function handle(PhotoroomService $photoroom): int
     {
-        $hours = max(1, (int) $this->option('hours'));
+        // The window that matters differs by key. A sandbox key ages each
+        // request out 24 hours after it was made; a live key is billed against
+        // an allowance that resets on the plan's anniversary day.
+        $hours = $this->option('hours') !== null
+            ? max(1, (int) $this->option('hours'))
+            : ($photoroom->isSandbox() ? 24 : $this->hoursSinceReset());
+
         $since = now()->subHours($hours);
 
         $items = PhotoEditItem::where('updated_at', '>=', $since)
@@ -74,10 +80,21 @@ class PhotoroomUsage extends Command
                 $this->warn('  Allowance is spent. Capacity returns as each request ages out below.');
             }
         } else {
-            $this->line(sprintf('  %-34s %s', 'Live key', 'no daily cap — 60 requests/minute applies'));
+            $quota = max(1, (int) config('services.photoroom.monthly_quota', 1000));
+            $left  = $quota - $spent;
+
+            $this->line(sprintf('  %-34s %d of %d', 'Monthly allowance', max(0, $left), $quota));
+            $this->line(sprintf('  %-34s %s', 'Resets', $this->nextReset()->format('D d M Y')));
+
+            if ($left <= 0) {
+                $this->newLine();
+                $this->warn('  Monthly allowance is spent. It does not trickle back — it resets on the date above.');
+            }
         }
 
-        $this->reportRefill($items->whereIn('status', self::SUCCEEDED), $hours);
+        if ($photoroom->isSandbox()) {
+            $this->reportRefill($items->whereIn('status', self::SUCCEEDED), $hours);
+        }
 
         $this->newLine();
         $this->comment('  Counted from item rows, not from Photoroom. Deleted sessions are invisible to it,');
@@ -104,6 +121,26 @@ class PhotoroomUsage extends Command
         }
 
         return false;
+    }
+
+    /** Hours since the allowance last reset, for a monthly-billed key. */
+    private function hoursSinceReset(): int
+    {
+        $day  = min(28, max(1, (int) config('services.photoroom.quota_resets_on', 1)));
+        $last = now()->day >= $day
+            ? now()->startOfDay()->setDay($day)
+            : now()->startOfDay()->subMonthNoOverflow()->setDay($day);
+
+        return max(1, (int) ceil($last->diffInMinutes(now()) / 60));
+    }
+
+    private function nextReset(): Carbon
+    {
+        $day = min(28, max(1, (int) config('services.photoroom.quota_resets_on', 1)));
+
+        return now()->day >= $day
+            ? now()->startOfDay()->addMonthNoOverflow()->setDay($day)
+            : now()->startOfDay()->setDay($day);
     }
 
     /**

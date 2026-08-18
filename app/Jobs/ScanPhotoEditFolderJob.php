@@ -44,7 +44,7 @@ class ScanPhotoEditFolderJob implements ShouldQueue
             $oneDrive->setUser($user);
         }
 
-        $cap = max(1, (int) config('services.photoroom.max_images', 300));
+        $cap = max(1, (int) config('services.photoroom.max_images', 120));
 
         try {
             $total  = 0;

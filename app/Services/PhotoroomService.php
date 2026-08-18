@@ -107,6 +107,70 @@ class PhotoroomService
     public const BACKGROUND_MODES = ['transparent', 'white', 'custom', 'prompt', 'image', 'blur'];
 
     /**
+     * Relighting modes.
+     *
+     * 'ai.auto' is free to shift hue and saturation to make the light look
+     * right, which on a garment means the colour on the product page stops
+     * matching the colour in the box. The preserve mode is Photoroom's own
+     * recommendation for product photography and is the default here for
+     * that reason.
+     */
+    public const LIGHTING_MODES = [
+        ''                              => 'Off',
+        'ai.preserve-hue-and-saturation' => 'Relight, keep original colours',
+        'ai.auto'                        => 'Relight, best-looking light',
+        'ai.optimize-portrait'           => 'Relight for portraits',
+    ];
+
+    /**
+     * JPEG and PNG are what Shopify has always taken. WebP is materially
+     * smaller at the same quality, which matters when the compressor is
+     * otherwise fighting to get a 20 MP cutout under Shopify's limit.
+     */
+    public const EXPORT_FORMATS = ['auto', 'jpg', 'png', 'webp', 'avif'];
+
+    /** Formats that carry an alpha channel, and so may hold a cutout. */
+    public const ALPHA_FORMATS = ['png', 'webp', 'avif'];
+
+    /** How the canvas is sized when no explicit width and height are given. */
+    public const OUTPUT_SIZE_MODES = [
+        'auto'           => 'Let Photoroom decide',
+        'originalImage'  => 'Same as the original',
+        'croppedSubject' => 'Crop tight to the product',
+        'custom'         => 'Exact pixel size',
+    ];
+
+    public const COLOR_SPACES = ['sRGB', 'original'];
+
+    public const METADATA_MODES = [
+        'never'                          => 'Strip everything',
+        'xmp'                            => 'XMP only',
+        'exifSubset'                     => 'EXIF subset',
+        'exifSubsetWithXmpCompatibility' => 'EXIF subset + XMP',
+    ];
+
+    public const ALPHA_MODES = ['auto', 'never'];
+
+    public const SEGMENTATION_MODES = [
+        ''                    => 'Whatever the prompt describes',
+        'keepSalientObject'   => 'Also keep the main product',
+    ];
+
+    /**
+     * Photoroom returns how sure it was of the cutout in a response header,
+     * on every call, for free. 0 is confident and 1 is a guess; -1 means it
+     * could not tell (photos with people in them, mostly).
+     */
+    private const UNCERTAINTY_HEADER = 'x-uncertainty-score';
+
+    /**
+     * Sharper subject edges on large inputs. Every photo coming out of a
+     * studio camera is well past the 2K this needs, so it is asked for by
+     * default rather than exposed as a choice.
+     */
+    private const HD_CUTOUT_HEADER = 'pr-hd-background-removal';
+
+    /**
      * Ghost Mannequin only reconstructs front views, so it can't help a back
      * or side shot where the stand is left visible. This is the closest
      * Photoroom gets to "erase that object" for such a photo.
@@ -116,6 +180,12 @@ class PhotoroomService
         . 'Do not add a person or any other object.';
 
     private string $apiKey;
+
+    /**
+     * Cutout confidence from the most recent call, so the caller can record it
+     * without every method in the chain having to return a pair.
+     */
+    private ?float $lastUncertainty = null;
 
     public function __construct()
     {
@@ -171,13 +241,13 @@ class PhotoroomService
      *
      * @throws \RuntimeException  when Photoroom refuses the image outright
      */
-    public function removeMannequin(string $imageContent, string $filename = 'image.jpg'): string
+    public function removeMannequin(string $imageContent, string $filename = 'image.jpg', ?int $seed = null): string
     {
         if (!$this->isConfigured()) {
             throw new \RuntimeException('No Photoroom API key is configured. Add PHOTOROOM_API_KEY to the environment.');
         }
 
-        return $this->postWithRetry($imageContent, $filename, [
+        $fields = [
             'editWithAI.mode'   => 'ai.auto',
             'editWithAI.prompt' => self::MANNEQUIN_REMOVAL_PROMPT,
             // Left unset, Photoroom defaults to removing the background on
@@ -186,7 +256,47 @@ class PhotoroomService
             // request's job, not this pass's, so it's explicitly turned off.
             'removeBackground'  => 'false',
             'export.format'     => 'jpg',
-        ]);
+        ];
+
+        // Without a seed this pass redraws differently every run, which is the
+        // one step that stops a re-edit reproducing the result being re-edited.
+        if ($seed !== null) {
+            $fields['editWithAI.seed'] = (string) $seed;
+        }
+
+        return $this->postWithRetry($imageContent, $filename, $fields);
+    }
+
+    /**
+     * Make an image from a description alone, with no photo to start from.
+     *
+     * The odd one out: every other call here edits something the operator
+     * already has. This one has no imageFile at all, so it cannot ride the
+     * same multipart path, and it bills like any other edited image.
+     *
+     * @throws \RuntimeException  when Photoroom refuses the prompt
+     */
+    public function generateFromPrompt(string $prompt, string $size = 'SQUARE_HD', ?int $seed = null): string
+    {
+        if (!$this->isConfigured()) {
+            throw new \RuntimeException('No Photoroom API key is configured. Add PHOTOROOM_API_KEY to the environment.');
+        }
+
+        if (trim($prompt) === '') {
+            throw new \RuntimeException('An image can only be generated from a non-empty description.');
+        }
+
+        $fields = [
+            'imageFromPrompt.prompt' => trim($prompt),
+            'imageFromPrompt.size'   => isset(self::SIZE_PRESETS[$size]) ? $size : 'SQUARE_HD',
+            'export.format'          => 'png',
+        ];
+
+        if ($seed !== null) {
+            $fields['imageFromPrompt.seed'] = (string) $seed;
+        }
+
+        return $this->postWithRetry(null, 'generated.png', $fields);
     }
 
     /**
@@ -194,9 +304,28 @@ class PhotoroomService
      */
     public function buildHeaders(array $edits): array
     {
-        return ($edits['shadow'] ?? null) === 'ai.auto-with-overrides'
-            ? ['pr-ai-shadows-model-version' => self::SHADOW_MODEL_VERSION]
-            : [];
+        $headers = [];
+
+        if (($edits['shadow'] ?? null) === 'ai.auto-with-overrides') {
+            $headers['pr-ai-shadows-model-version'] = self::SHADOW_MODEL_VERSION;
+        }
+
+        // Only meaningful when there is a cutout to sharpen the edges of.
+        if (!empty($edits['remove_background']) || $this->generatesOwnCanvas($edits)) {
+            $headers[self::HD_CUTOUT_HEADER] = 'auto';
+        }
+
+        return $headers;
+    }
+
+    /**
+     * How unsure Photoroom was of the last cutout: 0 confident, 1 a guess,
+     * null when it declined to say. Reset per call, so read it straight after
+     * the edit it belongs to.
+     */
+    public function lastUncertaintyScore(): ?float
+    {
+        return $this->lastUncertainty;
     }
 
     /**
@@ -212,10 +341,32 @@ class PhotoroomService
         $this->applyShadow($fields, $edits);
         $this->applyLayout($fields, $edits);
 
+        // A saved Photoroom template supplies the canvas, so outputSize is
+        // left to its 'auto' default, which means "keep the template's size".
+        if (!empty($edits['template_id'])) {
+            $fields['templateId'] = (string) $edits['template_id'];
+            unset($fields['outputSize']);
+        }
+
         $fields['export.format'] = $this->outputFormat($edits);
 
         if (!empty($edits['dpi'])) {
             $fields['export.dpi'] = (string) max(72, min(1200, (int) $edits['dpi']));
+        }
+
+        // Left alone, the output can come back in whatever space the camera
+        // wrote. Product colour has to be the same on every listing, and
+        // sRGB is what browsers assume when a file does not say.
+        $fields['colorSpace'] = in_array($edits['color_space'] ?? '', self::COLOR_SPACES, true)
+            ? $edits['color_space']
+            : 'sRGB';
+
+        if (array_key_exists($edits['preserve_metadata'] ?? '', self::METADATA_MODES)) {
+            $fields['preserveMetadata'] = $edits['preserve_metadata'];
+        }
+
+        if (in_array($edits['keep_alpha'] ?? '', self::ALPHA_MODES, true)) {
+            $fields['keepExistingAlphaChannel'] = $edits['keep_alpha'];
         }
 
         return $fields;
@@ -253,9 +404,32 @@ class PhotoroomService
             default  => null, // transparent — no background field at all
         };
 
+        if ($mode !== 'prompt') {
+            return;
+        }
+
         // A generated scene is random per call; a seed makes a re-run repeatable.
-        if ($mode === 'prompt' && !empty($edits['background_seed'])) {
+        if (!empty($edits['background_seed'])) {
             $fields['background.seed'] = (string) (int) $edits['background_seed'];
+        }
+
+        if (!empty($edits['background_negative_prompt'])) {
+            $fields['background.negativePrompt'] = (string) $edits['background_negative_prompt'];
+        }
+
+        // A reference photo steers the generated scene far more reliably than
+        // adjectives do — "like this shoot" instead of "warm editorial light".
+        if (!empty($edits['background_guidance_url'])) {
+            $fields['background.guidance.imageUrl'] = (string) $edits['background_guidance_url'];
+            $fields['background.guidance.scale']    = (string) max(0, min(1, (float) ($edits['background_guidance_scale'] ?? 0.5)));
+        }
+
+        if (in_array($edits['background_scaling'] ?? '', ['fit', 'fill'], true)) {
+            $fields['background.scaling'] = $edits['background_scaling'];
+        }
+
+        if (in_array($edits['background_expand_prompt'] ?? '', ['ai.auto', 'ai.never'], true)) {
+            $fields['background.expandPrompt.mode'] = $edits['background_expand_prompt'];
         }
     }
 
@@ -275,6 +449,26 @@ class PhotoroomService
             }
             if (in_array($edits['vm_pose'] ?? '', self::VIRTUAL_MODEL_POSES, true)) {
                 $fields['virtualModel.pose'] = $edits['vm_pose'];
+            }
+
+            // Virtual Try-On is this same feature pointed at your own model
+            // and your own set, rather than one of Photoroom's stock people.
+            // A custom image overrides the preset of the same name, so the
+            // preset above is only sent when no photo was supplied.
+            if (!empty($edits['vm_model_url'])) {
+                $fields['virtualModel.model.custom.imageUrl'] = (string) $edits['vm_model_url'];
+                unset($fields['virtualModel.model.preset.name']);
+            }
+
+            if (!empty($edits['vm_scene_url'])) {
+                $fields['virtualModel.scene.custom.imageUrl'] = (string) $edits['vm_scene_url'];
+                unset($fields['virtualModel.scene.preset.name']);
+            }
+
+            // More angles of the same garment give the model a better idea of
+            // how it is actually cut than one front-on photo can.
+            foreach (array_values(array_filter((array) ($edits['vm_extra_product_urls'] ?? []))) as $i => $url) {
+                $fields["virtualModel.additionalProductImages[{$i}].imageUrl"] = (string) $url;
             }
             if ($prompt !== '') {
                 $fields['virtualModel.prompt'] = $prompt;
@@ -311,24 +505,38 @@ class PhotoroomService
 
     private function applyEnhancements(array &$fields, array $edits): void
     {
-        if (!empty($edits['lighting'])) {
-            $fields['lighting.mode'] = 'ai.auto';
-        }
+        $this->applyLighting($fields, $edits);
 
         if (!empty($edits['upscale'])) {
             $fields['upscale.mode'] = 'ai.auto';
+
+            // Without a target, upscale picks its own factor. Naming the
+            // resolution is what makes a mixed catalogue come out uniform.
+            if (!empty($edits['upscale_resolution'])) {
+                $fields['upscale.targetResolution'] = (string) (int) $edits['upscale_resolution'];
+            }
         }
 
         if (!empty($edits['expand'])) {
             $fields['expand.mode'] = 'ai.auto';
+            $this->applySeed($fields, 'expand.seed', $edits['expand_seed'] ?? null);
         }
 
         if (!empty($edits['uncrop'])) {
             $fields['uncrop.mode'] = 'ai.auto';
+            $this->applySeed($fields, 'uncrop.seed', $edits['uncrop_seed'] ?? null);
         }
 
         if (!empty($edits['beautify']) && array_key_exists($edits['beautify'], self::BEAUTIFY_MODES)) {
             $fields['beautify.mode'] = $edits['beautify'];
+            $this->applySeed($fields, 'beautify.seed', $edits['beautify_seed'] ?? null);
+
+            // Food and vehicle beautify on a photo of neither is a silent
+            // no-op by default. Asking to be told turns a mystery result into
+            // an error message naming the reason.
+            if (!empty($edits['beautify_strict'])) {
+                $fields['beautify.onSubjectMismatch'] = 'error';
+            }
         }
 
         if (!empty($edits['text_removal']) && array_key_exists($edits['text_removal'], self::TEXT_REMOVAL_MODES)) {
@@ -338,6 +546,67 @@ class PhotoroomService
         if (!empty($edits['outline_color'])) {
             $fields['outline.color'] = ltrim((string) $edits['outline_color'], '#');
             $fields['outline.width'] = (string) max(0, min(0.1, (float) ($edits['outline_width'] ?? 0.03)));
+
+            if (isset($edits['outline_blur'])) {
+                $fields['outline.blurRadius'] = (string) max(0, min(0.025, (float) $edits['outline_blur']));
+            }
+        }
+
+        $this->applySegmentation($fields, $edits);
+    }
+
+    /**
+     * Relighting, defaulting to the mode that leaves colour alone.
+     *
+     * Older sessions stored lighting as a checkbox. Those are honoured as the
+     * colour-safe mode rather than the free-for-all one they actually ran
+     * with: re-running an old session should not be the thing that shifts a
+     * garment's colour.
+     */
+    private function applyLighting(array &$fields, array $edits): void
+    {
+        $mode = $edits['lighting'] ?? null;
+
+        if ($mode === true || $mode === 1 || $mode === '1') {
+            $mode = 'ai.preserve-hue-and-saturation';
+        }
+
+        if (is_string($mode) && $mode !== '' && array_key_exists($mode, self::LIGHTING_MODES)) {
+            $fields['lighting.mode'] = $mode;
+        }
+    }
+
+    /**
+     * Keep or drop parts of a photo by describing them.
+     *
+     * This is the cheap answer to "the stand is still in frame": one cutout
+     * request that is told what the subject is, rather than a generative pass
+     * to erase the stand followed by a second request to cut out what is left.
+     */
+    private function applySegmentation(array &$fields, array $edits): void
+    {
+        $prompt = trim((string) ($edits['segmentation_prompt'] ?? ''));
+
+        if ($prompt === '') {
+            return;
+        }
+
+        $fields['segmentation.prompt'] = $prompt;
+
+        if (!empty($edits['segmentation_negative_prompt'])) {
+            $fields['segmentation.negativePrompt'] = (string) $edits['segmentation_negative_prompt'];
+        }
+
+        if (($edits['segmentation_mode'] ?? '') === 'keepSalientObject') {
+            $fields['segmentation.mode'] = 'keepSalientObject';
+        }
+    }
+
+    /** Seeds are what make a re-edit reproduce the run being re-edited. */
+    private function applySeed(array &$fields, string $field, mixed $seed): void
+    {
+        if (filled($seed)) {
+            $fields[$field] = (string) (int) $seed;
         }
     }
 
@@ -382,13 +651,50 @@ class PhotoroomService
          * the explicit size is only applied when nothing else is generating the
          * canvas.
          */
-        if (!$this->generatesOwnCanvas($edits) && !empty($edits['width']) && !empty($edits['height'])) {
-            $fields['outputSize'] = ((int) $edits['width']) . 'x' . ((int) $edits['height']);
+        if (!$this->generatesOwnCanvas($edits)) {
+            if (!empty($edits['width']) && !empty($edits['height'])) {
+                $fields['outputSize'] = ((int) $edits['width']) . 'x' . ((int) $edits['height']);
+            } elseif (($edits['output_size_mode'] ?? '') === 'originalImage') {
+                // Explicit rather than relying on 'auto', which only means the
+                // same thing while no template is in play.
+                $fields['outputSize'] = 'originalImage';
+            } elseif (($edits['output_size_mode'] ?? '') === 'croppedSubject') {
+                // No canvas at all — the result is exactly the product's
+                // bounding box, which is what a marketplace feed usually wants
+                // when it is going to lay the images out itself.
+                $fields['outputSize'] = 'croppedSubject';
+            }
+
+            // A ceiling rather than a shape. For a catalogue holding both a
+            // long dress and a flat watch face, capping the longest edge keeps
+            // file sizes in line without forcing either into a square.
+            if (!empty($edits['max_width'])) {
+                $fields['maxWidth'] = (string) (int) $edits['max_width'];
+            }
+            if (!empty($edits['max_height'])) {
+                $fields['maxHeight'] = (string) (int) $edits['max_height'];
+            }
         }
 
         // Padding is a fraction of the canvas. Half would leave no subject.
         if (isset($edits['padding']) && $edits['padding'] !== '' && $edits['padding'] !== null) {
             $fields['padding'] = (string) max(0, min(0.49, (float) $edits['padding']));
+        }
+
+        // Per-edge padding and margins, for the shots that need breathing room
+        // on one side only — a heel photographed to the bottom of the frame,
+        // a hat that wants headroom.
+        foreach (['Top', 'Bottom', 'Left', 'Right'] as $edge) {
+            $this->applyEdge($fields, 'padding', $edge, $edits['padding_' . strtolower($edge)] ?? null);
+            $this->applyEdge($fields, 'margin', $edge, $edits['margin_' . strtolower($edge)] ?? null);
+        }
+
+        if (isset($edits['margin']) && $edits['margin'] !== '' && $edits['margin'] !== null) {
+            $fields['margin'] = (string) max(0, min(0.49, (float) $edits['margin']));
+        }
+
+        if (!empty($edits['snap_cropped_sides'])) {
+            $fields['ignorePaddingAndSnapOnCroppedSides'] = 'true';
         }
 
         $fields['horizontalAlignment'] = in_array($edits['h_align'] ?? '', ['left', 'center', 'right'], true)
@@ -407,6 +713,24 @@ class PhotoroomService
     }
 
     // ── Helpers ────────────────────────────────────────────────────────────
+
+    /**
+     * One edge of padding or margin, accepting either a fraction of the
+     * canvas or an explicit pixel count ("40px"), which is what Photoroom
+     * itself accepts. Blank means "no opinion", which is not the same as 0.
+     */
+    private function applyEdge(array &$fields, string $kind, string $edge, mixed $value): void
+    {
+        if (!filled($value)) {
+            return;
+        }
+
+        $value = trim((string) $value);
+
+        $fields[$kind . $edge] = str_ends_with($value, 'px') || str_ends_with($value, '%')
+            ? $value
+            : (string) max(0, min(0.49, (float) $value));
+    }
 
     /** True when an AI feature builds the canvas itself. */
     public function generatesOwnCanvas(array $edits): bool
@@ -443,7 +767,28 @@ class PhotoroomService
         $isTransparent = !empty($edits['remove_background'])
             && $this->backgroundMode($edits) === 'transparent';
 
-        return $isTransparent ? 'png' : 'jpg';
+        $requested = $edits['export_format'] ?? 'auto';
+
+        if (!in_array($requested, self::EXPORT_FORMATS, true)) {
+            $requested = 'auto';
+        }
+
+        // JPEG cannot hold an alpha channel, so a transparent cutout asked for
+        // as a JPEG comes back on a black rectangle. WebP can, so a WebP
+        // request is honoured either way; a JPEG one is quietly upgraded.
+        if ($isTransparent) {
+            return in_array($requested, self::ALPHA_FORMATS, true) ? $requested : 'png';
+        }
+
+        return $requested === 'auto' ? 'jpg' : $requested;
+    }
+
+    /** True when the result carries an alpha channel that must not be flattened. */
+    public function producesAlpha(array $edits): bool
+    {
+        return in_array($this->outputFormat($edits), self::ALPHA_FORMATS, true)
+            && !empty($edits['remove_background'])
+            && $this->backgroundMode($edits) === 'transparent';
     }
 
     /**
@@ -462,11 +807,15 @@ class PhotoroomService
      * a retry costs nothing but time: rate limits and 5xx are worth waiting
      * out, while a 4xx describes the image itself and would be refused again.
      */
-    private function postWithRetry(string $imageContent, string $filename, array $fields, array $extraHeaders = [], int $retries = 2): string
+    private function postWithRetry(?string $imageContent, string $filename, array $fields, array $extraHeaders = [], int $retries = 2): string
     {
         $attempt   = 0;
         $slept     = 0;
         $lastError = 'Photoroom did not return an image.';
+
+        // Belongs to this call only — a stale score from the previous image
+        // would be filed against this one.
+        $this->lastUncertainty = null;
 
         do {
             $attempt++;
@@ -492,7 +841,11 @@ class PhotoroomService
                     $request = $request->attach($name, (string) $value);
                 }
 
-                $request  = $request->attach('imageFile', $imageContent, $filename);
+                // Generation from a prompt has nothing to attach.
+                if ($imageContent !== null) {
+                    $request = $request->attach('imageFile', $imageContent, $filename);
+                }
+
                 $response = $request->post(self::ENDPOINT);
 
                 if ($response->successful()) {
@@ -501,6 +854,8 @@ class PhotoroomService
                     // A successful status with a JSON body means the edit was
                     // refused in a way the status code did not admit to.
                     if ($body !== '' && !str_starts_with(ltrim($body), '{')) {
+                        $this->rememberUncertainty($response);
+
                         return $body;
                     }
 
@@ -716,6 +1071,25 @@ class PhotoroomService
         $minutes = intdiv($seconds % 3600, 60);
 
         return $hours > 0 ? "{$hours}h {$minutes}m" : "{$minutes}m";
+    }
+
+    /**
+     * Read the cutout confidence Photoroom volunteers on every response.
+     *
+     * -1 is its way of saying it has no opinion (photos with people in them),
+     * which is not the same as a confident 0 and must not be filed as one.
+     */
+    private function rememberUncertainty(Response $response): void
+    {
+        $raw = $response->header(self::UNCERTAINTY_HEADER);
+
+        if ($raw === '' || $raw === null || !is_numeric($raw)) {
+            return;
+        }
+
+        $score = (float) $raw;
+
+        $this->lastUncertainty = $score < 0 ? null : min(1.0, $score);
     }
 
     private function describeError(string $body): string

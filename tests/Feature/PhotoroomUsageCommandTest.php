@@ -112,13 +112,26 @@ class PhotoroomUsageCommandTest extends TestCase
         $this->assertStringContainsString($freesAt, $this->report());
     }
 
-    /** A live key has no daily cap to report against. */
-    public function test_a_live_key_reports_no_daily_cap(): void
+    /**
+     * A live key is billed monthly, not daily, so it is reported against the
+     * plan allowance and the date that allowance resets.
+     */
+    public function test_a_live_key_reports_the_monthly_allowance(): void
     {
-        config(['services.photoroom.api_key' => 'live_test_key']);
+        config([
+            'services.photoroom.api_key'       => 'live_test_key',
+            'services.photoroom.monthly_quota' => 1000,
+        ]);
 
         $this->item(['status' => 'edited']);
 
-        $this->assertStringContainsString('no daily cap', $this->report());
+        $report = $this->report();
+
+        $this->assertStringContainsString('Monthly allowance 999 of 1000', $report);
+        $this->assertStringContainsString('Resets', $report);
+
+        // The hour-by-hour refill belongs to the sandbox's rolling window; a
+        // monthly allowance does not trickle back and saying so would mislead.
+        $this->assertStringNotContainsString('Frees up at', $report);
     }
 }

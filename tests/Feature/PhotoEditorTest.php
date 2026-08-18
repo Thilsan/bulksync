@@ -535,6 +535,7 @@ class PhotoEditorTest extends TestCase
             app(\App\Services\OneDriveService::class),
             app(ImageProcessingService::class),
             app(PhotoroomService::class),
+            app(\App\Services\GeminiService::class),
         );
 
         $this->assertSame('edited', $item->fresh()->status, $item->fresh()->error_message ?? '');
@@ -939,5 +940,471 @@ class PhotoEditorTest extends TestCase
         ]);
 
         $this->assertArrayNotHasKey('outputSize', $fields);
+    }
+
+    /*
+     * ── Photoroom feature coverage ─────────────────────────────────────────
+     *
+     * Everything below is a parameter the API has always accepted and this app
+     * did not send. Guarded per feature, because the failure mode when one is
+     * wrong is silence: Photoroom ignores what it does not recognise, and the
+     * result looks like the option simply did nothing.
+     */
+
+    /** Relighting defaults to the mode that leaves garment colour alone. */
+    public function test_lighting_uses_the_colour_safe_mode(): void
+    {
+        $fields = app(PhotoroomService::class)->buildFields([
+            'remove_background' => true,
+            'lighting'          => 'ai.preserve-hue-and-saturation',
+        ]);
+
+        $this->assertSame('ai.preserve-hue-and-saturation', $fields['lighting.mode']);
+    }
+
+    /**
+     * Sessions saved before relighting had modes stored it as a checkbox.
+     * Re-running one should not be what changes a garment's colour.
+     */
+    public function test_a_legacy_lighting_checkbox_becomes_the_colour_safe_mode(): void
+    {
+        $fields = app(PhotoroomService::class)->buildFields([
+            'remove_background' => true,
+            'lighting'          => true,
+        ]);
+
+        $this->assertSame('ai.preserve-hue-and-saturation', $fields['lighting.mode']);
+    }
+
+    /** Sharper cutout edges are asked for whenever there is a cutout. */
+    public function test_hd_cutout_is_requested_for_background_removal(): void
+    {
+        $service = app(PhotoroomService::class);
+
+        $this->assertSame('auto', $service->buildHeaders(['remove_background' => true])['pr-hd-background-removal']);
+        $this->assertArrayNotHasKey('pr-hd-background-removal', $service->buildHeaders(['remove_background' => false]));
+    }
+
+    /** WebP is honoured; JPEG is not, when the result has to carry alpha. */
+    public function test_export_format_never_flattens_a_transparent_cutout(): void
+    {
+        $service = app(PhotoroomService::class);
+
+        $transparent = ['remove_background' => true, 'background_mode' => 'transparent'];
+
+        $this->assertSame('png',  $service->outputFormat($transparent + ['export_format' => 'jpg']));
+        $this->assertSame('webp', $service->outputFormat($transparent + ['export_format' => 'webp']));
+        $this->assertSame('png',  $service->outputFormat($transparent + ['export_format' => 'auto']));
+
+        // On a solid background there is no alpha to lose.
+        $this->assertSame('jpg', $service->outputFormat(['remove_background' => true, 'background_mode' => 'white', 'export_format' => 'jpg']));
+    }
+
+    /** A size ceiling caps the long edge without forcing a shape. */
+    public function test_max_dimensions_are_sent_without_an_exact_size(): void
+    {
+        $fields = app(PhotoroomService::class)->buildFields([
+            'remove_background' => true,
+            'max_width'         => 2048,
+            'max_height'        => 2048,
+        ]);
+
+        $this->assertSame('2048', $fields['maxWidth']);
+        $this->assertSame('2048', $fields['maxHeight']);
+        $this->assertArrayNotHasKey('outputSize', $fields);
+    }
+
+    /** Cropping tight to the product is a canvas choice of its own. */
+    public function test_cropped_subject_output_size(): void
+    {
+        $fields = app(PhotoroomService::class)->buildFields([
+            'remove_background' => true,
+            'output_size_mode'  => 'croppedSubject',
+        ]);
+
+        $this->assertSame('croppedSubject', $fields['outputSize']);
+    }
+
+    /** Per-edge spacing takes fractions or pixels, and blank means no opinion. */
+    public function test_per_edge_padding_and_margins(): void
+    {
+        $fields = app(PhotoroomService::class)->buildFields([
+            'remove_background' => true,
+            'padding_top'       => '0.2',
+            'padding_bottom'    => '40px',
+            'margin_left'       => '0.1',
+            'margin_right'      => '',
+        ]);
+
+        $this->assertSame('0.2',  $fields['paddingTop']);
+        $this->assertSame('40px', $fields['paddingBottom']);
+        $this->assertSame('0.1',  $fields['marginLeft']);
+        $this->assertArrayNotHasKey('marginRight', $fields);
+    }
+
+    /** Describing the subject is the one-request answer to a visible stand. */
+    public function test_text_guided_segmentation(): void
+    {
+        $fields = app(PhotoroomService::class)->buildFields([
+            'remove_background'            => true,
+            'segmentation_prompt'          => 'the dress',
+            'segmentation_negative_prompt' => 'the mannequin',
+            'segmentation_mode'            => 'keepSalientObject',
+        ]);
+
+        $this->assertSame('the dress',        $fields['segmentation.prompt']);
+        $this->assertSame('the mannequin',    $fields['segmentation.negativePrompt']);
+        $this->assertSame('keepSalientObject', $fields['segmentation.mode']);
+    }
+
+    /** Output colour is pinned so one product looks the same on every listing. */
+    public function test_srgb_is_sent_by_default(): void
+    {
+        $fields = app(PhotoroomService::class)->buildFields(['remove_background' => true]);
+
+        $this->assertSame('sRGB', $fields['colorSpace']);
+    }
+
+    /** Seeds are what make a re-edit reproduce the run it re-edits. */
+    public function test_seeds_are_sent_for_every_generative_step(): void
+    {
+        $fields = app(PhotoroomService::class)->buildFields([
+            'remove_background' => true,
+            'beautify'          => 'ai.auto',
+            'beautify_seed'     => 7,
+            'expand'            => true,
+            'expand_seed'       => 8,
+            'uncrop'            => true,
+            'uncrop_seed'       => 9,
+        ]);
+
+        $this->assertSame('7', $fields['beautify.seed']);
+        $this->assertSame('8', $fields['expand.seed']);
+        $this->assertSame('9', $fields['uncrop.seed']);
+    }
+
+    /** A reference photo steers a generated background better than adjectives. */
+    public function test_background_guidance(): void
+    {
+        $fields = app(PhotoroomService::class)->buildFields([
+            'remove_background'          => true,
+            'background_mode'            => 'prompt',
+            'background_prompt'          => 'a marble surface',
+            'background_negative_prompt' => 'people',
+            'background_guidance_url'    => 'https://example.com/ref.jpg',
+            'background_guidance_scale'  => 0.8,
+        ]);
+
+        $this->assertSame('people', $fields['background.negativePrompt']);
+        $this->assertSame('https://example.com/ref.jpg', $fields['background.guidance.imageUrl']);
+        $this->assertSame('0.8', $fields['background.guidance.scale']);
+    }
+
+    /** Virtual Try-On: your own model and set instead of Photoroom's stock. */
+    public function test_virtual_try_on_uses_custom_images_over_presets(): void
+    {
+        $fields = app(PhotoroomService::class)->buildFields([
+            'virtual_model'         => true,
+            'vm_model'              => 'maya',
+            'vm_scene'              => 'studio',
+            'vm_model_url'          => 'https://example.com/model.jpg',
+            'vm_scene_url'          => 'https://example.com/scene.jpg',
+            'vm_extra_product_urls' => ['https://example.com/back.jpg'],
+        ]);
+
+        $this->assertSame('https://example.com/model.jpg', $fields['virtualModel.model.custom.imageUrl']);
+        $this->assertSame('https://example.com/scene.jpg', $fields['virtualModel.scene.custom.imageUrl']);
+        $this->assertSame('https://example.com/back.jpg',  $fields['virtualModel.additionalProductImages[0].imageUrl']);
+
+        // A supplied photo replaces the preset rather than fighting with it.
+        $this->assertArrayNotHasKey('virtualModel.model.preset.name', $fields);
+        $this->assertArrayNotHasKey('virtualModel.scene.preset.name', $fields);
+    }
+
+    /** A template supplies the canvas, so an explicit size would contradict it. */
+    public function test_a_template_id_replaces_the_output_size(): void
+    {
+        $fields = app(PhotoroomService::class)->buildFields([
+            'remove_background' => true,
+            'width'             => 2000,
+            'height'            => 2000,
+            'template_id'       => 'tpl_123',
+        ]);
+
+        $this->assertSame('tpl_123', $fields['templateId']);
+        $this->assertArrayNotHasKey('outputSize', $fields);
+    }
+
+    /** Generating from a description has no image to attach. */
+    public function test_generate_from_prompt_sends_no_image(): void
+    {
+        \Illuminate\Support\Facades\Cache::flush();
+
+        \Illuminate\Support\Facades\Http::fake([
+            'image-api.photoroom.com/*' => \Illuminate\Support\Facades\Http::response('generated-bytes', 200),
+        ]);
+
+        $result = app(PhotoroomService::class)->generateFromPrompt('a linen shirt on marble', 'SQUARE_HD', 42);
+
+        $this->assertSame('generated-bytes', $result);
+
+        \Illuminate\Support\Facades\Http::assertSent(function ($request) {
+            $names = array_column($request->data(), 'name');
+
+            return in_array('imageFromPrompt.prompt', $names, true)
+                && in_array('imageFromPrompt.seed', $names, true)
+                && !in_array('imageFile', $names, true);
+        });
+    }
+
+    /** The cutout confidence Photoroom volunteers is kept, not discarded. */
+    public function test_the_uncertainty_score_is_captured(): void
+    {
+        \Illuminate\Support\Facades\Cache::flush();
+
+        \Illuminate\Support\Facades\Http::fake([
+            'image-api.photoroom.com/*' => \Illuminate\Support\Facades\Http::response(
+                'edited-bytes', 200, ['x-uncertainty-score' => '0.42'],
+            ),
+        ]);
+
+        $service = app(PhotoroomService::class);
+        $service->edit('fake-bytes', ['remove_background' => true]);
+
+        $this->assertSame(0.42, $service->lastUncertaintyScore());
+    }
+
+    /** -1 means "no opinion", which must not be filed as "completely sure". */
+    public function test_an_unavailable_uncertainty_score_is_not_recorded_as_confident(): void
+    {
+        \Illuminate\Support\Facades\Cache::flush();
+
+        \Illuminate\Support\Facades\Http::fake([
+            'image-api.photoroom.com/*' => \Illuminate\Support\Facades\Http::response(
+                'edited-bytes', 200, ['x-uncertainty-score' => '-1'],
+            ),
+        ]);
+
+        $service = app(PhotoroomService::class);
+        $service->edit('fake-bytes', ['remove_background' => true]);
+
+        $this->assertNull($service->lastUncertaintyScore());
+    }
+
+    /** The redraw stays off unless the operator asks for it by name. */
+    public function test_generative_redraw_is_opt_in(): void
+    {
+        Queue::fake();
+
+        $this->actingAs($this->editor())
+            ->post(route('photo-editor.store'), $this->validPayload([
+                'apparel_mode' => 'ghost_mannequin',
+            ]));
+
+        $this->assertFalse(PhotoEditSession::sole()->edits['allow_generative']);
+    }
+
+    public function test_generative_redraw_can_be_turned_on(): void
+    {
+        Queue::fake();
+
+        $this->actingAs($this->editor())
+            ->post(route('photo-editor.store'), $this->validPayload([
+                'apparel_mode'     => 'ghost_mannequin',
+                'allow_generative' => '1',
+            ]));
+
+        $this->assertTrue(PhotoEditSession::sole()->edits['allow_generative']);
+    }
+
+    /** Asking for a redraw without a redraw mode means nothing. */
+    public function test_generative_redraw_is_ignored_without_an_apparel_mode(): void
+    {
+        Queue::fake();
+
+        $this->actingAs($this->editor())
+            ->post(route('photo-editor.store'), $this->validPayload([
+                'apparel_mode'     => 'none',
+                'allow_generative' => '1',
+            ]));
+
+        $this->assertFalse(PhotoEditSession::sole()->edits['allow_generative']);
+    }
+
+    /*
+     * ── AI cleanup stays as it was ─────────────────────────────────────────
+     *
+     * "Keep the photo + AI cleanup" is the mode in daily use, so the changes
+     * around it are guarded by what it must keep doing: erase a visible
+     * mannequin with a generative pass, then cut out the real pixels. The new
+     * options are additions beside it, not a replacement for it.
+     */
+
+    private function fakeGarment(): string
+    {
+        $img = imagecreatetruecolor(60, 90);
+        imagefill($img, 0, 0, imagecolorallocate($img, 200, 180, 160));
+
+        ob_start();
+        imagejpeg($img, null, 90);
+        imagedestroy($img);
+
+        return (string) ob_get_clean();
+    }
+
+    private function runCleanupItem(array $editOverrides, array $classification): PhotoEditItem
+    {
+        \Illuminate\Support\Facades\Cache::flush();
+
+        $session = PhotoEditSession::create([
+            'user_id'       => $this->editor()->id,
+            'name'          => 'Cleanup',
+            'onedrive_link' => 'https://example.com',
+            'edits'         => array_merge([
+                'ghost_mannequin'   => true,
+                'remove_background' => true,
+                'background_mode'   => 'white',
+            ], $editOverrides),
+        ]);
+
+        $item = PhotoEditItem::create([
+            'photo_edit_session_id' => $session->id,
+            'filename'              => 'a.jpg',
+            'status'                => 'pending',
+            'onedrive_drive_id'     => 'drive-1',
+            'onedrive_item_id'      => 'item-1',
+        ]);
+
+        $garment = $this->fakeGarment();
+
+        $oneDrive = \Mockery::mock(\App\Services\OneDriveService::class);
+        $oneDrive->shouldReceive('setUser')->andReturnSelf();
+        $oneDrive->shouldReceive('downloadFileById')->andReturn($garment);
+
+        $gemini = \Mockery::mock(\App\Services\GeminiService::class);
+        $gemini->shouldReceive('classifyGarmentView')->andReturn($classification);
+
+        \Illuminate\Support\Facades\Http::fake([
+            'image-api.photoroom.com/*' => \Illuminate\Support\Facades\Http::response($garment, 200),
+        ]);
+
+        (new \App\Jobs\EditPhotoItemJob($item->id))->handle(
+            $oneDrive,
+            app(ImageProcessingService::class),
+            app(PhotoroomService::class),
+            $gemini,
+        );
+
+        return $item->fresh();
+    }
+
+    /** The default path still spends the extra erase request, exactly as before. */
+    public function test_ai_cleanup_still_erases_a_visible_mannequin(): void
+    {
+        $item = $this->runCleanupItem([], ['view_type' => 'front', 'mannequin_visible' => true]);
+
+        $this->assertSame('edited', $item->status, $item->error_message ?? '');
+        $this->assertSame('mannequin_removed', $item->apparel_mode_applied);
+
+        // Two requests: the generative erase, then the real-pixel cutout.
+        \Illuminate\Support\Facades\Http::assertSentCount(2);
+    }
+
+    /** No mannequin in frame means no erase pass and no wasted credit. */
+    public function test_ai_cleanup_spends_nothing_extra_when_there_is_no_mannequin(): void
+    {
+        $item = $this->runCleanupItem([], ['view_type' => 'front', 'mannequin_visible' => false]);
+
+        $this->assertSame('none', $item->apparel_mode_applied);
+        \Illuminate\Support\Facades\Http::assertSentCount(1);
+    }
+
+    /** A segmentation prompt does the same job inside the one cutout request. */
+    public function test_a_segmentation_prompt_replaces_the_extra_erase_request(): void
+    {
+        $item = $this->runCleanupItem(
+            ['segmentation_prompt' => 'the dress'],
+            ['view_type' => 'front', 'mannequin_visible' => true],
+        );
+
+        $this->assertSame('segmented', $item->apparel_mode_applied);
+        \Illuminate\Support\Facades\Http::assertSentCount(1);
+    }
+
+    /** Opting into the redraw hands the whole job to Photoroom, in one request. */
+    public function test_the_generative_redraw_skips_the_erase_pass(): void
+    {
+        $item = $this->runCleanupItem(
+            ['allow_generative' => true],
+            ['view_type' => 'front', 'mannequin_visible' => true],
+        );
+
+        $this->assertSame('generative', $item->apparel_mode_applied);
+        \Illuminate\Support\Facades\Http::assertSentCount(1);
+    }
+
+    /** AVIF holds alpha, so a cutout asked for as AVIF stays AVIF. */
+    public function test_avif_is_offered_and_survives_a_transparent_cutout(): void
+    {
+        $service = app(PhotoroomService::class);
+
+        $transparent = ['remove_background' => true, 'background_mode' => 'transparent'];
+
+        $this->assertSame('avif', $service->outputFormat($transparent + ['export_format' => 'avif']));
+        $this->assertSame('avif', $service->outputFormat(['remove_background' => true, 'background_mode' => 'white', 'export_format' => 'avif']));
+        $this->assertTrue($service->producesAlpha($transparent + ['export_format' => 'avif']));
+    }
+
+    /** Asking for the original size is said outright, not left to 'auto'. */
+    public function test_original_image_output_size(): void
+    {
+        $fields = app(PhotoroomService::class)->buildFields([
+            'remove_background' => true,
+            'output_size_mode'  => 'originalImage',
+        ]);
+
+        $this->assertSame('originalImage', $fields['outputSize']);
+    }
+
+    /**
+     * The mannequin-erase pass runs outside the main request, so it needs its
+     * own seed — without one it was the single step that stopped a re-edit
+     * reproducing the run it was re-editing.
+     */
+    public function test_the_mannequin_erase_pass_accepts_a_seed(): void
+    {
+        \Illuminate\Support\Facades\Cache::flush();
+
+        \Illuminate\Support\Facades\Http::fake([
+            'image-api.photoroom.com/*' => \Illuminate\Support\Facades\Http::response('erased-bytes', 200),
+        ]);
+
+        app(PhotoroomService::class)->removeMannequin('fake-bytes', 'a.jpg', 99);
+
+        \Illuminate\Support\Facades\Http::assertSent(function ($request) {
+            foreach ($request->data() as $part) {
+                if ($part['name'] === 'editWithAI.seed') {
+                    return $part['contents'] === '99';
+                }
+            }
+
+            return false;
+        });
+    }
+
+    /** No seed given, none sent — the pass stays random by default. */
+    public function test_the_mannequin_erase_pass_sends_no_seed_by_default(): void
+    {
+        \Illuminate\Support\Facades\Cache::flush();
+
+        \Illuminate\Support\Facades\Http::fake([
+            'image-api.photoroom.com/*' => \Illuminate\Support\Facades\Http::response('erased-bytes', 200),
+        ]);
+
+        app(PhotoroomService::class)->removeMannequin('fake-bytes', 'a.jpg');
+
+        \Illuminate\Support\Facades\Http::assertSent(
+            fn ($request) => !in_array('editWithAI.seed', array_column($request->data(), 'name'), true),
+        );
     }
 }

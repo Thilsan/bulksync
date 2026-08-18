@@ -99,17 +99,23 @@ class EditPhotoItemJob implements ShouldQueue
             // Ghost mannequin / flat lay / virtual model regenerate the
             // garment from scratch — useful for the "floating garment" look,
             // but generative reconstruction carries no guarantee of matching
-            // the original photo's color or orientation, which matters more
-            // here than the redraw itself. Every item that asked for one of
-            // those modes gets a plain cutout instead, whatever its view.
-            // Classification is only spent on sessions that asked for a
-            // redraw mode in the first place, to know whether a mannequin is
-            // actually in frame to erase. A classification failure fails
-            // open: the item still gets the plain-cutout fallback rather than
-            // derailing over an unrelated API hiccup.
+            // the original photo's color or orientation. That is why every
+            // such item is downgraded to a plain cutout by default.
+            //
+            // 'allow_generative' is the operator saying they want the redraw
+            // anyway and will check the results. It is per session, so the
+            // safe default survives for the bulk runs that feed the catalogue
+            // while a deliberate one-off can still use the real feature.
+            //
+            // Classification is only spent on sessions that asked for a redraw
+            // mode in the first place, to know whether a mannequin is actually
+            // in frame to erase. A classification failure fails open: the item
+            // still gets the plain-cutout fallback rather than derailing over
+            // an unrelated API hiccup.
             $classification = null;
+            $generative     = !empty($edits['allow_generative']);
 
-            if ($photoroom->generatesOwnCanvas($edits)) {
+            if ($photoroom->generatesOwnCanvas($edits) && !$generative) {
                 try {
                     $classification = $gemini->classifyGarmentView($raw);
                 } catch (\Throwable $e) {
@@ -121,21 +127,38 @@ class EditPhotoItemJob implements ShouldQueue
             $appliedMode = 'none';
 
             if ($photoroom->generatesOwnCanvas($edits)) {
-                $itemEdits['ghost_mannequin']   = false;
-                $itemEdits['flat_lay']          = false;
-                $itemEdits['virtual_model']     = false;
-                $itemEdits['remove_background'] = true;
+                if ($generative) {
+                    // Photoroom draws the garment itself, mannequin and all —
+                    // a separate erase pass would only be a wasted request.
+                    $appliedMode = 'generative';
+                } else {
+                    $itemEdits['ghost_mannequin']   = false;
+                    $itemEdits['flat_lay']          = false;
+                    $itemEdits['virtual_model']     = false;
+                    $itemEdits['remove_background'] = true;
 
-                // A visible mannequin is erased via a generative pass
-                // regardless of which side of the garment faces the camera —
-                // cutting the background alone would otherwise leave the
-                // stand in frame.
-                if ($classification && !empty($classification['mannequin_visible'])) {
-                    try {
-                        $raw         = $photoroom->removeMannequin($raw, $item->filename);
-                        $appliedMode = 'mannequin_removed';
-                    } catch (\Throwable $e) {
-                        Log::warning("EditPhotoItemJob item {$this->itemId} mannequin removal failed: " . $e->getMessage());
+                    // A visible mannequin is erased via a generative pass
+                    // regardless of which side of the garment faces the camera
+                    // — cutting the background alone would otherwise leave the
+                    // stand in frame. Text-guided segmentation can do this
+                    // inside the single cutout request instead; when the
+                    // session supplies a segmentation prompt, that is used and
+                    // this extra request is skipped.
+                    $needsErase = $classification && !empty($classification['mannequin_visible']);
+
+                    if ($needsErase && empty($edits['segmentation_prompt'])) {
+                        try {
+                            $raw         = $photoroom->removeMannequin(
+                                $raw,
+                                $item->filename,
+                                filled($edits['edit_seed'] ?? null) ? (int) $edits['edit_seed'] : null,
+                            );
+                            $appliedMode = 'mannequin_removed';
+                        } catch (\Throwable $e) {
+                            Log::warning("EditPhotoItemJob item {$this->itemId} mannequin removal failed: " . $e->getMessage());
+                        }
+                    } elseif ($needsErase) {
+                        $appliedMode = 'segmented';
                     }
                 }
             }
@@ -160,16 +183,19 @@ class EditPhotoItemJob implements ShouldQueue
             $edited = $photoroom->edit($input, $itemEdits, $item->filename);
             unset($input);
 
-            $isJpeg = $photoroom->producesJpeg($itemEdits);
+            $format = $photoroom->outputFormat($itemEdits);
+            $isJpeg = $format === 'jpg';
 
             // Only JPEG output goes through the compressor: it re-encodes as
-            // JPEG, which would flatten a transparent PNG cutout onto black.
-            // It also enforces Shopify's megapixel ceiling on the way past.
-            if ($isJpeg) {
-                $edited = $imageService->compressOnly($edited, self::MAX_OUTPUT_BYTES);
-            }
+            // JPEG, which would flatten a transparent cutout onto black.
+            // It also enforces Shopify's megapixel ceiling on the way past —
+            // which the other formats still need, so they get the alpha-safe
+            // version of the same cap rather than skipping it.
+            $edited = $isJpeg
+                ? $imageService->compressOnly($edited, self::MAX_OUTPUT_BYTES)
+                : $imageService->capPixelCountPreservingAlpha($edited, $format);
 
-            $ext          = $isJpeg ? 'jpg' : 'png';
+            $ext          = $format;
             $editedRel    = $session->storageDir() . "/{$item->id}-after.{$ext}";
             $thumbRel     = $session->storageDir() . "/{$item->id}-after-thumb.{$ext}";
 
@@ -186,6 +212,10 @@ class EditPhotoItemJob implements ShouldQueue
                 'view_type'            => $classification['view_type'] ?? null,
                 'mannequin_visible'    => $classification['mannequin_visible'] ?? null,
                 'apparel_mode_applied' => $appliedMode,
+
+                // Read straight after the edit it belongs to — the service
+                // keeps only the most recent call's score.
+                'uncertainty_score'    => $photoroom->lastUncertaintyScore(),
             ]);
 
         } catch (\Throwable $e) {

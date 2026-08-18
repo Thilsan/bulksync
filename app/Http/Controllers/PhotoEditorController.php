@@ -59,7 +59,7 @@ class PhotoEditorController extends Controller implements HasMiddleware
             'onedriveConfigured'   => !empty($user->onedrive_access_token),
             'photoroomConfigured'  => $this->photoroom->isConfigured(),
             'isSandbox'            => $this->photoroom->isSandbox(),
-            'maxImages'            => (int) config('services.photoroom.max_images', 300),
+            'maxImages'            => (int) config('services.photoroom.max_images', 120),
             'retentionDays'        => (int) config('services.photoroom.retention_days', 7),
             'recent'               => $this->scope()->with('store')->latest()->limit(5)->get(),
 
@@ -129,6 +129,11 @@ class PhotoEditorController extends Controller implements HasMiddleware
             'background_seed'        => ['nullable', 'integer', 'min:0'],
             'background_blur_mode'   => ['nullable', 'in:gaussian,bokeh'],
             'background_blur_radius' => ['nullable', 'numeric', 'min:0', 'max:0.05'],
+            'background_negative_prompt' => ['nullable', 'string', 'max:500'],
+            'background_guidance_url'    => ['nullable', 'url'],
+            'background_guidance_scale'  => ['nullable', 'numeric', 'min:0', 'max:1'],
+            'background_scaling'         => ['nullable', 'in:fit,fill'],
+            'background_expand_prompt'   => ['nullable', 'in:ai.auto,ai.never'],
 
             // ── Clothing ──
             'apparel_mode'   => ['required', 'in:none,ghost_mannequin,flat_lay,virtual_model'],
@@ -138,6 +143,16 @@ class PhotoEditorController extends Controller implements HasMiddleware
             'vm_scene'       => ['nullable', Rule::in(PhotoroomService::VIRTUAL_MODEL_SCENES)],
             'vm_pose'        => ['nullable', Rule::in(PhotoroomService::VIRTUAL_MODEL_POSES)],
             'ironing'        => ['nullable', 'boolean'],
+
+            // Virtual Try-On: your own model and set instead of Photoroom's.
+            'vm_model_url'         => ['nullable', 'url'],
+            'vm_scene_url'         => ['nullable', 'url'],
+            'vm_extra_product_urls'   => ['nullable', 'array', 'max:4'],
+            'vm_extra_product_urls.*' => ['url'],
+
+            // Off by default: a redrawn garment is not guaranteed to match the
+            // colour or cut of the one photographed.
+            'allow_generative' => ['nullable', 'boolean'],
 
             // ── Shadow ──
             'shadow'           => ['nullable', Rule::in(array_keys(PhotoroomService::SHADOW_MODES))],
@@ -150,12 +165,26 @@ class PhotoEditorController extends Controller implements HasMiddleware
             // ── Finishing ──
             'text_removal'  => ['nullable', Rule::in(array_keys(PhotoroomService::TEXT_REMOVAL_MODES))],
             'beautify'      => ['nullable', Rule::in(array_keys(PhotoroomService::BEAUTIFY_MODES))],
-            'lighting'      => ['nullable', 'boolean'],
+            'lighting'      => ['nullable', Rule::in(array_keys(PhotoroomService::LIGHTING_MODES))],
             'upscale'       => ['nullable', 'boolean'],
+            'upscale_resolution' => ['nullable', 'integer', 'min:512', 'max:8192'],
             'expand'        => ['nullable', 'boolean'],
             'uncrop'        => ['nullable', 'boolean'],
             'outline_color' => ['nullable', 'string', 'regex:/^#?[0-9A-Fa-f]{6}$/'],
             'outline_width' => ['nullable', 'numeric', 'min:0', 'max:0.1'],
+            'outline_blur'  => ['nullable', 'numeric', 'min:0', 'max:0.025'],
+            'beautify_strict' => ['nullable', 'boolean'],
+
+            // Seeds make a re-edit reproduce the run it is re-editing.
+            'beautify_seed' => ['nullable', 'integer', 'min:0'],
+            'expand_seed'   => ['nullable', 'integer', 'min:0'],
+            'uncrop_seed'   => ['nullable', 'integer', 'min:0'],
+            'edit_seed'     => ['nullable', 'integer', 'min:0'],
+
+            // ── Text-guided segmentation ──
+            'segmentation_prompt'          => ['nullable', 'string', 'max:500'],
+            'segmentation_negative_prompt' => ['nullable', 'string', 'max:500'],
+            'segmentation_mode'            => ['nullable', 'in:keepSalientObject'],
 
             // ── Output ──
             'image_width'   => ['nullable', 'integer', 'min:100', 'max:5000'],
@@ -166,6 +195,24 @@ class PhotoEditorController extends Controller implements HasMiddleware
             'scaling'       => ['required', 'in:fit,fill'],
             'reference_box' => ['nullable', 'in:subjectBox,originalImage'],
             'dpi'           => ['nullable', 'integer', 'min:72', 'max:1200'],
+            'output_size_mode' => ['nullable', Rule::in(array_keys(PhotoroomService::OUTPUT_SIZE_MODES))],
+            'max_width'     => ['nullable', 'integer', 'min:100', 'max:8192'],
+            'max_height'    => ['nullable', 'integer', 'min:100', 'max:8192'],
+            'margin'        => ['nullable', 'numeric', 'min:0', 'max:0.49'],
+            'padding_top'    => ['nullable', 'string', 'max:12'],
+            'padding_bottom' => ['nullable', 'string', 'max:12'],
+            'padding_left'   => ['nullable', 'string', 'max:12'],
+            'padding_right'  => ['nullable', 'string', 'max:12'],
+            'margin_top'     => ['nullable', 'string', 'max:12'],
+            'margin_bottom'  => ['nullable', 'string', 'max:12'],
+            'margin_left'    => ['nullable', 'string', 'max:12'],
+            'margin_right'   => ['nullable', 'string', 'max:12'],
+            'snap_cropped_sides' => ['nullable', 'boolean'],
+            'export_format'   => ['nullable', Rule::in(PhotoroomService::EXPORT_FORMATS)],
+            'color_space'     => ['nullable', Rule::in(PhotoroomService::COLOR_SPACES)],
+            'preserve_metadata' => ['nullable', Rule::in(array_keys(PhotoroomService::METADATA_MODES))],
+            'keep_alpha'      => ['nullable', Rule::in(PhotoroomService::ALPHA_MODES)],
+            'template_id'     => ['nullable', 'string', 'max:120'],
         ], [
             'background_color.regex'     => 'The background colour must be a 6-digit hex value, e.g. #F5F5F5.',
             'outline_color.regex'        => 'The outline colour must be a 6-digit hex value, e.g. #222222.',
@@ -188,9 +235,19 @@ class PhotoEditorController extends Controller implements HasMiddleware
             'outline_color', 'outline_width', 'image_width', 'image_height',
             'padding', 'reference_box', 'dpi', 'input_rotation',
             'trim_top', 'trim_bottom',
+            'background_negative_prompt', 'background_guidance_url', 'background_guidance_scale',
+            'background_scaling', 'background_expand_prompt',
+            'vm_model_url', 'vm_scene_url', 'vm_extra_product_urls',
+            'lighting', 'upscale_resolution', 'outline_blur',
+            'beautify_seed', 'expand_seed', 'uncrop_seed', 'edit_seed',
+            'segmentation_prompt', 'segmentation_negative_prompt', 'segmentation_mode',
+            'output_size_mode', 'max_width', 'max_height', 'margin',
+            'padding_top', 'padding_bottom', 'padding_left', 'padding_right',
+            'margin_top', 'margin_bottom', 'margin_left', 'margin_right',
+            'export_format', 'color_space', 'preserve_metadata', 'keep_alpha', 'template_id',
         ], null) + array_fill_keys([
-            'remove_background', 'ironing', 'lighting', 'upscale', 'expand', 'uncrop',
-            'rotate_wide_only',
+            'remove_background', 'ironing', 'upscale', 'expand', 'uncrop',
+            'rotate_wide_only', 'allow_generative', 'beautify_strict', 'snap_cropped_sides',
         ], false);
 
         // Blurring keeps the original scene, so it is the one mode that is not
@@ -227,6 +284,11 @@ class PhotoEditorController extends Controller implements HasMiddleware
             'background_seed'        => filled($validated['background_seed']) ? (int) $validated['background_seed'] : null,
             'background_blur_mode'   => $validated['background_blur_mode'] ?: null,
             'background_blur_radius' => filled($validated['background_blur_radius']) ? (float) $validated['background_blur_radius'] : null,
+            'background_negative_prompt' => $validated['background_negative_prompt'] ?: null,
+            'background_guidance_url'    => $validated['background_guidance_url'] ?: null,
+            'background_guidance_scale'  => filled($validated['background_guidance_scale']) ? (float) $validated['background_guidance_scale'] : null,
+            'background_scaling'         => $validated['background_scaling'] ?: null,
+            'background_expand_prompt'   => $validated['background_expand_prompt'] ?: null,
 
             // Clothing
             'ghost_mannequin' => $apparel === 'ghost_mannequin',
@@ -237,7 +299,15 @@ class PhotoEditorController extends Controller implements HasMiddleware
             'vm_model'        => $apparel === 'virtual_model' ? $validated['vm_model'] : null,
             'vm_scene'        => $apparel === 'virtual_model' ? $validated['vm_scene'] : null,
             'vm_pose'         => $apparel === 'virtual_model' ? $validated['vm_pose'] : null,
+            'vm_model_url'    => $apparel === 'virtual_model' ? ($validated['vm_model_url'] ?: null) : null,
+            'vm_scene_url'    => $apparel === 'virtual_model' ? ($validated['vm_scene_url'] ?: null) : null,
+            'vm_extra_product_urls' => $apparel === 'virtual_model'
+                ? array_values(array_filter((array) ($validated['vm_extra_product_urls'] ?? [])))
+                : [],
             'ironing'         => (bool) $validated['ironing'],
+
+            // Only meaningful when a redraw mode was picked in the first place.
+            'allow_generative' => $apparel !== 'none' && (bool) $validated['allow_generative'],
 
             // Shadow
             'shadow'           => $validated['shadow'] ?: null,
@@ -250,12 +320,27 @@ class PhotoEditorController extends Controller implements HasMiddleware
             // Finishing
             'text_removal'  => $validated['text_removal'] ?: null,
             'beautify'      => $validated['beautify'] ?: null,
-            'lighting'      => (bool) $validated['lighting'],
+            'lighting'      => $validated['lighting'] ?: null,
             'upscale'       => (bool) $validated['upscale'],
+            'upscale_resolution' => filled($validated['upscale_resolution']) ? (int) $validated['upscale_resolution'] : null,
             'expand'        => (bool) $validated['expand'],
             'uncrop'        => (bool) $validated['uncrop'],
             'outline_color' => $validated['outline_color'] ? ltrim((string) $validated['outline_color'], '#') : null,
             'outline_width' => filled($validated['outline_width']) ? (float) $validated['outline_width'] : null,
+            'outline_blur'  => filled($validated['outline_blur']) ? (float) $validated['outline_blur'] : null,
+            'beautify_strict' => (bool) $validated['beautify_strict'],
+            'beautify_seed' => filled($validated['beautify_seed']) ? (int) $validated['beautify_seed'] : null,
+            'expand_seed'   => filled($validated['expand_seed'])   ? (int) $validated['expand_seed']   : null,
+            'uncrop_seed'   => filled($validated['uncrop_seed'])   ? (int) $validated['uncrop_seed']   : null,
+
+            // Seeds the mannequin-erase pass, the one generative step that runs
+            // outside the main edit request.
+            'edit_seed'     => filled($validated['edit_seed'])     ? (int) $validated['edit_seed']     : null,
+
+            // Segmentation
+            'segmentation_prompt'          => $validated['segmentation_prompt'] ?: null,
+            'segmentation_negative_prompt' => $validated['segmentation_negative_prompt'] ?: null,
+            'segmentation_mode'            => $validated['segmentation_mode'] ?: null,
 
             // Output
             'width'         => $hasSize ? (int) $validated['image_width']  : null,
@@ -264,6 +349,24 @@ class PhotoEditorController extends Controller implements HasMiddleware
             'h_align'       => $validated['h_align'],
             'v_align'       => $validated['v_align'],
             'scaling'       => $validated['scaling'],
+            'output_size_mode' => $hasSize ? 'custom' : ($validated['output_size_mode'] ?: 'auto'),
+            'max_width'     => filled($validated['max_width'])  ? (int) $validated['max_width']  : null,
+            'max_height'    => filled($validated['max_height']) ? (int) $validated['max_height'] : null,
+            'margin'        => filled($validated['margin']) ? (float) $validated['margin'] : null,
+            'padding_top'    => $validated['padding_top']    ?: null,
+            'padding_bottom' => $validated['padding_bottom'] ?: null,
+            'padding_left'   => $validated['padding_left']   ?: null,
+            'padding_right'  => $validated['padding_right']  ?: null,
+            'margin_top'     => $validated['margin_top']     ?: null,
+            'margin_bottom'  => $validated['margin_bottom']  ?: null,
+            'margin_left'    => $validated['margin_left']    ?: null,
+            'margin_right'   => $validated['margin_right']   ?: null,
+            'snap_cropped_sides' => (bool) $validated['snap_cropped_sides'],
+            'export_format'     => $validated['export_format'] ?: 'auto',
+            'color_space'       => $validated['color_space'] ?: 'sRGB',
+            'preserve_metadata' => $validated['preserve_metadata'] ?: null,
+            'keep_alpha'        => $validated['keep_alpha'] ?: null,
+            'template_id'       => $validated['template_id'] ?: null,
             'reference_box' => $validated['reference_box'] ?: null,
             'dpi'           => filled($validated['dpi']) ? (int) $validated['dpi'] : null,
         ];
@@ -322,6 +425,12 @@ class PhotoEditorController extends Controller implements HasMiddleware
             'view_type'             => $i->view_type,
             'mannequin_visible'     => $i->mannequin_visible,
             'apparel_mode_applied'  => $i->apparel_mode_applied,
+
+            // Photoroom's own confidence in the cutout, so the reviewer's
+            // attention lands on the ones it was unsure about rather than
+            // being spread evenly across a batch that is mostly fine.
+            'uncertainty_score'     => $i->uncertainty_score,
+            'looks_uncertain'       => $i->looksUncertain(),
             'selected'              => (bool) $i->selected,
             'pushable'              => $i->isPushable(),
             'edited_kb'             => $i->edited_size_kb,
