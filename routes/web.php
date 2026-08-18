@@ -148,6 +148,7 @@ Route::middleware('auth')->group(function () {
         Route::get('/list',                    [ProductRequestController::class, 'list'])->name('list');
         Route::post('/',                       [ProductRequestController::class, 'store'])->name('store');
         Route::post('/bulk',                   [ProductRequestController::class, 'bulk'])->name('bulk');
+        Route::post('/sync-sheet',              [ProductRequestController::class, 'syncSheet'])->name('sync-sheet');
 
         Route::get('/my-tasks',                [ProductRequestController::class, 'myTasks'])->name('my-tasks');
 

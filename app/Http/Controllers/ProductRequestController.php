@@ -14,6 +14,7 @@ use App\Models\User;
 use App\Notifications\ProductRequestAssigned;
 use App\Notifications\ProductRequestCommented;
 use App\Notifications\ProductRequestHoldChanged;
+use App\Services\ProductRequestSheetSyncService;
 use App\Services\ProductRequestWorkflow;
 use App\Services\SkuMappingService;
 use Illuminate\Container\Attributes\CurrentUser;
@@ -70,6 +71,7 @@ class ProductRequestController extends Controller implements HasMiddleware
     public function __construct(
         private readonly ProductRequestWorkflow $workflow,
         private readonly SkuMappingService $mapping,
+        private readonly ProductRequestSheetSyncService $sheetSync,
     ) {}
 
     public static function middleware(): array
@@ -242,6 +244,35 @@ class ProductRequestController extends Controller implements HasMiddleware
         }
 
         return back()->with($done > 0 ? 'success' : 'warning', $message);
+    }
+
+    /**
+     * Pulls new rows from the shared tracking sheet and creates matching
+     * requests — the UI equivalent of `php artisan product-requests:sync-sheet
+     * --commit`. Gated to super admins: unlike everything else on this
+     * controller, one click here can create hundreds of real requests at once.
+     */
+    public function syncSheet(#[CurrentUser] User $user): RedirectResponse
+    {
+        abort_unless($user->is_super_admin, 403, 'Only a super admin can sync from the tracking sheet.');
+
+        set_time_limit(300); // several large worksheets to read on a slow connection
+
+        try {
+            $result = $this->sheetSync->run(commit: true);
+        } catch (\Throwable $e) {
+            Log::error('Product request sheet sync failed: ' . $e->getMessage());
+            return back()->with('warning', 'Sync failed: ' . $e->getMessage());
+        }
+
+        $message = "{$result['created']} request(s) created.";
+
+        $flagged = $result['unmatched_department'] + $result['unmatched_store'] + $result['unmatched_skus'] + $result['errors'];
+        if ($flagged > 0) {
+            $message .= " {$flagged} row(s) need manual review (unmatched department/store/SKUs or errors).";
+        }
+
+        return back()->with($result['created'] > 0 ? 'success' : 'warning', $message);
     }
 
     private function bulkPriority(ProductRequest $productRequest, string $priority, User $actor): bool
