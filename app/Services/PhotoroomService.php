@@ -300,6 +300,51 @@ class PhotoroomService
     }
 
     /**
+     * What a SKU group starts from before anybody has configured it.
+     *
+     * These used to be collected on the first screen and applied to the whole
+     * folder, which only ever held while a folder was one kind of thing. The
+     * run now asks for nothing but where the photos are; every setting is
+     * chosen per SKU once the photos can actually be seen, so this is the
+     * starting point each group is created with rather than a decision anyone
+     * has committed to.
+     *
+     * Chosen to be the safe answer for a Shopify listing: a real-pixel cutout
+     * on white, nothing generated, nothing that shifts colour.
+     */
+    public static function defaultEdits(): array
+    {
+        return [
+            'remove_background' => true,
+            'background_mode'   => 'white',
+
+            'ghost_mannequin' => false,
+            'flat_lay'        => false,
+            'virtual_model'   => false,
+            'ironing'         => false,
+
+            'shadow'   => null,
+            'lighting' => null,
+            'beautify' => null,
+            'upscale'  => false,
+            'expand'   => false,
+
+            'width'    => null,
+            'height'   => null,
+            'padding'  => null,
+            'h_align'  => 'center',
+            'v_align'  => 'center',
+            'scaling'  => 'fit',
+
+            'trim_top'    => null,
+            'trim_bottom' => null,
+
+            'export_format' => 'auto',
+            'color_space'   => 'sRGB',
+        ];
+    }
+
+    /**
      * Extra request headers some options depend on.
      */
     public function buildHeaders(array $edits): array

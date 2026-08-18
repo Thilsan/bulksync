@@ -110,7 +110,12 @@ class PhotoEditorTest extends TestCase
 
     // ── Starting a run ─────────────────────────────────────────────────────
 
-    public function test_starting_a_run_records_the_chosen_edits_and_queues_the_scan(): void
+    /**
+     * The first screen decides where the photos are, not what to do with them.
+     * Every edit setting now belongs to a SKU group, chosen once the photos can
+     * actually be seen — so all this records is the run and the scan.
+     */
+    public function test_starting_a_run_queues_the_scan_and_decides_no_edits(): void
     {
         Queue::fake();
 
@@ -120,29 +125,22 @@ class PhotoEditorTest extends TestCase
 
         $session = PhotoEditSession::sole();
 
-        $this->assertSame('FFFFFF', $session->edits['background_color']);
+        // The safe starting point each group is created with, not a choice.
+        $this->assertSame(PhotoroomService::defaultEdits()['background_mode'], $session->edits['background_mode']);
         $this->assertTrue($session->edits['remove_background']);
-        $this->assertTrue($session->edits['ghost_mannequin']);
-        $this->assertFalse($session->edits['flat_lay']);
-        $this->assertSame(1000, $session->edits['width']);
+        $this->assertFalse($session->edits['ghost_mannequin']);
+        $this->assertSame('configuring', $session->fresh()->status === 'processing' ? 'configuring' : $session->status);
 
         Queue::assertPushed(ScanPhotoEditFolderJob::class);
     }
 
-    /**
-     * Transparency and JPEG cannot coexist — asking for both is the one
-     * combination that silently fills the cutout with black.
-     */
+    /** A transparent cutout is a PNG wherever the setting was chosen. */
     public function test_a_transparent_background_is_saved_as_png(): void
     {
-        Queue::fake();
+        $edits = array_merge(PhotoroomService::defaultEdits(), [
+            'background_mode' => 'transparent',
+        ]);
 
-        $this->actingAs($this->editor())
-            ->post(route('photo-editor.store'), $this->validPayload(['background_mode' => 'transparent']));
-
-        $edits = PhotoEditSession::sole()->edits;
-
-        $this->assertNull($edits['background_color']);
         $this->assertSame('png', app(PhotoroomService::class)->outputFormat($edits));
     }
 
@@ -712,46 +710,36 @@ class PhotoEditorTest extends TestCase
         $this->assertArrayNotHasKey('shadow.softnessOverride', $fields);
     }
 
-    public function test_the_form_can_start_a_virtual_model_run(): void
+    /** On-model settings reach Photoroom whichever screen collected them. */
+    public function test_virtual_model_settings_reach_photoroom(): void
     {
-        Queue::fake();
+        $fields = app(PhotoroomService::class)->buildFields([
+            'virtual_model' => true,
+            'vm_model'      => 'maya',
+            'vm_scene'      => 'studio',
+            'vm_pose'       => 'crossedarms',
+            'apparel_size'  => 'PORTRAIT_HD_4_3',
+            'ironing'       => true,
+        ]);
 
-        $this->actingAs($this->editor())
-            ->post(route('photo-editor.store'), $this->validPayload([
-                'apparel_mode' => 'virtual_model',
-                'vm_model'     => 'maya',
-                'vm_scene'     => 'studio',
-                'vm_pose'      => 'crossedarms',
-                'apparel_size' => 'PORTRAIT_HD_4_3',
-                'ironing'      => '1',
-                'beautify'     => 'ai.auto',
-                'expand'       => '1',
-            ]))
-            ->assertRedirect();
-
-        $edits = PhotoEditSession::sole()->edits;
-
-        $this->assertTrue($edits['virtual_model']);
-        $this->assertFalse($edits['ghost_mannequin']);
-        $this->assertSame('maya', $edits['vm_model']);
-        $this->assertSame('PORTRAIT_HD_4_3', $edits['apparel_size']);
-        $this->assertTrue($edits['ironing']);
-        $this->assertSame('ai.auto', $edits['beautify']);
-        $this->assertTrue($edits['expand']);
+        $this->assertSame('ai.auto', $fields['virtualModel.mode']);
+        $this->assertSame('maya', $fields['virtualModel.model.preset.name']);
+        $this->assertSame('studio', $fields['virtualModel.scene.preset.name']);
+        $this->assertSame('crossedarms', $fields['virtualModel.pose']);
+        $this->assertSame('PORTRAIT_HD_4_3', $fields['virtualModel.size']);
+        $this->assertSame('ai.auto', $fields['ironing.mode']);
     }
 
-    /** Model-only options are dropped when the run isn't using a model. */
-    public function test_model_options_are_not_kept_for_a_ghost_mannequin_run(): void
+    /** Model options belong to the model mode and nowhere else. */
+    public function test_model_options_are_ignored_without_the_model_mode(): void
     {
-        Queue::fake();
+        $fields = app(PhotoroomService::class)->buildFields([
+            'ghost_mannequin' => true,
+            'vm_model'        => 'maya',
+        ]);
 
-        $this->actingAs($this->editor())
-            ->post(route('photo-editor.store'), $this->validPayload([
-                'apparel_mode' => 'ghost_mannequin',
-                'vm_model'     => 'maya',
-            ]));
-
-        $this->assertNull(PhotoEditSession::sole()->edits['vm_model']);
+        $this->assertArrayNotHasKey('virtualModel.mode', $fields);
+        $this->assertArrayNotHasKey('virtualModel.model.preset.name', $fields);
     }
 
     /*
@@ -887,19 +875,23 @@ class PhotoEditorTest extends TestCase
     /** A pixel size survives the AI cleanup mode rather than being dropped. */
     public function test_output_size_is_kept_for_the_ai_cleanup_mode(): void
     {
-        Queue::fake();
+        $group = \App\Models\PhotoEditGroup::create([
+            'photo_edit_session_id' => PhotoEditSession::create([
+                'user_id'       => $this->editor()->id,
+                'name'          => 'Run',
+                'onedrive_link' => 'https://example.com',
+                'edits'         => PhotoroomService::defaultEdits(),
+            ])->id,
+            'sku'   => 'SKU-1',
+            'edits' => array_merge(PhotoroomService::defaultEdits(), [
+                'ghost_mannequin' => true,
+                'width'           => 2000,
+                'height'          => 2000,
+            ]),
+        ]);
 
-        $this->actingAs($this->editor())
-            ->post(route('photo-editor.store'), $this->validPayload([
-                'apparel_mode' => 'ghost_mannequin',
-                'image_width'  => 2000,
-                'image_height' => 2000,
-            ]));
-
-        $edits = PhotoEditSession::sole()->edits;
-
-        $this->assertSame(2000, $edits['width']);
-        $this->assertSame(2000, $edits['height']);
+        $this->assertSame(2000, $group->fresh()->edits['width']);
+        $this->assertSame(2000, $group->fresh()->edits['height']);
     }
 
     /**
@@ -1384,25 +1376,4 @@ class PhotoEditorTest extends TestCase
         );
     }
 
-    /** The on-model mode is offered, and keeps the model options with it. */
-    public function test_the_on_model_mode_is_accepted(): void
-    {
-        Queue::fake();
-
-        $this->actingAs($this->editor())
-            ->post(route('photo-editor.store'), $this->validPayload([
-                'apparel_mode' => 'virtual_model',
-                'vm_model'     => 'maya',
-                'vm_scene'     => 'studio',
-                'vm_pose'      => 'standing',
-                'vm_model_url' => 'https://example.com/our-model.jpg',
-            ]));
-
-        $edits = PhotoEditSession::sole()->edits;
-
-        $this->assertTrue($edits['virtual_model']);
-        $this->assertFalse($edits['ghost_mannequin']);
-        $this->assertSame('maya', $edits['vm_model']);
-        $this->assertSame('https://example.com/our-model.jpg', $edits['vm_model_url']);
-    }
 }

@@ -112,283 +112,62 @@ class PhotoEditorController extends Controller implements HasMiddleware
 
     // ── Actions ────────────────────────────────────────────────────────────
 
+    /**
+     * Start a run: find the photos, decide nothing about them yet.
+     *
+     * This screen used to collect every Photoroom setting and apply the lot to
+     * whatever the folder turned out to hold — which meant committing a run of
+     * dresses, watches and caps to one answer before anybody had seen a single
+     * photo. All of that moved to the configure screen, where the settings are
+     * chosen per SKU against the actual images. What is left here is only what
+     * has to be known before the folder can be read at all.
+     */
     public function store(Request $request): RedirectResponse
     {
-        if (!$this->photoroom->isConfigured()) {
-            return back()->withInput()
-                ->with('error', 'No Photoroom API key is configured. Add PHOTOROOM_API_KEY to the environment first.');
-        }
-
         $validated = $request->validate([
-            'name'            => ['nullable', 'string', 'max:255'],
-            'onedrive_link'   => ['required', 'url'],
-            'matching_mode'   => ['required', 'in:sku_barcode,style_code'],
+            'onedrive_link'    => ['required', 'string', 'max:2048'],
+            'name'             => ['nullable', 'string', 'max:120'],
+            'matching_mode'    => ['required', 'in:sku_barcode,style_code'],
 
-            // ── Straightening (applied before the upload, not by Photoroom) ──
+            // Orientation is the one edit that belongs to the shoot rather than
+            // the product: a camera that wrote every frame sideways wrote them
+            // all sideways, whatever was in front of it.
             'input_rotation'   => ['nullable', Rule::in(array_keys(ImageProcessingService::INPUT_ROTATIONS))],
             'rotate_wide_only' => ['nullable', 'boolean'],
-            'trim_top'         => ['nullable', 'numeric', 'min:0', 'max:0.4'],
-            'trim_bottom'      => ['nullable', 'numeric', 'min:0', 'max:0.4'],
-
-            // ── Background ──
-            'remove_background'      => ['nullable', 'boolean'],
-            'background_mode'        => ['required', Rule::in(PhotoroomService::BACKGROUND_MODES)],
-            'background_color'       => ['nullable', 'string', 'regex:/^#?[0-9A-Fa-f]{6}$/'],
-            'background_prompt'      => ['nullable', 'string', 'max:500', 'required_if:background_mode,prompt'],
-            'background_image_url'   => ['nullable', 'url', 'required_if:background_mode,image'],
-            'background_seed'        => ['nullable', 'integer', 'min:0'],
-            'background_blur_mode'   => ['nullable', 'in:gaussian,bokeh'],
-            'background_blur_radius' => ['nullable', 'numeric', 'min:0', 'max:0.05'],
-            'background_negative_prompt' => ['nullable', 'string', 'max:500'],
-            'background_guidance_url'    => ['nullable', 'url'],
-            'background_guidance_scale'  => ['nullable', 'numeric', 'min:0', 'max:1'],
-            'background_scaling'         => ['nullable', 'in:fit,fill'],
-            'background_expand_prompt'   => ['nullable', 'in:ai.auto,ai.never'],
-
-            // ── Clothing ──
-            'apparel_mode'   => ['required', 'in:none,ghost_mannequin,flat_lay,virtual_model'],
-            'apparel_size'   => ['nullable', Rule::in(array_keys(PhotoroomService::SIZE_PRESETS))],
-            'apparel_prompt' => ['nullable', 'string', 'max:500'],
-            'vm_model'       => ['nullable', Rule::in(PhotoroomService::VIRTUAL_MODEL_PRESETS)],
-            'vm_scene'       => ['nullable', Rule::in(PhotoroomService::VIRTUAL_MODEL_SCENES)],
-            'vm_pose'        => ['nullable', Rule::in(PhotoroomService::VIRTUAL_MODEL_POSES)],
-            'ironing'        => ['nullable', 'boolean'],
-
-            // Virtual Try-On: your own model and set instead of Photoroom's.
-            'vm_model_url'         => ['nullable', 'url'],
-            'vm_scene_url'         => ['nullable', 'url'],
-            'vm_extra_product_urls'   => ['nullable', 'array', 'max:4'],
-            'vm_extra_product_urls.*' => ['url'],
-
-            // ── Shadow ──
-            'shadow'           => ['nullable', Rule::in(array_keys(PhotoroomService::SHADOW_MODES))],
-            'shadow_softness'  => ['nullable', 'numeric', 'min:0', 'max:1'],
-            'shadow_intensity' => ['nullable', 'numeric', 'min:0', 'max:1'],
-            'shadow_spread'    => ['nullable', Rule::in(PhotoroomService::SHADOW_SPREADS)],
-            'shadow_direction' => ['nullable', Rule::in(PhotoroomService::SHADOW_DIRECTIONS)],
-            'shadow_pose'      => ['nullable', Rule::in(PhotoroomService::SHADOW_POSES)],
-
-            // ── Finishing ──
-            'text_removal'  => ['nullable', Rule::in(array_keys(PhotoroomService::TEXT_REMOVAL_MODES))],
-            'beautify'      => ['nullable', Rule::in(array_keys(PhotoroomService::BEAUTIFY_MODES))],
-            'lighting'      => ['nullable', Rule::in(array_keys(PhotoroomService::LIGHTING_MODES))],
-            'upscale'       => ['nullable', 'boolean'],
-            'upscale_resolution' => ['nullable', 'integer', 'min:512', 'max:8192'],
-            'expand'        => ['nullable', 'boolean'],
-            'uncrop'        => ['nullable', 'boolean'],
-            'outline_color' => ['nullable', 'string', 'regex:/^#?[0-9A-Fa-f]{6}$/'],
-            'outline_width' => ['nullable', 'numeric', 'min:0', 'max:0.1'],
-            'outline_blur'  => ['nullable', 'numeric', 'min:0', 'max:0.025'],
-            'beautify_strict' => ['nullable', 'boolean'],
-
-            // Seeds make a re-edit reproduce the run it is re-editing.
-            'beautify_seed' => ['nullable', 'integer', 'min:0'],
-            'expand_seed'   => ['nullable', 'integer', 'min:0'],
-            'uncrop_seed'   => ['nullable', 'integer', 'min:0'],
-            'edit_seed'     => ['nullable', 'integer', 'min:0'],
-
-            // ── Text-guided segmentation ──
-            'segmentation_prompt'          => ['nullable', 'string', 'max:500'],
-            'segmentation_negative_prompt' => ['nullable', 'string', 'max:500'],
-            'segmentation_mode'            => ['nullable', 'in:keepSalientObject'],
-
-            // ── Output ──
-            'image_width'   => ['nullable', 'integer', 'min:100', 'max:5000'],
-            'image_height'  => ['nullable', 'integer', 'min:100', 'max:5000'],
-            'padding'       => ['nullable', 'numeric', 'min:0', 'max:0.49'],
-            'h_align'       => ['required', 'in:left,center,right'],
-            'v_align'       => ['required', 'in:top,center,bottom'],
-            'scaling'       => ['required', 'in:fit,fill'],
-            'reference_box' => ['nullable', 'in:subjectBox,originalImage'],
-            'dpi'           => ['nullable', 'integer', 'min:72', 'max:1200'],
-            'output_size_mode' => ['nullable', Rule::in(array_keys(PhotoroomService::OUTPUT_SIZE_MODES))],
-            'max_width'     => ['nullable', 'integer', 'min:100', 'max:8192'],
-            'max_height'    => ['nullable', 'integer', 'min:100', 'max:8192'],
-            'margin'        => ['nullable', 'numeric', 'min:0', 'max:0.49'],
-            'padding_top'    => ['nullable', 'string', 'max:12'],
-            'padding_bottom' => ['nullable', 'string', 'max:12'],
-            'padding_left'   => ['nullable', 'string', 'max:12'],
-            'padding_right'  => ['nullable', 'string', 'max:12'],
-            'margin_top'     => ['nullable', 'string', 'max:12'],
-            'margin_bottom'  => ['nullable', 'string', 'max:12'],
-            'margin_left'    => ['nullable', 'string', 'max:12'],
-            'margin_right'   => ['nullable', 'string', 'max:12'],
-            'snap_cropped_sides' => ['nullable', 'boolean'],
-            'export_format'   => ['nullable', Rule::in(PhotoroomService::EXPORT_FORMATS)],
-            'color_space'     => ['nullable', Rule::in(PhotoroomService::COLOR_SPACES)],
-            'preserve_metadata' => ['nullable', Rule::in(array_keys(PhotoroomService::METADATA_MODES))],
-            'keep_alpha'      => ['nullable', Rule::in(PhotoroomService::ALPHA_MODES)],
-            'template_id'     => ['nullable', 'string', 'max:120'],
         ], [
-            'background_color.regex'     => 'The background colour must be a 6-digit hex value, e.g. #F5F5F5.',
-            'outline_color.regex'        => 'The outline colour must be a 6-digit hex value, e.g. #222222.',
-            'background_prompt.required_if'    => 'Describe the background you want generating.',
-            'background_image_url.required_if' => 'Give the URL of the background image to use.',
+            'onedrive_link.required' => 'Paste the OneDrive or SharePoint folder link.',
         ]);
 
-        /*
-         * A validated field that was never submitted is absent from the array
-         * rather than null — an unticked checkbox, a shadow nobody chose. Fill
-         * the optional keys in first, so reading them below cannot fail on a
-         * form that simply left something out.
-         */
-        $validated += array_fill_keys([
-            'name', 'background_color', 'background_prompt', 'background_image_url',
-            'background_seed', 'background_blur_mode', 'background_blur_radius',
-            'apparel_size', 'apparel_prompt', 'vm_model', 'vm_scene', 'vm_pose',
-            'shadow', 'shadow_softness', 'shadow_intensity', 'shadow_spread',
-            'shadow_direction', 'shadow_pose', 'text_removal', 'beautify',
-            'outline_color', 'outline_width', 'image_width', 'image_height',
-            'padding', 'reference_box', 'dpi', 'input_rotation',
-            'trim_top', 'trim_bottom',
-            'background_negative_prompt', 'background_guidance_url', 'background_guidance_scale',
-            'background_scaling', 'background_expand_prompt',
-            'vm_model_url', 'vm_scene_url', 'vm_extra_product_urls',
-            'lighting', 'upscale_resolution', 'outline_blur',
-            'beautify_seed', 'expand_seed', 'uncrop_seed', 'edit_seed',
-            'segmentation_prompt', 'segmentation_negative_prompt', 'segmentation_mode',
-            'output_size_mode', 'max_width', 'max_height', 'margin',
-            'padding_top', 'padding_bottom', 'padding_left', 'padding_right',
-            'margin_top', 'margin_bottom', 'margin_left', 'margin_right',
-            'export_format', 'color_space', 'preserve_metadata', 'keep_alpha', 'template_id',
-        ], null) + array_fill_keys([
-            'remove_background', 'ironing', 'upscale', 'expand', 'uncrop',
-            'rotate_wide_only', 'beautify_strict', 'snap_cropped_sides',
-        ], false);
-
-        // Blurring keeps the original scene, so it is the one mode that is not
-        // a kind of background removal.
-        $removeBackground = $validated['background_mode'] !== 'blur'
-            && (bool) $validated['remove_background'];
-
-        $hasSize  = filled($validated['image_width']) && filled($validated['image_height']);
-        $apparel  = $validated['apparel_mode'];
-        $rotation = (string) ($validated['input_rotation'] ?: '');
-
-        $edits = [
-            /*
-             * Straightening. "Only the wide ones" is a quarter-turn idea — a
-             * half turn leaves the shape alone, so which photos are landscape
-             * says nothing about which ones are upside down. The form hides the
-             * tickbox for 180°, but a hidden checkbox still posts, so drop it
-             * here rather than let a stale tick quietly skip portrait photos.
-             */
-            'input_rotation'   => $rotation ?: null,
-            'rotate_wide_only' => in_array($rotation, ['right', 'left'], true)
-                && (bool) $validated['rotate_wide_only'],
-            'trim_top'         => filled($validated['trim_top'])    ? (float) $validated['trim_top']    : null,
-            'trim_bottom'      => filled($validated['trim_bottom']) ? (float) $validated['trim_bottom'] : null,
-
-            // Background
-            'remove_background'      => $removeBackground,
-            'background_mode'        => $validated['background_mode'],
-            'background_color'       => $validated['background_mode'] === 'custom'
-                ? (ltrim((string) $validated['background_color'], '#') ?: 'FFFFFF')
-                : ($validated['background_mode'] === 'white' ? 'FFFFFF' : null),
-            'background_prompt'      => $validated['background_prompt'] ?: null,
-            'background_image_url'   => $validated['background_image_url'] ?: null,
-            'background_seed'        => filled($validated['background_seed']) ? (int) $validated['background_seed'] : null,
-            'background_blur_mode'   => $validated['background_blur_mode'] ?: null,
-            'background_blur_radius' => filled($validated['background_blur_radius']) ? (float) $validated['background_blur_radius'] : null,
-            'background_negative_prompt' => $validated['background_negative_prompt'] ?: null,
-            'background_guidance_url'    => $validated['background_guidance_url'] ?: null,
-            'background_guidance_scale'  => filled($validated['background_guidance_scale']) ? (float) $validated['background_guidance_scale'] : null,
-            'background_scaling'         => $validated['background_scaling'] ?: null,
-            'background_expand_prompt'   => $validated['background_expand_prompt'] ?: null,
-
-            // Clothing
-            'ghost_mannequin' => $apparel === 'ghost_mannequin',
-            'flat_lay'        => $apparel === 'flat_lay',
-            'virtual_model'   => $apparel === 'virtual_model',
-            'apparel_size'    => $apparel !== 'none' ? $validated['apparel_size'] : null,
-            'apparel_prompt'  => $apparel !== 'none' ? ($validated['apparel_prompt'] ?: null) : null,
-            'vm_model'        => $apparel === 'virtual_model' ? $validated['vm_model'] : null,
-            'vm_scene'        => $apparel === 'virtual_model' ? $validated['vm_scene'] : null,
-            'vm_pose'         => $apparel === 'virtual_model' ? $validated['vm_pose'] : null,
-            'vm_model_url'    => $apparel === 'virtual_model' ? ($validated['vm_model_url'] ?: null) : null,
-            'vm_scene_url'    => $apparel === 'virtual_model' ? ($validated['vm_scene_url'] ?: null) : null,
-            'vm_extra_product_urls' => $apparel === 'virtual_model'
-                ? array_values(array_filter((array) ($validated['vm_extra_product_urls'] ?? [])))
-                : [],
-            'ironing'         => (bool) $validated['ironing'],
-
-            // Shadow
-            'shadow'           => $validated['shadow'] ?: null,
-            'shadow_softness'  => filled($validated['shadow_softness'])  ? (float) $validated['shadow_softness']  : null,
-            'shadow_intensity' => filled($validated['shadow_intensity']) ? (float) $validated['shadow_intensity'] : null,
-            'shadow_spread'    => $validated['shadow_spread'] ?: null,
-            'shadow_direction' => $validated['shadow_direction'] ?: null,
-            'shadow_pose'      => $validated['shadow_pose'] ?: null,
-
-            // Finishing
-            'text_removal'  => $validated['text_removal'] ?: null,
-            'beautify'      => $validated['beautify'] ?: null,
-            'lighting'      => $validated['lighting'] ?: null,
-            'upscale'       => (bool) $validated['upscale'],
-            'upscale_resolution' => filled($validated['upscale_resolution']) ? (int) $validated['upscale_resolution'] : null,
-            'expand'        => (bool) $validated['expand'],
-            'uncrop'        => (bool) $validated['uncrop'],
-            'outline_color' => $validated['outline_color'] ? ltrim((string) $validated['outline_color'], '#') : null,
-            'outline_width' => filled($validated['outline_width']) ? (float) $validated['outline_width'] : null,
-            'outline_blur'  => filled($validated['outline_blur']) ? (float) $validated['outline_blur'] : null,
-            'beautify_strict' => (bool) $validated['beautify_strict'],
-            'beautify_seed' => filled($validated['beautify_seed']) ? (int) $validated['beautify_seed'] : null,
-            'expand_seed'   => filled($validated['expand_seed'])   ? (int) $validated['expand_seed']   : null,
-            'uncrop_seed'   => filled($validated['uncrop_seed'])   ? (int) $validated['uncrop_seed']   : null,
-
-            // Seeds the mannequin-erase pass, the one generative step that runs
-            // outside the main edit request.
-            'edit_seed'     => filled($validated['edit_seed'])     ? (int) $validated['edit_seed']     : null,
-
-            // Segmentation
-            'segmentation_prompt'          => $validated['segmentation_prompt'] ?: null,
-            'segmentation_negative_prompt' => $validated['segmentation_negative_prompt'] ?: null,
-            'segmentation_mode'            => $validated['segmentation_mode'] ?: null,
-
-            // Output
-            'width'         => $hasSize ? (int) $validated['image_width']  : null,
-            'height'        => $hasSize ? (int) $validated['image_height'] : null,
-            'padding'       => filled($validated['padding']) ? (float) $validated['padding'] : null,
-            'h_align'       => $validated['h_align'],
-            'v_align'       => $validated['v_align'],
-            'scaling'       => $validated['scaling'],
-            'output_size_mode' => $hasSize ? 'custom' : ($validated['output_size_mode'] ?: 'auto'),
-            'max_width'     => filled($validated['max_width'])  ? (int) $validated['max_width']  : null,
-            'max_height'    => filled($validated['max_height']) ? (int) $validated['max_height'] : null,
-            'margin'        => filled($validated['margin']) ? (float) $validated['margin'] : null,
-            'padding_top'    => $validated['padding_top']    ?: null,
-            'padding_bottom' => $validated['padding_bottom'] ?: null,
-            'padding_left'   => $validated['padding_left']   ?: null,
-            'padding_right'  => $validated['padding_right']  ?: null,
-            'margin_top'     => $validated['margin_top']     ?: null,
-            'margin_bottom'  => $validated['margin_bottom']  ?: null,
-            'margin_left'    => $validated['margin_left']    ?: null,
-            'margin_right'   => $validated['margin_right']   ?: null,
-            'snap_cropped_sides' => (bool) $validated['snap_cropped_sides'],
-            'export_format'     => $validated['export_format'] ?: 'auto',
-            'color_space'       => $validated['color_space'] ?: 'sRGB',
-            'preserve_metadata' => $validated['preserve_metadata'] ?: null,
-            'keep_alpha'        => $validated['keep_alpha'] ?: null,
-            'template_id'       => $validated['template_id'] ?: null,
-            'reference_box' => $validated['reference_box'] ?: null,
-            'dpi'           => filled($validated['dpi']) ? (int) $validated['dpi'] : null,
-        ];
+        $rotation = (string) ($validated['input_rotation'] ?? '');
 
         $session = PhotoEditSession::create([
             'user_id'       => auth()->id(),
             'store_id'      => Store::getActive()?->id,
-            'name'          => $validated['name'] ?: 'Edit ' . now()->format('Y-m-d H:i'),
+            'name'          => ($validated['name'] ?? null) ?: 'Edit ' . now()->format('Y-m-d H:i'),
             'onedrive_link' => $validated['onedrive_link'],
             'matching_mode' => $validated['matching_mode'],
-            'edits'         => $edits,
-            'status'        => 'processing',
-            'scan_status'   => 'pending',
+
+            // The starting point every SKU group is created with. Not a
+            // decision anybody has made — the configure screen is where those
+            // happen.
+            'edits'         => array_merge(PhotoroomService::defaultEdits(), [
+                'input_rotation'   => $rotation ?: null,
+
+                // "Only the ones that came out wide" is a quarter-turn idea.
+                // A 180° flip leaves a photo the same shape it started, so the
+                // limit would silently match everything or nothing.
+                'rotate_wide_only' => in_array($rotation, ['right', 'left'], true)
+                    && !empty($validated['rotate_wide_only']),
+            ]),
+
+            'status'      => 'processing',
+            'scan_status' => 'pending',
         ]);
 
         ScanPhotoEditFolderJob::dispatch($session->id)->onQueue('bulkupload');
 
         return redirect()->route('photo-editor.configure', $session)
-            ->with('info', 'Scanning your OneDrive folder. Nothing is sent to Photoroom until you say what each SKU should get.');
+            ->with('info', 'Reading the folder. Nothing is sent to Photoroom until you say what each SKU should get.');
     }
 
     /**
