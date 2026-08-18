@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ csrf_token() }}">
-    <title>@yield('title', 'BulkSync') – AI Ecommerce Studio</title>
+    <title>@yield('title', 'BulkSync') – Ai Ecommerce Studio</title>
     @include('partials.favicon')
     <script>
         /*
@@ -328,7 +328,7 @@
                 </button>
             </div>
             <div>
-                <p class="text-sm font-semibold leading-tight text-white">AI Ecommerce Studio</p>
+                <p class="text-sm font-semibold leading-tight text-white">Ai Ecommerce Studio</p>
                 <p class="mt-0.5 text-[10px] uppercase tracking-[.14em] text-white/40">Abuissa Holding</p>
             </div>
         </div>

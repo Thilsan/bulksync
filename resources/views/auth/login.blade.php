@@ -53,7 +53,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sign in – AI Ecommerce Studio</title>
+    <title>Sign in – Ai Ecommerce Studio</title>
     @include('partials.favicon')
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
@@ -159,7 +159,7 @@
         <div class="relative flex items-center gap-3">
             <img src="/aih_logo_whitegray-3.png" alt="Abuissa Holding" class="h-9 w-auto sm:h-11">
             <span class="h-8 w-px bg-white/20"></span>
-            <span class="text-sm font-semibold tracking-wide text-white sm:text-base">AI Ecommerce Studio</span>
+            <span class="text-sm font-semibold tracking-wide text-white sm:text-base">Ai Ecommerce Studio</span>
         </div>
 
         {{-- Slider --}}

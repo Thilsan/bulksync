@@ -18,7 +18,7 @@ use Illuminate\Support\Collection;
 use Illuminate\View\View;
 
 /**
- * The home screen of AI Ecommerce Studio.
+ * The home screen of Ai Ecommerce Studio.
  *
  * Every module in this system keeps its own history — uploads, SKU checks,
  * image audits, migrations, AI content and product creation requests. Before
