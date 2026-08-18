@@ -69,7 +69,7 @@ class ProductRequestSheetSyncService
             }
 
             $department = trim((string) ($data['Department'] ?? ''));
-            $deptConfig = config("product_request_sync.department_map.{$department}");
+            $deptConfig = $this->departmentConfigFor($department);
 
             $tokens = $this->splitWebsiteTokens((string) ($data['Website'] ?? ''));
 
@@ -90,7 +90,7 @@ class ProductRequestSheetSyncService
                     continue;
                 }
 
-                $domain = config("product_request_sync.website_store_map.{$token}");
+                $domain = $this->storeDomainForToken($token);
                 $store  = $domain ? Store::where('shopify_domain', $domain)->first() : null;
 
                 if (!$store) {
@@ -135,6 +135,32 @@ class ProductRequestSheetSyncService
         }
 
         return $result;
+    }
+
+    /**
+     * The sheet is hand-typed and inconsistently cased row to row
+     * (e.g. "LEATHER GOODS" vs "Leather Goods") — matched on letters only.
+     */
+    private function departmentConfigFor(string $department): ?array
+    {
+        foreach (config('product_request_sync.department_map', []) as $key => $config) {
+            if (strcasecmp($key, $department) === 0) {
+                return $config;
+            }
+        }
+
+        return null;
+    }
+
+    private function storeDomainForToken(string $token): ?string
+    {
+        foreach (config('product_request_sync.website_store_map', []) as $key => $domain) {
+            if (strcasecmp($key, $token) === 0) {
+                return $domain;
+            }
+        }
+
+        return null;
     }
 
     /** "BS - PG-SN" / "BS & Samsonite" / "BS and Gold Gourmet" → ["BS", "PG", "SN"] etc. */

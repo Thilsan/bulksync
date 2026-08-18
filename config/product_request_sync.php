@@ -57,6 +57,9 @@ return [
     | SKU rows. A department not listed here is flagged for manual review
     | rather than guessed at.
     |
+    | Matching is case-insensitive (see ProductRequestSheetSyncService::
+    | departmentConfigFor) since the sheet is hand-typed and inconsistently
+    | cased row to row — keys below just need to match the letters, not the case.
     */
     'department_map' => [
         'F&B'                  => ['category' => 'Food & Beverages',    'sheet' => 'Food & Beverages'],
@@ -64,11 +67,11 @@ return [
         'Travel'               => ['category' => 'Luggage',             'sheet' => 'Luggage'],
         'KIDS FASHION'         => ['category' => 'Kids',                'sheet' => 'Kids Fashion'],
         'LINGERIE'             => ['category' => 'Lingerie',            'sheet' => 'Lingerie'],
-        'Mens Fashion'         => ['category' => "Men's Fashion",       'sheet' => 'Mens Fashion'],
-        'Womens Fashion'       => ['category' => "Women's Fashion",     'sheet' => 'Womens Fashion'],
-        'Leather Goods'        => ['category' => 'Leather Goods',       'sheet' => 'Leather Goods'],
-        'Watches'              => ['category' => 'Watches',             'sheet' => 'Watches & Jewellery'],
-        'Fashion Accessories'  => ['category' => 'Fashion Accessories', 'sheet' => 'Fashion Accessories'],
+        'MENS'                 => ['category' => "Men's Fashion",       'sheet' => 'Mens Fashion'],
+        'WOMEN FASHION'        => ['category' => "Women's Fashion",     'sheet' => 'Womens Fashion'],
+        'LEATHER GOODS'        => ['category' => 'Leather Goods',       'sheet' => 'Leather Goods'],
+        'WATCHES & JEWELLERY'  => ['category' => 'Watches',             'sheet' => 'Watches & Jewellery'],
+        'FASHION ACCESSORIES'  => ['category' => 'Fashion Accessories', 'sheet' => 'Fashion Accessories'],
         'Home'                 => ['category' => 'Home',                'sheet' => 'Home'],
         'Linen'                => ['category' => 'Linen',               'sheet' => 'Linen'],
     ],
