@@ -798,7 +798,7 @@
         {{-- Page content --}}
         {{-- This is the scrolling element, not the window, so the top bar's
              shadow has to be driven from here. --}}
-        <main class="flex-1 overflow-y-auto px-4 py-6 sm:px-8"
+        <main class="relative flex-1 overflow-y-auto px-4 py-6 sm:px-8"
               @scroll.passive="scrolled = $event.target.scrollTop > 4">
             @yield('content')
         </main>
