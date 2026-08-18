@@ -46,8 +46,8 @@
     <span class="mb-2 block text-xs font-semibold uppercase tracking-wide text-gray-500">Treatment</span>
     <div class="grid gap-3 sm:grid-cols-2">
         @foreach ([
-            'none'            => ['Keep the photo', 'Real-pixel cutout. Colours and shape exactly as shot.'],
-            'ghost_mannequin' => ['Keep the photo + AI cleanup', 'Erases a visible mannequin first. Costs an extra credit where it runs.'],
+            'none'            => ['Keep the photo', 'Real-pixel cutout. Colours and shape exactly as shot. Use the Keep/Remove boxes below to lose a mannequin.'],
+            'ghost_mannequin' => ['Keep the photo + AI cleanup', 'Fallback for shots where Keep/Remove cannot separate the garment from the stand. Redraws the garment, so it can shift or reshape — check every result. Costs an extra credit.'],
         ] as $mode => [$label, $help])
             @php $isGhost = $mode === 'ghost_mannequin'; @endphp
             <label class="flex cursor-pointer items-start gap-2 rounded-lg border border-gray-200 p-3 hover:border-gray-300 has-[:checked]:border-brand-500 has-[:checked]:bg-brand-50/60">
@@ -77,7 +77,10 @@
         </div>
     </div>
     <p class="mt-1 text-xs text-gray-500">
-        Describing the product drops a mannequin inside the single cutout request — half the cost of the AI cleanup pass.
+        <strong class="font-semibold text-gray-700">The preferred way to lose a mannequin.</strong>
+        Naming the product cuts the stand out of the real photograph — nothing is redrawn, so the garment cannot
+        shift or change shape — and it happens inside the single cutout request, at half the cost of the AI
+        cleanup pass. Filling in <em>Keep</em> is what switches it on; leave it blank and the AI pass runs instead.
     </p>
 </div>
 

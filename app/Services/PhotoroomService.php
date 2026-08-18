@@ -175,7 +175,8 @@ class PhotoroomService
      * or side shot where the stand is left visible. This is the closest
      * Photoroom gets to "erase that object" for such a photo.
      */
-    private const MANNEQUIN_REMOVAL_PROMPT = 'Remove the mannequin, dress form, or headless body stand visible in this photo. '
+    private const MANNEQUIN_REMOVAL_PROMPT = 'Remove whatever is holding this item up — mannequin, dress form, headless body, '
+        . 'clothes rail, garment rack, hanger, hook or stand. '
         . 'Keep the garment exactly as it is, in the same position and shape, floating in its place. '
         . 'Do not add a person or any other object.';
 
@@ -322,6 +323,18 @@ class PhotoroomService
             'flat_lay'        => false,
             'virtual_model'   => false,
             'ironing'         => false,
+
+            /*
+             * Segmentation is the preferred way to lose a mannequin: it cuts
+             * one out of the real photograph, where the generative pass redraws
+             * the garment and can move or reshape it. What to remove is the
+             * same on every apparel shot, so it is filled in. What to keep is
+             * the product's own name and only the operator knows it — and
+             * without it the segmentation does not run at all, which is the
+             * safe way round.
+             */
+            'segmentation_prompt'          => null,
+            'segmentation_negative_prompt' => 'the mannequin, dress form, clothes rail, hanger and stand',
 
             'shadow'   => null,
             'lighting' => null,

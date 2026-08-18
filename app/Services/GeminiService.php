@@ -336,9 +336,9 @@ Return a JSON object with exactly these fields:
   - \"front\": the front of the garment is visible (buttons, collar front, logo placement, the side you'd normally photograph for a catalog).
   - \"back\": the reverse/back of the garment is visible (back of collar, no buttons/placket, back seams).
   - \"side\": a profile or three-quarter angle — neither clearly front nor back.
-  - \"flat_lay\": the item is laid flat or hung against a background with no mannequin, dress form, or body in frame at all.
+  - \"flat_lay\": the item is laid flat or hung against a plain background with nothing holding it up in frame at all.
   - \"unknown\": you cannot confidently tell from this image.
-- \"mannequin_visible\": true if any part of a mannequin, dress form, bust, or headless body is visible in the frame; false otherwise.
+- \"mannequin_visible\": true if ANY support the item is displayed on is visible in the frame — a mannequin, dress form, bust, headless body, clothes rail, garment rack, hanger, hook, or stand. False only when the item is alone in the frame.
 
 Return only valid JSON. No markdown, no code blocks, no extra text.";
 

@@ -352,4 +352,56 @@ class PhotoEditorConfigureTest extends TestCase
         $this->assertSame('40px', $fields['paddingTop']);
         $this->assertSame('5%',   $fields['paddingLeft']);
     }
+
+    /**
+     * The erase target is the same on every apparel shot; the product's own
+     * name is not. Pre-filling only the half that generalises is what keeps
+     * segmentation off until somebody has actually named the product — running
+     * it on a guess would cut out the wrong thing.
+     */
+    public function test_segmentation_is_prefilled_but_stays_off_until_the_product_is_named(): void
+    {
+        $defaults = \App\Services\PhotoroomService::defaultEdits();
+
+        $this->assertNull($defaults['segmentation_prompt']);
+        $this->assertStringContainsString('clothes rail', $defaults['segmentation_negative_prompt']);
+
+        // Nothing sent while the product is unnamed.
+        $fields = app(\App\Services\PhotoroomService::class)->buildFields(
+            array_merge($defaults, ['remove_background' => true]),
+        );
+
+        $this->assertArrayNotHasKey('segmentation.prompt', $fields);
+        $this->assertArrayNotHasKey('segmentation.negativePrompt', $fields);
+    }
+
+    /** Naming the product is what switches segmentation on. */
+    public function test_naming_the_product_switches_segmentation_on(): void
+    {
+        $fields = app(\App\Services\PhotoroomService::class)->buildFields(
+            array_merge(\App\Services\PhotoroomService::defaultEdits(), [
+                'remove_background'   => true,
+                'segmentation_prompt' => 'the orange polo shirt',
+            ]),
+        );
+
+        $this->assertSame('the orange polo shirt', $fields['segmentation.prompt']);
+        $this->assertStringContainsString('clothes rail', $fields['segmentation.negativePrompt']);
+    }
+
+    /**
+     * A garment rail holds a scarf up exactly as a dress form holds a dress.
+     * The erase pass only ever named mannequins, so a rail-hung item came back
+     * with the rail still in the cutout — and the label said "cutout only",
+     * which read as nothing having gone wrong.
+     */
+    public function test_the_erase_prompt_covers_rails_not_just_mannequins(): void
+    {
+        $service = new \ReflectionClass(\App\Services\PhotoroomService::class);
+        $prompt  = $service->getConstant('MANNEQUIN_REMOVAL_PROMPT');
+
+        foreach (['mannequin', 'dress form', 'clothes rail', 'hanger', 'stand'] as $support) {
+            $this->assertStringContainsString($support, $prompt);
+        }
+    }
 }
