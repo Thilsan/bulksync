@@ -81,26 +81,100 @@
     </p>
 </div>
 
-<div>
+<div x-data="{
+        width:   {{ $val('width') ?: 'null' }},
+        height:  {{ $val('height') ?: 'null' }},
+        padding: {{ $val('padding') ?: 0 }},
+        custom:  false,
+        pick(w, h) { this.width = w; this.height = h; this.custom = false },
+        clear()    { this.width = null; this.height = null; this.custom = false },
+     }">
     <span class="mb-2 block text-xs font-semibold uppercase tracking-wide text-gray-500">Size &amp; framing</span>
-    <div class="grid gap-3 sm:grid-cols-4">
+
+    {{-- Presets before the raw boxes. A number field with "original" in it
+         gives no hint that 2048 is the answer Shopify wants, and this screen is
+         now the only place the size is set. --}}
+    <div class="flex flex-wrap gap-2">
+        <button type="button" @click="clear()"
+                :class="!width && !height && !custom ? 'border-gray-800 bg-gray-800 text-white' : 'border-gray-300 bg-white text-gray-600 hover:border-gray-400'"
+                class="rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors">Keep original</button>
+        @foreach ([[2048, 'Shopify'], [2000, null], [1200, null], [1000, null], [800, null], [600, null]] as [$px, $note])
+            <button type="button" @click="pick({{ $px }}, {{ $px }})"
+                    :class="width === {{ $px }} && height === {{ $px }} ? 'border-brand-600 bg-brand-600 text-white' : 'border-gray-300 bg-white text-gray-700 hover:border-brand-400'"
+                    class="rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors">
+                {{ $px }} &times; {{ $px }}@if ($note)<span class="ml-1 opacity-70">({{ $note }})</span>@endif
+            </button>
+        @endforeach
+        <button type="button" @click="custom = true"
+                :class="custom ? 'border-gray-800 bg-gray-800 text-white' : 'border-gray-300 bg-white text-gray-600 hover:border-gray-400'"
+                class="rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors">Custom&hellip;</button>
+    </div>
+
+    <div x-show="custom || (width && height)" x-cloak class="mt-3 grid gap-3 sm:grid-cols-2">
         <div>
             <label for="w-{{ $group->id }}" class="mb-1 block text-xs text-gray-600">Width (px)</label>
             <input id="w-{{ $group->id }}" type="number" name="{{ $name('width') }}" min="100" max="5000"
-                   value="{{ $val('width') }}" placeholder="original"
+                   x-model.number="width" @input="custom = true" placeholder="original"
                    class="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none">
         </div>
         <div>
             <label for="h-{{ $group->id }}" class="mb-1 block text-xs text-gray-600">Height (px)</label>
             <input id="h-{{ $group->id }}" type="number" name="{{ $name('height') }}" min="100" max="5000"
-                   value="{{ $val('height') }}" placeholder="original"
+                   x-model.number="height" @input="custom = true" placeholder="original"
                    class="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none">
         </div>
+    </div>
+
+    {{-- A percentage, not a decimal. "0.08" reads as a setting; "8%" reads as
+         an amount of space, which is what the operator is actually choosing. --}}
+    <div class="mt-4">
+        <div class="mb-1 flex items-baseline justify-between">
+            <label for="pad-{{ $group->id }}" class="text-xs text-gray-600">Breathing room around the product</label>
+            <span class="text-xs font-semibold tabular-nums text-brand-700" x-text="Math.round(padding * 100) + '%'"></span>
+        </div>
+        <input id="pad-{{ $group->id }}" type="range" name="{{ $name('padding') }}"
+               x-model.number="padding" min="0" max="0.4" step="0.01" class="w-full accent-brand-600">
+    </div>
+
+    {{-- Per-edge spacing. The slider above is even on all four sides, which is
+         right for a garment and wrong for a shoe: a shoe photographed on its
+         sole wants headroom above and almost none below, or it floats. --}}
+    <details class="mt-3 rounded-lg border border-gray-200 px-3 py-2">
+        <summary class="cursor-pointer text-xs font-medium text-gray-600">Different space on each side</summary>
+        <p class="mt-2 text-xs text-gray-500">
+            Overrides the slider on that side only. A fraction (<code>0.1</code>) or pixels (<code>40px</code>).
+            Leave blank to keep the even spacing.
+        </p>
+        <div class="mt-2 grid gap-3 sm:grid-cols-4">
+            @foreach (['top' => 'Top', 'bottom' => 'Bottom', 'left' => 'Left', 'right' => 'Right'] as $edge => $label)
+                <div>
+                    <label for="pad-{{ $edge }}-{{ $group->id }}" class="mb-1 block text-xs text-gray-600">{{ $label }}</label>
+                    <input id="pad-{{ $edge }}-{{ $group->id }}" type="text" name="{{ $name('padding_' . $edge) }}"
+                           value="{{ $val('padding_' . $edge) }}" placeholder="—"
+                           class="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none">
+                </div>
+            @endforeach
+        </div>
+    </details>
+
+    <div class="mt-4 grid gap-3 sm:grid-cols-4">
         <div>
-            <label for="pad-{{ $group->id }}" class="mb-1 block text-xs text-gray-600">Breathing room</label>
-            <input id="pad-{{ $group->id }}" type="number" step="0.01" min="0" max="0.49" name="{{ $name('padding') }}"
-                   value="{{ $val('padding') }}" placeholder="0"
-                   class="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none">
+            <label for="halign-{{ $group->id }}" class="mb-1 block text-xs text-gray-600">Horizontal</label>
+            <select id="halign-{{ $group->id }}" name="{{ $name('h_align') }}"
+                    class="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none">
+                @foreach (['left' => 'Left', 'center' => 'Centred', 'right' => 'Right'] as $value => $label)
+                    <option value="{{ $value }}" @selected($val('h_align', 'center') === $value)>{{ $label }}</option>
+                @endforeach
+            </select>
+        </div>
+        <div>
+            <label for="valign-{{ $group->id }}" class="mb-1 block text-xs text-gray-600">Vertical</label>
+            <select id="valign-{{ $group->id }}" name="{{ $name('v_align') }}"
+                    class="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none">
+                @foreach (['top' => 'Top', 'center' => 'Centred', 'bottom' => 'Bottom'] as $value => $label)
+                    <option value="{{ $value }}" @selected($val('v_align', 'center') === $value)>{{ $label }}</option>
+                @endforeach
+            </select>
         </div>
         <div>
             <label for="scale-{{ $group->id }}" class="mb-1 block text-xs text-gray-600">Scaling</label>
@@ -108,6 +182,14 @@
                     class="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none">
                 <option value="fit"  @selected($val('scaling', 'fit') === 'fit')>Fit — show it all</option>
                 <option value="fill" @selected($val('scaling') === 'fill')>Fill the canvas</option>
+            </select>
+        </div>
+        <div>
+            <label for="refbox-{{ $group->id }}" class="mb-1 block text-xs text-gray-600">Measured from</label>
+            <select id="refbox-{{ $group->id }}" name="{{ $name('reference_box') }}"
+                    class="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none">
+                <option value="subjectBox"    @selected($val('reference_box', 'subjectBox') === 'subjectBox')>The product itself</option>
+                <option value="originalImage" @selected($val('reference_box') === 'originalImage')>The original frame</option>
             </select>
         </div>
     </div>

@@ -213,4 +213,102 @@ class PhotoEditorConfigureTest extends TestCase
 
         $this->assertSame('white', $item->resolvedEdits()['background_mode']);
     }
+
+    /**
+     * The size, padding and framing fields are the ones a mixed run most needs
+     * to differ on — a watch face wants none of the padding a dress does — so
+     * they are guarded end to end rather than only in the markup.
+     */
+    public function test_size_padding_and_framing_save_per_sku(): void
+    {
+        Queue::fake();
+
+        $session = $this->makeSession();
+        $this->photo($session, 'DRESS', 'a.jpg');
+        $this->photo($session, 'WATCH', 'b.jpg');
+        $dress = $this->group($session, 'DRESS');
+        $watch = $this->group($session, 'WATCH');
+
+        $this->actingAs($session->user)->post(route('photo-editor.start', $session), [
+            'groups' => [
+                $dress->id => ['edits' => [
+                    'width' => '2048', 'height' => '2048', 'padding' => '0.1',
+                    'h_align' => 'center', 'v_align' => 'center',
+                    'scaling' => 'fit', 'reference_box' => 'subjectBox',
+                ]],
+                $watch->id => ['edits' => [
+                    'width' => '1000', 'height' => '1000', 'padding' => '0',
+                    'h_align' => 'center', 'v_align' => 'bottom',
+                    'scaling' => 'fill', 'reference_box' => 'originalImage',
+                ]],
+            ],
+        ]);
+
+        $d = $dress->fresh()->edits;
+        $w = $watch->fresh()->edits;
+
+        $this->assertSame(2048, $d['width']);
+        $this->assertEquals(0.1, $d['padding']);
+        $this->assertSame('fit', $d['scaling']);
+
+        $this->assertSame(1000, $w['width']);
+        $this->assertEquals(0, $w['padding']);
+        $this->assertSame('bottom', $w['v_align']);
+        $this->assertSame('fill', $w['scaling']);
+        $this->assertSame('originalImage', $w['reference_box']);
+    }
+
+    /** What the group stores is what Photoroom is told. */
+    public function test_group_size_and_padding_reach_photoroom(): void
+    {
+        $fields = app(\App\Services\PhotoroomService::class)->buildFields([
+            'remove_background' => true,
+            'width'             => 2048,
+            'height'            => 2048,
+            'padding'           => 0.1,
+            'h_align'           => 'center',
+            'scaling'           => 'fit',
+        ]);
+
+        $this->assertSame('2048x2048', $fields['outputSize']);
+        $this->assertSame('0.1', $fields['padding']);
+        $this->assertSame('center', $fields['horizontalAlignment']);
+        $this->assertSame('fit', $fields['scaling']);
+    }
+
+    /**
+     * A shoe photographed on its sole wants headroom above and almost none
+     * below, or it floats in the frame. The even slider cannot express that,
+     * so per-edge overrides have to survive the round trip to Photoroom.
+     */
+    public function test_per_edge_padding_saves_and_reaches_photoroom(): void
+    {
+        Queue::fake();
+
+        $session = $this->makeSession();
+        $this->photo($session, 'SHOE', 'a.jpg');
+        $shoe = $this->group($session, 'SHOE');
+
+        $this->actingAs($session->user)->post(route('photo-editor.start', $session), [
+            'groups' => [$shoe->id => ['edits' => [
+                'width' => '2000', 'height' => '2000',
+                'padding_top' => '0.18', 'padding_bottom' => '0.04',
+                'v_align' => 'bottom', 'scaling' => 'fit',
+            ]]],
+        ]);
+
+        $edits = $shoe->fresh()->edits;
+
+        $this->assertSame('0.18', $edits['padding_top']);
+        $this->assertSame('bottom', $edits['v_align']);
+
+        $fields = app(\App\Services\PhotoroomService::class)->buildFields(
+            array_merge($edits, ['remove_background' => true]),
+        );
+
+        $this->assertSame('2000x2000', $fields['outputSize']);
+        $this->assertSame('0.18', $fields['paddingTop']);
+        $this->assertSame('0.04', $fields['paddingBottom']);
+        $this->assertSame('bottom', $fields['verticalAlignment']);
+    }
 }

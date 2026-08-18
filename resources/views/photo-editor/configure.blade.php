@@ -12,9 +12,9 @@
     Every SKU folder is configured here instead, and nothing is sent to
     Photoroom until this form is submitted.
 --}}
-<div class="mx-auto max-w-5xl px-4 py-6" x-data="configureRun()">
+<div class="space-y-5" x-data="configureRun()">
 
-    <div class="mb-6">
+    <div>
         <p class="text-xs text-gray-500">Media &rsaquo; Photo Editor</p>
         <h1 class="text-2xl font-semibold text-gray-900">{{ $session->name }}</h1>
         <p class="mt-1 text-sm text-gray-500">
@@ -23,7 +23,7 @@
     </div>
 
     @if (session('error'))
-        <div class="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{{ session('error') }}</div>
+        <div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{{ session('error') }}</div>
     @endif
 
     @if ($session->scan_status !== 'scanned')
@@ -45,7 +45,7 @@
 
         {{-- Running total, so the bill is visible before it is committed to
              rather than discovered afterwards. --}}
-        <div class="sticky top-0 z-10 mb-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white/95 px-5 py-4 backdrop-blur">
+        <div class="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white/95 px-5 py-4 backdrop-blur">
             <div class="text-sm text-gray-700">
                 <span class="font-semibold" x-text="totalCredits"></span> Photoroom credits
                 <span class="text-gray-400">·</span>
@@ -85,7 +85,7 @@
                          The originals are ~9 MB each and none of them has been
                          edited yet, so pulling the real files to show a grid
                          nobody has decided anything on would cost minutes. --}}
-                    <div class="grid grid-cols-3 gap-3 px-5 py-4 sm:grid-cols-5">
+                    <div class="grid grid-cols-3 gap-3 px-5 py-4 sm:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10">
                         @foreach ($groupPhotos as $photo)
                             <label class="group relative cursor-pointer">
                                 <input type="radio" class="peer sr-only"
