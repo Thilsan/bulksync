@@ -225,29 +225,44 @@ class PhotoEditorController extends Controller implements HasMiddleware
         }
 
         $validated = $request->validate([
+            'edits'                    => ['nullable', 'array'],
             'groups'                   => ['required', 'array'],
             'groups.*.lifestyle_count' => ['nullable', 'integer', 'min:0', 'max:' . PhotoEditGroup::MAX_LIFESTYLE],
             'groups.*.lifestyle_source_item_id' => ['nullable', 'integer'],
+            'groups.*.differs'         => ['nullable', 'boolean'],
             'groups.*.edits'           => ['nullable', 'array'],
         ]);
 
+        // The run's own settings, which every group follows unless it opted out.
+        if (!empty($validated['edits'])) {
+            $session->edits = $this->editsFromRequest($validated['edits'], $session->edits ?? []);
+            $session->save();
+        }
+
         $groups = PhotoEditGroup::where('photo_edit_session_id', $session->id)->get()->keyBy('id');
 
-        foreach ($validated['groups'] as $groupId => $input) {
-            $group = $groups->get((int) $groupId);
-
-            if (!$group) {
-                continue;
-            }
+        /*
+         * Driven by the groups that exist, not by what the form posted.
+         * validated() drops an entry whose every sub-key is absent, so a SKU
+         * left entirely alone — the common case, now that following the run is
+         * the default — never appeared here and kept whatever it had before.
+         */
+        foreach ($groups as $groupId => $group) {
+            $input = (array) $request->input("groups.{$groupId}", []);
 
             $group->fill([
                 'lifestyle_count' => (int) ($input['lifestyle_count'] ?? 0),
                 'lifestyle_source_item_id' => $input['lifestyle_source_item_id'] ?? null,
             ]);
 
-            if (!empty($input['edits'])) {
-                $group->edits = $this->editsFromRequest($input['edits'], $group->edits ?? []);
-            }
+            /*
+             * Null means "follows the run". Storing a copy instead would pin
+             * the group to today's settings, so changing the run later would
+             * quietly leave every SKU behind on the old ones.
+             */
+            $group->edits = !empty($input['differs'])
+                ? $this->editsFromRequest($input['edits'] ?? [], $group->edits ?: ($session->edits ?? []))
+                : null;
 
             // A count without a photo to build from would queue work that can
             // only fail, so it is refused here rather than at the API.

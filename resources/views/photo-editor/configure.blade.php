@@ -26,13 +26,36 @@
         <div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{{ session('error') }}</div>
     @endif
 
-    @if ($session->scan_status !== 'scanned')
+    {{-- A failed scan used to land here too, and this screen told the operator
+         it was still working — forever, on a job that had already given up.
+         The failure has to be louder than the wait, not quieter. --}}
+    @if ($session->scan_status === 'failed')
+        <div class="rounded-xl border border-red-200 bg-red-50 p-8 text-center">
+            <p class="text-sm font-semibold text-red-800">The folder could not be read.</p>
+            <p class="mx-auto mt-2 max-w-xl text-sm text-red-700">
+                {{ $session->error_message ?: 'No reason was recorded. The queue worker log will have it.' }}
+            </p>
+            <a href="{{ route('photo-editor.index') }}"
+               class="mt-4 inline-block rounded-lg bg-white px-4 py-2 text-sm font-medium text-gray-700 ring-1 ring-gray-300 hover:bg-gray-50">
+                Start again
+            </a>
+        </div>
+    @elseif ($session->scan_status !== 'scanned')
         <div class="rounded-xl border border-gray-200 bg-white p-8 text-center"
              x-init="setTimeout(() => window.location.reload(), 4000)">
             <p class="text-sm font-medium text-gray-800">Still reading the folder…</p>
             <p class="mt-1 text-xs text-gray-500">
                 {{ number_format($session->scanned_files) }} found so far. This page refreshes itself.
             </p>
+
+            {{-- 'pending' means no worker ever picked the job up, which looks
+                 exactly like a slow scan until you know to tell them apart. --}}
+            @if ($session->scan_status === 'pending' && $session->created_at->lt(now()->subMinute()))
+                <p class="mx-auto mt-4 max-w-lg rounded-lg bg-amber-50 px-4 py-3 text-xs text-amber-800">
+                    Nothing has picked this up in over a minute. The queue worker is probably not running —
+                    check <code>supervisorctl status</code> and that it listens on the <code>bulkupload</code> queue.
+                </p>
+            @endif
         </div>
     @elseif ($groups->isEmpty())
         <div class="rounded-xl border border-gray-200 bg-white p-8 text-center">
@@ -60,15 +83,41 @@
             </button>
         </div>
 
+        {{-- Chosen once. A run of thirty SKUs that all want the same treatment
+             should be one decision, not thirty identical ones — the cards below
+             only carry settings when a product genuinely differs. --}}
+        <div class="mb-4 overflow-hidden rounded-xl border border-gray-200 bg-white">
+            <div class="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 px-5 py-4">
+                <div>
+                    <h2 class="text-sm font-semibold text-gray-900">Settings for this run</h2>
+                    <p class="text-xs text-gray-500">Applied to every SKU below unless one is set to differ.</p>
+                </div>
+                <button type="button" @click="runOpen = !runOpen" class="text-xs font-medium text-brand-600 hover:underline">
+                    <span x-text="runOpen ? 'Hide' : 'Change'"></span>
+                </button>
+            </div>
+            <div x-show="runOpen" x-cloak class="space-y-5 px-5 py-5">
+                @include('photo-editor.partials.group-settings', [
+                    'prefix'        => 'edits',
+                    'uid'           => 'run',
+                    'edits'         => $session->edits ?? [],
+                    'beautifyModes' => $beautifyModes,
+                ])
+            </div>
+        </div>
+
         <div class="space-y-4">
             @foreach ($groups as $group)
                 @php
                     $groupPhotos = $photos[$group->sku] ?? collect();
-                    $edits       = $group->edits ?? [];
                 @endphp
 
                 <div class="overflow-hidden rounded-xl border border-gray-200 bg-white"
-                     x-data="{ open: false, lifestyle: {{ (int) $group->lifestyle_count }} }"
+                     x-data="{
+                        open: {{ $group->edits ? 'true' : 'false' }},
+                        differs: {{ $group->edits ? 'true' : 'false' }},
+                        lifestyle: {{ (int) $group->lifestyle_count }},
+                     }"
                      x-init="$watch('lifestyle', () => recount())">
 
                     <div class="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 px-5 py-4">
@@ -76,9 +125,12 @@
                             <h2 class="font-mono text-sm font-semibold text-gray-900">{{ $group->sku }}</h2>
                             <p class="text-xs text-gray-500">{{ $groupPhotos->count() }} {{ Str::plural('photo', $groupPhotos->count()) }}</p>
                         </div>
-                        <button type="button" @click="open = !open" class="text-xs font-medium text-brand-600 hover:underline">
-                            <span x-text="open ? 'Hide settings' : 'Settings for this SKU'"></span>
-                        </button>
+                        <label class="flex cursor-pointer items-center gap-2 text-xs text-gray-600">
+                            <input type="checkbox" name="groups[{{ $group->id }}][differs]" value="1"
+                                   x-model="differs" @change="open = differs"
+                                   class="h-3.5 w-3.5 rounded border-gray-300 text-brand-600 focus:ring-brand-500">
+                            <span x-text="differs ? 'This SKU is set to differ' : 'Same as the run'"></span>
+                        </label>
                     </div>
 
                     {{-- Thumbnails come from OneDrive's own preview renderer.
@@ -119,13 +171,14 @@
                         </p>
                     </div>
 
-                    {{-- Full settings per SKU. Seeded from what was chosen on
-                         the first screen, so a run where every product does
-                         want the same thing needs no edits here at all. --}}
-                    <div x-show="open" x-cloak class="space-y-5 border-t border-gray-100 px-5 py-5">
+                    {{-- Only rendered when the SKU is set to differ. Seeded
+                         from the run's settings, so "differs" starts as a copy
+                         of what it was already going to get. --}}
+                    <div x-show="differs" x-cloak class="space-y-5 border-t border-gray-100 px-5 py-5">
                         @include('photo-editor.partials.group-settings', [
-                            'group'         => $group,
-                            'edits'         => $edits,
+                            'prefix'        => "groups[{$group->id}][edits]",
+                            'uid'           => $group->id,
+                            'edits'         => $group->edits ?: ($session->edits ?? []),
                             'beautifyModes' => $beautifyModes,
                         ])
                     </div>
@@ -140,6 +193,7 @@
     function configureRun() {
         return {
             starting: false,
+            runOpen: false,
             photoCount: {{ $photos->flatten()->count() }},
             lifestyleTotal: {{ $groups->sum('lifestyle_count') }},
 

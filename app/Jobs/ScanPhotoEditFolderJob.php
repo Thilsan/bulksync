@@ -180,12 +180,13 @@ class ScanPhotoEditFolderJob implements ShouldQueue
             ->filter()
             ->values();
 
-        $edits = json_encode($session->edits ?? []);
-
         PhotoEditGroup::insert($skus->map(fn ($sku) => [
             'photo_edit_session_id' => $session->id,
             'sku'                   => $sku,
-            'edits'                 => $edits,
+
+            // Null: follows the run. A copy here would pin every SKU to the
+            // settings as they stood at scan time.
+            'edits'                 => null,
             'lifestyle_count'       => 0,
             'created_at'            => now(),
             'updated_at'            => now(),

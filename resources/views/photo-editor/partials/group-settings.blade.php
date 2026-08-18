@@ -1,13 +1,18 @@
 {{--
-    One SKU's settings, posted as groups[{id}][edits][...].
+    The edit settings, rendered twice: once for the run as a whole, and again
+    inside any SKU card that needs to differ from it.
 
-    Deliberately a subset of the full form: the fields whose right answer
-    actually differs between a dress, a watch and a cap. Anything not shown
-    keeps whatever the run was created with, rather than being reset to a
+    $prefix is the form-name root — "edits" for the run, "groups[7][edits]" for
+    a SKU. $uid keeps element ids unique between the copies, since the same
+    field can be on screen more than once.
+
+    Deliberately a subset of everything Photoroom accepts: the fields whose
+    right answer actually differs between a dress, a watch and a cap. Anything
+    not shown keeps whatever it already had rather than being reset to a
     default nobody chose — see PhotoEditorController::editsFromRequest().
 --}}
 @php
-    $name = fn ($field) => "groups[{$group->id}][edits][{$field}]";
+    $name = fn ($field) => $prefix . '[' . $field . ']';
     $val  = fn ($field, $default = null) => data_get($edits, $field, $default);
     $bg   = $val('background_mode', 'white');
 @endphp
@@ -30,8 +35,8 @@
     </div>
 
     <div class="mt-3 flex items-center gap-3">
-        <label for="colour-{{ $group->id }}" class="text-xs text-gray-600">Brand colour</label>
-        <input id="colour-{{ $group->id }}" type="text" name="{{ $name('background_color') }}"
+        <label for="colour-{{ $uid }}" class="text-xs text-gray-600">Brand colour</label>
+        <input id="colour-{{ $uid }}" type="text" name="{{ $name('background_color') }}"
                value="{{ $val('background_color') }}" placeholder="F5F5F5" maxlength="7"
                class="w-32 rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none">
         <span class="text-xs text-gray-400">Used only when “Brand colour” is picked.</span>
@@ -64,14 +69,14 @@
 
     <div class="mt-3 grid gap-3 sm:grid-cols-2">
         <div>
-            <label for="seg-keep-{{ $group->id }}" class="mb-1 block text-xs text-gray-600">Keep (describe the product)</label>
-            <input id="seg-keep-{{ $group->id }}" type="text" name="{{ $name('segmentation_prompt') }}"
+            <label for="seg-keep-{{ $uid }}" class="mb-1 block text-xs text-gray-600">Keep (describe the product)</label>
+            <input id="seg-keep-{{ $uid }}" type="text" name="{{ $name('segmentation_prompt') }}"
                    value="{{ $val('segmentation_prompt') }}" placeholder="the dress" maxlength="500"
                    class="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none">
         </div>
         <div>
-            <label for="seg-drop-{{ $group->id }}" class="mb-1 block text-xs text-gray-600">Remove</label>
-            <input id="seg-drop-{{ $group->id }}" type="text" name="{{ $name('segmentation_negative_prompt') }}"
+            <label for="seg-drop-{{ $uid }}" class="mb-1 block text-xs text-gray-600">Remove</label>
+            <input id="seg-drop-{{ $uid }}" type="text" name="{{ $name('segmentation_negative_prompt') }}"
                    value="{{ $val('segmentation_negative_prompt') }}" placeholder="the mannequin and stand" maxlength="500"
                    class="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none">
         </div>
@@ -115,14 +120,14 @@
 
     <div x-show="custom || (width && height)" x-cloak class="mt-3 grid gap-3 sm:grid-cols-2">
         <div>
-            <label for="w-{{ $group->id }}" class="mb-1 block text-xs text-gray-600">Width (px)</label>
-            <input id="w-{{ $group->id }}" type="number" name="{{ $name('width') }}" min="100" max="5000"
+            <label for="w-{{ $uid }}" class="mb-1 block text-xs text-gray-600">Width (px)</label>
+            <input id="w-{{ $uid }}" type="number" name="{{ $name('width') }}" min="100" max="5000"
                    x-model.number="width" @input="custom = true" placeholder="original"
                    class="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none">
         </div>
         <div>
-            <label for="h-{{ $group->id }}" class="mb-1 block text-xs text-gray-600">Height (px)</label>
-            <input id="h-{{ $group->id }}" type="number" name="{{ $name('height') }}" min="100" max="5000"
+            <label for="h-{{ $uid }}" class="mb-1 block text-xs text-gray-600">Height (px)</label>
+            <input id="h-{{ $uid }}" type="number" name="{{ $name('height') }}" min="100" max="5000"
                    x-model.number="height" @input="custom = true" placeholder="original"
                    class="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none">
         </div>
@@ -132,10 +137,10 @@
          an amount of space, which is what the operator is actually choosing. --}}
     <div class="mt-4">
         <div class="mb-1 flex items-baseline justify-between">
-            <label for="pad-{{ $group->id }}" class="text-xs text-gray-600">Breathing room around the product</label>
+            <label for="pad-{{ $uid }}" class="text-xs text-gray-600">Breathing room around the product</label>
             <span class="text-xs font-semibold tabular-nums text-brand-700" x-text="Math.round(padding * 100) + '%'"></span>
         </div>
-        <input id="pad-{{ $group->id }}" type="range" name="{{ $name('padding') }}"
+        <input id="pad-{{ $uid }}" type="range" name="{{ $name('padding') }}"
                x-model.number="padding" min="0" max="0.4" step="0.01" class="w-full accent-brand-600">
     </div>
 
@@ -157,9 +162,9 @@
                     $edgeShown = str_ends_with($edgeValue, 'px') ? rtrim($edgeValue, 'px') : null;
                 @endphp
                 <div>
-                    <label for="pad-{{ $edge }}-{{ $group->id }}" class="mb-1 block text-xs text-gray-600">{{ $label }}</label>
+                    <label for="pad-{{ $edge }}-{{ $uid }}" class="mb-1 block text-xs text-gray-600">{{ $label }}</label>
                     <div class="relative">
-                        <input id="pad-{{ $edge }}-{{ $group->id }}" type="number" min="0" max="2000" step="1"
+                        <input id="pad-{{ $edge }}-{{ $uid }}" type="number" min="0" max="2000" step="1"
                                name="{{ $name('padding_' . $edge) }}" value="{{ $edgeShown }}" placeholder="—"
                                class="w-full rounded-lg border border-gray-300 py-1.5 pl-3 pr-9 text-sm focus:border-brand-500 focus:outline-none">
                         <span class="pointer-events-none absolute inset-y-0 right-2.5 flex items-center text-xs text-gray-400">px</span>
@@ -171,8 +176,8 @@
 
     <div class="mt-4 grid gap-3 sm:grid-cols-4">
         <div>
-            <label for="halign-{{ $group->id }}" class="mb-1 block text-xs text-gray-600">Horizontal</label>
-            <select id="halign-{{ $group->id }}" name="{{ $name('h_align') }}"
+            <label for="halign-{{ $uid }}" class="mb-1 block text-xs text-gray-600">Horizontal</label>
+            <select id="halign-{{ $uid }}" name="{{ $name('h_align') }}"
                     class="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none">
                 @foreach (['left' => 'Left', 'center' => 'Centred', 'right' => 'Right'] as $value => $label)
                     <option value="{{ $value }}" @selected($val('h_align', 'center') === $value)>{{ $label }}</option>
@@ -180,8 +185,8 @@
             </select>
         </div>
         <div>
-            <label for="valign-{{ $group->id }}" class="mb-1 block text-xs text-gray-600">Vertical</label>
-            <select id="valign-{{ $group->id }}" name="{{ $name('v_align') }}"
+            <label for="valign-{{ $uid }}" class="mb-1 block text-xs text-gray-600">Vertical</label>
+            <select id="valign-{{ $uid }}" name="{{ $name('v_align') }}"
                     class="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none">
                 @foreach (['top' => 'Top', 'center' => 'Centred', 'bottom' => 'Bottom'] as $value => $label)
                     <option value="{{ $value }}" @selected($val('v_align', 'center') === $value)>{{ $label }}</option>
@@ -189,16 +194,16 @@
             </select>
         </div>
         <div>
-            <label for="scale-{{ $group->id }}" class="mb-1 block text-xs text-gray-600">Scaling</label>
-            <select id="scale-{{ $group->id }}" name="{{ $name('scaling') }}"
+            <label for="scale-{{ $uid }}" class="mb-1 block text-xs text-gray-600">Scaling</label>
+            <select id="scale-{{ $uid }}" name="{{ $name('scaling') }}"
                     class="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none">
                 <option value="fit"  @selected($val('scaling', 'fit') === 'fit')>Fit — show it all</option>
                 <option value="fill" @selected($val('scaling') === 'fill')>Fill the canvas</option>
             </select>
         </div>
         <div>
-            <label for="refbox-{{ $group->id }}" class="mb-1 block text-xs text-gray-600">Measured from</label>
-            <select id="refbox-{{ $group->id }}" name="{{ $name('reference_box') }}"
+            <label for="refbox-{{ $uid }}" class="mb-1 block text-xs text-gray-600">Measured from</label>
+            <select id="refbox-{{ $uid }}" name="{{ $name('reference_box') }}"
                     class="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none">
                 <option value="subjectBox"    @selected($val('reference_box', 'subjectBox') === 'subjectBox')>The product itself</option>
                 <option value="originalImage" @selected($val('reference_box') === 'originalImage')>The original frame</option>
@@ -211,8 +216,8 @@
     <span class="mb-2 block text-xs font-semibold uppercase tracking-wide text-gray-500">Finishing</span>
     <div class="grid gap-3 sm:grid-cols-3">
         <div>
-            <label for="light-{{ $group->id }}" class="mb-1 block text-xs text-gray-600">Lighting</label>
-            <select id="light-{{ $group->id }}" name="{{ $name('lighting') }}"
+            <label for="light-{{ $uid }}" class="mb-1 block text-xs text-gray-600">Lighting</label>
+            <select id="light-{{ $uid }}" name="{{ $name('lighting') }}"
                     class="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none">
                 @foreach (\App\Services\PhotoroomService::LIGHTING_MODES as $value => $label)
                     <option value="{{ $value }}" @selected((string) $val('lighting') === (string) $value)>{{ $label }}</option>
@@ -220,8 +225,8 @@
             </select>
         </div>
         <div>
-            <label for="beauty-{{ $group->id }}" class="mb-1 block text-xs text-gray-600">Beautifier</label>
-            <select id="beauty-{{ $group->id }}" name="{{ $name('beautify') }}"
+            <label for="beauty-{{ $uid }}" class="mb-1 block text-xs text-gray-600">Beautifier</label>
+            <select id="beauty-{{ $uid }}" name="{{ $name('beautify') }}"
                     class="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none">
                 @foreach ($beautifyModes as $value => $label)
                     <option value="{{ $value }}" @selected((string) $val('beautify') === (string) $value)>{{ $label }}</option>
@@ -229,8 +234,8 @@
             </select>
         </div>
         <div>
-            <label for="shadow-{{ $group->id }}" class="mb-1 block text-xs text-gray-600">Shadow</label>
-            <select id="shadow-{{ $group->id }}" name="{{ $name('shadow') }}"
+            <label for="shadow-{{ $uid }}" class="mb-1 block text-xs text-gray-600">Shadow</label>
+            <select id="shadow-{{ $uid }}" name="{{ $name('shadow') }}"
                     class="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none">
                 @foreach (\App\Services\PhotoroomService::SHADOW_MODES as $value => $label)
                     <option value="{{ $value }}" @selected((string) $val('shadow') === (string) $value)>{{ $label }}</option>
@@ -255,8 +260,8 @@
     <div class="grid gap-3 sm:grid-cols-2">
         @foreach (['trim_top' => 'Off the top', 'trim_bottom' => 'Off the bottom'] as $field => $label)
             <div>
-                <label for="{{ $field }}-{{ $group->id }}" class="mb-1 block text-xs text-gray-600">{{ $label }}</label>
-                <input id="{{ $field }}-{{ $group->id }}" type="number" step="0.01" min="0" max="0.45"
+                <label for="{{ $field }}-{{ $uid }}" class="mb-1 block text-xs text-gray-600">{{ $label }}</label>
+                <input id="{{ $field }}-{{ $uid }}" type="number" step="0.01" min="0" max="0.45"
                        name="{{ $name($field) }}" value="{{ $val($field) }}" placeholder="0"
                        class="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none">
             </div>

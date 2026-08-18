@@ -59,7 +59,7 @@ class PhotoEditorConfigureTest extends TestCase
         return PhotoEditGroup::create([
             'photo_edit_session_id' => $session->id,
             'sku'                   => $sku,
-            'edits'                 => $session->edits,
+            'edits'                 => null, // follows the run until told otherwise
         ]);
     }
 
@@ -93,8 +93,8 @@ class PhotoEditorConfigureTest extends TestCase
 
         $this->actingAs($session->user)->post(route('photo-editor.start', $session), [
             'groups' => [
-                $dress->id => ['edits' => ['padding' => '0.12', 'background_mode' => 'white']],
-                $watch->id => ['edits' => ['padding' => '0',    'background_mode' => 'transparent']],
+                $dress->id => ['differs' => '1', 'edits' => ['padding' => '0.12', 'background_mode' => 'white']],
+                $watch->id => ['differs' => '1', 'edits' => ['padding' => '0',    'background_mode' => 'transparent']],
             ],
         ])->assertRedirect(route('photo-editor.show', $session));
 
@@ -231,12 +231,12 @@ class PhotoEditorConfigureTest extends TestCase
 
         $this->actingAs($session->user)->post(route('photo-editor.start', $session), [
             'groups' => [
-                $dress->id => ['edits' => [
+                $dress->id => ['differs' => '1', 'edits' => [
                     'width' => '2048', 'height' => '2048', 'padding' => '0.1',
                     'h_align' => 'center', 'v_align' => 'center',
                     'scaling' => 'fit', 'reference_box' => 'subjectBox',
                 ]],
-                $watch->id => ['edits' => [
+                $watch->id => ['differs' => '1', 'edits' => [
                     'width' => '1000', 'height' => '1000', 'padding' => '0',
                     'h_align' => 'center', 'v_align' => 'bottom',
                     'scaling' => 'fill', 'reference_box' => 'originalImage',
@@ -290,7 +290,7 @@ class PhotoEditorConfigureTest extends TestCase
         $shoe = $this->group($session, 'SHOE');
 
         $this->actingAs($session->user)->post(route('photo-editor.start', $session), [
-            'groups' => [$shoe->id => ['edits' => [
+            'groups' => [$shoe->id => ['differs' => '1', 'edits' => [
                 'width' => '2000', 'height' => '2000',
                 'padding_top' => '180', 'padding_bottom' => '40',
                 'v_align' => 'bottom', 'scaling' => 'fit',
@@ -403,5 +403,83 @@ class PhotoEditorConfigureTest extends TestCase
         foreach (['mannequin', 'dress form', 'clothes rail', 'hanger', 'stand'] as $support) {
             $this->assertStringContainsString($support, $prompt);
         }
+    }
+
+    /**
+     * The common case: one set of settings for the run, and every SKU follows
+     * it. Thirty products that want the same treatment should be one decision.
+     */
+    public function test_settings_chosen_once_apply_to_every_sku(): void
+    {
+        Queue::fake();
+
+        $session = $this->makeSession();
+        $this->photo($session, 'A', 'a.jpg');
+        $this->photo($session, 'B', 'b.jpg');
+        $a = $this->group($session, 'A');
+        $b = $this->group($session, 'B');
+
+        $this->actingAs($session->user)->post(route('photo-editor.start', $session), [
+            'edits'  => ['background_mode' => 'transparent', 'padding' => '0.1'],
+            'groups' => [$a->id => [], $b->id => []],
+        ]);
+
+        // Stored once, on the run.
+        $this->assertSame('transparent', $session->fresh()->edits['background_mode']);
+
+        // Nothing pinned to the groups, so changing the run still reaches them.
+        $this->assertNull($a->fresh()->edits);
+        $this->assertNull($b->fresh()->edits);
+
+        $item = PhotoEditItem::where('sku_detected', 'A')->first();
+        $this->assertSame('transparent', $item->resolvedEdits()['background_mode']);
+    }
+
+    /** A SKU that opts out keeps its own settings and ignores the run's. */
+    public function test_a_sku_that_differs_keeps_its_own_settings(): void
+    {
+        Queue::fake();
+
+        $session = $this->makeSession();
+        $this->photo($session, 'DRESS', 'a.jpg');
+        $this->photo($session, 'WATCH', 'b.jpg');
+        $dress = $this->group($session, 'DRESS');
+        $watch = $this->group($session, 'WATCH');
+
+        $this->actingAs($session->user)->post(route('photo-editor.start', $session), [
+            'edits'  => ['background_mode' => 'white', 'padding' => '0.1'],
+            'groups' => [
+                $dress->id => [],
+                $watch->id => ['differs' => '1', 'edits' => ['background_mode' => 'transparent', 'padding' => '0']],
+            ],
+        ]);
+
+        $this->assertNull($dress->fresh()->edits);
+        $this->assertSame('transparent', $watch->fresh()->edits['background_mode']);
+
+        $dressItem = PhotoEditItem::where('sku_detected', 'DRESS')->first();
+        $watchItem = PhotoEditItem::where('sku_detected', 'WATCH')->first();
+
+        $this->assertSame('white', $dressItem->resolvedEdits()['background_mode']);
+        $this->assertSame('transparent', $watchItem->resolvedEdits()['background_mode']);
+    }
+
+    /** Unticking "differs" hands the SKU back to the run rather than freezing it. */
+    public function test_a_sku_can_be_handed_back_to_the_run(): void
+    {
+        Queue::fake();
+
+        $session = $this->makeSession();
+        $this->photo($session, 'A', 'a.jpg');
+        $group = $this->group($session, 'A');
+        $group->update(['edits' => ['background_mode' => 'transparent']]);
+
+        $this->actingAs($session->user)->post(route('photo-editor.start', $session), [
+            'edits'  => ['background_mode' => 'white'],
+            'groups' => [$group->id => []],
+        ]);
+
+        $this->assertNull($group->fresh()->edits);
+        $this->assertSame('white', PhotoEditItem::sole()->resolvedEdits()['background_mode']);
     }
 }
