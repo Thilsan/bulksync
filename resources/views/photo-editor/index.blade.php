@@ -150,44 +150,6 @@
                         </p>
                     </div>
 
-                    {{-- The honest way to get a mannequin out of shot: cut it
-                         off. A whole folder shot at one distance puts the hem at
-                         the same fraction down every frame, so one number does
-                         the batch — and nothing about the garment is invented. --}}
-                    <div class="border-t border-gray-100 pt-4">
-                        <span class="mb-1 block text-sm font-medium text-gray-700">Trim the mannequin or stand out of shot</span>
-                        <p class="mb-3 text-xs leading-relaxed text-gray-500">
-                            Cut off the top and bottom before editing. Set it from one photo and it applies to the
-                            whole folder — the garment itself is never touched.
-                        </p>
-                        <div class="grid gap-4 sm:grid-cols-2">
-                            <div>
-                                <div class="mb-1 flex items-baseline justify-between">
-                                    <span class="text-xs font-medium text-gray-600">Off the top</span>
-                                    <span class="text-xs font-semibold tabular-nums text-brand-700" x-text="Math.round(trimTop * 100) + '%'"></span>
-                                </div>
-                                <input type="range" name="trim_top" x-model="trimTop" min="0" max="0.4" step="0.01" class="w-full accent-brand-600">
-                            </div>
-                            <div>
-                                <div class="mb-1 flex items-baseline justify-between">
-                                    <span class="text-xs font-medium text-gray-600">Off the bottom</span>
-                                    <span class="text-xs font-semibold tabular-nums text-brand-700" x-text="Math.round(trimBottom * 100) + '%'"></span>
-                                </div>
-                                <input type="range" name="trim_bottom" x-model="trimBottom" min="0" max="0.4" step="0.01" class="w-full accent-brand-600">
-                            </div>
-                        </div>
-                        <p x-show="trimTop > 0 || trimBottom > 0" x-cloak class="mt-2 text-xs text-amber-700">
-                            Keeping the middle <strong class="font-semibold" x-text="Math.round((1 - trimTop - trimBottom) * 100) + '%'"></strong>
-                            of every photo. Check the first few results before letting the whole folder run.
-                        </p>
-                        <p x-show="apparelMode !== 'none'" x-cloak class="mt-2 text-xs leading-relaxed text-gray-500">
-                            Every photo gets a plain cutout — colors and orientation stay exactly as shot. When a
-                            mannequin or dress form is visible, an AI pass tries to erase it before the cutout runs
-                            — check those results before pushing, since it's a generative edit and can occasionally
-                            distort the garment. If the stand is still visible, raise
-                            <strong class="font-semibold">Off the bottom</strong> above to crop it out instead.
-                        </p>
-                    </div>
                 </div>
             </div>
 
@@ -215,6 +177,92 @@
                             <p class="mt-0.5 text-xs leading-relaxed text-gray-500">{{ $help }}</p>
                         </label>
                         @endforeach
+                    </div>
+
+                    {{-- On-model controls. Generation is the point here, so
+                         unlike the redraw modes there is nothing to downgrade
+                         to — a person who was never photographed has no real
+                         pixels to fall back on. --}}
+                    <div x-show="apparelMode === 'virtual_model'" x-cloak class="mt-4 space-y-4 rounded-xl border border-gray-200 bg-gray-50 p-4">
+                        <div class="grid gap-4 sm:grid-cols-3">
+                            <div>
+                                <label for="vm_model" class="mb-1.5 block text-xs font-medium text-gray-600">Model</label>
+                                <select id="vm_model" name="vm_model" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none">
+                                    <option value="">Photoroom picks</option>
+                                    @foreach (\App\Services\PhotoroomService::VIRTUAL_MODEL_PRESETS as $preset)
+                                        <option value="{{ $preset }}" @selected(old('vm_model') === $preset)>{{ ucfirst($preset) }}</option>
+                                    @endforeach
+                                </select>
+                            </div>
+                            <div>
+                                <label for="vm_scene" class="mb-1.5 block text-xs font-medium text-gray-600">Scene</label>
+                                <select id="vm_scene" name="vm_scene" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none">
+                                    <option value="">Photoroom picks</option>
+                                    @foreach (\App\Services\PhotoroomService::VIRTUAL_MODEL_SCENES as $scene)
+                                        <option value="{{ $scene }}" @selected(old('vm_scene') === $scene)>{{ ucfirst($scene) }}</option>
+                                    @endforeach
+                                </select>
+                            </div>
+                            <div>
+                                <label for="vm_pose" class="mb-1.5 block text-xs font-medium text-gray-600">Pose</label>
+                                <select id="vm_pose" name="vm_pose" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none">
+                                    <option value="">Photoroom picks</option>
+                                    @foreach (\App\Services\PhotoroomService::VIRTUAL_MODEL_POSES as $pose)
+                                        <option value="{{ $pose }}" @selected(old('vm_pose') === $pose)>{{ ucfirst($pose) }}</option>
+                                    @endforeach
+                                </select>
+                            </div>
+                        </div>
+
+                        <div>
+                            <label for="apparel_size" class="mb-1.5 block text-xs font-medium text-gray-600">Canvas shape</label>
+                            <select id="apparel_size" name="apparel_size" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none sm:max-w-xs">
+                                <option value="">Photoroom picks</option>
+                                @foreach (\App\Services\PhotoroomService::SIZE_PRESETS as $value => $label)
+                                    <option value="{{ $value }}" @selected(old('apparel_size') === $value)>{{ $label }}</option>
+                                @endforeach
+                            </select>
+                            <p class="mt-1 text-xs text-gray-500">The generated scene decides its own dimensions, so Output size in step 5 does not apply here.</p>
+                        </div>
+
+                        {{-- Virtual Try-On: the same feature aimed at your own
+                             model and your own set instead of Photoroom's stock
+                             people, which is what keeps a lifestyle shoot on
+                             brand across seasons. --}}
+                        <div class="border-t border-gray-200 pt-4">
+                            <span class="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">Use your own model &amp; set (optional)</span>
+                            <p class="mb-3 text-xs text-gray-500">Public image URLs. Supplying one replaces the preset above.</p>
+                            <div class="grid gap-4 sm:grid-cols-2">
+                                <div>
+                                    <label for="vm_model_url" class="mb-1.5 block text-xs font-medium text-gray-600">Your model photo</label>
+                                    <input id="vm_model_url" type="url" name="vm_model_url" value="{{ old('vm_model_url') }}" placeholder="https://…"
+                                           class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none">
+                                </div>
+                                <div>
+                                    <label for="vm_scene_url" class="mb-1.5 block text-xs font-medium text-gray-600">Your scene photo</label>
+                                    <input id="vm_scene_url" type="url" name="vm_scene_url" value="{{ old('vm_scene_url') }}" placeholder="https://…"
+                                           class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none">
+                                </div>
+                            </div>
+                            <div class="mt-3">
+                                <label for="vm_extra_0" class="mb-1.5 block text-xs font-medium text-gray-600">More angles of the garment</label>
+                                <div class="grid gap-3 sm:grid-cols-2">
+                                    @for ($i = 0; $i < 2; $i++)
+                                        <input id="vm_extra_{{ $i }}" type="url" name="vm_extra_product_urls[]"
+                                               value="{{ old('vm_extra_product_urls.' . $i) }}" placeholder="https://… (back, side)"
+                                               class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none">
+                                    @endfor
+                                </div>
+                                <p class="mt-1 text-xs text-gray-500">Extra views help the model get the cut right rather than guessing from one front-on photo.</p>
+                            </div>
+                        </div>
+
+                        <div>
+                            <label for="apparel_prompt" class="mb-1.5 block text-xs font-medium text-gray-600">Styling note (optional)</label>
+                            <input id="apparel_prompt" type="text" name="apparel_prompt" maxlength="500" value="{{ old('apparel_prompt') }}"
+                                   placeholder="street style, natural light"
+                                   class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none">
+                        </div>
                     </div>
 
                     {{-- removeBackground is implied by every mode except blur, so
@@ -293,6 +341,7 @@
                         @foreach ([
                             ['none',            'Keep the photo',              'Cuts out the background and leaves the garment exactly as it was shot — original colors and orientation untouched. The mannequin stays in frame — trim it off in step 1.', false],
                             ['ghost_mannequin', 'Keep the photo + AI cleanup', 'Same real-pixel cutout, but if a mannequin or dress form is visible, an AI pass tries to erase it first before the cutout runs. Uses an extra Photoroom credit on photos where it runs, and — being a generative edit — can occasionally distort the garment, so check results before pushing.', true],
+                            ['virtual_model',   'Put it on a model',           'For lifestyle imagery, not catalogue cutouts. Photoroom generates a person wearing the garment, in a scene you choose. The whole image is created rather than photographed, so treat it as a marketing shot and never as the record of what the product looks like — check every result.', true],
                         ] as [$value, $label, $help, $usesAi])
                         <label class="opt-card cursor-pointer rounded-xl border p-4 transition-colors"
                                :class="apparelMode === '{{ $value }}' ? 'border-brand-500 bg-brand-50/60 ring-1 ring-brand-500' : 'border-gray-200 hover:border-gray-300'">
@@ -418,13 +467,7 @@
                     {{-- Everything below is rarely needed on a product shot. --}}
                     <div x-show="showAdvanced" x-cloak class="space-y-5 border-t border-gray-100 pt-5">
                         <div class="grid gap-4 sm:grid-cols-2">
-                            <div>
-                                <label for="text_removal" class="mb-1 block text-xs font-medium text-gray-600">Remove text from the image</label>
-                                <select id="text_removal" name="text_removal" x-model="textRemoval"
-                                        class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none">
-                                    @foreach ($textModes as $value => $label)<option value="{{ $value }}">{{ $label }}</option>@endforeach
-                                </select>
-                            </div>
+                            
                             <div>
                                 <label for="beautify" class="mb-1 block text-xs font-medium text-gray-600">Beautifier</label>
                                 <select id="beautify" name="beautify" x-model="beautify"
@@ -442,32 +485,10 @@
                                     <span class="block text-xs text-gray-500">Invents more scene around the edges.</span>
                                 </span>
                             </label>
-                            <label class="flex cursor-pointer items-start gap-3 rounded-xl border border-gray-200 p-4 hover:border-gray-300">
-                                <input type="checkbox" name="uncrop" value="1" x-model="uncrop" class="mt-0.5 h-4 w-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500">
-                                <span>
-                                    <span class="block text-sm font-medium text-gray-800">AI Uncrop</span>
-                                    <span class="block text-xs text-gray-500">Rebuilds a product cut off by the frame.</span>
-                                </span>
-                            </label>
+                            
                         </div>
 
-                        <div>
-                            <label class="flex cursor-pointer items-center gap-3">
-                                <input type="checkbox" x-model="useOutline" class="h-4 w-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500">
-                                <span class="text-sm font-medium text-gray-800">Draw an outline around the product</span>
-                            </label>
-                            <div x-show="useOutline" x-cloak class="mt-3 flex flex-wrap items-end gap-3">
-                                <input type="color" x-model="outlineColor" class="h-10 w-14 cursor-pointer rounded-lg border border-gray-300 bg-white p-1">
-                                <div>
-                                    <div class="mb-1 flex items-baseline justify-between gap-4">
-                                        <span class="text-xs font-medium text-gray-600">Thickness</span>
-                                        <span class="text-xs tabular-nums text-brand-700" x-text="outlineWidth"></span>
-                                    </div>
-                                    <input type="range" name="outline_width" x-model="outlineWidth" min="0" max="0.1" step="0.005" class="w-48 accent-brand-600">
-                                </div>
-                            </div>
-                            {{-- Sent empty when unticked, so the outline is simply absent. --}}
-                            <input type="hidden" name="outline_color" :value="useOutline ? outlineColor : ''">
+                        
                         </div>
                     </div>
                 </div>
@@ -564,11 +585,7 @@
                                 <option value="originalImage">The original frame</option>
                             </select>
                         </div>
-                        <div>
-                            <label for="dpi" class="mb-1.5 block text-xs font-medium text-gray-600">Export DPI <span class="font-normal text-gray-400">(print only)</span></label>
-                            <input id="dpi" type="number" name="dpi" x-model="dpi" min="72" max="1200" placeholder="72"
-                                   class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none">
-                        </div>
+                        
                     </div>
                 </div>
 
@@ -612,16 +629,7 @@
                                         <option value="original" @selected(old('color_space') === 'original')>Keep the camera's</option>
                                     </select>
                                 </div>
-                                <div>
-                                    <label for="preserve_metadata" class="mb-1.5 block text-xs font-medium text-gray-600">Metadata</label>
-                                    <select id="preserve_metadata" name="preserve_metadata"
-                                            class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none">
-                                        <option value="">Photoroom's default</option>
-                                        @foreach (\App\Services\PhotoroomService::METADATA_MODES as $value => $label)
-                                            <option value="{{ $value }}" @selected(old('preserve_metadata') === $value)>{{ $label }}</option>
-                                        @endforeach
-                                    </select>
-                                </div>
+                                
                             </div>
                         </div>
 
@@ -725,8 +733,8 @@
                                 Every AI step is random unless it is given a seed. Set these to make a re-edit
                                 reproduce the run it is re-editing rather than produce a new variation.
                             </p>
-                            <div class="grid gap-4 sm:grid-cols-4">
-                                @foreach (['beautify_seed' => 'Beautify seed', 'expand_seed' => 'Expand seed', 'uncrop_seed' => 'Uncrop seed', 'edit_seed' => 'Mannequin-erase seed'] as $field => $label)
+                            <div class="grid gap-4 sm:grid-cols-3">
+                                @foreach (['beautify_seed' => 'Beautify seed', 'expand_seed' => 'Expand seed', 'edit_seed' => 'Mannequin-erase seed'] as $field => $label)
                                     <div>
                                         <label for="{{ $field }}" class="mb-1.5 block text-xs font-medium text-gray-600">{{ $label }}</label>
                                         <input id="{{ $field }}" type="number" name="{{ $field }}" min="0" value="{{ old($field) }}" placeholder="random"
@@ -746,76 +754,12 @@
                                            value="{{ old('upscale_resolution') }}" placeholder="automatic"
                                            class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none">
                                 </div>
-                                <div>
-                                    <label for="outline_blur" class="mb-1.5 block text-xs font-medium text-gray-600">Outline softness</label>
-                                    <input id="outline_blur" type="number" step="0.001" name="outline_blur" min="0" max="0.025"
-                                           value="{{ old('outline_blur') }}" placeholder="0"
-                                           class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none">
-                                </div>
-                                <div>
-                                    <label for="template_id" class="mb-1.5 block text-xs font-medium text-gray-600">Photoroom template ID</label>
-                                    <input id="template_id" type="text" name="template_id" maxlength="120" value="{{ old('template_id') }}" placeholder="—"
-                                           class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none">
-                                </div>
+                                
+                                
                             </div>
-                            <label class="mt-3 flex cursor-pointer items-start gap-3">
-                                <input type="checkbox" name="beautify_strict" value="1" @checked(old('beautify_strict'))
-                                       class="mt-0.5 h-4 w-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500">
-                                <span class="text-xs text-gray-600">
-                                    Fail loudly when a Food or Vehicles beautify is pointed at neither, instead of quietly doing nothing.
-                                </span>
-                            </label>
+                            
                         </div>
 
-                        {{-- Generated backgrounds --}}
-                        <div x-show="backgroundMode === 'prompt'" x-cloak>
-                            <span class="mb-2 block text-sm font-medium text-gray-700">Generated background</span>
-                            <div class="grid gap-4 sm:grid-cols-2">
-                                <div>
-                                    <label for="background_negative_prompt" class="mb-1.5 block text-xs font-medium text-gray-600">Avoid</label>
-                                    <input id="background_negative_prompt" type="text" name="background_negative_prompt" maxlength="500"
-                                           value="{{ old('background_negative_prompt') }}" placeholder="people, text, clutter"
-                                           class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none">
-                                </div>
-                                <div>
-                                    <label for="background_guidance_url" class="mb-1.5 block text-xs font-medium text-gray-600">Match this photo's look (URL)</label>
-                                    <input id="background_guidance_url" type="url" name="background_guidance_url"
-                                           value="{{ old('background_guidance_url') }}" placeholder="https://…"
-                                           class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none">
-                                </div>
-                                <div>
-                                    <label for="background_guidance_scale" class="mb-1.5 block text-xs font-medium text-gray-600">How closely (0–1)</label>
-                                    <input id="background_guidance_scale" type="number" step="0.05" name="background_guidance_scale" min="0" max="1"
-                                           value="{{ old('background_guidance_scale') }}" placeholder="0.5"
-                                           class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none">
-                                </div>
-                                <div>
-                                    <label for="background_scaling" class="mb-1.5 block text-xs font-medium text-gray-600">Background fit</label>
-                                    <select id="background_scaling" name="background_scaling"
-                                            class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none">
-                                        <option value="">Photoroom's default</option>
-                                        <option value="fit"  @selected(old('background_scaling') === 'fit')>Fit</option>
-                                        <option value="fill" @selected(old('background_scaling') === 'fill')>Fill</option>
-                                    </select>
-                                </div>
-                            </div>
-                        </div>
-
-                        {{-- Generative redraw, off by default --}}
-                        <div x-show="apparelMode !== 'none'" x-cloak class="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
-                            <label class="flex cursor-pointer items-start gap-3">
-                                <input type="checkbox" name="allow_generative" value="1" @checked(old('allow_generative'))
-                                       class="mt-0.5 h-4 w-4 rounded border-gray-300 text-amber-600 focus:ring-amber-500">
-                                <span>
-                                    <span class="block text-sm font-medium text-amber-900">Let Photoroom redraw the garment</span>
-                                    <span class="mt-0.5 block text-xs text-amber-800">
-                                        Turns on the real Ghost Mannequin. The garment is regenerated rather than cut out,
-                                        which gives the floating look but carries no guarantee of matching the original
-                                        colour or cut. Off by default — check every result before pushing.
-                                    </span>
-                                </span>
-                            </label>
-                        </div>
                     </div>
                 </div>
 
@@ -921,8 +865,6 @@ function photoEditForm() {
              "never submitted"; $errors->any() is what says this is a redisplay
              and the absence is therefore a real choice. --}}
         rotateWideOnly: {{ $errors->any() ? (old('rotate_wide_only') ? 'true' : 'false') : 'true' }},
-        trimTop:        {{ old('trim_top', '0') ?: '0' }},
-        trimBottom:     {{ old('trim_bottom', '0') ?: '0' }},
 
         // Background
         backgroundMode:       '{{ old('background_mode', 'white') }}',
@@ -946,15 +888,10 @@ function photoEditForm() {
         shadowPose:      '{{ old('shadow_pose', '') }}',
 
         // Finishing
-        textRemoval:  '{{ old('text_removal', '') }}',
         beautify:     '{{ old('beautify', '') }}',
         lighting:     '{{ old('lighting', '') }}',
         upscale:      {{ old('upscale') ? 'true' : 'false' }},
         expand:       {{ old('expand') ? 'true' : 'false' }},
-        uncrop:       {{ old('uncrop') ? 'true' : 'false' }},
-        useOutline:   {{ old('outline_color') ? 'true' : 'false' }},
-        outlineColor: '{{ old('outline_color', '#222222') }}',
-        outlineWidth: {{ old('outline_width', '0.03') ?: '0.03' }},
 
         // Output
         width:        {{ old('image_width', 'null') ?: 'null' }},
@@ -962,7 +899,6 @@ function photoEditForm() {
         customMode:   false,
         padding:      {{ old('padding', '0') ?: '0' }},
         referenceBox: '{{ old('reference_box', 'subjectBox') }}',
-        dpi:          '{{ old('dpi', '') }}',
         outputSizeMode: '{{ old('output_size_mode', 'auto') }}',
         exportFormat: '{{ old('export_format', 'auto') }}',
         showAdvanced: false,

@@ -61,6 +61,40 @@ class OneDriveService
      *   'size_bytes' => 123456,
      * ]
      */
+    /**
+     * A small preview of one file, straight from Graph.
+     *
+     * The configure screen has to show the operator each SKU's photos before a
+     * single Photoroom credit is spent, and the originals are ~9 MB apiece —
+     * pulling those to build thumbnails would cost minutes and gigabytes for a
+     * screen nobody has decided anything on yet. Graph renders previews for
+     * free, so they are fetched instead.
+     *
+     * Returns null rather than throwing: a missing preview should leave a
+     * placeholder in the grid, not take the page down.
+     */
+    public function thumbnailBytes(string $driveId, string $itemId, string $size = 'large'): ?string
+    {
+        $size = in_array($size, ['small', 'medium', 'large'], true) ? $size : 'large';
+
+        try {
+            $token = $this->getAccessToken();
+
+            $response = $this->http->get(
+                "https://graph.microsoft.com/v1.0/drives/{$driveId}/items/{$itemId}/thumbnails/0/{$size}/content",
+                ['headers' => ['Authorization' => "Bearer {$token}"], 'allow_redirects' => true],
+            );
+
+            $content = (string) $response->getBody();
+
+            return $content !== '' && $this->isImageBytes($content) ? $content : null;
+        } catch (\Throwable $e) {
+            Log::warning("OneDrive: no thumbnail for {$itemId}: " . $e->getMessage());
+
+            return null;
+        }
+    }
+
     public function streamFolderImages(string $shareUrl, callable $callback): void
     {
         $token   = $this->getAccessToken();

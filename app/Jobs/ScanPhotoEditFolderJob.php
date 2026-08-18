@@ -2,6 +2,7 @@
 
 namespace App\Jobs;
 
+use App\Models\PhotoEditGroup;
 use App\Models\PhotoEditItem;
 use App\Models\PhotoEditSession;
 use App\Models\User;
@@ -113,20 +114,23 @@ class ScanPhotoEditFolderJob implements ShouldQueue
                 return;
             }
 
-            Log::info("ScanPhotoEditFolderJob: {$total} images queued for session {$this->sessionId}");
+            /*
+             * The scan stops here. Nothing has been sent to Photoroom and
+             * nothing will be until somebody has looked at what was found and
+             * said what each SKU should get — a folder of dresses and a folder
+             * of watches want different treatment, and the old flow committed
+             * the whole run to one answer before anyone had seen the photos.
+             *
+             * Each SKU starts from the settings chosen on the form, so a run
+             * where every product does want the same thing is still one click.
+             */
+            $this->createGroups($session);
 
-            PhotoEditItem::where('photo_edit_session_id', $session->id)
-                ->where('status', 'pending')
-                ->select('id')
-                ->chunkById(500, function ($items) {
-                    foreach ($items as $item) {
-                        try {
-                            EditPhotoItemJob::dispatch($item->id)->onQueue('bulkupload');
-                        } catch (\Throwable $e) {
-                            Log::error("ScanPhotoEditFolderJob: dispatch failed for item {$item->id}: " . $e->getMessage());
-                        }
-                    }
-                });
+            $session->update(['status' => 'configuring']);
+
+            Log::info("ScanPhotoEditFolderJob: {$total} images in "
+                . PhotoEditGroup::where('photo_edit_session_id', $session->id)->count()
+                . " SKU groups awaiting configuration for session {$this->sessionId}");
 
         } catch (\Throwable $e) {
             Log::error("ScanPhotoEditFolderJob failed for session {$this->sessionId}: " . $e->getMessage());
@@ -160,6 +164,34 @@ class ScanPhotoEditFolderJob implements ShouldQueue
      * rest is the suffix OneDrive names carry ("_var1", "-2", ".jpg"). Matches
      * how the bulk uploader reads the same folders.
      */
+    /**
+     * One group per SKU folder, seeded with the run's settings.
+     *
+     * Written in one insert rather than per SKU: a 120-image run can hold as
+     * many groups as it does folders, and the scan already holds the session
+     * open long enough.
+     */
+    private function createGroups(PhotoEditSession $session): void
+    {
+        $skus = PhotoEditItem::where('photo_edit_session_id', $session->id)
+            ->distinct()
+            ->orderBy('sku_detected')
+            ->pluck('sku_detected')
+            ->filter()
+            ->values();
+
+        $edits = json_encode($session->edits ?? []);
+
+        PhotoEditGroup::insert($skus->map(fn ($sku) => [
+            'photo_edit_session_id' => $session->id,
+            'sku'                   => $sku,
+            'edits'                 => $edits,
+            'lifestyle_count'       => 0,
+            'created_at'            => now(),
+            'updated_at'            => now(),
+        ])->all());
+    }
+
     private function normalizeIdentifier(string $raw): string
     {
         $name = trim($raw);

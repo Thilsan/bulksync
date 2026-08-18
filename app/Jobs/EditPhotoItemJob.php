@@ -62,7 +62,9 @@ class EditPhotoItemJob implements ShouldQueue
             $oneDrive->setUser($user);
         }
 
-        $edits = $session->edits ?? [];
+        // Settings belong to the SKU group, not the run: a folder of dresses
+        // and a folder of watches were configured separately.
+        $edits = $item->resolvedEdits();
 
         try {
             $raw = $oneDrive->downloadFileById(
@@ -102,10 +104,11 @@ class EditPhotoItemJob implements ShouldQueue
             // the original photo's color or orientation. That is why every
             // such item is downgraded to a plain cutout by default.
             //
-            // 'allow_generative' is the operator saying they want the redraw
-            // anyway and will check the results. It is per session, so the
-            // safe default survives for the bulk runs that feed the catalogue
-            // while a deliberate one-off can still use the real feature.
+            // Putting a garment on a model is the exception. There is no
+            // real-pixel version of a person who was never photographed, so
+            // downgrading it would not produce a safer image — it would
+            // produce no image at all. Generation is the feature there, and
+            // the operator picked it knowingly.
             //
             // Classification is only spent on sessions that asked for a redraw
             // mode in the first place, to know whether a mannequin is actually
@@ -113,9 +116,9 @@ class EditPhotoItemJob implements ShouldQueue
             // still gets the plain-cutout fallback rather than derailing over
             // an unrelated API hiccup.
             $classification = null;
-            $generative     = !empty($edits['allow_generative']);
+            $onModel        = !empty($edits['virtual_model']);
 
-            if ($photoroom->generatesOwnCanvas($edits) && !$generative) {
+            if ($photoroom->generatesOwnCanvas($edits) && !$onModel) {
                 try {
                     $classification = $gemini->classifyGarmentView($raw);
                 } catch (\Throwable $e) {
@@ -127,10 +130,10 @@ class EditPhotoItemJob implements ShouldQueue
             $appliedMode = 'none';
 
             if ($photoroom->generatesOwnCanvas($edits)) {
-                if ($generative) {
-                    // Photoroom draws the garment itself, mannequin and all —
-                    // a separate erase pass would only be a wasted request.
-                    $appliedMode = 'generative';
+                if ($onModel) {
+                    // Photoroom builds the whole scene, mannequin and all — a
+                    // separate erase pass would only be a wasted request.
+                    $appliedMode = 'on_model';
                 } else {
                     $itemEdits['ghost_mannequin']   = false;
                     $itemEdits['flat_lay']          = false;

@@ -10,6 +10,8 @@ class PhotoEditItem extends Model
     protected $fillable = [
         'photo_edit_session_id',
         'filename',
+        'kind',
+        'source_item_id',
         'sku_detected',
         'onedrive_drive_id',
         'onedrive_item_id',
@@ -58,6 +60,29 @@ class PhotoEditItem extends Model
     public function scopeUncertain($query)
     {
         return $query->where('uncertainty_score', '>', self::UNCERTAIN_ABOVE);
+    }
+
+    /**
+     * The settings that apply to this photo.
+     *
+     * Its SKU group owns them — a run mixes product types and each folder was
+     * configured separately. The session's own edits are only a fallback, for
+     * rows created before groups existed and for a group that somehow went
+     * missing; without that fallback an old session would edit with nothing set
+     * at all, which silently produces a very different picture.
+     */
+    public function resolvedEdits(): array
+    {
+        $group = PhotoEditGroup::where('photo_edit_session_id', $this->photo_edit_session_id)
+            ->where('sku', $this->sku_detected)
+            ->first();
+
+        return $group?->edits ?? $this->session?->edits ?? [];
+    }
+
+    public function isLifestyle(): bool
+    {
+        return $this->kind === 'lifestyle';
     }
 
     public function session(): BelongsTo

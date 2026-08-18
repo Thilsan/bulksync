@@ -77,6 +77,13 @@ Route::middleware('auth')->group(function () {
     Route::get('/photo-editor/history',          [PhotoEditorController::class, 'history'])->name('photo-editor.history');
     Route::get('/photo-editor/{session}',        [PhotoEditorController::class, 'show'])->name('photo-editor.show');
     Route::get('/photo-editor/{session}/status', [PhotoEditorController::class, 'status'])->name('photo-editor.status');
+
+    // Between finding the photos and spending anything on them: each SKU
+    // folder gets its own settings before a single credit is used.
+    Route::get('/photo-editor/{session}/configure', [PhotoEditorController::class, 'configure'])->name('photo-editor.configure');
+    Route::post('/photo-editor/{session}/start',    [PhotoEditorController::class, 'start'])->name('photo-editor.start');
+    Route::get('/photo-editor/{session}/item/{item}/onedrive-thumb', [PhotoEditorController::class, 'onedriveThumb'])
+        ->name('photo-editor.onedrive-thumb');
     Route::post('/photo-editor/{session}/push',  [PhotoEditorController::class, 'push'])->name('photo-editor.push');
     Route::delete('/photo-editor/{session}',     [PhotoEditorController::class, 'destroy'])->name('photo-editor.destroy');
 

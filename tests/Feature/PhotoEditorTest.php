@@ -1191,46 +1191,6 @@ class PhotoEditorTest extends TestCase
         $this->assertNull($service->lastUncertaintyScore());
     }
 
-    /** The redraw stays off unless the operator asks for it by name. */
-    public function test_generative_redraw_is_opt_in(): void
-    {
-        Queue::fake();
-
-        $this->actingAs($this->editor())
-            ->post(route('photo-editor.store'), $this->validPayload([
-                'apparel_mode' => 'ghost_mannequin',
-            ]));
-
-        $this->assertFalse(PhotoEditSession::sole()->edits['allow_generative']);
-    }
-
-    public function test_generative_redraw_can_be_turned_on(): void
-    {
-        Queue::fake();
-
-        $this->actingAs($this->editor())
-            ->post(route('photo-editor.store'), $this->validPayload([
-                'apparel_mode'     => 'ghost_mannequin',
-                'allow_generative' => '1',
-            ]));
-
-        $this->assertTrue(PhotoEditSession::sole()->edits['allow_generative']);
-    }
-
-    /** Asking for a redraw without a redraw mode means nothing. */
-    public function test_generative_redraw_is_ignored_without_an_apparel_mode(): void
-    {
-        Queue::fake();
-
-        $this->actingAs($this->editor())
-            ->post(route('photo-editor.store'), $this->validPayload([
-                'apparel_mode'     => 'none',
-                'allow_generative' => '1',
-            ]));
-
-        $this->assertFalse(PhotoEditSession::sole()->edits['allow_generative']);
-    }
-
     /*
      * ── AI cleanup stays as it was ─────────────────────────────────────────
      *
@@ -1331,17 +1291,33 @@ class PhotoEditorTest extends TestCase
         \Illuminate\Support\Facades\Http::assertSentCount(1);
     }
 
-    /** Opting into the redraw hands the whole job to Photoroom, in one request. */
-    public function test_the_generative_redraw_skips_the_erase_pass(): void
+    /**
+     * Virtual Model is generative by definition — there is no real-pixel
+     * version of a person who was never photographed — so it is never
+     * downgraded to a cutout the way Ghost Mannequin is.
+     */
+    public function test_putting_it_on_a_model_is_never_downgraded(): void
     {
         $item = $this->runCleanupItem(
-            ['allow_generative' => true],
+            ['ghost_mannequin' => false, 'virtual_model' => true],
             ['view_type' => 'front', 'mannequin_visible' => true],
         );
 
-        $this->assertSame('generative', $item->apparel_mode_applied);
+        $this->assertSame('on_model', $item->apparel_mode_applied);
+
+        // Photoroom builds the whole scene, so no separate erase pass.
         \Illuminate\Support\Facades\Http::assertSentCount(1);
     }
+
+    /** Ghost Mannequin keeps its downgrade — that is the colour-fidelity guard. */
+    public function test_ghost_mannequin_is_still_downgraded_to_a_cutout(): void
+    {
+        $item = $this->runCleanupItem([], ['view_type' => 'front', 'mannequin_visible' => true]);
+
+        $this->assertNotSame('on_model', $item->apparel_mode_applied);
+        $this->assertSame('mannequin_removed', $item->apparel_mode_applied);
+    }
+
 
     /** AVIF holds alpha, so a cutout asked for as AVIF stays AVIF. */
     public function test_avif_is_offered_and_survives_a_transparent_cutout(): void
@@ -1406,5 +1382,27 @@ class PhotoEditorTest extends TestCase
         \Illuminate\Support\Facades\Http::assertSent(
             fn ($request) => !in_array('editWithAI.seed', array_column($request->data(), 'name'), true),
         );
+    }
+
+    /** The on-model mode is offered, and keeps the model options with it. */
+    public function test_the_on_model_mode_is_accepted(): void
+    {
+        Queue::fake();
+
+        $this->actingAs($this->editor())
+            ->post(route('photo-editor.store'), $this->validPayload([
+                'apparel_mode' => 'virtual_model',
+                'vm_model'     => 'maya',
+                'vm_scene'     => 'studio',
+                'vm_pose'      => 'standing',
+                'vm_model_url' => 'https://example.com/our-model.jpg',
+            ]));
+
+        $edits = PhotoEditSession::sole()->edits;
+
+        $this->assertTrue($edits['virtual_model']);
+        $this->assertFalse($edits['ghost_mannequin']);
+        $this->assertSame('maya', $edits['vm_model']);
+        $this->assertSame('https://example.com/our-model.jpg', $edits['vm_model_url']);
     }
 }

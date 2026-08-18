@@ -4,10 +4,14 @@ namespace App\Http\Controllers;
 
 use App\Jobs\EditPhotoItemJob;
 use App\Jobs\PushEditedPhotoJob;
+use App\Jobs\GenerateLifestyleImageJob;
 use App\Jobs\ScanPhotoEditFolderJob;
+use App\Models\PhotoEditGroup;
 use App\Models\PhotoEditItem;
 use App\Models\PhotoEditSession;
 use App\Models\Store;
+use App\Models\User;
+use App\Services\OneDriveService;
 use App\Services\ImageProcessingService;
 use App\Services\PhotoroomService;
 use Illuminate\Http\JsonResponse;
@@ -73,7 +77,13 @@ class PhotoEditorController extends Controller implements HasMiddleware
             'shadowSpreads' => PhotoroomService::SHADOW_SPREADS,
             'shadowDirs'    => PhotoroomService::SHADOW_DIRECTIONS,
             'shadowPoses'   => PhotoroomService::SHADOW_POSES,
-            'beautifyModes' => PhotoroomService::BEAUTIFY_MODES,
+            // Food and Vehicles are trained for subjects this catalogue does
+            // not sell; offering them only invites a silent no-op. The
+            // service still accepts them for anything set before now.
+            'beautifyModes' => array_intersect_key(
+                PhotoroomService::BEAUTIFY_MODES,
+                array_flip(['', 'ai.auto']),
+            ),
             'textModes'     => PhotoroomService::TEXT_REMOVAL_MODES,
 
             // Straightening happens on our side, before the upload, so its
@@ -149,10 +159,6 @@ class PhotoEditorController extends Controller implements HasMiddleware
             'vm_scene_url'         => ['nullable', 'url'],
             'vm_extra_product_urls'   => ['nullable', 'array', 'max:4'],
             'vm_extra_product_urls.*' => ['url'],
-
-            // Off by default: a redrawn garment is not guaranteed to match the
-            // colour or cut of the one photographed.
-            'allow_generative' => ['nullable', 'boolean'],
 
             // ── Shadow ──
             'shadow'           => ['nullable', Rule::in(array_keys(PhotoroomService::SHADOW_MODES))],
@@ -247,7 +253,7 @@ class PhotoEditorController extends Controller implements HasMiddleware
             'export_format', 'color_space', 'preserve_metadata', 'keep_alpha', 'template_id',
         ], null) + array_fill_keys([
             'remove_background', 'ironing', 'upscale', 'expand', 'uncrop',
-            'rotate_wide_only', 'allow_generative', 'beautify_strict', 'snap_cropped_sides',
+            'rotate_wide_only', 'beautify_strict', 'snap_cropped_sides',
         ], false);
 
         // Blurring keeps the original scene, so it is the one mode that is not
@@ -305,9 +311,6 @@ class PhotoEditorController extends Controller implements HasMiddleware
                 ? array_values(array_filter((array) ($validated['vm_extra_product_urls'] ?? [])))
                 : [],
             'ironing'         => (bool) $validated['ironing'],
-
-            // Only meaningful when a redraw mode was picked in the first place.
-            'allow_generative' => $apparel !== 'none' && (bool) $validated['allow_generative'],
 
             // Shadow
             'shadow'           => $validated['shadow'] ?: null,
@@ -384,13 +387,212 @@ class PhotoEditorController extends Controller implements HasMiddleware
 
         ScanPhotoEditFolderJob::dispatch($session->id)->onQueue('bulkupload');
 
-        return redirect()->route('photo-editor.show', $session)
-            ->with('info', 'Scanning your OneDrive folder — editing starts as soon as the images are found.');
+        return redirect()->route('photo-editor.configure', $session)
+            ->with('info', 'Scanning your OneDrive folder. Nothing is sent to Photoroom until you say what each SKU should get.');
     }
 
     /**
      * Progress + results, polled by the review page while editing runs.
      */
+    /**
+     * The screen between finding the photos and spending anything on them.
+     *
+     * Each SKU folder gets its own settings because a run routinely mixes
+     * product types that want opposite treatment, and the old flow committed
+     * every one of them to a single answer chosen before anybody had seen a
+     * photo.
+     */
+    public function configure(PhotoEditSession $session)
+    {
+        $this->authorizeSession($session);
+
+        $groups = PhotoEditGroup::where('photo_edit_session_id', $session->id)
+            ->orderBy('sku')
+            ->get();
+
+        $photos = PhotoEditItem::where('photo_edit_session_id', $session->id)
+            ->where('kind', 'cutout')
+            ->orderBy('filename')
+            ->get(['id', 'sku_detected', 'filename', 'original_size_kb'])
+            ->groupBy('sku_detected');
+
+        return view('photo-editor.configure', [
+            'session'       => $session,
+            'groups'        => $groups,
+            'photos'        => $photos,
+            'beautifyModes' => array_intersect_key(
+                PhotoroomService::BEAUTIFY_MODES,
+                array_flip(['', 'ai.auto']),
+            ),
+            'maxLifestyle'  => PhotoEditGroup::MAX_LIFESTYLE,
+            'monthlyQuota'  => (int) config('services.photoroom.monthly_quota', 1000),
+        ]);
+    }
+
+    /**
+     * Save what each SKU should get, then start the run.
+     *
+     * Saving and starting are one action on purpose. A half-configured run that
+     * sits waiting is a run somebody comes back to a week later having
+     * forgotten what they decided, and the photos it points at may not be in
+     * OneDrive any more.
+     */
+    public function start(Request $request, PhotoEditSession $session)
+    {
+        $this->authorizeSession($session);
+
+        if ($session->status !== 'configuring') {
+            return back()->with('error', 'This run has already been started.');
+        }
+
+        $validated = $request->validate([
+            'groups'                   => ['required', 'array'],
+            'groups.*.lifestyle_count' => ['nullable', 'integer', 'min:0', 'max:' . PhotoEditGroup::MAX_LIFESTYLE],
+            'groups.*.lifestyle_source_item_id' => ['nullable', 'integer'],
+            'groups.*.edits'           => ['nullable', 'array'],
+        ]);
+
+        $groups = PhotoEditGroup::where('photo_edit_session_id', $session->id)->get()->keyBy('id');
+
+        foreach ($validated['groups'] as $groupId => $input) {
+            $group = $groups->get((int) $groupId);
+
+            if (!$group) {
+                continue;
+            }
+
+            $group->fill([
+                'lifestyle_count' => (int) ($input['lifestyle_count'] ?? 0),
+                'lifestyle_source_item_id' => $input['lifestyle_source_item_id'] ?? null,
+            ]);
+
+            if (!empty($input['edits'])) {
+                $group->edits = $this->editsFromRequest($input['edits'], $group->edits ?? []);
+            }
+
+            // A count without a photo to build from would queue work that can
+            // only fail, so it is refused here rather than at the API.
+            if (!$group->lifestyleSourceIsValid()) {
+                return back()
+                    ->withInput()
+                    ->with('error', "Pick which photo the model should wear for {$group->sku}, or set its lifestyle count back to 0.");
+            }
+
+            $group->save();
+        }
+
+        $this->queueRun($session, $groups->keys()->all());
+
+        return redirect()->route('photo-editor.show', $session)
+            ->with('info', 'Editing has started. Nothing reaches Shopify until you pick the results.');
+    }
+
+    /**
+     * A preview of an original, straight from OneDrive.
+     *
+     * The configure screen shows every photo before a credit is spent, and the
+     * originals are ~9 MB each — Graph renders previews for free, so those are
+     * served instead of pulling the full files.
+     */
+    public function onedriveThumb(PhotoEditSession $session, PhotoEditItem $item, OneDriveService $oneDrive)
+    {
+        $this->authorizeSession($session);
+
+        abort_unless($item->photo_edit_session_id === $session->id, 404);
+
+        if ($session->user_id && ($user = User::find($session->user_id))) {
+            $oneDrive->setUser($user);
+        }
+
+        $bytes = $oneDrive->thumbnailBytes($item->onedrive_drive_id, $item->onedrive_item_id);
+
+        abort_if($bytes === null, 404);
+
+        return response($bytes, 200, [
+            'Content-Type'  => 'image/jpeg',
+            'Cache-Control' => 'private, max-age=3600',
+        ]);
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+
+    /**
+     * Queue the cutouts, then the on-model images each group asked for.
+     *
+     * Lifestyle rows are created here rather than at scan time because until
+     * now nobody had said how many there should be.
+     */
+    private function queueRun(PhotoEditSession $session, array $groupIds): void
+    {
+        $session->update(['status' => 'processing']);
+
+        PhotoEditItem::where('photo_edit_session_id', $session->id)
+            ->where('kind', 'cutout')
+            ->where('status', 'pending')
+            ->select('id')
+            ->chunkById(500, function ($items) {
+                foreach ($items as $item) {
+                    EditPhotoItemJob::dispatch($item->id)->onQueue('bulkupload');
+                }
+            });
+
+        foreach (PhotoEditGroup::whereIn('id', $groupIds)->where('lifestyle_count', '>', 0)->get() as $group) {
+            $source = PhotoEditItem::find($group->lifestyle_source_item_id);
+
+            if (!$source) {
+                continue;
+            }
+
+            for ($i = 0; $i < $group->lifestyle_count; $i++) {
+                $item = PhotoEditItem::create([
+                    'photo_edit_session_id' => $session->id,
+                    'kind'                  => 'lifestyle',
+                    'source_item_id'        => $source->id,
+                    'filename'              => pathinfo($source->filename, PATHINFO_FILENAME) . '-lifestyle-' . ($i + 1) . '.jpg',
+                    'sku_detected'          => $group->sku,
+                    'status'                => 'pending',
+                    'selected'              => false, // generated, so opted into rather than out of
+                ]);
+
+                GenerateLifestyleImageJob::dispatch($item->id, $i)->onQueue('bulkupload');
+            }
+        }
+
+        $session->update([
+            'total_files' => PhotoEditItem::where('photo_edit_session_id', $session->id)->count(),
+        ]);
+    }
+
+    /**
+     * Merge a group's submitted settings over the ones it already had.
+     *
+     * The configure form posts only the fields it shows. Anything it does not
+     * show — options trimmed from the UI but still stored on older runs — is
+     * kept rather than silently reset to a default nobody chose.
+     */
+    private function editsFromRequest(array $input, array $existing): array
+    {
+        $booleans = ['remove_background', 'upscale', 'expand', 'ironing', 'rotate_wide_only', 'snap_cropped_sides'];
+
+        foreach ($booleans as $key) {
+            $input[$key] = !empty($input[$key]);
+        }
+
+        foreach (['width', 'height', 'max_width', 'max_height', 'lifestyle_count'] as $key) {
+            if (array_key_exists($key, $input)) {
+                $input[$key] = filled($input[$key]) ? (int) $input[$key] : null;
+            }
+        }
+
+        foreach (['padding', 'trim_top', 'trim_bottom'] as $key) {
+            if (array_key_exists($key, $input)) {
+                $input[$key] = filled($input[$key]) ? (float) $input[$key] : null;
+            }
+        }
+
+        return array_merge($existing, $input);
+    }
+
     public function status(Request $request, PhotoEditSession $session): JsonResponse
     {
         $this->authorizeSession($session);

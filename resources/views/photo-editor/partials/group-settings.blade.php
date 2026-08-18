@@ -1,0 +1,172 @@
+{{--
+    One SKU's settings, posted as groups[{id}][edits][...].
+
+    Deliberately a subset of the full form: the fields whose right answer
+    actually differs between a dress, a watch and a cap. Anything not shown
+    keeps whatever the run was created with, rather than being reset to a
+    default nobody chose — see PhotoEditorController::editsFromRequest().
+--}}
+@php
+    $name = fn ($field) => "groups[{$group->id}][edits][{$field}]";
+    $val  = fn ($field, $default = null) => data_get($edits, $field, $default);
+    $bg   = $val('background_mode', 'white');
+@endphp
+
+<div>
+    <span class="mb-2 block text-xs font-semibold uppercase tracking-wide text-gray-500">Background</span>
+    <div class="grid gap-3 sm:grid-cols-4">
+        @foreach ([
+            'white'       => 'Solid white',
+            'transparent' => 'Transparent',
+            'custom'      => 'Brand colour',
+            'blur'        => 'Blur the original',
+        ] as $mode => $label)
+            <label class="flex cursor-pointer items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm hover:border-gray-300 has-[:checked]:border-brand-500 has-[:checked]:bg-brand-50/60">
+                <input type="radio" name="{{ $name('background_mode') }}" value="{{ $mode }}" @checked($bg === $mode)
+                       class="h-3.5 w-3.5 border-gray-300 text-brand-600 focus:ring-brand-500">
+                <span class="text-gray-800">{{ $label }}</span>
+            </label>
+        @endforeach
+    </div>
+
+    <div class="mt-3 flex items-center gap-3">
+        <label for="colour-{{ $group->id }}" class="text-xs text-gray-600">Brand colour</label>
+        <input id="colour-{{ $group->id }}" type="text" name="{{ $name('background_color') }}"
+               value="{{ $val('background_color') }}" placeholder="F5F5F5" maxlength="7"
+               class="w-32 rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none">
+        <span class="text-xs text-gray-400">Used only when “Brand colour” is picked.</span>
+    </div>
+
+    {{-- remove_background is derived, not asked: blur is the one mode that
+         keeps the original scene, so it is the one mode that does not remove it. --}}
+    <input type="hidden" name="{{ $name('remove_background') }}" value="{{ $bg === 'blur' ? '' : '1' }}">
+</div>
+
+<div>
+    <span class="mb-2 block text-xs font-semibold uppercase tracking-wide text-gray-500">Treatment</span>
+    <div class="grid gap-3 sm:grid-cols-2">
+        @foreach ([
+            'none'            => ['Keep the photo', 'Real-pixel cutout. Colours and shape exactly as shot.'],
+            'ghost_mannequin' => ['Keep the photo + AI cleanup', 'Erases a visible mannequin first. Costs an extra credit where it runs.'],
+        ] as $mode => [$label, $help])
+            @php $isGhost = $mode === 'ghost_mannequin'; @endphp
+            <label class="flex cursor-pointer items-start gap-2 rounded-lg border border-gray-200 p-3 hover:border-gray-300 has-[:checked]:border-brand-500 has-[:checked]:bg-brand-50/60">
+                <input type="radio" name="{{ $name('ghost_mannequin') }}" value="{{ $isGhost ? '1' : '' }}"
+                       @checked((bool) $val('ghost_mannequin') === $isGhost)
+                       class="mt-0.5 h-3.5 w-3.5 border-gray-300 text-brand-600 focus:ring-brand-500">
+                <span>
+                    <span class="block text-sm font-medium text-gray-800">{{ $label }}</span>
+                    <span class="block text-xs text-gray-500">{{ $help }}</span>
+                </span>
+            </label>
+        @endforeach
+    </div>
+
+    <div class="mt-3 grid gap-3 sm:grid-cols-2">
+        <div>
+            <label for="seg-keep-{{ $group->id }}" class="mb-1 block text-xs text-gray-600">Keep (describe the product)</label>
+            <input id="seg-keep-{{ $group->id }}" type="text" name="{{ $name('segmentation_prompt') }}"
+                   value="{{ $val('segmentation_prompt') }}" placeholder="the dress" maxlength="500"
+                   class="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none">
+        </div>
+        <div>
+            <label for="seg-drop-{{ $group->id }}" class="mb-1 block text-xs text-gray-600">Remove</label>
+            <input id="seg-drop-{{ $group->id }}" type="text" name="{{ $name('segmentation_negative_prompt') }}"
+                   value="{{ $val('segmentation_negative_prompt') }}" placeholder="the mannequin and stand" maxlength="500"
+                   class="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none">
+        </div>
+    </div>
+    <p class="mt-1 text-xs text-gray-500">
+        Describing the product drops a mannequin inside the single cutout request — half the cost of the AI cleanup pass.
+    </p>
+</div>
+
+<div>
+    <span class="mb-2 block text-xs font-semibold uppercase tracking-wide text-gray-500">Size &amp; framing</span>
+    <div class="grid gap-3 sm:grid-cols-4">
+        <div>
+            <label for="w-{{ $group->id }}" class="mb-1 block text-xs text-gray-600">Width (px)</label>
+            <input id="w-{{ $group->id }}" type="number" name="{{ $name('width') }}" min="100" max="5000"
+                   value="{{ $val('width') }}" placeholder="original"
+                   class="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none">
+        </div>
+        <div>
+            <label for="h-{{ $group->id }}" class="mb-1 block text-xs text-gray-600">Height (px)</label>
+            <input id="h-{{ $group->id }}" type="number" name="{{ $name('height') }}" min="100" max="5000"
+                   value="{{ $val('height') }}" placeholder="original"
+                   class="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none">
+        </div>
+        <div>
+            <label for="pad-{{ $group->id }}" class="mb-1 block text-xs text-gray-600">Breathing room</label>
+            <input id="pad-{{ $group->id }}" type="number" step="0.01" min="0" max="0.49" name="{{ $name('padding') }}"
+                   value="{{ $val('padding') }}" placeholder="0"
+                   class="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none">
+        </div>
+        <div>
+            <label for="scale-{{ $group->id }}" class="mb-1 block text-xs text-gray-600">Scaling</label>
+            <select id="scale-{{ $group->id }}" name="{{ $name('scaling') }}"
+                    class="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none">
+                <option value="fit"  @selected($val('scaling', 'fit') === 'fit')>Fit — show it all</option>
+                <option value="fill" @selected($val('scaling') === 'fill')>Fill the canvas</option>
+            </select>
+        </div>
+    </div>
+</div>
+
+<div>
+    <span class="mb-2 block text-xs font-semibold uppercase tracking-wide text-gray-500">Finishing</span>
+    <div class="grid gap-3 sm:grid-cols-3">
+        <div>
+            <label for="light-{{ $group->id }}" class="mb-1 block text-xs text-gray-600">Lighting</label>
+            <select id="light-{{ $group->id }}" name="{{ $name('lighting') }}"
+                    class="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none">
+                @foreach (\App\Services\PhotoroomService::LIGHTING_MODES as $value => $label)
+                    <option value="{{ $value }}" @selected((string) $val('lighting') === (string) $value)>{{ $label }}</option>
+                @endforeach
+            </select>
+        </div>
+        <div>
+            <label for="beauty-{{ $group->id }}" class="mb-1 block text-xs text-gray-600">Beautifier</label>
+            <select id="beauty-{{ $group->id }}" name="{{ $name('beautify') }}"
+                    class="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none">
+                @foreach ($beautifyModes as $value => $label)
+                    <option value="{{ $value }}" @selected((string) $val('beautify') === (string) $value)>{{ $label }}</option>
+                @endforeach
+            </select>
+        </div>
+        <div>
+            <label for="shadow-{{ $group->id }}" class="mb-1 block text-xs text-gray-600">Shadow</label>
+            <select id="shadow-{{ $group->id }}" name="{{ $name('shadow') }}"
+                    class="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none">
+                @foreach (\App\Services\PhotoroomService::SHADOW_MODES as $value => $label)
+                    <option value="{{ $value }}" @selected((string) $val('shadow') === (string) $value)>{{ $label }}</option>
+                @endforeach
+            </select>
+        </div>
+    </div>
+
+    <div class="mt-3 flex flex-wrap gap-4">
+        @foreach (['upscale' => 'Upscale small photos', 'expand' => 'Extend the background', 'ironing' => 'Smooth creases'] as $field => $label)
+            <label class="flex cursor-pointer items-center gap-2 text-xs text-gray-700">
+                <input type="checkbox" name="{{ $name($field) }}" value="1" @checked($val($field))
+                       class="h-3.5 w-3.5 rounded border-gray-300 text-brand-600 focus:ring-brand-500">
+                {{ $label }}
+            </label>
+        @endforeach
+    </div>
+</div>
+
+<div>
+    <span class="mb-2 block text-xs font-semibold uppercase tracking-wide text-gray-500">Trim before editing</span>
+    <div class="grid gap-3 sm:grid-cols-2">
+        @foreach (['trim_top' => 'Off the top', 'trim_bottom' => 'Off the bottom'] as $field => $label)
+            <div>
+                <label for="{{ $field }}-{{ $group->id }}" class="mb-1 block text-xs text-gray-600">{{ $label }}</label>
+                <input id="{{ $field }}-{{ $group->id }}" type="number" step="0.01" min="0" max="0.45"
+                       name="{{ $name($field) }}" value="{{ $val($field) }}" placeholder="0"
+                       class="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none">
+            </div>
+        @endforeach
+    </div>
+    <p class="mt-1 text-xs text-gray-500">A fraction of the photo, e.g. 0.1 for 10%. Crops a stand out of shot before the cutout runs.</p>
+</div>
