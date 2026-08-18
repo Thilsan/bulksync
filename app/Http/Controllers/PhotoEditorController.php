@@ -369,6 +369,20 @@ class PhotoEditorController extends Controller implements HasMiddleware
             }
         }
 
+        /*
+         * Per-edge spacing is typed as a percentage, because that is what the
+         * slider beside it shows. Stored as a fraction, because that is what
+         * everything downstream already speaks — the conversion happens here so
+         * the two controls can never disagree about units.
+         */
+        foreach (['padding_top', 'padding_bottom', 'padding_left', 'padding_right'] as $key) {
+            if (array_key_exists($key, $input)) {
+                $input[$key] = filled($input[$key])
+                    ? round(max(0, min(49, (float) $input[$key])) / 100, 4)
+                    : null;
+            }
+        }
+
         return array_merge($existing, $input);
     }
 

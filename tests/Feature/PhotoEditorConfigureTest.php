@@ -292,14 +292,15 @@ class PhotoEditorConfigureTest extends TestCase
         $this->actingAs($session->user)->post(route('photo-editor.start', $session), [
             'groups' => [$shoe->id => ['edits' => [
                 'width' => '2000', 'height' => '2000',
-                'padding_top' => '0.18', 'padding_bottom' => '0.04',
+                'padding_top' => '18', 'padding_bottom' => '4',
                 'v_align' => 'bottom', 'scaling' => 'fit',
             ]]],
         ]);
 
         $edits = $shoe->fresh()->edits;
 
-        $this->assertSame('0.18', $edits['padding_top']);
+        // Typed as a percentage, stored as the fraction everything downstream speaks.
+        $this->assertEquals(0.18, $edits['padding_top']);
         $this->assertSame('bottom', $edits['v_align']);
 
         $fields = app(\App\Services\PhotoroomService::class)->buildFields(
@@ -310,5 +311,44 @@ class PhotoEditorConfigureTest extends TestCase
         $this->assertSame('0.18', $fields['paddingTop']);
         $this->assertSame('0.04', $fields['paddingBottom']);
         $this->assertSame('bottom', $fields['verticalAlignment']);
+    }
+
+    /**
+     * "10" used to mean 0.49 — a fraction cannot exceed half the canvas, so a
+     * typed pixel count was clamped to the maximum and quietly produced 49%
+     * padding around a stamp-sized product.
+     */
+    public function test_a_bare_number_over_one_is_read_as_pixels_not_a_clamped_fraction(): void
+    {
+        $fields = app(\App\Services\PhotoroomService::class)->buildFields([
+            'remove_background' => true,
+            'padding_top'       => '10',
+        ]);
+
+        $this->assertSame('10px', $fields['paddingTop']);
+    }
+
+    /** A real fraction still means a fraction. */
+    public function test_a_fraction_is_still_a_fraction(): void
+    {
+        $fields = app(\App\Services\PhotoroomService::class)->buildFields([
+            'remove_background' => true,
+            'padding_top'       => '0.18',
+        ]);
+
+        $this->assertSame('0.18', $fields['paddingTop']);
+    }
+
+    /** An explicit unit is passed through untouched. */
+    public function test_an_explicit_unit_is_respected(): void
+    {
+        $fields = app(\App\Services\PhotoroomService::class)->buildFields([
+            'remove_background' => true,
+            'padding_top'       => '40px',
+            'padding_left'      => '5%',
+        ]);
+
+        $this->assertSame('40px', $fields['paddingTop']);
+        $this->assertSame('5%',   $fields['paddingLeft']);
     }
 }

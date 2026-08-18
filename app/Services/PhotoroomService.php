@@ -772,9 +772,23 @@ class PhotoroomService
 
         $value = trim((string) $value);
 
-        $fields[$kind . $edge] = str_ends_with($value, 'px') || str_ends_with($value, '%')
-            ? $value
-            : (string) max(0, min(0.49, (float) $value));
+        if (str_ends_with($value, 'px') || str_ends_with($value, '%')) {
+            $fields[$kind . $edge] = $value;
+
+            return;
+        }
+
+        $number = (float) $value;
+
+        /*
+         * A fraction of the canvas cannot exceed 0.49 — half would leave no
+         * subject — so anything above 1 was never a fraction. Clamping it
+         * instead turned a typed "10" into 49% padding and a product the size
+         * of a stamp, which is the kind of wrong that looks deliberate.
+         */
+        $fields[$kind . $edge] = $number > 1
+            ? ((int) round($number)) . 'px'
+            : (string) max(0, min(0.49, $number));
     }
 
     /** True when an AI feature builds the canvas itself. */

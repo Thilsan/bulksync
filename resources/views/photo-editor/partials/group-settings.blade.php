@@ -142,16 +142,25 @@
     <details class="mt-3 rounded-lg border border-gray-200 px-3 py-2">
         <summary class="cursor-pointer text-xs font-medium text-gray-600">Different space on each side</summary>
         <p class="mt-2 text-xs text-gray-500">
-            Overrides the slider on that side only. A fraction (<code>0.1</code>) or pixels (<code>40px</code>).
-            Leave blank to keep the even spacing.
+            A percentage of the canvas, matching the slider above. Overrides it on that side only —
+            leave blank to keep the even spacing.
         </p>
         <div class="mt-2 grid gap-3 sm:grid-cols-4">
             @foreach (['top' => 'Top', 'bottom' => 'Bottom', 'left' => 'Left', 'right' => 'Right'] as $edge => $label)
+                @php
+                    // Stored as a fraction; shown as the percentage the slider
+                    // shows, so the two controls cannot disagree about units.
+                    $edgeValue = $val('padding_' . $edge);
+                    $edgeShown = is_numeric($edgeValue) ? round(((float) $edgeValue) * 100) : null;
+                @endphp
                 <div>
                     <label for="pad-{{ $edge }}-{{ $group->id }}" class="mb-1 block text-xs text-gray-600">{{ $label }}</label>
-                    <input id="pad-{{ $edge }}-{{ $group->id }}" type="text" name="{{ $name('padding_' . $edge) }}"
-                           value="{{ $val('padding_' . $edge) }}" placeholder="—"
-                           class="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none">
+                    <div class="relative">
+                        <input id="pad-{{ $edge }}-{{ $group->id }}" type="number" min="0" max="49" step="1"
+                               name="{{ $name('padding_' . $edge) }}" value="{{ $edgeShown }}" placeholder="—"
+                               class="w-full rounded-lg border border-gray-300 py-1.5 pl-3 pr-7 text-sm focus:border-brand-500 focus:outline-none">
+                        <span class="pointer-events-none absolute inset-y-0 right-2.5 flex items-center text-xs text-gray-400">%</span>
+                    </div>
                 </div>
             @endforeach
         </div>
