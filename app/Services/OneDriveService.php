@@ -95,6 +95,52 @@ class OneDriveService
         }
     }
 
+    /**
+     * Resolve a share link to the drive + item id it points at, the same way
+     * every other method here reaches a shared file — just returned instead
+     * of consumed, for callers that need to make more than one Graph call
+     * against the same item (e.g. reading several worksheets in one run).
+     *
+     * @return array{driveId: string, itemId: string}
+     */
+    public function resolveShareItem(string $shareUrl): array
+    {
+        $token   = $this->getAccessToken();
+        $encoded = $this->encodeShareUrl($shareUrl);
+
+        $response = $this->http->get(
+            "https://graph.microsoft.com/v1.0/shares/{$encoded}/driveItem",
+            ['headers' => ['Authorization' => "Bearer {$token}"]],
+        );
+
+        $item = json_decode((string) $response->getBody(), true);
+
+        return [
+            'driveId' => $item['parentReference']['driveId'] ?? '',
+            'itemId'  => $item['id'] ?? '',
+        ];
+    }
+
+    /**
+     * Every cell value in a worksheet's used range, as plain PHP values —
+     * row 0 is the header. valuesOnly=true skips formatting/formulas, which
+     * is all a sync job ever needs and keeps the response far smaller.
+     */
+    public function worksheetValues(string $driveId, string $itemId, string $worksheetName): array
+    {
+        $token = $this->getAccessToken();
+        $name  = rawurlencode($worksheetName);
+
+        $response = $this->http->get(
+            "https://graph.microsoft.com/v1.0/drives/{$driveId}/items/{$itemId}/workbook/worksheets('{$name}')/usedRange(valuesOnly=true)",
+            ['headers' => ['Authorization' => "Bearer {$token}"]],
+        );
+
+        $data = json_decode((string) $response->getBody(), true);
+
+        return $data['values'] ?? [];
+    }
+
     public function streamFolderImages(string $shareUrl, callable $callback): void
     {
         $token   = $this->getAccessToken();
