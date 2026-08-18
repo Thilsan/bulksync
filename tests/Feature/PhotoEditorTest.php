@@ -752,4 +752,192 @@ class PhotoEditorTest extends TestCase
 
         $this->assertNull(PhotoEditSession::sole()->edits['vm_model']);
     }
+
+    /*
+     * ── Rate limiting and quota ────────────────────────────────────────────
+     *
+     * Photoroom answers 429 for two different situations that read the same in
+     * the body: the per-minute rate limit, which clears in under a minute, and
+     * a spent quota, which does not. Telling them apart is the difference
+     * between a short wait and a batch that re-uploads itself for nothing.
+     */
+
+    /** A quota that runs out is recorded, not retried. */
+    public function test_a_long_throttle_fails_immediately_instead_of_retrying(): void
+    {
+        \Illuminate\Support\Facades\Cache::flush();
+
+        \Illuminate\Support\Facades\Http::fake([
+            'image-api.photoroom.com/*' => \Illuminate\Support\Facades\Http::response(
+                json_encode(['detail' => 'Request was throttled. Expected available in 14782 seconds.']),
+                429,
+            ),
+        ]);
+
+        $started = microtime(true);
+
+        try {
+            app(PhotoroomService::class)->edit('fake-bytes', ['remove_background' => true]);
+            $this->fail('A spent quota should surface as an exception.');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('quota is exhausted', $e->getMessage());
+            $this->assertStringContainsString('4h 6m', $e->getMessage());
+        }
+
+        // One request, not three: the retries would have taken the better part
+        // of a minute and been refused by the same closed window each time.
+        \Illuminate\Support\Facades\Http::assertSentCount(1);
+        $this->assertLessThan(5, microtime(true) - $started);
+    }
+
+    /** Once the quota is known to be spent, nothing else is uploaded. */
+    public function test_the_rest_of_the_batch_fails_without_uploading(): void
+    {
+        \Illuminate\Support\Facades\Cache::flush();
+
+        \Illuminate\Support\Facades\Http::fake([
+            'image-api.photoroom.com/*' => \Illuminate\Support\Facades\Http::response(
+                json_encode(['detail' => 'Request was throttled. Expected available in 14782 seconds.']),
+                429,
+            ),
+        ]);
+
+        $service = app(PhotoroomService::class);
+
+        foreach (range(1, 3) as $ignored) {
+            try {
+                $service->edit('fake-bytes', ['remove_background' => true]);
+            } catch (\RuntimeException $e) {
+                $this->assertStringContainsString('quota is exhausted', $e->getMessage());
+            }
+        }
+
+        // Only the first image had to find out the hard way.
+        \Illuminate\Support\Facades\Http::assertSentCount(1);
+    }
+
+    /** A short throttle is the per-minute window, and is worth waiting out. */
+    public function test_a_short_throttle_is_retried(): void
+    {
+        \Illuminate\Support\Facades\Cache::flush();
+
+        $calls = 0;
+
+        \Illuminate\Support\Facades\Http::fake([
+            'image-api.photoroom.com/*' => function () use (&$calls) {
+                $calls++;
+
+                return $calls === 1
+                    ? \Illuminate\Support\Facades\Http::response(
+                        json_encode(['detail' => 'Request was throttled. Expected available in 1 seconds.']),
+                        429,
+                    )
+                    : \Illuminate\Support\Facades\Http::response('edited-bytes', 200);
+            },
+        ]);
+
+        $result = app(PhotoroomService::class)->edit('fake-bytes', ['remove_background' => true]);
+
+        $this->assertSame('edited-bytes', $result);
+        $this->assertSame(2, $calls);
+    }
+
+    /** A quota marker belongs to the key that hit it, not to the app. */
+    public function test_swapping_the_key_clears_a_spent_quota(): void
+    {
+        \Illuminate\Support\Facades\Cache::flush();
+
+        \Illuminate\Support\Facades\Http::fake([
+            'image-api.photoroom.com/*' => function ($request) {
+                return $request->hasHeader('x-api-key', 'sandbox_test_key')
+                    ? \Illuminate\Support\Facades\Http::response(
+                        json_encode(['detail' => 'Request was throttled. Expected available in 14782 seconds.']),
+                        429,
+                    )
+                    : \Illuminate\Support\Facades\Http::response('edited-bytes', 200);
+            },
+        ]);
+
+        try {
+            app(PhotoroomService::class)->edit('fake-bytes', ['remove_background' => true]);
+        } catch (\RuntimeException $e) {
+            // Expected — the sandbox key is spent.
+        }
+
+        // The live key starts clean rather than inheriting four hours of
+        // back-off from the key it replaced.
+        config(['services.photoroom.api_key' => 'live_test_key']);
+
+        $this->assertSame(
+            'edited-bytes',
+            (new PhotoroomService())->edit('fake-bytes', ['remove_background' => true]),
+        );
+    }
+
+    /*
+     * ── Output size ────────────────────────────────────────────────────────
+     *
+     * A mixed catalogue — shoes, bags, dresses, watches, caps — needs every
+     * photo landing on the same canvas whatever its native shape. The size
+     * picker was once hidden for the AI cleanup mode, back when that mode let
+     * Photoroom redraw the garment on a canvas of its own; it no longer does.
+     */
+
+    /** A pixel size survives the AI cleanup mode rather than being dropped. */
+    public function test_output_size_is_kept_for_the_ai_cleanup_mode(): void
+    {
+        Queue::fake();
+
+        $this->actingAs($this->editor())
+            ->post(route('photo-editor.store'), $this->validPayload([
+                'apparel_mode' => 'ghost_mannequin',
+                'image_width'  => 2000,
+                'image_height' => 2000,
+            ]));
+
+        $edits = PhotoEditSession::sole()->edits;
+
+        $this->assertSame(2000, $edits['width']);
+        $this->assertSame(2000, $edits['height']);
+    }
+
+    /**
+     * The job downgrades every apparel mode to a plain cutout before the edit,
+     * which is what leaves outputSize free to apply. Guarding the pair together
+     * because the size is only honoured while nothing generates its own canvas.
+     */
+    public function test_the_ai_cleanup_mode_sends_the_requested_pixel_size(): void
+    {
+        $service = app(PhotoroomService::class);
+
+        $edits = [
+            'ghost_mannequin'   => true,
+            'remove_background' => true,
+            'background_mode'   => 'white',
+            'width'             => 2000,
+            'height'            => 2000,
+        ];
+
+        // What EditPhotoItemJob hands to edit() once it has stripped the
+        // generative flags in favour of a real-pixel cutout.
+        $itemEdits = array_merge($edits, [
+            'ghost_mannequin' => false,
+            'flat_lay'        => false,
+            'virtual_model'   => false,
+        ]);
+
+        $this->assertFalse($service->generatesOwnCanvas($itemEdits));
+        $this->assertSame('2000x2000', $service->buildFields($itemEdits)['outputSize']);
+    }
+
+    /** Left unset, the photo keeps whatever size it came in at. */
+    public function test_no_output_size_is_sent_when_none_was_asked_for(): void
+    {
+        $fields = app(PhotoroomService::class)->buildFields([
+            'remove_background' => true,
+            'background_mode'   => 'white',
+        ]);
+
+        $this->assertArrayNotHasKey('outputSize', $fields);
+    }
 }

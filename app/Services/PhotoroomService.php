@@ -2,6 +2,8 @@
 
 namespace App\Services;
 
+use Illuminate\Http\Client\Response;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -32,6 +34,21 @@ class PhotoroomService
      */
     public const MAX_INPUT_BYTES = 29_000_000; // API limit is 30 MB
     public const MAX_INPUT_EDGE  = 5000;       // widest side, in pixels
+
+    /**
+     * Longest a single throttled request is worth waiting out. Photoroom's
+     * per-minute window clears inside a minute; anything longer is a quota
+     * that has run out — a sandbox key's 100 calls a day answers with four
+     * hours — and no amount of sleeping inside one job will see the end of it.
+     */
+    private const MAX_THROTTLE_WAIT = 75;
+
+    /**
+     * Total seconds one job may spend waiting out throttles across all its
+     * attempts. The queue worker kills a job at its own timeout without
+     * running failed(), so the waiting has to stop before that does.
+     */
+    private const MAX_WAIT_BUDGET = 120;
 
     /** Canvas presets shared by ghost mannequin, flat lay and virtual model. */
     public const SIZE_PRESETS = [
@@ -448,11 +465,18 @@ class PhotoroomService
     private function postWithRetry(string $imageContent, string $filename, array $fields, array $extraHeaders = [], int $retries = 2): string
     {
         $attempt   = 0;
+        $slept     = 0;
         $lastError = 'Photoroom did not return an image.';
 
         do {
             $attempt++;
             $retryable = false;
+            $waitFor   = $attempt * 5;
+
+            // Both of these run before the upload, not after: the point is to
+            // not spend several megabytes finding out we were not welcome yet.
+            $this->guardQuota();
+            $this->throttle();
 
             try {
                 $request = Http::withHeaders(array_merge([
@@ -492,6 +516,31 @@ class PhotoroomService
                         'body'    => substr($response->body(), 0, 500),
                     ]);
 
+                    if ($status === 429) {
+                        $wait = $this->throttleWait($response);
+
+                        // Longer than a rate-limit window means a quota has run
+                        // out rather than that we arrived a few seconds early.
+                        // Recorded once, so the rest of the batch fails in
+                        // milliseconds instead of each item re-uploading its
+                        // megabytes to be told the same thing.
+                        if ($wait > self::MAX_THROTTLE_WAIT) {
+                            $this->closeQuota($wait);
+
+                            $lastError = 'Photoroom quota is exhausted — available again in ' . self::describeWait($wait) . '.';
+                            $retryable = false;
+                        } else {
+                            // A second's grace, so the window has closed rather
+                            // than merely be closing when the retry lands.
+                            $waitFor = $wait + 1;
+
+                            // Tell the other workers too. Left to themselves
+                            // they each discover the same shut door, one wasted
+                            // upload apiece.
+                            $this->deferFleet($waitFor);
+                        }
+                    }
+
                     // A rejected image gives the same answer however often it
                     // is asked; stop rather than re-uploading megabytes for it.
                     if (!$retryable) {
@@ -505,11 +554,168 @@ class PhotoroomService
             }
 
             if ($retryable && $attempt <= $retries) {
-                sleep($attempt * 5);
+                // Stop rather than sleep past the worker's own timeout — that
+                // kills the job mid-wait, and takes failed() down with it, so
+                // the item never gets the message explaining why.
+                if ($slept + $waitFor > self::MAX_WAIT_BUDGET) {
+                    break;
+                }
+
+                sleep($waitFor);
+                $slept += $waitFor;
             }
         } while ($retryable && $attempt <= $retries);
 
         throw new \RuntimeException($lastError);
+    }
+
+    /**
+     * Hold the whole fleet under Photoroom's requests-per-minute ceiling.
+     *
+     * The pacing has to be shared rather than static: a per-process timestamp
+     * paces one worker, and eight workers each politely staying under the
+     * limit still add up to eight times the limit. Every worker instead draws
+     * its departure time from one queue of slots kept in the cache.
+     */
+    private function throttle(): void
+    {
+        $rpm  = max(1, (int) config('services.photoroom.rpm', 50));
+        $gap  = 60 / $rpm;
+        $slot = microtime(true);
+
+        try {
+            $lock = Cache::lock($this->cacheKey('pace-lock'), 10);
+
+            if (!$lock->block(15)) {
+                return;
+            }
+
+            try {
+                $slot = max(microtime(true), (float) Cache::get($this->cacheKey('next-slot'), 0.0));
+
+                Cache::put($this->cacheKey('next-slot'), $slot + $gap, now()->addMinutes(5));
+            } finally {
+                $lock->release();
+            }
+        } catch (\Throwable $e) {
+            // Pacing is a courtesy to the API, not a correctness requirement.
+            // A cache that is down should not fail edits that would succeed.
+            Log::warning('Photoroom pacing unavailable: ' . $e->getMessage());
+
+            return;
+        }
+
+        $wait = $slot - microtime(true);
+
+        if ($wait > 0) {
+            usleep((int) (min($wait, self::MAX_THROTTLE_WAIT) * 1_000_000));
+        }
+    }
+
+    /**
+     * Push every worker's next slot past a window Photoroom has just told us
+     * is closed, so the fleet backs off together instead of one worker at a
+     * time discovering it.
+     */
+    private function deferFleet(int $seconds): void
+    {
+        try {
+            $until = microtime(true) + $seconds;
+            $lock  = Cache::lock($this->cacheKey('pace-lock'), 10);
+
+            if (!$lock->block(15)) {
+                return;
+            }
+
+            try {
+                if ((float) Cache::get($this->cacheKey('next-slot'), 0.0) < $until) {
+                    Cache::put($this->cacheKey('next-slot'), $until, now()->addMinutes(5));
+                }
+            } finally {
+                $lock->release();
+            }
+        } catch (\Throwable $e) {
+            Log::warning('Photoroom fleet back-off failed: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Remember that the account's quota is spent until a given moment.
+     */
+    private function closeQuota(int $seconds): void
+    {
+        try {
+            Cache::put(
+                $this->cacheKey('closed-until'),
+                microtime(true) + $seconds,
+                now()->addSeconds($seconds + 60),
+            );
+        } catch (\Throwable $e) {
+            Log::warning('Photoroom quota marker could not be stored: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Refuse a request the account has no quota left for.
+     *
+     * @throws \RuntimeException  while the quota is known to be spent
+     */
+    private function guardQuota(): void
+    {
+        try {
+            $until = (float) Cache::get($this->cacheKey('closed-until'), 0.0);
+        } catch (\Throwable $e) {
+            return; // Nothing readable — let the request find out for itself.
+        }
+
+        $remaining = (int) ceil($until - microtime(true));
+
+        if ($remaining > 0) {
+            throw new \RuntimeException(
+                'Photoroom quota is exhausted — available again in ' . self::describeWait($remaining) . '.'
+            );
+        }
+    }
+
+    /**
+     * Rate limits and quotas belong to the key, so the pacing and the quota
+     * marker do too. Scoping by key also means swapping a spent sandbox key
+     * for a live one starts clean rather than inheriting hours of back-off.
+     */
+    private function cacheKey(string $suffix): string
+    {
+        return 'photoroom:' . substr(sha1($this->apiKey), 0, 12) . ':' . $suffix;
+    }
+
+    /**
+     * How long Photoroom says to wait before asking again.
+     *
+     * The body carries the exact figure ("Expected available in 14782
+     * seconds"); Retry-After is the fallback. The last resort guesses at the
+     * per-minute window, which is the shorter of the two things it can be.
+     */
+    private function throttleWait(Response $response): int
+    {
+        if (preg_match('/available in (\d+(?:\.\d+)?) seconds?/i', $response->body(), $m)) {
+            return (int) ceil((float) $m[1]);
+        }
+
+        $header = (int) $response->header('Retry-After');
+
+        return $header > 0 ? $header : 60;
+    }
+
+    /** A wait a person can act on, rather than four figures of seconds. */
+    private static function describeWait(int $seconds): string
+    {
+        if ($seconds < 120) {
+            return "{$seconds}s";
+        }
+
+        $hours   = intdiv($seconds, 3600);
+        $minutes = intdiv($seconds % 3600, 60);
+
+        return $hours > 0 ? "{$hours}h {$minutes}m" : "{$minutes}m";
     }
 
     private function describeError(string $body): string

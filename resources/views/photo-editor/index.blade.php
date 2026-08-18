@@ -469,16 +469,15 @@
                 </div>
 
                 <div class="space-y-5 px-6 py-5">
-                    {{-- Ghost mannequin, flat lay and virtual model draw their own
-                         canvas, so a pixel size here would only stretch their
-                         result — say so rather than silently ignoring it. --}}
-                    <div x-show="apparelMode !== 'none'" x-cloak class="rounded-lg border border-brand-100 bg-brand-50 px-4 py-3 text-xs text-brand-700">
-                        <strong>Dimensions come from the clothing treatment above.</strong>
-                        Pick the canvas shape there — forcing a pixel size on top would upscale the generated
-                        image and soften it. Everything else on this card still applies.
-                    </div>
-
-                    <div x-show="apparelMode === 'none'" x-cloak>
+                    {{-- Output size applies to every mode. It used to be hidden
+                         behind "Keep the photo", from when the AI cleanup option
+                         still asked Photoroom to redraw the garment on a canvas
+                         of its own choosing — a pixel size on top of that would
+                         only have stretched the result. The job now downgrades
+                         every apparel mode to a plain cutout before the edit, so
+                         nothing generates its own canvas and outputSize lands
+                         exactly as asked. --}}
+                    <div>
                         <span class="mb-2 block text-sm font-medium text-gray-700">Output size</span>
                         <div class="flex flex-wrap gap-2">
                             <button type="button" @click="clearDimensions()"

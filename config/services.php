@@ -78,6 +78,16 @@ return [
         'max_images' => (int) env('PHOTOROOM_MAX_IMAGES', 300),
 
         /*
+         * Requests per minute to pace the whole worker fleet to. Photoroom's
+         * ceiling is 60 images/minute and answers a 429 past it; the default
+         * leaves headroom so several workers finishing at once cannot cross it.
+         *
+         * This counts requests, not images — mannequin removal spends a second
+         * request on the items that need it, and both are paced.
+         */
+        'rpm' => (int) env('PHOTOROOM_RPM', 50),
+
+        /*
          * Edited images have to sit on disk between editing and review, which
          * is the one part of this feature that grows on its own. Full-size
          * edits are dropped as soon as they reach Shopify; whatever is left is
