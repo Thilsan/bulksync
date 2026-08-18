@@ -1,3 +1,15 @@
+/*
+ * Instrument Sans, requested directly rather than through
+ * laravel-vite-plugin's fonts helper. That helper only exists in v3 of
+ * the plugin, which needs a newer Node than the server runs — so the
+ * font is asked for here instead, and --font-sans below keeps working.
+ *
+ * First in the file on purpose: @import is only honoured before other
+ * rules, and Tailwind inlines its own import in place — leaving this
+ * below it would bury the rule and the browser would drop it.
+ */
+@import url('https://fonts.bunny.net/css?family=instrument-sans:400,500,600');
+
 @import 'tailwindcss';
 
 @source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
