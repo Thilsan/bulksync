@@ -118,18 +118,40 @@ class CleanDuplicateSyncsTest extends TestCase
         $twin   = $this->request();
         $this->ledger($twin);
 
+        // The SKU check runs on the queue, so this lands long after the import —
+        // hours later when two hundred requests are queued ahead of it.
         $orphan->activities()->create([
             'user_id'     => $this->user->id,          // the person who ran the sync
             'action'      => 'status_changed',
             'from_status' => ProductRequest::SUBMITTED,
             'to_status'   => ProductRequest::SKU_VERIFIED,
             'description' => 'Status changed from Submitted to SKU Verified',
-            'created_at'  => $orphan->created_at->copy()->addSeconds(20),
+            'created_at'  => $orphan->created_at->copy()->addHours(3),
         ]);
 
         $this->artisan('product-requests:clean-duplicate-syncs', ['--commit' => true])->assertSuccessful();
 
         $this->assertNull($orphan->fresh(), 'An automatic status move must not protect a duplicate.');
+    }
+
+    /** Carrying on with the mapped half makes the same move, but it is a decision. */
+    public function test_continuing_with_the_mapped_half_protects_the_copy(): void
+    {
+        $orphan = $this->request();
+        $this->ledger($this->request());
+
+        $orphan->activities()->create([
+            'user_id'     => $this->user->id,
+            'action'      => 'status_changed',
+            'from_status' => ProductRequest::WAITING_MAPPING,
+            'to_status'   => ProductRequest::SKU_VERIFIED,
+            'description' => 'Status changed from Waiting for Mapping to SKU Verified',
+            'remarks'     => 'Continuing with 18 of 30 SKUs (60%) — 12 still with Supply Chain.',
+        ]);
+
+        $this->artisan('product-requests:clean-duplicate-syncs', ['--commit' => true])->assertSuccessful();
+
+        $this->assertNotNull($orphan->fresh());
     }
 
     public function test_a_copy_someone_has_worked_on_is_kept_and_reported(): void

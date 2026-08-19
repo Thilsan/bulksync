@@ -36,11 +36,18 @@ class CleanDuplicateSyncedRequests extends Command
     private const WINDOW_MINUTES = 10;
 
     /**
-     * How long the importer takes to finish writing its own history for a
-     * request — the creation entry, the SKU check's status move, the category
-     * staffing. Anything logged after this was a person, not the import.
+     * The status moves the workflow makes on its own once the SKU check lands.
+     *
+     * Timing cannot separate these from a person's: the check runs on the queue,
+     * and a queue with two hundred requests on it finishes hours after the import
+     * did. The move itself is the tell — these three are the only ones
+     * reconcileMapping() ever makes, and none of them is anybody's decision.
      */
-    private const SETTLE_MINUTES = 5;
+    private const AUTOMATIC_MOVES = [
+        ProductRequest::SUBMITTED . '>' . ProductRequest::WAITING_MAPPING,
+        ProductRequest::SUBMITTED . '>' . ProductRequest::SKU_VERIFIED,
+        ProductRequest::WAITING_MAPPING . '>' . ProductRequest::SKU_VERIFIED,
+    ];
 
     public function handle(): int
     {
@@ -57,7 +64,7 @@ class CleanDuplicateSyncedRequests extends Command
         $orphans = ProductRequest::query()
             ->whereNotIn('id', $linked ?: [0])
             ->whereIn('status', [ProductRequest::SUBMITTED, ProductRequest::WAITING_MAPPING, ProductRequest::SKU_VERIFIED])
-            ->with('store')
+            ->with(['store', 'activities'])
             ->orderBy('id')
             ->get();
 
@@ -118,18 +125,36 @@ class CleanDuplicateSyncedRequests extends Command
             $signs[] = "{$count} attachment(s)";
         }
 
-        if ($count = $request->activities()->where('action', 'comment')->count()) {
-            $signs[] = "{$count} comment(s)";
+        // Nobody was ever given this copy — the import that made these did no
+        // staffing, so an assignment on one means a person put it there.
+        if ($count = $request->currentAssignments()->count()) {
+            $signs[] = "{$count} assignment(s)";
         }
 
-        // Who the actor is says nothing useful here: the SKU check logs its own
+        // Who the actor is says nothing useful either: the SKU check logs its
         // status move against whoever ran the import, so every synced request
-        // looks "touched by a person". When it happened is the honest signal —
-        // the import writes its history within seconds, people come along later.
-        $settled = $request->created_at->copy()->addMinutes(self::SETTLE_MINUTES);
+        // carries one. What was done is the honest signal.
+        $byHand = $request->activities->reject(function ($activity) {
+            if ($activity->action === 'created') {
+                return true;
+            }
 
-        if ($count = $request->activities()->where('created_at', '>', $settled)->count()) {
-            $signs[] = "{$count} action(s) after the import finished";
+            // A comment, a hold, a handover — all somebody's doing.
+            if ($activity->action !== 'status_changed') {
+                return false;
+            }
+
+            // Carrying on with the mapped half is a decision, not the SKU check,
+            // even though it makes the same move.
+            if (str_starts_with((string) $activity->remarks, 'Continuing with')) {
+                return false;
+            }
+
+            return in_array("{$activity->from_status}>{$activity->to_status}", self::AUTOMATIC_MOVES, true);
+        });
+
+        if ($byHand->isNotEmpty()) {
+            $signs[] = $byHand->count() . ' action(s) by a person';
         }
 
         return $signs ? implode(', ', $signs) : null;
