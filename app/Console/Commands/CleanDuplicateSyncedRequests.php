@@ -154,7 +154,13 @@ class CleanDuplicateSyncedRequests extends Command
         });
 
         if ($byHand->isNotEmpty()) {
-            $signs[] = $byHand->count() . ' action(s) by a person';
+            // Named, not counted. "1 action by a person" is unarguable with; the
+            // action and the move it made can be checked against the workflow.
+            $signs[] = $byHand->count() . ' action(s) by a person ['
+                . $byHand->take(3)->map(fn ($a) => trim(
+                    $a->action . ' ' . ($a->from_status ?? 'null') . '>' . ($a->to_status ?? 'null')
+                ))->implode('; ')
+                . ']';
         }
 
         return $signs ? implode(', ', $signs) : null;

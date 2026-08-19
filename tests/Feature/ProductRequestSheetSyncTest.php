@@ -274,6 +274,37 @@ class ProductRequestSheetSyncTest extends TestCase
         $this->assertSame($before, $request->refresh()->currentAssignments()->pluck('user_id', 'role')->all());
     }
 
+    /** A skipped row has to say which row and why, or nobody can fix the sheet. */
+    public function test_a_row_with_an_unmapped_website_says_which_row_and_why(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+        $this->fakeSheet(['Website' => 'Gold Gourmet']);
+
+        $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertSame(1, $result['unmatched_store']);
+
+        $log = implode("\n", $result['log']);
+        $this->assertStringContainsString('Request No 17', $log);
+        $this->assertStringContainsString('AMADAMARIA', $log);
+        $this->assertStringContainsString('Gold Gourmet', $log);
+    }
+
+    public function test_a_row_whose_skus_are_not_on_the_category_tab_says_so(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+        $this->fakeSheet(['Brand' => 'BRAND WITH NO SKU ROWS']);
+
+        $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertSame(1, $result['unmatched_skus']);
+        $this->assertStringContainsString('no row in "Lingerie"', implode("\n", $result['log']));
+    }
+
     public function test_a_dry_run_creates_nothing(): void
     {
         Queue::fake();

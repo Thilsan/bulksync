@@ -117,6 +117,8 @@ class ProductRequestSheetSyncService
                     $this->record($requestNo, $token, null, null, 'unmatched_department',
                         "Department \"{$department}\" is not in config/product_request_sync.php");
                     $result['unmatched_department']++;
+                    $result['log'][] = "Skipped Request No {$requestNo} / {$token} ({$data['Brand']}): "
+                        . "department \"{$department}\" is not in config/product_request_sync.php";
                     continue;
                 }
 
@@ -127,6 +129,8 @@ class ProductRequestSheetSyncService
                     $this->record($requestNo, $token, null, null, 'unmatched_store',
                         "No store mapped for website token \"{$token}\"");
                     $result['unmatched_store']++;
+                    $result['log'][] = "Skipped Request No {$requestNo} / {$token} ({$data['Brand']}): "
+                        . "website token \"{$token}\" has no store — add it to config/product_request_sync.php";
                     continue;
                 }
 
@@ -142,6 +146,8 @@ class ProductRequestSheetSyncService
                     $this->record($requestNo, $token, $store->id, null, 'unmatched_skus',
                         "No rows in \"{$sheetName}\" matched this request's date + brand");
                     $result['unmatched_skus']++;
+                    $result['log'][] = "Skipped Request No {$requestNo} / {$token} ({$data['Brand']}): "
+                        . "no row in \"{$sheetName}\" matches date {$data['Request Date']} + brand \"{$data['Brand']}\"";
                     continue;
                 }
 
