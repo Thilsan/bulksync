@@ -1040,9 +1040,30 @@ class ProductRequest extends Model
      */
     public function skusNeedingContent(): HasMany
     {
-        return $this->skusMissingDescription()
+        return $this->skus()
+            ->where('in_shopify', true)                  // the generator reads live images
+            ->where('sheet_has_description', false)      // the brand team is not supplying copy
+            ->where('has_description', false)            // and there is none in Shopify to overwrite
             ->whereNull('content_started_at')
             ->whereNull('content_skipped_at');
+    }
+
+    /**
+     * Live SKUs whose sheet row has not been read yet.
+     *
+     * Null is "the sheet has not been checked", not "the sheet is blank" — and
+     * the difference matters, because offering to generate on an unknown risks
+     * writing over copy the brand team did supply.
+     */
+    public function sheetUncheckedCount(): int
+    {
+        return $this->skus()->where('in_shopify', true)->whereNull('sheet_has_description')->count();
+    }
+
+    /** SKUs the sheet does carry copy for — theirs to apply, not ours to write. */
+    public function sheetSuppliedCount(): int
+    {
+        return $this->skus()->where('sheet_has_description', true)->count();
     }
 
     /**
@@ -1117,7 +1138,7 @@ class ProductRequest extends Model
             $gaps[] = 'AI content was never generated';
         }
 
-        if ($blank = $this->missingDescriptionCount()) {
+        if ($blank = $this->skus()->where('in_shopify', true)->where('has_description', false)->count()) {
             $gaps[] = "{$blank} SKU(s) live in Shopify with no description";
         }
 

@@ -124,6 +124,71 @@ class ProductRequestDraftBuilder
         ];
     }
 
+    /**
+     * Records which of a request's SKUs the sheet carries copy for.
+     *
+     * The sheet is the brand team's own input, so a blank Description column is
+     * the answer to "will copy arrive?" — no. That is what the request needs in
+     * order to offer generating it, and it cannot be inferred from Shopify: a
+     * product can be live with no description and still have copy waiting on the
+     * sheet, or vice versa.
+     *
+     * @return array{checked: int, with: int, without: int, missing_from_sheet: array<int, string>, column: string|null}
+     */
+    public function syncSheetDescriptions(ProductRequest $request, ?User $asUser = null): array
+    {
+        $worksheet = $this->worksheetFor($request);
+
+        if (!$worksheet) {
+            throw new \RuntimeException(
+                "No sheet tab is configured for the \"{$request->category}\" category — see config/product_request_sync.php."
+            );
+        }
+
+        $skus = $request->skus()->orderBy('id')->pluck('sku')->all();
+
+        if (empty($skus)) {
+            return ['checked' => 0, 'with' => 0, 'without' => 0, 'missing_from_sheet' => [], 'column' => null];
+        }
+
+        [$rows, $columns] = $this->sheetRowsFor($worksheet, $skus, $asUser);
+
+        // No Description column at all means the sheet cannot answer the question.
+        // Saying so beats marking every SKU as having no copy, which would offer to
+        // generate over descriptions that may be sitting in a column we misread.
+        if (!isset($columns['used']['body_html'])) {
+            throw new \RuntimeException(
+                "The \"{$worksheet}\" tab has no description column that this app recognises. "
+                . 'It has: ' . implode(', ', array_slice($columns['ignored'], 0, 15))
+                . '. Add the right name to config/product_request_draft.php.'
+            );
+        }
+
+        $with = $without = 0;
+        $seen = [];
+
+        foreach ($rows as $row) {
+            $sku  = $this->normalizeSku($row['fields']['sku']);
+            $copy = filled(trim(strip_tags((string) ($row['fields']['body_html'] ?? ''))));
+
+            $request->skus()->whereRaw('UPPER(TRIM(sku)) = ?', [$sku])->update([
+                'sheet_has_description' => $copy,
+                'sheet_checked_at'      => now(),
+            ]);
+
+            $seen[] = $sku;
+            $copy ? $with++ : $without++;
+        }
+
+        return [
+            'checked'            => count($seen),
+            'with'               => $with,
+            'without'            => $without,
+            'missing_from_sheet' => array_values(array_diff(array_map([$this, 'normalizeSku'], $skus), $seen)),
+            'column'             => $columns['used']['body_html'],
+        ];
+    }
+
     /** The category tab this request's SKUs live on, via the sync's department map. */
     private function worksheetFor(ProductRequest $request): ?string
     {

@@ -1270,6 +1270,41 @@ class ProductRequestController extends Controller implements HasMiddleware
     }
 
     /**
+     * Read the tracking sheet to see which SKUs the brand team supplied copy for.
+     *
+     * This is what decides whether content has to be written: a blank Description
+     * column on the sheet means nobody is coming with copy later.
+     */
+    public function checkSheetDescriptions(ProductRequest $productRequest, #[CurrentUser] User $user): RedirectResponse
+    {
+        $this->authorizeView($productRequest, $user);
+
+        set_time_limit(300);
+
+        try {
+            $result = $this->draftBuilder->syncSheetDescriptions($productRequest, $user);
+        } catch (\Throwable $e) {
+            Log::error("Sheet description check failed for {$productRequest->reference}: " . $e->getMessage());
+            return back()->with('warning', $e->getMessage());
+        }
+
+        if ($result['checked'] === 0) {
+            return back()->with('warning', 'No row on the sheet matched any SKU on this request.');
+        }
+
+        $message = "Sheet checked against the \"{$result['column']}\" column: "
+            . "{$result['with']} SKU(s) have copy, {$result['without']} do not.";
+
+        if ($missing = $result['missing_from_sheet']) {
+            $shown    = array_slice($missing, 0, 10);
+            $message .= ' ' . count($missing) . ' SKU(s) have no row on the sheet: ' . implode(', ', $shown)
+                . (count($missing) > count($shown) ? '…' : '') . '.';
+        }
+
+        return back()->with('success', $message);
+    }
+
+    /**
      * Ask the brand manager again for the SKUs still unmapped in Cegid.
      *
      * The automatic ask happens once, when the request parks. This is for when

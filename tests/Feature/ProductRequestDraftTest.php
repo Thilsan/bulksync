@@ -319,6 +319,68 @@ class ProductRequestDraftTest extends TestCase
         $this->assertCount(2, ProductRequestDraftProduct::pluck('handle')->unique());
     }
 
+    /**
+     * The sheet decides whether copy has to be written, so reading its Description
+     * column per SKU is what the content offer is built on.
+     */
+    public function test_the_sheet_description_column_is_recorded_per_sku(): void
+    {
+        $user    = $this->user();
+        $request = $this->request($this->store(), $user, ['ZIM-1-W-38', 'ZIM-9-SOLO']);
+        $this->fakeSheet();
+
+        $result = app(ProductRequestDraftBuilder::class)->syncSheetDescriptions($request, $user);
+
+        $this->assertSame('Description', $result['column']);
+        $this->assertSame(2, $result['checked']);
+        $this->assertSame(1, $result['with']);        // the shirt has "<p>Soft</p>"
+        $this->assertSame(1, $result['without']);     // the tie's cell is empty
+
+        $this->assertTrue($request->skus()->where('sku', 'ZIM-1-W-38')->value('sheet_has_description'));
+        $this->assertFalse((bool) $request->skus()->where('sku', 'ZIM-9-SOLO')->value('sheet_has_description'));
+    }
+
+    /** A SKU with no row on the sheet is reported, not guessed at. */
+    public function test_a_sku_missing_from_the_sheet_is_left_unchecked(): void
+    {
+        $user    = $this->user();
+        $request = $this->request($this->store(), $user, ['ZIM-1-W-38', 'GHOST-SKU']);
+        $this->fakeSheet();
+
+        $result = app(ProductRequestDraftBuilder::class)->syncSheetDescriptions($request, $user);
+
+        $this->assertSame(['GHOST-SKU'], $result['missing_from_sheet']);
+        $this->assertNull($request->skus()->where('sku', 'GHOST-SKU')->value('sheet_has_description'));
+    }
+
+    /**
+     * A tab with no description column cannot answer the question. Marking every
+     * SKU as having no copy would offer to write over descriptions sitting in a
+     * column we simply failed to recognise.
+     */
+    public function test_a_tab_with_no_description_column_refuses_rather_than_guesses(): void
+    {
+        $user    = $this->user();
+        $request = $this->request($this->store(), $user, ['ZIM-1-W-38']);
+
+        $drive = Mockery::mock(OneDriveService::class);
+        $drive->shouldReceive('setUser')->andReturnSelf();
+        $drive->shouldReceive('resolveShareItem')->andReturn(['driveId' => 'd', 'itemId' => 'i']);
+        $drive->shouldReceive('worksheetValues')
+            ->with('d', 'i', 'Mens Fashion')
+            ->andReturn([
+                ['Item SKU', 'Brand Name', 'Product Name', 'Long Blurb'],
+                ['ZIM-1-W-38', 'ZIMMERLI', 'Cotton Shirt', 'Lovely shirt'],
+            ]);
+
+        $this->app->instance(OneDriveService::class, $drive);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessageMatches('/no description column/');
+
+        app(ProductRequestDraftBuilder::class)->syncSheetDescriptions($request, $user);
+    }
+
     public function test_only_skus_missing_from_shopify_are_staged(): void
     {
         $user    = $this->user();

@@ -14,9 +14,12 @@ use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
 
 /**
- * A request of twenty SKUs where ten already read well needs content for the
- * other ten — and writing over the ten that are already done is worse than doing
- * nothing at all.
+ * The tracking sheet decides whether copy has to be written: it is where the brand
+ * team supplies everything they are going to supply, so a blank Description column
+ * means none is coming and the choice is generate or go without.
+ *
+ * What Shopify holds is a separate question — it only says whether writing would
+ * overwrite something that is already live.
  */
 class ProductRequestMissingCopyTest extends TestCase
 {
@@ -44,7 +47,11 @@ class ProductRequestMissingCopyTest extends TestCase
         ]);
     }
 
-    /** $described live SKUs with copy, $blank live without, $absent not in Shopify. */
+    /**
+     * @param  int  $described  live SKUs the sheet supplies copy for
+     * @param  int  $blank      live SKUs the sheet has no copy for, and Shopify none either
+     * @param  int  $absent     SKUs not in Shopify at all
+     */
     private function request(int $described, int $blank, int $absent = 0): ProductRequest
     {
         $request = ProductRequest::create([
@@ -67,11 +74,13 @@ class ProductRequestMissingCopyTest extends TestCase
                 }
 
                 ProductRequestSku::create([
-                    'product_request_id' => $request->id,
-                    'sku'                => "{$prefix}-{$i}",
-                    'mapping_status'     => $inShopify ? ProductRequest::MAP_MAPPED : ProductRequest::MAP_PENDING,
-                    'in_shopify'         => $inShopify,
-                    'has_description'    => $hasCopy,
+                    'product_request_id'    => $request->id,
+                    'sku'                   => "{$prefix}-{$i}",
+                    'mapping_status'        => $inShopify ? ProductRequest::MAP_MAPPED : ProductRequest::MAP_PENDING,
+                    'in_shopify'            => $inShopify,
+                    'has_description'       => $inShopify ? $hasCopy : null,
+                    'sheet_has_description' => $hasCopy,
+                    'sheet_checked_at'      => $hasCopy === null ? null : now(),
                 ]);
             }
         };
@@ -87,9 +96,8 @@ class ProductRequestMissingCopyTest extends TestCase
     {
         $request = $this->request(described: 10, blank: 10);
 
-        $this->assertSame(10, $request->missingDescriptionCount());
         $this->assertSame(10, $request->needsContentCount());
-        $this->assertSame(10, $request->describedCount());
+        $this->assertSame(10, $request->sheetSuppliedCount());
         $this->assertSame(10, $request->contentHandledCount());
         $this->assertTrue($request->canOfferContentForMissing());
     }
@@ -183,11 +191,14 @@ class ProductRequestMissingCopyTest extends TestCase
         $this->assertCount(28, json_decode(AiContentSession::sole()->skus_json, true));
         $this->assertFalse($request->refresh()->canOfferContentForMissing(), 'Nothing is outstanding yet.');
 
-        // Validate SKUs is pressed and the last 2 come back mapped and live.
+        // Validate SKUs is pressed and the last 2 come back mapped and live, with
+        // no copy on the sheet for them either.
         $request->skus()->where('sku', 'like', 'ABSENT-%')->update([
-            'mapping_status'  => ProductRequest::MAP_MAPPED,
-            'in_shopify'      => true,
-            'has_description' => false,
+            'mapping_status'        => ProductRequest::MAP_MAPPED,
+            'in_shopify'            => true,
+            'has_description'       => false,
+            'sheet_has_description' => false,
+            'sheet_checked_at'      => now(),
         ]);
 
         $request->refresh();
@@ -223,7 +234,10 @@ class ProductRequestMissingCopyTest extends TestCase
         $this->assertFalse($request->refresh()->canOfferContentForMissing());
 
         $request->skus()->where('sku', 'like', 'ABSENT-%')->update([
-            'in_shopify' => true, 'has_description' => false,
+            'in_shopify'            => true,
+            'has_description'       => false,
+            'sheet_has_description' => false,
+            'sheet_checked_at'      => now(),
         ]);
 
         $this->assertTrue($request->refresh()->canOfferContentForMissing());
@@ -290,7 +304,7 @@ class ProductRequestMissingCopyTest extends TestCase
         $this->actingAs($this->user)
             ->get(route('product-requests.show', $request))
             ->assertOk()
-            ->assertSee('10 product(s) are live with no description')
+            ->assertSee('The sheet has no description for 10 product(s)')
             ->assertSee('Generate AI content for 10');
     }
 
@@ -308,32 +322,70 @@ class ProductRequestMissingCopyTest extends TestCase
     }
 
     /**
-     * Null is "nobody looked", not "no copy" — the case every request validated
-     * before the column existed is in. Saying so beats offering to write over
-     * descriptions that may well be there.
+     * Null is "nobody read the sheet", not "the sheet is blank" — the state every
+     * request from before these columns existed is in. Saying so beats offering to
+     * write over copy the brand team may well have supplied.
      */
-    public function test_unchecked_descriptions_are_reported_as_needing_a_check(): void
+    public function test_an_unread_sheet_is_reported_as_needing_a_check(): void
     {
         $request = $this->request(described: 0, blank: 0);
 
         foreach (range(1, 12) as $i) {
             ProductRequestSku::create([
-                'product_request_id' => $request->id,
-                'sku'                => "OLD-{$i}",
-                'mapping_status'     => ProductRequest::MAP_MAPPED,
-                'in_shopify'         => true,
-                'has_description'    => null,
+                'product_request_id'    => $request->id,
+                'sku'                   => "OLD-{$i}",
+                'mapping_status'        => ProductRequest::MAP_MAPPED,
+                'in_shopify'            => true,
+                'has_description'       => false,
+                'sheet_has_description' => null,
             ]);
         }
 
-        $this->assertSame(12, $request->descriptionsUncheckedCount());
+        $this->assertSame(12, $request->sheetUncheckedCount());
         $this->assertSame(0, $request->needsContentCount());
         $this->assertFalse($request->canOfferContentForMissing());
 
         $this->actingAs($this->user)
             ->get(route('product-requests.show', $request))
             ->assertOk()
-            ->assertSee('has not read the existing descriptions back yet');
+            ->assertSee('The sheet has not been read for 12 product(s)');
+    }
+
+    /** Copy on the sheet is theirs to apply — not ours to write over. */
+    public function test_a_sku_the_sheet_supplies_copy_for_is_never_offered(): void
+    {
+        $request = $this->request(described: 0, blank: 0);
+
+        ProductRequestSku::create([
+            'product_request_id'    => $request->id,
+            'sku'                   => 'SUPPLIED-1',
+            'mapping_status'        => ProductRequest::MAP_MAPPED,
+            'in_shopify'            => true,
+            'has_description'       => false,          // not in Shopify yet, but...
+            'sheet_has_description' => true,           // ...the brand team wrote it
+            'sheet_checked_at'      => now(),
+        ]);
+
+        $this->assertSame(0, $request->needsContentCount());
+        $this->assertFalse($request->canOfferContentForMissing());
+    }
+
+    /** Nothing to write when the live product already reads well. */
+    public function test_a_sku_already_described_in_shopify_is_never_offered(): void
+    {
+        $request = $this->request(described: 0, blank: 0);
+
+        ProductRequestSku::create([
+            'product_request_id'    => $request->id,
+            'sku'                   => 'LIVE-1',
+            'mapping_status'        => ProductRequest::MAP_MAPPED,
+            'in_shopify'            => true,
+            'has_description'       => true,
+            'sheet_has_description' => false,
+            'sheet_checked_at'      => now(),
+        ]);
+
+        $this->assertSame(0, $request->needsContentCount());
     }
 
     /** The backfill finds exactly those requests, and touches nothing on a dry run. */
@@ -342,18 +394,19 @@ class ProductRequestMissingCopyTest extends TestCase
         $request = $this->request(described: 0, blank: 0);
 
         ProductRequestSku::create([
-            'product_request_id' => $request->id,
-            'sku'                => 'OLD-1',
-            'mapping_status'     => ProductRequest::MAP_MAPPED,
-            'in_shopify'         => true,
-            'has_description'    => null,
+            'product_request_id'    => $request->id,
+            'sku'                   => 'OLD-1',
+            'mapping_status'        => ProductRequest::MAP_MAPPED,
+            'in_shopify'            => true,
+            'has_description'       => null,
+            'sheet_has_description' => null,
         ]);
 
         $this->artisan('product-requests:backfill-descriptions')
             ->expectsOutputToContain("Would re-check {$request->reference}")
             ->assertSuccessful();
 
-        $this->assertSame(1, $request->descriptionsUncheckedCount(), 'A dry run must change nothing.');
+        $this->assertSame(1, $request->sheetUncheckedCount(), 'A dry run must change nothing.');
     }
 
     public function test_the_backfill_skips_requests_already_checked(): void

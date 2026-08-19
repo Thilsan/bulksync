@@ -181,17 +181,21 @@
                 @if($request->awaitingContentSheet())
                     @php
                         $needsCopy = $request->needsContentCount();
-                        $unchecked = $request->descriptionsUncheckedCount();
+                        $unchecked = $request->sheetUncheckedCount();
+                        $supplied  = $request->sheetSuppliedCount();
                     @endphp
                     <div class="mt-4 bg-amber-50 border border-amber-200 text-amber-900 rounded-lg px-4 py-2.5 text-sm">
                         <span class="font-medium">Awaiting content.</span>
 
                         @if($needsCopy > 0)
-                            {{-- The setting says where the copy was meant to come from,
-                                 not whether it exists. Products live with nothing on
-                                 them can be written here whatever the request says. --}}
-                            {{ number_format($needsCopy) }} product(s) are live with no description.
-                            Generate the copy for those, or upload the brand team's sheet.
+                            {{-- The sheet is the brand team's own input, so a blank
+                                 Description column there settles it: no copy is
+                                 coming, and the choice is to write it or go without. --}}
+                            The sheet has no description for {{ number_format($needsCopy) }} product(s), so none is coming for them.
+                            Generate the copy, or leave them without it.
+                            @if($supplied > 0)
+                                <span class="block text-xs mt-0.5">{{ number_format($supplied) }} do have copy on the sheet — upload it as a file to apply it.</span>
+                            @endif
 
                             <span class="inline-flex flex-wrap items-center gap-2 mt-2">
                                 <form method="POST" action="{{ route('product-requests.ai-content', $request) }}">
@@ -203,15 +207,36 @@
                                         Generate AI content for {{ number_format($needsCopy) }}
                                     </button>
                                 </form>
+                                <form method="POST" action="{{ route('product-requests.ai-content', $request) }}">
+                                    @csrf
+                                    <input type="hidden" name="scope" value="missing_description">
+                                    <input type="hidden" name="answer" value="skip">
+                                    <button type="submit"
+                                            class="text-xs font-medium text-amber-900 px-3 py-1.5 rounded-lg border border-amber-300 hover:bg-amber-100">
+                                        Skip — go without
+                                    </button>
+                                </form>
                                 <button type="button" @click="tab = 'attachments'"
                                         class="text-xs font-medium text-amber-900 underline">Upload a content sheet instead</button>
                             </span>
                         @elseif($unchecked > 0)
-                            {{-- Null is "nobody looked", not "no copy". Saying so beats
-                                 offering to write over descriptions that may exist. --}}
-                            The SKU check has not read the existing descriptions back yet, so it is not known which
-                            products need copy. Run <span class="font-medium">Validate SKUs</span> below, then this
-                            will offer to write the ones that have none.
+                            {{-- Null is "nobody read the sheet", not "the sheet is blank".
+                                 Offering to generate on that risks writing over copy the
+                                 brand team did supply. --}}
+                            The sheet has not been read for {{ number_format($unchecked) }} product(s), so it is not known
+                            which of them the brand team supplied copy for.
+
+                            <span class="inline-flex flex-wrap items-center gap-2 mt-2">
+                                <form method="POST" action="{{ route('product-requests.check-sheet-copy', $request) }}">
+                                    @csrf
+                                    <button type="submit" class="text-xs font-medium text-white px-3 py-1.5 rounded-lg"
+                                            style="background-color:#1d5a74">
+                                        Check the sheet for descriptions
+                                    </button>
+                                </form>
+                                <button type="button" @click="tab = 'attachments'"
+                                        class="text-xs font-medium text-amber-900 underline">Upload a content sheet instead</button>
+                            </span>
                         @else
                             The brand team needs to upload the copy as an Excel or CSV file.
                             <button type="button" @click="tab = 'attachments'" class="underline font-medium">Upload it now</button>
@@ -664,15 +689,16 @@
                         @endphp
                         <div class="mt-4 bg-white border border-gray-200 rounded-lg px-4 py-3">
                             <p class="text-sm font-medium text-gray-800">
-                                {{ number_format($blank) }} of {{ number_format($blank + $handled) }} live SKUs still need copy
+                                The sheet has no description for {{ number_format($blank) }} of {{ number_format($blank + $handled) }} live SKUs
                             </p>
                             <p class="text-xs text-gray-500 mt-0.5">
                                 @if($handled > 0)
-                                    {{-- Covers both "already written" and "generated earlier in this
-                                         request", which is the case when a balance is mapped later. --}}
-                                    The other {{ number_format($handled) }} are written already or under way, and are left untouched.
+                                    {{-- Covers copy the brand team supplied, copy already in
+                                         Shopify, and copy generated earlier in this request —
+                                         which is the case when a balance is mapped later. --}}
+                                    The other {{ number_format($handled) }} are supplied, written already, or under way.
                                 @else
-                                    None of these products has copy on it yet.
+                                    Nobody is supplying copy for these, so it is generate or go without.
                                 @endif
                             </p>
 
