@@ -55,6 +55,7 @@ class ProductRequestWorkflow
         ?User $actor = null,
         ?string $remarks = null,
         bool $force = false,
+        bool $notify = true,
     ): bool {
         if ($request->status === $to) {
             return false;
@@ -93,7 +94,12 @@ class ProductRequestWorkflow
             remarks:     $remarks,
         );
 
-        $this->notify($request, $from, $actor?->name ?? 'System', $remarks);
+        // A bulk correction moves hundreds of requests at once and nothing has
+        // actually happened to any one of them — the activity log still records
+        // it, but nobody's inbox needs 200 copies of the same admin change.
+        if ($notify) {
+            $this->notify($request, $from, $actor?->name ?? 'System', $remarks);
+        }
 
         return true;
     }
@@ -103,7 +109,7 @@ class ProductRequestWorkflow
      * Mapping when anything is unresolved, and — crucially — releases it again
      * on its own the moment Supply Chain finishes, with no re-submission.
      */
-    public function reconcileMapping(ProductRequest $request, ?User $actor = null): void
+    public function reconcileMapping(ProductRequest $request, ?User $actor = null, bool $notify = true): void
     {
         if ($request->isClosed()) {
             return;
@@ -111,7 +117,21 @@ class ProductRequestWorkflow
 
         $fullyMapped = $request->isFullyMapped();
 
-        if (!$fullyMapped && $request->status === ProductRequest::SUBMITTED) {
+        // SKU Verified is included so that turning the Cegid tick on for a
+        // website reaches requests that were already waved past the mapping
+        // stage while it was off. Nothing further along is touched — once a
+        // shoot or the content work has started, mapping is no longer the gate.
+        $beforeMapping = [ProductRequest::SUBMITTED, ProductRequest::SKU_VERIFIED];
+
+        if (!$fullyMapped && in_array($request->status, $beforeMapping, true)) {
+            // A request that has already been to Supply Chain is left where it
+            // is: either they finished, or the team chose to carry on with the
+            // mapped half and hold the balance (continueWithMapped). Both are
+            // their decision to make, and neither is the tick's to undo.
+            if ($request->status === ProductRequest::SKU_VERIFIED && $request->hasBeenToMapping()) {
+                return;
+            }
+
             $unresolved = $request->pending_skus + $request->not_mapped_skus;
 
             $this->transition(
@@ -119,6 +139,9 @@ class ProductRequestWorkflow
                 ProductRequest::WAITING_MAPPING,
                 $actor,
                 "{$unresolved} of {$request->total_skus} SKUs not yet mapped — sent to Supply Chain.",
+                // Going back a stage is not a move the pipeline offers.
+                force:  $request->status === ProductRequest::SKU_VERIFIED,
+                notify: $notify,
             );
 
             return;
@@ -129,7 +152,7 @@ class ProductRequestWorkflow
                 ? "All {$request->total_skus} SKUs mapped — ready for the E-Commerce team."
                 : "{$request->store?->name} does not use Cegid mapping — no mapping step required.";
 
-            $this->transition($request, ProductRequest::SKU_VERIFIED, $actor, $remarks);
+            $this->transition($request, ProductRequest::SKU_VERIFIED, $actor, $remarks, notify: $notify);
         }
     }
 
@@ -287,7 +310,7 @@ class ProductRequestWorkflow
      *
      * @return array<string, User>  field => person, for the roles this filled
      */
-    public function staffFromCategory(ProductRequest $request, ?User $actor = null): array
+    public function staffFromCategory(ProductRequest $request, ?User $actor = null, bool $notify = true): array
     {
         $owner        = $request->categoryOwner();
         $coordinator  = $request->needsPhotoshoot() ? User::photoshootCoordinator() : null;
@@ -314,7 +337,11 @@ class ProductRequestWorkflow
                 continue;
             }
 
-            $firstForPerson = !in_array($person->id, $notified, true);
+            // One person picking up several roles on the same request hears once.
+            // A bulk import silences it entirely — the work lands on My Tasks
+            // either way, and a category owner does not need two hundred emails
+            // telling them the same thing.
+            $firstForPerson = $notify && !in_array($person->id, $notified, true);
 
             $assigned = $this->assignRole(
                 request: $request,

@@ -45,6 +45,7 @@ class ProductRequestSheetSyncService
 
         $result = [
             'created'               => 0,
+            'backfilled'            => 0,
             'unmatched_store'       => 0,
             'unmatched_department'  => 0,
             'unmatched_skus'        => 0,
@@ -79,7 +80,18 @@ class ProductRequestSheetSyncService
                     ->first();
 
                 if ($existing && $existing->status === 'created') {
-                    $result['skipped_existing']++;
+                    // Requests created before the sheet's Request No / Requested By
+                    // were stored have those two columns empty — fill them in on the
+                    // next run rather than making the team re-create the request.
+                    $fixed = $this->backfillExisting($existing, $data, $commit);
+
+                    if ($fixed) {
+                        $result['backfilled']++;
+                        $result['log'][] = ($commit ? 'Backfilled' : 'Would backfill')
+                            . " Request No {$requestNo} / {$token} (" . implode(', ', $fixed) . ')';
+                    } else {
+                        $result['skipped_existing']++;
+                    }
                     continue;
                 }
 
@@ -236,7 +248,11 @@ class ProductRequestSheetSyncService
 
     private function createRequest(array $data, Store $store, string $category, array $skus, User $syncUser): ProductRequest
     {
-        $requester = User::where('name', trim((string) ($data['Requested By'] ?? '')))->first() ?? $syncUser;
+        // "Requested By" is hand-typed on the sheet ("KAYCEE", "Nada Rezeg") and
+        // usually names someone with no account here, so it is kept verbatim for
+        // display; user_id only decides who owns/gets notified about the request.
+        $requestedBy = trim((string) ($data['Requested By'] ?? ''));
+        $requester   = ($requestedBy !== '' ? User::where('name', $requestedBy)->first() : null) ?? $syncUser;
 
         $imagesReady = strcasecmp(trim((string) ($data['Images Ready'] ?? '')), 'yes') === 0;
         $priority    = strtolower(trim((string) ($data['Priority'] ?? '')));
@@ -254,6 +270,8 @@ class ProductRequestSheetSyncService
 
         $productRequest = ProductRequest::create([
             'reference'                 => ProductRequest::nextReference(),
+            'sheet_request_no'          => (int) ($data['Request No'] ?? 0) ?: null,
+            'sheet_requested_by'        => $requestedBy ?: null,
             'user_id'                   => $requester->id,
             'store_id'                  => $store->id,
             'request_type'              => 'new_brand',
@@ -282,9 +300,71 @@ class ProductRequestSheetSyncService
             remarks:     count($skus) . ' SKUs imported',
         );
 
+        // Same staffing as a request raised by hand: the category's owner takes
+        // it, its brand manager holds the brand-side task, and a shoot goes to
+        // the photoshoot coordinator. The sheet names nobody, so without this
+        // every imported request lands on "nobody assigned yet".
+        $this->workflow->staffFromCategory($productRequest, $syncUser, notify: false);
+
         ValidateProductRequestSkusJob::dispatch($productRequest->id, $requester->id)->onQueue('bulkupload');
 
         return $productRequest;
+    }
+
+    /**
+     * Brings an already-synced request up to date with what the sync knows how to
+     * do now: the two sheet-origin columns, and the category staffing that the
+     * first version of this importer never applied.
+     *
+     * Only ever fills what is empty — a column edited in the app, or a role given
+     * to someone by hand, is the team's and is left alone.
+     *
+     * @return array<int, string> what was fixed, empty when there was nothing to do
+     */
+    private function backfillExisting(ProductRequestSheetSync $existing, array $data, bool $commit): array
+    {
+        $productRequest = $existing->productRequest;
+
+        if (!$productRequest) {
+            return [];
+        }
+
+        $fixed   = [];
+        $updates = [];
+
+        if (!$productRequest->sheet_request_no) {
+            $updates['sheet_request_no'] = $existing->request_no;
+            $fixed[] = 'request no';
+        }
+
+        $requestedBy = trim((string) ($data['Requested By'] ?? ''));
+        if (!filled($productRequest->sheet_requested_by) && $requestedBy !== '') {
+            $updates['sheet_requested_by'] = $requestedBy;
+            $fixed[] = 'requested by';
+        }
+
+        // staffFromCategory already skips any role that has someone on it, so an
+        // untouched request gets staffed and a half-staffed one keeps its people.
+        $unstaffed = $productRequest->currentAssignments()->count() === 0;
+
+        if ($updates && $commit) {
+            $productRequest->update($updates);
+        }
+
+        if ($unstaffed) {
+            // A dry run reports staffing only where there is actually someone to
+            // staff it with, so "would backfill (assignments)" never promises a
+            // move that --commit cannot make.
+            $staffed = $commit
+                ? $this->workflow->staffFromCategory($productRequest, null, notify: false)
+                : array_filter([$productRequest->categoryOwner()]);
+
+            if ($staffed) {
+                $fixed[] = 'assignments';
+            }
+        }
+
+        return $fixed;
     }
 
     private function record(int $requestNo, string $token, ?int $storeId, ?int $productRequestId, string $status, ?string $note): void

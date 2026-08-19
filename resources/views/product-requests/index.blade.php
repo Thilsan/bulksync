@@ -162,7 +162,12 @@
                         <td class="px-5 py-3">
                             <a href="{{ route('product-requests.show', $item) }}"
                                class="text-brand-600 hover:text-brand-700 font-medium">{{ $item->displayName() }}</a>
-                            <p class="text-xs text-gray-400">{{ $item->reference }}</p>
+                            <p class="text-xs text-gray-400">
+                                {{ $item->reference }}
+                                @if($item->sheet_request_no)
+                                    &middot; <span title="Request No on the tracking sheet">Sheet #{{ $item->sheet_request_no }}</span>
+                                @endif
+                            </p>
                         </td>
                         <td class="px-3 py-3 text-gray-700">{{ $item->brand }} / {{ $item->category }}</td>
                         <td class="px-3 py-3 text-right text-gray-700 tabular-nums">{{ number_format($item->total_skus) }}</td>
@@ -181,7 +186,7 @@
                             </span>
                         </td>
                         <td class="px-5 py-3">
-                            <p class="text-gray-700">{{ $item->user?->name ?? '—' }}</p>
+                            <p class="text-gray-700">{{ $item->requesterName() }}</p>
                             <p class="text-xs text-gray-400">{{ $item->created_at->format('d M Y') }}</p>
                         </td>
                     </tr>

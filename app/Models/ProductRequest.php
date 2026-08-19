@@ -530,6 +530,8 @@ class ProductRequest extends Model
 
     protected $fillable = [
         'reference',
+        'sheet_request_no',
+        'sheet_requested_by',
         'name',
         'user_id',
         'store_id',
@@ -609,6 +611,12 @@ class ProductRequest extends Model
      * Live assignments only. The single answer to "who owns this role" — the
      * owner columns that used to duplicate this are gone.
      */
+    /** Shopify draft products staged from the tracking sheet, awaiting review. */
+    public function draftProducts(): HasMany
+    {
+        return $this->hasMany(ProductRequestDraftProduct::class);
+    }
+
     public function currentAssignments(): HasMany
     {
         return $this->hasMany(ProductRequestAssignment::class)->whereNull('ended_at');
@@ -879,6 +887,18 @@ class ProductRequest extends Model
      * request raised before names existed — or one someone left blank — still
      * reads as something, never as an empty cell.
      */
+    /**
+     * Who asked for this. Sheet-synced requests carry the free-typed name from
+     * the tracking sheet's "Requested By" column — that person rarely has a User
+     * row, and user_id is then just whoever ran the sync, so the sheet name wins.
+     */
+    public function requesterName(): string
+    {
+        return filled($this->sheet_requested_by)
+            ? $this->sheet_requested_by
+            : ($this->user?->name ?? '—');
+    }
+
     public function displayName(): string
     {
         if (filled($this->name)) {
@@ -996,6 +1016,19 @@ class ProductRequest extends Model
         }
 
         return (int) round($this->mapped_skus / $this->total_skus * 100);
+    }
+
+    /**
+     * Whether this request has ever been parked with Supply Chain.
+     *
+     * Separates a request that was waved straight past the mapping stage
+     * (submitted → SKU verified, because the website's Cegid tick was off) from
+     * one the team dealt with — finished, or deliberately carried on with the
+     * mapped half. Only the first kind may be pulled back when the tick changes.
+     */
+    public function hasBeenToMapping(): bool
+    {
+        return $this->activities()->where('to_status', self::WAITING_MAPPING)->exists();
     }
 
     /**

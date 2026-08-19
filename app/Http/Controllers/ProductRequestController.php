@@ -14,6 +14,10 @@ use App\Models\User;
 use App\Notifications\ProductRequestAssigned;
 use App\Notifications\ProductRequestCommented;
 use App\Notifications\ProductRequestHoldChanged;
+use App\Models\ProductRequestDraftProduct;
+use App\Services\ProductRequestDraftBuilder;
+use App\Services\ProductRequestDraftCsv;
+use App\Services\ProductRequestDraftPusher;
 use App\Services\ProductRequestSheetSyncService;
 use App\Services\ProductRequestWorkflow;
 use App\Services\SkuMappingService;
@@ -72,6 +76,8 @@ class ProductRequestController extends Controller implements HasMiddleware
         private readonly ProductRequestWorkflow $workflow,
         private readonly SkuMappingService $mapping,
         private readonly ProductRequestSheetSyncService $sheetSync,
+        private readonly ProductRequestDraftBuilder $draftBuilder,
+        private readonly ProductRequestDraftPusher $draftPusher,
     ) {}
 
     public static function middleware(): array
@@ -148,8 +154,10 @@ class ProductRequestController extends Controller implements HasMiddleware
     {
         // All four owner relations are eager-loaded: the "Waiting On" column
         // resolves whichever one the current stage belongs to, per row.
+        // store is loaded too: the list shows which website each request is for,
+        // which is the only thing separating two rows raised from one sheet row.
         $query = ProductRequest::query()->onMyDesk($user)
-            ->with(['user', 'currentAssignments.user']);
+            ->with(['user', 'store', 'currentAssignments.user']);
 
         if ($request->filled('status')) {
             $query->where('status', $request->string('status'));
@@ -267,12 +275,16 @@ class ProductRequestController extends Controller implements HasMiddleware
 
         $message = "{$result['created']} request(s) created.";
 
+        if ($result['backfilled'] > 0) {
+            $message .= " {$result['backfilled']} existing request(s) updated from the sheet.";
+        }
+
         $flagged = $result['unmatched_department'] + $result['unmatched_store'] + $result['unmatched_skus'] + $result['errors'];
         if ($flagged > 0) {
             $message .= " {$flagged} row(s) need manual review (unmatched department/store/SKUs or errors).";
         }
 
-        return back()->with($result['created'] > 0 ? 'success' : 'warning', $message);
+        return back()->with($result['created'] + $result['backfilled'] > 0 ? 'success' : 'warning', $message);
     }
 
     private function bulkPriority(ProductRequest $productRequest, string $priority, User $actor): bool
@@ -601,11 +613,24 @@ class ProductRequestController extends Controller implements HasMiddleware
         $activities = $productRequest->activities()->with('user')->limit(20)->get();
         $teamPool   = User::where('is_active', true)->orderBy('name')->get(['id', 'name', 'pcr_role']);
 
+        // The draft builder only applies where SKUs are not resolved through
+        // Cegid — everywhere else an unmatched SKU is Supply Chain's to answer.
+        $drafts     = $productRequest->requiresMapping()
+            ? collect()
+            : $productRequest->draftProducts()->with('variants')->orderBy('id')->get();
+
         return view('product-requests.show', [
-            'request'    => $productRequest,
-            'skus'       => $skus,
-            'activities' => $activities,
-            'teamPool'   => $teamPool,
+            'request'      => $productRequest,
+            'skus'         => $skus,
+            'activities'   => $activities,
+            'teamPool'     => $teamPool,
+            'drafts'       => $drafts,
+            // The push asks which website to create the products in, rather than
+            // assuming the one the request was raised against.
+            'pushStores'   => $productRequest->requiresMapping() ? collect() : Store::selectableFor($user),
+            'missingSkus'  => $productRequest->requiresMapping()
+                ? 0
+                : $productRequest->skus()->where('in_shopify', false)->count(),
         ]);
     }
 
@@ -908,6 +933,155 @@ class ProductRequestController extends Controller implements HasMiddleware
             'Content-Type'        => 'text/csv',
             'Content-Disposition' => "attachment; filename=\"{$filename}\"",
         ]);
+    }
+
+    // ── Shopify drafts ───────────────────────────────────────────────────────
+
+    /**
+     * Pulls the product information for this request's not-in-Shopify SKUs off
+     * the tracking sheet and stages them as draft products for review.
+     */
+    public function buildDrafts(ProductRequest $productRequest, #[CurrentUser] User $user): RedirectResponse
+    {
+        $this->authorizeView($productRequest, $user);
+
+        set_time_limit(300);   // a category tab can be thousands of rows
+
+        try {
+            $result = $this->draftBuilder->build($productRequest, $user);
+        } catch (\Throwable $e) {
+            Log::error("Draft build failed for {$productRequest->reference}: " . $e->getMessage());
+            return back()->with('warning', $e->getMessage());
+        }
+
+        if ($result['built'] === 0 && $result['skipped_existing'] === 0) {
+            return back()->with('warning', 'Nothing to build — every SKU on this request is already in Shopify, or the sheet has no rows for the ones that are not.');
+        }
+
+        $message = "{$result['built']} draft product(s) built from {$result['variants']} SKU(s).";
+
+        if ($result['skipped_existing'] > 0) {
+            $message .= " {$result['skipped_existing']} already staged and left as they are.";
+        }
+
+        if ($missing = $result['missing_from_sheet']) {
+            $shown    = array_slice($missing, 0, 10);
+            $message .= ' ' . count($missing) . ' SKU(s) have no row on the sheet: ' . implode(', ', $shown)
+                . (count($missing) > count($shown) ? '…' : '') . '.';
+        }
+
+        return back()->with('success', $message);
+    }
+
+    /** The staged drafts in Shopify's product import CSV format. Streamed. */
+    public function downloadDrafts(ProductRequest $productRequest, #[CurrentUser] User $user, ProductRequestDraftCsv $csv): StreamedResponse
+    {
+        $this->authorizeView($productRequest, $user);
+
+        $filename = "{$productRequest->reference}-shopify-import.csv";
+
+        return response()->stream(function () use ($productRequest, $csv) {
+            $out = fopen('php://output', 'w');
+            $csv->write($productRequest, $out);
+            fclose($out);
+        }, 200, [
+            'Content-Type'        => 'text/csv',
+            'Content-Disposition' => "attachment; filename=\"{$filename}\"",
+        ]);
+    }
+
+    /** Corrections made on the review screen — anything the sheet left blank. */
+    public function updateDraft(Request $request, ProductRequest $productRequest, ProductRequestDraftProduct $draft, #[CurrentUser] User $user): RedirectResponse
+    {
+        $this->authorizeView($productRequest, $user);
+        abort_unless($draft->product_request_id === $productRequest->id, 404);
+
+        if ($draft->isPushed()) {
+            return back()->with('warning', 'This product is already in Shopify — edit it there.');
+        }
+
+        $data = $request->validate([
+            'title'                    => ['required', 'string', 'max:255'],
+            'body_html'                => ['nullable', 'string', 'max:65535'],
+            'vendor'                   => ['nullable', 'string', 'max:255'],
+            'product_type'             => ['nullable', 'string', 'max:255'],
+            'tags'                     => ['nullable', 'string', 'max:1000'],
+            'image_src'                => ['nullable', 'url', 'max:2048'],
+            'variants'                 => ['nullable', 'array'],
+            'variants.*.id'            => ['required', 'integer'],
+            'variants.*.price'         => ['nullable', 'numeric', 'min:0'],
+            'variants.*.compare_at_price' => ['nullable', 'numeric', 'min:0'],
+            'variants.*.barcode'       => ['nullable', 'string', 'max:255'],
+            'variants.*.option1_value' => ['nullable', 'string', 'max:255'],
+            'variants.*.option2_value' => ['nullable', 'string', 'max:255'],
+            'variants.*.option3_value' => ['nullable', 'string', 'max:255'],
+            'variants.*.inventory_qty' => ['nullable', 'integer', 'min:0'],
+        ]);
+
+        $draft->update(collect($data)->except('variants')->all());
+
+        foreach ($data['variants'] ?? [] as $row) {
+            // Scoped to this draft so a crafted id cannot edit another request's.
+            $draft->variants()->whereKey($row['id'])->first()?->update(
+                collect($row)->except('id')->all()
+            );
+        }
+
+        return back()->with('success', "\"{$draft->title}\" updated.");
+    }
+
+    public function destroyDraft(ProductRequest $productRequest, ProductRequestDraftProduct $draft, #[CurrentUser] User $user): RedirectResponse
+    {
+        $this->authorizeView($productRequest, $user);
+        abort_unless($draft->product_request_id === $productRequest->id, 404);
+
+        if ($draft->isPushed()) {
+            return back()->with('warning', 'This product is already in Shopify — deleting the draft here would not remove it.');
+        }
+
+        $title = $draft->title;
+        $draft->delete();
+
+        return back()->with('success', "\"{$title}\" removed from the drafts.");
+    }
+
+    /**
+     * Creates the reviewed drafts in the chosen Shopify store. Always as drafts —
+     * going live stays a decision someone makes in Shopify.
+     */
+    public function pushDrafts(Request $request, ProductRequest $productRequest, #[CurrentUser] User $user): RedirectResponse
+    {
+        $this->authorizeView($productRequest, $user);
+
+        $data = $request->validate([
+            'store_id'    => ['required', 'exists:stores,id'],
+            'draft_ids'   => ['nullable', 'array'],
+            'draft_ids.*' => ['integer'],
+        ]);
+
+        // The push writes to a real storefront, so the target has to be a website
+        // this person actually works in — not just any id they can type.
+        $store = Store::selectableFor($user)->firstWhere('id', (int) $data['store_id']);
+
+        if (!$store) {
+            return back()->withErrors(['store_id' => 'You do not have access to that website.']);
+        }
+
+        set_time_limit(600);   // Shopify fetches every image URL server-side
+
+        $result = $this->draftPusher->push($productRequest, $store, $user, $data['draft_ids'] ?? null);
+
+        $message = "{$result['pushed']} product(s) created as drafts in {$store->name}.";
+
+        if ($result['skipped'] > 0) {
+            $message .= " {$result['skipped']} skipped — already pushed, or still missing a title or price.";
+        }
+
+        if ($result['failed'] > 0) {
+            $message .= " {$result['failed']} failed — the reason is on each row.";
+        }
+
+        return back()->with($result['pushed'] > 0 ? 'success' : 'warning', $message);
     }
 
     // ── Workflow ─────────────────────────────────────────────────────────────

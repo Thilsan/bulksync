@@ -184,6 +184,14 @@ Route::middleware('auth')->group(function () {
         Route::post('/{productRequest}/comment',           [ProductRequestController::class, 'comment'])->name('comment');
         Route::post('/{productRequest}/cancel',            [ProductRequestController::class, 'cancel'])->name('cancel');
 
+        // Shopify draft products staged from the tracking sheet: build, review,
+        // then push. The push is the only step that reaches Shopify.
+        Route::post('/{productRequest}/drafts/build',                         [ProductRequestController::class, 'buildDrafts'])->name('drafts.build');
+        Route::get('/{productRequest}/drafts/download',                       [ProductRequestController::class, 'downloadDrafts'])->name('drafts.download');
+        Route::put('/{productRequest}/drafts/{draft}',                        [ProductRequestController::class, 'updateDraft'])->name('drafts.update');
+        Route::delete('/{productRequest}/drafts/{draft}',                     [ProductRequestController::class, 'destroyDraft'])->name('drafts.destroy');
+        Route::post('/{productRequest}/drafts/push',                          [ProductRequestController::class, 'pushDrafts'])->name('drafts.push');
+
         Route::post('/{productRequest}/attachments',                          [ProductRequestController::class, 'uploadAttachments'])->name('attachments.store');
         Route::get('/{productRequest}/attachments/{attachment}',              [ProductRequestController::class, 'downloadAttachment'])->name('attachments.download');
         Route::delete('/{productRequest}/attachments/{attachment}',           [ProductRequestController::class, 'destroyAttachment'])->name('attachments.destroy');

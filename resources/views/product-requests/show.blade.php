@@ -121,7 +121,10 @@
                         </div>
                         <p class="text-sm text-gray-500 mt-0.5">
                             <span class="font-mono text-gray-600">{{ $request->reference }}</span>
-                            &middot; created {{ $request->created_at->format('d M Y, h:i A') }} by {{ $request->user?->name ?? 'Unknown' }}
+                            @if($request->sheet_request_no)
+                                &middot; <span title="Request No on the tracking sheet">Sheet #{{ $request->sheet_request_no }}</span>
+                            @endif
+                            &middot; created {{ $request->created_at->format('d M Y, h:i A') }} by {{ $request->requesterName() }}
                         </p>
                     </div>
                 </div>
@@ -749,12 +752,15 @@
             {{-- Tabs --}}
             <div class="bg-white rounded-xl border border-gray-200 shadow-sm">
                 <div class="px-5 border-b border-gray-100 flex gap-1">
-                    @foreach([
+                    @foreach(array_filter([
                         'details'     => 'Request Details',
                         'skus'        => 'SKUs (' . $request->total_skus . ')',
+                        // Only where SKUs are not resolved through Cegid — elsewhere
+                        // an unmatched SKU goes to Supply Chain, not into a product.
+                        'drafts'      => $request->requiresMapping() ? null : 'Shopify Drafts (' . $drafts->count() . ')',
                         'attachments' => 'Attachments (' . $request->attachments()->count() . ')',
                         'comments'    => 'Comments',
-                    ] as $key => $label)
+                    ]) as $key => $label)
                         <button type="button" @click="tab = '{{ $key }}'"
                                 :class="tab === '{{ $key }}' ? 'border-brand-600 text-brand-700' : 'border-transparent text-gray-500 hover:text-gray-700'"
                                 class="px-3.5 py-3 text-sm font-medium border-b-2 transition-colors">{{ $label }}</button>
@@ -1094,6 +1100,13 @@
                 </div>
 
                 {{-- Tab: attachments --}}
+                @unless($request->requiresMapping())
+                    {{-- Tab: Shopify drafts --}}
+                    <div x-show="tab === 'drafts'" x-cloak class="px-5 py-5">
+                        @include('product-requests.partials.shopify-drafts')
+                    </div>
+                @endunless
+
                 <div x-show="tab === 'attachments'" x-cloak class="px-5 py-5">
 
                     {{-- Content sheet: only relevant when the AI generator isn't used --}}
@@ -1271,7 +1284,7 @@
                 <div class="px-5 py-3.5 border-b border-gray-100">
                     <h2 class="text-sm font-semibold text-gray-800">Team Assignments</h2>
                     <p class="text-xs text-gray-400 mt-0.5">
-                        Requested by <span class="text-gray-600 font-medium">{{ $request->user?->name ?? 'Unknown' }}</span>
+                        Requested by <span class="text-gray-600 font-medium">{{ $request->requesterName() }}</span>
                         &middot; {{ $request->created_at->format('d M Y') }}
                     </p>
                 </div>
@@ -1371,7 +1384,8 @@
                     @foreach([
                         'Request Name'  => $request->displayName(),
                         'Request ID'    => $request->reference,
-                        'Requested By'  => $request->user?->name ?? '—',
+                        'Sheet Request No' => $request->sheet_request_no ? '#' . $request->sheet_request_no : '—',
+                        'Requested By'  => $request->requesterName(),
                         'Request Type'  => $request->request_type === 'new_brand' ? 'New Brand' : 'Existing Brand',
                         'Store'         => $request->store?->name ?? '—',
                         'Created On'    => $request->created_at->format('d M Y, h:i A'),

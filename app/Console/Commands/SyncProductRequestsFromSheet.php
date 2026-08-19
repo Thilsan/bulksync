@@ -37,6 +37,7 @@ class SyncProductRequestsFromSheet extends Command
         $this->newLine();
         $this->table(['Outcome', 'Count'], [
             ['Created',                $result['created']],
+            ['Backfilled',             $result['backfilled']],
             ['Already synced',         $result['skipped_existing']],
             ['Unmatched department',   $result['unmatched_department']],
             ['Unmatched store',        $result['unmatched_store']],
