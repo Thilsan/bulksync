@@ -970,7 +970,7 @@ class ProductRequestController extends Controller implements HasMiddleware
         $message = "{$result['built']} draft product(s) built from {$result['variants']} SKU(s).";
 
         if ($result['skipped_existing'] > 0) {
-            $message .= " {$result['skipped_existing']} already staged and left as they are.";
+            $message .= " {$result['skipped_existing']} left alone — already pushed, or corrected by hand.";
         }
 
         if ($missing = $result['missing_from_sheet']) {
@@ -1042,7 +1042,8 @@ class ProductRequestController extends Controller implements HasMiddleware
             'variants.*.inventory_qty' => ['nullable', 'integer', 'min:0'],
         ]);
 
-        $draft->update(collect($data)->except('variants')->all());
+        // Stamped so rebuilding from the sheet keeps this rather than replacing it.
+        $draft->update(collect($data)->except('variants')->all() + ['edited_at' => now()]);
 
         foreach ($data['variants'] ?? [] as $row) {
             // Scoped to this draft so a crafted id cannot edit another request's.

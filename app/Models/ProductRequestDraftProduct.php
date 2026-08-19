@@ -16,12 +16,18 @@ class ProductRequestDraftProduct extends Model
         'product_request_id', 'handle', 'style_code', 'title', 'body_html', 'vendor',
         'product_type', 'tags', 'option1_name', 'option2_name', 'option3_name',
         'image_src', 'push_status', 'shopify_product_id', 'push_error', 'pushed_at',
-        'pushed_to_store_id',
+        'pushed_to_store_id', 'edited_at',
     ];
 
     protected function casts(): array
     {
-        return ['pushed_at' => 'datetime'];
+        return ['pushed_at' => 'datetime', 'edited_at' => 'datetime'];
+    }
+
+    /** Corrected by hand, so a rebuild leaves it alone. */
+    public function wasEdited(): bool
+    {
+        return $this->edited_at !== null;
     }
 
     public function productRequest(): BelongsTo

@@ -69,6 +69,15 @@ class ProductRequestDraftBuilder
         $found            = array_map(fn ($r) => $this->normalizeSku($r['fields']['sku']), $rows);
         $missingFromSheet = array_values(array_diff(array_map([$this, 'normalizeSku'], $missing), $found));
 
+        // A rebuild re-reads the sheet, so the drafts it made last time go — that
+        // is what rebuilding means, and without it a change to how products are
+        // built leaves the old ones alongside the new and every SKU appears
+        // twice. What the team has pushed or corrected is theirs, and stays.
+        $request->draftProducts()
+            ->where('push_status', ProductRequestDraftProduct::PENDING)
+            ->whereNull('edited_at')
+            ->delete();
+
         $existingHandles = $request->draftProducts()->pluck('handle')->all();
 
         $built    = 0;
@@ -296,7 +305,7 @@ class ProductRequestDraftBuilder
             $key    = filled($styleCode)
                 ? 'style:' . strtoupper($styleCode) . '|colour:' . strtoupper((string) $colour)
                 : 'sku:' . $sku;
-            $handle = $this->handleFor($styleCode, $vendor ?: $request->brand, $title, $colour, $sku, $key, $handleOwner);
+            $handle = $this->handleFor($vendor ?: $request->brand, $title, $colour, $sku, $key, $handleOwner);
 
             if (!isset($products[$handle])) {
                 $products[$handle] = [
@@ -349,18 +358,17 @@ class ProductRequestDraftBuilder
     }
 
     /**
-     * The handle, in the shape the team's Shopify export uses: style code, then
-     * the product title, then the colour.
+     * The handle is the product title.
      *
-     * A handle is a product's identity in Shopify, so two different groups must
-     * never land on the same one. Where they would — the same title and colour
-     * under no style code — the SKU is appended, because merging two products
-     * silently is worse than an ugly handle.
+     * A handle is a product's identity in Shopify, so two different products can
+     * never share one. Where two would — the same title in two colours — the
+     * colour is added, which is what the team's own export does
+     * ("...-wp-bra-nude-beige"), and the SKU only as a last resort. Nothing is
+     * added when there is nothing to separate, so a plain title stays plain.
      *
      * @param  array<string, string>  $handleOwner  handle => group key, by reference
      */
     private function handleFor(
-        ?string $styleCode,
         string $vendor,
         ?string $title,
         ?string $colour,
@@ -368,22 +376,17 @@ class ProductRequestDraftBuilder
         string $key,
         array &$handleOwner,
     ): string {
-        $handle = Str::slug(implode(' ', array_filter([
-            $styleCode,
-            // With a code the title already carries the brand, as in their export.
-            // Without one, the brand is what keeps two plain titles apart.
-            filled($styleCode) ? null : $vendor,
-            $title,
-            $colour,
-        ])));
-
         // Nothing usable on the row — fall back to something guaranteed unique.
-        if ($handle === '') {
-            $handle = Str::slug("{$vendor} {$sku}");
+        $handle = Str::slug((string) $title) ?: Str::slug("{$vendor} {$sku}");
+
+        $taken = fn ($candidate) => ($handleOwner[$candidate] ?? $key) !== $key;
+
+        if ($taken($handle) && filled($colour)) {
+            $handle = Str::slug("{$title} {$colour}");
         }
 
-        if (($handleOwner[$handle] ?? $key) !== $key) {
-            $handle .= '-' . Str::slug($sku);
+        if ($taken($handle)) {
+            $handle = Str::slug("{$title} {$sku}");
         }
 
         $handleOwner[$handle] = $key;

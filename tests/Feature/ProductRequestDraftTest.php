@@ -223,11 +223,8 @@ class ProductRequestDraftTest extends TestCase
         $this->assertStringContainsString('Retail Price (QAR) incl VAT', implode(' ', $result['columns']['loose']));
     }
 
-    /**
-     * Their Shopify export writes the handle as code-title-colour, and a handle is
-     * a product — so two colours of one style are two products, sizes as variants.
-     */
-    public function test_the_handle_follows_the_shopify_export_shape(): void
+    /** The handle is the product title, and nothing else when nothing collides. */
+    public function test_the_handle_is_the_product_title(): void
     {
         $user    = $this->user();
         $request = $this->request($this->store(), $user, ['ZIM-1-W-38']);
@@ -236,9 +233,34 @@ class ProductRequestDraftTest extends TestCase
         $this->build($request);
 
         $this->assertSame(
-            'zim-252-cotton-shirt-white',
+            'cotton-shirt',
             ProductRequestDraftProduct::where('style_code', 'ZIM-252')->value('handle'),
         );
+    }
+
+    /** Two colours share a title, so the colour is what separates the handles. */
+    public function test_a_colliding_title_is_separated_by_colour(): void
+    {
+        $user    = $this->user();
+        $request = $this->request($this->store(), $user, ['ZIM-1-W-38', 'ZIM-1-N-38']);
+
+        $drive = Mockery::mock(OneDriveService::class);
+        $drive->shouldReceive('setUser')->andReturnSelf();
+        $drive->shouldReceive('resolveShareItem')->andReturn(['driveId' => 'd', 'itemId' => 'i']);
+        $drive->shouldReceive('worksheetValues')
+            ->with('d', 'i', 'Mens Fashion')
+            ->andReturn([
+                ['Item SKU', 'Style Code', 'Brand Name', 'Product Name', 'Colour', 'Retail Price'],
+                ['ZIM-1-W-38', 'ZIM-252', 'ZIMMERLI', 'Cotton Shirt', 'White', '1250'],
+                ['ZIM-1-N-38', 'ZIM-252', 'ZIMMERLI', 'Cotton Shirt', 'Navy',  '1250'],
+            ]);
+
+        $this->app->instance(OneDriveService::class, $drive);
+
+        $this->build($request);
+
+        $handles = ProductRequestDraftProduct::pluck('handle')->sort()->values()->all();
+        $this->assertSame(['cotton-shirt', 'cotton-shirt-navy'], $handles);
     }
 
     public function test_two_colours_of_one_style_become_two_products(): void
@@ -265,8 +287,8 @@ class ProductRequestDraftTest extends TestCase
         $this->assertSame(2, $result['built'], 'One product per colour.');
         $this->assertSame(3, $result['variants']);
 
-        $white = ProductRequestDraftProduct::where('handle', 'zim-252-cotton-shirt-white')->sole();
-        $navy  = ProductRequestDraftProduct::where('handle', 'zim-252-cotton-shirt-navy')->sole();
+        $white = ProductRequestDraftProduct::where('handle', 'cotton-shirt')->sole();
+        $navy  = ProductRequestDraftProduct::where('handle', 'cotton-shirt-navy')->sole();
 
         $this->assertSame(2, $white->variants()->count(), 'Both sizes on the white product.');
         $this->assertSame(1, $navy->variants()->count());
@@ -335,14 +357,14 @@ class ProductRequestDraftTest extends TestCase
     }
 
     /** Corrections made on the review screen survive a rebuild. */
-    public function test_rebuilding_leaves_drafts_already_staged_alone(): void
+    public function test_rebuilding_leaves_a_hand_corrected_draft_alone(): void
     {
         $user    = $this->user();
         $request = $this->request($this->store(), $user, ['ZIM-1-W-38', 'ZIM-1-W-40']);
         $this->fakeSheet();
 
         $this->build($request);
-        ProductRequestDraftProduct::sole()->update(['title' => 'Hand-corrected title']);
+        ProductRequestDraftProduct::sole()->update(['title' => 'Hand-corrected title', 'edited_at' => now()]);
 
         $this->fakeSheet();
         $result = $this->build($request);
@@ -350,6 +372,54 @@ class ProductRequestDraftTest extends TestCase
         $this->assertSame(0, $result['built']);
         $this->assertSame(1, $result['skipped_existing']);
         $this->assertSame('Hand-corrected title', ProductRequestDraftProduct::sole()->title);
+    }
+
+    /**
+     * The same SKU appearing under two products is the bug a rebuild used to
+     * cause: the old drafts stayed, the new ones were added beside them.
+     */
+    public function test_rebuilding_replaces_untouched_drafts_rather_than_adding_to_them(): void
+    {
+        $user    = $this->user();
+        $request = $this->request($this->store(), $user, ['ZIM-1-W-38', 'ZIM-1-W-40', 'ZIM-9-SOLO']);
+        $this->fakeSheet();
+
+        $this->build($request);
+        $before = ProductRequestDraftProduct::count();
+
+        // Handles built a different way last time must not survive as extras.
+        foreach (ProductRequestDraftProduct::get() as $i => $stale) {
+            $stale->update(['handle' => "stale-handle-{$i}"]);
+        }
+
+        $this->fakeSheet();
+        $this->build($request);
+
+        $this->assertSame($before, ProductRequestDraftProduct::count(), 'No second set of products.');
+
+        $skus = ProductRequestDraftVariant::pluck('sku');
+        $this->assertSame($skus->count(), $skus->unique()->count(), 'No SKU may appear twice.');
+    }
+
+    /** A draft already in Shopify is never thrown away by a rebuild. */
+    public function test_rebuilding_leaves_a_pushed_draft_alone(): void
+    {
+        $user    = $this->user();
+        $request = $this->request($this->store(), $user, ['ZIM-9-SOLO']);
+        $this->fakeSheet();
+
+        $this->build($request);
+        ProductRequestDraftProduct::sole()->update([
+            'push_status'        => ProductRequestDraftProduct::PUSHED,
+            'shopify_product_id' => '7001',
+        ]);
+
+        $this->fakeSheet();
+        $result = $this->build($request);
+
+        $this->assertSame(1, ProductRequestDraftProduct::count());
+        $this->assertSame(1, $result['skipped_existing']);
+        $this->assertSame('7001', ProductRequestDraftProduct::sole()->shopify_product_id);
     }
 
     public function test_the_csv_is_in_shopify_import_format_and_never_published(): void
