@@ -86,7 +86,8 @@ class DuplicateDiagnosticTest extends TestCase
             ->assertSuccessful();
     }
 
-    public function test_two_request_numbers_on_one_website_are_named_as_a_sheet_problem(): void
+    /** Same SKU count under two Request No is the renumbering signature. */
+    public function test_two_request_numbers_with_the_same_sku_count_are_flagged(): void
     {
         $bs = $this->store('bs.myshopify.com');
 
@@ -97,7 +98,24 @@ class DuplicateDiagnosticTest extends TestCase
         $this->ledger($second, 71, 'BS');
 
         $this->artisan('product-requests:diagnose-duplicates')
-            ->expectsOutputToContain('different Request No')
+            ->expectsOutputToContain('looks like the sheet renumbered')
+            ->assertSuccessful();
+    }
+
+    /** A brand asked for twice, with different SKUs, is two real requests. */
+    public function test_two_request_numbers_with_different_sku_counts_are_called_normal(): void
+    {
+        $bs = $this->store('bs.myshopify.com');
+
+        $first  = $this->request($bs, 'HANRO');
+        $second = $this->request($bs, 'HANRO');
+        $second->update(['total_skus' => 279]);
+
+        $this->ledger($first, 124, 'BS');
+        $this->ledger($second, 28, 'BS');
+
+        $this->artisan('product-requests:diagnose-duplicates')
+            ->expectsOutputToContain('nothing wrong')
             ->assertSuccessful();
     }
 

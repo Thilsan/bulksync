@@ -95,6 +95,24 @@ class ProductRequestSheetSyncService
                     continue;
                 }
 
+                // Claim this (request no, website token) before doing any work. The
+                // unique index is what makes the claim safe: two runs racing on
+                // the same row both read no ledger entry a moment ago, and without
+                // this both would create a request and the second would silently
+                // repoint the ledger at itself, orphaning the first.
+                if ($commit && !$existing) {
+                    try {
+                        $existing = ProductRequestSheetSync::create([
+                            'request_no'    => $requestNo,
+                            'website_token' => $token,
+                            'status'        => 'claimed',
+                        ]);
+                    } catch (\Illuminate\Database\QueryException) {
+                        $result['skipped_existing']++;
+                        continue;
+                    }
+                }
+
                 if (!$deptConfig) {
                     $this->record($requestNo, $token, null, null, 'unmatched_department',
                         "Department \"{$department}\" is not in config/product_request_sync.php");

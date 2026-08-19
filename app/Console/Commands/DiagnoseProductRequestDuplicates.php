@@ -98,7 +98,12 @@ class DiagnoseProductRequestDuplicates extends Command
         }
 
         if ($rows->pluck('request_no')->unique()->count() > 1) {
-            return 'same website, different Request No — either two rows on the sheet or the sheet renumbered between runs';
+            // Two sheet rows for one brand is normal — a second request weeks
+            // later, with its own SKUs. The same SKU count under two Request No
+            // is the suspicious one: that looks like the sheet renumbering.
+            return $requests->pluck('total_skus')->unique()->count() > 1
+                ? 'different Request No and different SKU counts — separate requests for the same brand, nothing wrong'
+                : 'same website, same SKU count, different Request No — looks like the sheet renumbered between runs';
         }
 
         return 'same Request No and token on both — the ledger should have prevented this';
