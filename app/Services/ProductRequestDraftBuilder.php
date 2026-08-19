@@ -34,7 +34,7 @@ class ProductRequestDraftBuilder
     /**
      * @return array{built: int, variants: int, skipped_existing: int, missing_from_sheet: array<int, string>, columns: array{used: array<string, string>, loose: array<int, string>, missing: array<int, string>, ignored: array<int, string>}}
      */
-    public function build(ProductRequest $request, ?User $asUser = null): array
+    public function build(ProductRequest $request): array
     {
         if ($request->requiresMapping()) {
             throw new \RuntimeException(
@@ -62,7 +62,7 @@ class ProductRequestDraftBuilder
             return ['built' => 0, 'variants' => 0, 'skipped_existing' => 0, 'missing_from_sheet' => [], 'columns' => $empty];
         }
 
-        [$rows, $columns] = $this->sheetRowsFor($worksheet, $missing, $asUser);
+        [$rows, $columns] = $this->sheetRowsFor($worksheet, $missing);
 
         // A SKU the sheet has no row for cannot be invented — it is reported so
         // whoever asked can go and add it rather than wonder where it went.
@@ -135,7 +135,7 @@ class ProductRequestDraftBuilder
      *
      * @return array{checked: int, with: int, without: int, missing_from_sheet: array<int, string>, column: string|null}
      */
-    public function syncSheetDescriptions(ProductRequest $request, ?User $asUser = null): array
+    public function syncSheetDescriptions(ProductRequest $request): array
     {
         $worksheet = $this->worksheetFor($request);
 
@@ -151,7 +151,7 @@ class ProductRequestDraftBuilder
             return ['checked' => 0, 'with' => 0, 'without' => 0, 'missing_from_sheet' => [], 'column' => null];
         }
 
-        [$rows, $columns] = $this->sheetRowsFor($worksheet, $skus, $asUser);
+        [$rows, $columns] = $this->sheetRowsFor($worksheet, $skus);
 
         // No Description column at all means the sheet cannot answer the question.
         // Saying so beats marking every SKU as having no copy, which would offer to
@@ -282,17 +282,13 @@ class ProductRequestDraftBuilder
      *
      * @return array{0: array<int, array{fields: array<string, string|null>, raw: array<string, string|null>}>, 1: array<string, mixed>}
      */
-    private function sheetRowsFor(string $worksheet, array $skus, ?User $asUser): array
+    private function sheetRowsFor(string $worksheet, array $skus): array
     {
-        // Read as whoever asked, when they have OneDrive connected — otherwise the
-        // configured sync account, the same one the sheet importer uses. Without
-        // this, anyone who has not linked OneDrive gets a token error instead of
-        // their drafts.
-        $reader = ($asUser && $asUser->has_onedrive)
-            ? $asUser
-            : User::where('email', config('product_request_sync.sync_user_email'))->firstOrFail();
-
-        $this->drive->setUser($reader);
+        // Always the sheet's own connection, never the person clicking. The sheet
+        // lives in one account's OneDrive, so reading it as whoever happens to be
+        // looking would work for them and fail for everybody else — and it has its
+        // own Azure app precisely so it does not depend on anyone's login here.
+        $this->drive->asServiceAccount();
 
         $item   = $this->drive->resolveShareItem(config('product_request_sync.master_sheet_url'));
         $values = $this->drive->worksheetValues($item['driveId'], $item['itemId'], $worksheet);

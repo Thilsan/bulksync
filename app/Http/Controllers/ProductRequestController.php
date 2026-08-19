@@ -957,7 +957,7 @@ class ProductRequestController extends Controller implements HasMiddleware
         set_time_limit(300);   // a category tab can be thousands of rows
 
         try {
-            $result = $this->draftBuilder->build($productRequest, $user);
+            $result = $this->draftBuilder->build($productRequest);
         } catch (\Throwable $e) {
             Log::error("Draft build failed for {$productRequest->reference}: " . $e->getMessage());
             return back()->with('warning', $e->getMessage());
@@ -1282,7 +1282,7 @@ class ProductRequestController extends Controller implements HasMiddleware
         set_time_limit(300);
 
         try {
-            $result = $this->draftBuilder->syncSheetDescriptions($productRequest, $user);
+            $result = $this->draftBuilder->syncSheetDescriptions($productRequest);
         } catch (\Throwable $e) {
             Log::error("Sheet description check failed for {$productRequest->reference}: " . $e->getMessage());
             return back()->with('warning', $e->getMessage());

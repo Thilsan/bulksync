@@ -34,8 +34,12 @@ class ProductRequestSheetSyncService
      */
     public function run(bool $commit = false): array
     {
+        // Who owns the requests this creates when the sheet names nobody we know.
         $syncUser = User::where('email', config('product_request_sync.sync_user_email'))->firstOrFail();
-        $this->drive->setUser($syncUser);
+
+        // The sheet is read through its own Azure app and its own sign-in, not
+        // through anyone's account here — see OneDriveService::asServiceAccount().
+        $this->drive->asServiceAccount();
 
         $item = $this->drive->resolveShareItem(config('product_request_sync.master_sheet_url'));
 

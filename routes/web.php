@@ -6,6 +6,7 @@ use App\Http\Controllers\ChatController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\OneDriveAuthController;
+use App\Http\Controllers\ProductRequestSheetAuthController;
 use App\Http\Controllers\ShopifyAuthController;
 use App\Http\Controllers\StoreController;
 use App\Http\Controllers\SuperAdminController;
@@ -98,6 +99,7 @@ Route::middleware('auth')->group(function () {
     // Settings
     Route::get('/settings',                [SettingsController::class, 'index'])->name('settings.index');
     Route::put('/settings',                [SettingsController::class, 'update'])->name('settings.update');
+    Route::put('/settings/sheet-app',      [SettingsController::class, 'updateSheetApp'])->name('settings.sheet-app');
     Route::get('/settings/test-onedrive',  [SettingsController::class, 'testOnedrive'])->name('settings.test-onedrive');
     Route::get('/settings/test-gemini',    [SettingsController::class, 'testGemini'])->name('settings.test-gemini');
     Route::post('/settings/clear-cache',   [SettingsController::class, 'clearCache'])->name('settings.clear-cache');
@@ -218,6 +220,12 @@ Route::middleware('auth')->group(function () {
     Route::get('/auth/shopify/callback',   [ShopifyAuthController::class,  'callback'])->name('shopify.auth.callback');
 
     // OneDrive OAuth
+    // The Product Request sheet signs into its own Azure app, separate from the
+    // shared OneDrive connection every other feature uses.
+    Route::get('/auth/product-request-sheet/redirect',    [ProductRequestSheetAuthController::class, 'redirect'])->name('product-request-sheet.auth.redirect');
+    Route::get('/auth/product-request-sheet/callback',    [ProductRequestSheetAuthController::class, 'callback'])->name('product-request-sheet.auth.callback');
+    Route::post('/auth/product-request-sheet/disconnect', [ProductRequestSheetAuthController::class, 'disconnect'])->name('product-request-sheet.auth.disconnect');
+
     Route::get('/auth/onedrive/redirect',  [OneDriveAuthController::class, 'redirect'])->name('onedrive.auth.redirect');
     Route::get('/auth/onedrive/callback',  [OneDriveAuthController::class, 'callback'])->name('onedrive.auth.callback');
 });

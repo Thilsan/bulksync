@@ -205,6 +205,93 @@
     </div>
     @endif
 
+    {{-- The Product Request sheet's own Azure app — super admin only.
+
+         Deliberately its own registration and its own sign-in: the sheet lives in
+         somebody else's OneDrive and is read by a background job, so it signs in
+         once as itself. Nothing here touches the shared credentials above. --}}
+    @if(auth()->user()->is_super_admin)
+    <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div class="px-6 py-5 border-b border-gray-100 flex items-center gap-3">
+            <div class="w-9 h-9 rounded-lg bg-gray-100 flex items-center justify-center">
+                <svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                </svg>
+            </div>
+            <div>
+                <h2 class="font-semibold text-gray-800">Product Request Sheet Access</h2>
+                <p class="text-xs text-gray-500">Its own Azure app and sign-in — used by nothing else</p>
+            </div>
+        </div>
+
+        <div class="px-6 py-5 space-y-5">
+            <div class="rounded-lg border px-4 py-3 text-sm
+                        {{ $settings['pcr_onedrive_connected'] ? 'border-green-200 bg-green-50 text-green-800' : 'border-amber-200 bg-amber-50 text-amber-900' }}">
+                @if($settings['pcr_onedrive_connected'])
+                    Connected as <span class="font-medium">{{ $settings['pcr_onedrive_account'] ?? 'an unidentified account' }}</span>.
+                    The sheet is read as this account, whoever is using the app.
+                @else
+                    Not connected. The sheet sync and the Shopify draft builder cannot read the sheet until
+                    the account that owns it signs in here.
+                @endif
+            </div>
+
+            <form method="POST" action="{{ route('settings.sheet-app') }}" class="space-y-4">
+                @csrf
+                @method('PUT')
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1.5">Tenant ID</label>
+                    <input type="text" name="pcr_onedrive_tenant_id" value="{{ old('pcr_onedrive_tenant_id', $settings['pcr_onedrive_tenant_id']) }}"
+                        class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent">
+                    <p class="text-xs text-gray-400 mt-1">From the app registration in <span class="font-medium">their</span> Azure, not yours.</p>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1.5">Client ID</label>
+                    <input type="text" name="pcr_onedrive_client_id" value="{{ old('pcr_onedrive_client_id', $settings['pcr_onedrive_client_id']) }}"
+                        class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent">
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1.5">Client Secret</label>
+                    <input type="password" name="pcr_onedrive_client_secret" autocomplete="new-password"
+                        placeholder="{{ $settings['pcr_onedrive_secret_set'] ? 'Saved — leave blank to keep it' : '' }}"
+                        class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent">
+                    <p class="text-xs text-gray-400 mt-1">Never shown back. Blank keeps the saved one.</p>
+                </div>
+
+                <div class="rounded-lg bg-gray-50 border border-gray-200 px-4 py-3">
+                    <p class="text-xs text-gray-600">
+                        Add this exact redirect URI to that app registration, or the sign-in is refused:
+                    </p>
+                    <code class="block mt-1 text-xs text-gray-800 break-all">{{ str_replace('http://127.0.0.1', 'http://localhost', route('product-request-sheet.auth.callback')) }}</code>
+                </div>
+
+                <div class="flex flex-wrap items-center gap-2 pt-1">
+                    <button type="submit"
+                        class="bg-brand-600 hover:bg-brand-700 text-white px-5 py-2.5 rounded-lg text-sm font-semibold transition-colors">
+                        Save App
+                    </button>
+                    <a href="{{ route('product-request-sheet.auth.redirect') }}"
+                       class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg text-sm font-semibold transition-colors">
+                        {{ $settings['pcr_onedrive_connected'] ? 'Reconnect the sheet account' : 'Connect the sheet account' }}
+                    </a>
+                </div>
+            </form>
+
+            @if($settings['pcr_onedrive_connected'])
+                <form method="POST" action="{{ route('product-request-sheet.auth.disconnect') }}"
+                      onsubmit="return confirm('Disconnect? The sheet sync will stop until it is reconnected.');">
+                    @csrf
+                    <button type="submit" class="text-xs text-red-600 hover:text-red-700">Disconnect this account</button>
+                </form>
+            @endif
+        </div>
+    </div>
+    @endif
+
     {{-- Mail / SMTP — super admin only --}}
     @if(auth()->user()->is_super_admin)
     <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">

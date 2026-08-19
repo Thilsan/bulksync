@@ -32,10 +32,22 @@ class OneDriveService
      */
     public const SCOPES = 'Files.Read offline_access User.Read';
 
+    /**
+     * Settings prefix for the Product Creation Request automation's own Azure app.
+     *
+     * That sheet lives in one person's OneDrive and is read by a background job,
+     * not by whoever is looking at the screen — so it signs in once, as itself,
+     * through its own app registration. Keeping it separate from the shared app
+     * means rotating one cannot break the other, and the account that owns the
+     * sheet does not have to be given a login here at all.
+     */
+    public const PRODUCT_REQUEST_PROFILE = 'pcr_onedrive';
+
     private Client $http;
     private ?string $accessToken   = null;
     private float   $tokenExpiry   = 0.0;
     private ?User   $user          = null;
+    private ?string $serviceProfile = null;
 
     private array $imageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'tiff', 'avif'];
 
@@ -44,9 +56,26 @@ class OneDriveService
         $this->http = new Client(['timeout' => 60]);
     }
 
+    /**
+     * Sign in as a stored service account instead of a user.
+     *
+     * Its credentials, and the token it holds, live in Settings under the given
+     * prefix — nothing about it touches the shared app or anybody's account.
+     */
+    public function asServiceAccount(string $profile = self::PRODUCT_REQUEST_PROFILE): static
+    {
+        $this->serviceProfile = $profile;
+        $this->user           = null;
+        $this->accessToken    = null;
+        $this->tokenExpiry    = 0.0;
+
+        return $this;
+    }
+
     public function setUser(User $user): static
     {
-        $this->user = $user;
+        $this->user           = $user;
+        $this->serviceProfile = null;
         return $this;
     }
 
@@ -391,6 +420,10 @@ class OneDriveService
             return $this->accessToken;
         }
 
+        if ($this->serviceProfile) {
+            return $this->serviceAccountToken();
+        }
+
         $user         = $this->user ?? auth()->user();
         $storedExpiry = (int) ($user?->onedrive_token_expiry ?? 0);
 
@@ -420,6 +453,73 @@ class OneDriveService
 
         $tenantId = Setting::get('onedrive_tenant_id') ?: 'common';
 
+        $data = $this->refreshToken($tenantId, $clientId, $clientSecret, $refreshToken);
+
+        $newExpiry = (string) (time() + ($data['expires_in'] ?? 3600));
+
+        $user?->update([
+            'onedrive_access_token'  => $data['access_token'],
+            'onedrive_refresh_token' => $data['refresh_token'] ?? $refreshToken,
+            'onedrive_token_expiry'  => $newExpiry,
+        ]);
+
+        $this->accessToken = $data['access_token'];
+        $this->tokenExpiry = (float) $newExpiry;
+
+        return $this->accessToken;
+    }
+
+    /**
+     * The same exchange for a service account, whose credentials and token live
+     * in Settings rather than on a user row.
+     */
+    private function serviceAccountToken(): string
+    {
+        $profile = $this->serviceProfile;
+        $expiry  = (int) Setting::get("{$profile}_token_expiry");
+
+        if ($expiry > time() + 60 && ($stored = Setting::get("{$profile}_access_token"))) {
+            $this->accessToken = $stored;
+            $this->tokenExpiry = (float) $expiry;
+
+            return $this->accessToken;
+        }
+
+        $clientId     = Setting::get("{$profile}_client_id");
+        $clientSecret = Setting::get("{$profile}_client_secret");
+        $refreshToken = Setting::get("{$profile}_refresh_token");
+
+        // Each of these is a different problem with a different fix, so say which.
+        if (!$clientId || !$clientSecret) {
+            throw new \RuntimeException(
+                'The tracking sheet has no Azure app configured. A super admin needs to fill in its '
+                . 'Tenant ID, Client ID and Client Secret under Settings → Product Request Sheet Access.'
+            );
+        }
+
+        if (!$refreshToken) {
+            throw new \RuntimeException(
+                'Nobody has signed the tracking sheet account in yet. A super admin needs to press '
+                . '"Connect the sheet account" under Settings → Product Request Sheet Access.'
+            );
+        }
+
+        $data      = $this->refreshToken(Setting::get("{$profile}_tenant_id") ?: 'common', $clientId, $clientSecret, $refreshToken);
+        $newExpiry = (string) (time() + ($data['expires_in'] ?? 3600));
+
+        Setting::set("{$profile}_access_token", $data['access_token']);
+        Setting::set("{$profile}_refresh_token", $data['refresh_token'] ?? $refreshToken);
+        Setting::set("{$profile}_token_expiry", $newExpiry);
+
+        $this->accessToken = $data['access_token'];
+        $this->tokenExpiry = (float) $newExpiry;
+
+        return $this->accessToken;
+    }
+
+    /** Trade a refresh token for a fresh access token. */
+    private function refreshToken(string $tenantId, string $clientId, string $clientSecret, string $refreshToken): array
+    {
         try {
             $response = $this->http->post(
                 "https://login.microsoftonline.com/{$tenantId}/oauth2/v2.0/token",
@@ -455,18 +555,7 @@ class OneDriveService
             throw new \RuntimeException('Failed to refresh OneDrive token. Please reconnect in Settings.');
         }
 
-        $newExpiry = (string) (time() + ($data['expires_in'] ?? 3600));
-
-        $user?->update([
-            'onedrive_access_token'  => $data['access_token'],
-            'onedrive_refresh_token' => $data['refresh_token'] ?? $refreshToken,
-            'onedrive_token_expiry'  => $newExpiry,
-        ]);
-
-        $this->accessToken = $data['access_token'];
-        $this->tokenExpiry = (float) $newExpiry;
-
-        return $this->accessToken;
+        return $data;
     }
 
     private function encodeShareUrl(string $url): string

@@ -18,6 +18,11 @@ class SettingsController extends Controller
         $user = Auth::user();
 
         $settings = [
+            'pcr_onedrive_tenant_id'     => Setting::get('pcr_onedrive_tenant_id'),
+            'pcr_onedrive_client_id'     => Setting::get('pcr_onedrive_client_id'),
+            'pcr_onedrive_secret_set'    => filled(Setting::get('pcr_onedrive_client_secret')),
+            'pcr_onedrive_account'       => Setting::get('pcr_onedrive_account'),
+            'pcr_onedrive_connected'     => filled(Setting::get('pcr_onedrive_refresh_token')),
             'onedrive_tenant_id'     => Setting::get('onedrive_tenant_id'),
             'onedrive_client_id'     => Setting::get('onedrive_client_id'),
             'onedrive_client_secret' => Setting::get('onedrive_client_secret'),
@@ -63,6 +68,50 @@ class SettingsController extends Controller
         }
 
         return back()->with('success', 'Settings saved successfully.');
+    }
+
+    /**
+     * The Product Request sheet's own Azure app.
+     *
+     * Kept apart from the shared credentials above: this one automation reads a
+     * sheet in somebody else's OneDrive, and giving it its own registration means
+     * rotating either app cannot break the other.
+     */
+    public function updateSheetApp(Request $request): RedirectResponse
+    {
+        if (!Auth::user()->is_super_admin) {
+            abort(403);
+        }
+
+        $validated = $request->validate([
+            'pcr_onedrive_tenant_id'     => ['nullable', 'string', 'max:255'],
+            'pcr_onedrive_client_id'     => ['nullable', 'string', 'max:255'],
+            'pcr_onedrive_client_secret' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        // Changing the app invalidates a token consented under the old one, so
+        // the connection is dropped rather than left to fail on the next sync.
+        $appChanged = ($validated['pcr_onedrive_client_id'] ?? null) !== Setting::get('pcr_onedrive_client_id')
+            || ($validated['pcr_onedrive_tenant_id'] ?? null) !== Setting::get('pcr_onedrive_tenant_id');
+
+        foreach ($validated as $key => $value) {
+            // A blank secret means "keep the saved one" — it is never shown back.
+            if ($key === 'pcr_onedrive_client_secret' && blank($value)) {
+                continue;
+            }
+
+            Setting::set($key, $value ?: null);
+        }
+
+        if ($appChanged) {
+            foreach (['access_token', 'refresh_token', 'token_expiry', 'account'] as $key) {
+                Setting::set('pcr_onedrive_' . $key, null);
+            }
+
+            return back()->with('warning', 'Saved. The app changed, so the sheet account needs connecting again.');
+        }
+
+        return back()->with('success', 'Tracking sheet app credentials saved.');
     }
 
     public function updateMail(Request $request): RedirectResponse

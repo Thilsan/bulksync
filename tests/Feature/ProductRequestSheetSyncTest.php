@@ -75,6 +75,7 @@ class ProductRequestSheetSyncTest extends TestCase
         ], $masterOverrides);
 
         $drive = Mockery::mock(OneDriveService::class);
+        $drive->shouldReceive('asServiceAccount')->andReturnSelf();
         $drive->shouldReceive('setUser')->andReturnSelf();
         $drive->shouldReceive('resolveShareItem')->andReturn(['driveId' => 'd', 'itemId' => 'i']);
         $drive->shouldReceive('worksheetValues')
@@ -304,6 +305,7 @@ class ProductRequestSheetSyncTest extends TestCase
         $this->store();
 
         $drive = Mockery::mock(OneDriveService::class);
+        $drive->shouldReceive('asServiceAccount')->andReturnSelf();
         $drive->shouldReceive('setUser')->andReturnSelf();
         $drive->shouldReceive('resolveShareItem')->andReturn(['driveId' => 'd', 'itemId' => 'i']);
         $drive->shouldReceive('worksheetValues')

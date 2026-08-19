@@ -84,6 +84,7 @@ class ProductRequestDraftTest extends TestCase
     private function fakeSheet(): void
     {
         $drive = Mockery::mock(OneDriveService::class);
+        $drive->shouldReceive('asServiceAccount')->andReturnSelf();
         $drive->shouldReceive('setUser')->andReturnSelf();
         $drive->shouldReceive('resolveShareItem')->andReturn(['driveId' => 'd', 'itemId' => 'i']);
         $drive->shouldReceive('worksheetValues')
@@ -106,6 +107,7 @@ class ProductRequestDraftTest extends TestCase
     private function fakeSheetWithOtherHeaders(): void
     {
         $drive = Mockery::mock(OneDriveService::class);
+        $drive->shouldReceive('asServiceAccount')->andReturnSelf();
         $drive->shouldReceive('setUser')->andReturnSelf();
         $drive->shouldReceive('resolveShareItem')->andReturn(['driveId' => 'd', 'itemId' => 'i']);
         $drive->shouldReceive('worksheetValues')
@@ -205,6 +207,7 @@ class ProductRequestDraftTest extends TestCase
         $request = $this->request($this->store(), $user, ['ZIM-1-W-38']);
 
         $drive = Mockery::mock(OneDriveService::class);
+        $drive->shouldReceive('asServiceAccount')->andReturnSelf();
         $drive->shouldReceive('setUser')->andReturnSelf();
         $drive->shouldReceive('resolveShareItem')->andReturn(['driveId' => 'd', 'itemId' => 'i']);
         $drive->shouldReceive('worksheetValues')
@@ -245,6 +248,7 @@ class ProductRequestDraftTest extends TestCase
         $request = $this->request($this->store(), $user, ['ZIM-1-W-38', 'ZIM-1-N-38']);
 
         $drive = Mockery::mock(OneDriveService::class);
+        $drive->shouldReceive('asServiceAccount')->andReturnSelf();
         $drive->shouldReceive('setUser')->andReturnSelf();
         $drive->shouldReceive('resolveShareItem')->andReturn(['driveId' => 'd', 'itemId' => 'i']);
         $drive->shouldReceive('worksheetValues')
@@ -269,6 +273,7 @@ class ProductRequestDraftTest extends TestCase
         $request = $this->request($this->store(), $user, ['ZIM-1-W-38', 'ZIM-1-W-40', 'ZIM-1-N-38']);
 
         $drive = Mockery::mock(OneDriveService::class);
+        $drive->shouldReceive('asServiceAccount')->andReturnSelf();
         $drive->shouldReceive('setUser')->andReturnSelf();
         $drive->shouldReceive('resolveShareItem')->andReturn(['driveId' => 'd', 'itemId' => 'i']);
         $drive->shouldReceive('worksheetValues')
@@ -301,6 +306,7 @@ class ProductRequestDraftTest extends TestCase
         $request = $this->request($this->store(), $user, ['TIE-A', 'TIE-B']);
 
         $drive = Mockery::mock(OneDriveService::class);
+        $drive->shouldReceive('asServiceAccount')->andReturnSelf();
         $drive->shouldReceive('setUser')->andReturnSelf();
         $drive->shouldReceive('resolveShareItem')->andReturn(['driveId' => 'd', 'itemId' => 'i']);
         $drive->shouldReceive('worksheetValues')
@@ -329,7 +335,7 @@ class ProductRequestDraftTest extends TestCase
         $request = $this->request($this->store(), $user, ['ZIM-1-W-38', 'ZIM-9-SOLO']);
         $this->fakeSheet();
 
-        $result = app(ProductRequestDraftBuilder::class)->syncSheetDescriptions($request, $user);
+        $result = app(ProductRequestDraftBuilder::class)->syncSheetDescriptions($request);
 
         $this->assertSame('Description', $result['column']);
         $this->assertSame(2, $result['checked']);
@@ -347,7 +353,7 @@ class ProductRequestDraftTest extends TestCase
         $request = $this->request($this->store(), $user, ['ZIM-1-W-38', 'GHOST-SKU']);
         $this->fakeSheet();
 
-        $result = app(ProductRequestDraftBuilder::class)->syncSheetDescriptions($request, $user);
+        $result = app(ProductRequestDraftBuilder::class)->syncSheetDescriptions($request);
 
         $this->assertSame(['GHOST-SKU'], $result['missing_from_sheet']);
         $this->assertNull($request->skus()->where('sku', 'GHOST-SKU')->value('sheet_has_description'));
@@ -364,6 +370,7 @@ class ProductRequestDraftTest extends TestCase
         $request = $this->request($this->store(), $user, ['ZIM-1-W-38']);
 
         $drive = Mockery::mock(OneDriveService::class);
+        $drive->shouldReceive('asServiceAccount')->andReturnSelf();
         $drive->shouldReceive('setUser')->andReturnSelf();
         $drive->shouldReceive('resolveShareItem')->andReturn(['driveId' => 'd', 'itemId' => 'i']);
         $drive->shouldReceive('worksheetValues')
@@ -378,7 +385,7 @@ class ProductRequestDraftTest extends TestCase
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessageMatches('/no description column/');
 
-        app(ProductRequestDraftBuilder::class)->syncSheetDescriptions($request, $user);
+        app(ProductRequestDraftBuilder::class)->syncSheetDescriptions($request);
     }
 
     public function test_only_skus_missing_from_shopify_are_staged(): void
