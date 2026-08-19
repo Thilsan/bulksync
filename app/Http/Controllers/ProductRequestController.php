@@ -181,7 +181,16 @@ class ProductRequestController extends Controller implements HasMiddleware
             });
         }
 
-        $requests = $query->latest()->paginate(20)->withQueryString();
+        // Sheet order, so the list reads the same way as the tracking sheet the
+        // team works from. Requests raised by hand have no sheet number and sit
+        // after the numbered ones, newest first. The id tiebreak keeps the two or
+        // three requests one sheet row makes (BS / PG / SN) next to each other.
+        $requests = $query
+            ->orderByRaw('sheet_request_no IS NULL')
+            ->orderBy('sheet_request_no')
+            ->orderBy('id')
+            ->paginate(20)
+            ->withQueryString();
 
         $brands = ProductRequest::query()->onMyDesk($user)
             ->distinct()->orderBy('brand')->pluck('brand');

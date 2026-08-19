@@ -102,6 +102,72 @@ class ProductRequestTest extends TestCase
         return ProductRequest::latest('id')->first();
     }
 
+    // ── The list reads in sheet order ────────────────────────────────────────
+
+    /**
+     * The team works from the tracking sheet, so the request list has to read the
+     * same way. Requests raised by hand have no sheet number and follow the
+     * numbered ones rather than being dropped or scattered through them.
+     */
+    public function test_the_list_is_ordered_by_sheet_request_no(): void
+    {
+        Notification::fake();
+        Queue::fake();
+
+        $user  = $this->brandManager();
+        $store = $this->plainSite();
+
+        // Created deliberately out of order, so passing cannot be an accident of
+        // insertion order or of the old newest-first sort.
+        $middle = $this->submitFor($user, $store);
+        $middle->update(['sheet_request_no' => 76, 'brand' => 'ALBERTO']);
+
+        $manual = $this->submitFor($user, $store);
+        $manual->update(['brand' => 'RAISED BY HAND']);   // no sheet number
+
+        $first = $this->submitFor($user, $store);
+        $first->update(['sheet_request_no' => 12, 'brand' => 'AORA ATHLETICS']);
+
+        $last = $this->submitFor($user, $store);
+        $last->update(['sheet_request_no' => 100, 'brand' => 'AUBADE']);
+
+        $order = $this->actingAs($user)
+            ->get(route('product-requests.list'))
+            ->assertOk()
+            ->viewData('requests')
+            ->pluck('brand')
+            ->all();
+
+        $this->assertSame(['AORA ATHLETICS', 'ALBERTO', 'AUBADE', 'RAISED BY HAND'], $order);
+    }
+
+    /** Two websites off one sheet row stay together rather than splitting up. */
+    public function test_requests_sharing_a_sheet_number_stay_adjacent(): void
+    {
+        Notification::fake();
+        Queue::fake();
+
+        $user  = $this->brandManager();
+        $store = $this->plainSite();
+
+        $bs = $this->submitFor($user, $store);
+        $bs->update(['sheet_request_no' => 170, 'brand' => 'BS COPY']);
+
+        $other = $this->submitFor($user, $store);
+        $other->update(['sheet_request_no' => 171, 'brand' => 'NEXT ROW']);
+
+        $pg = $this->submitFor($user, $store);
+        $pg->update(['sheet_request_no' => 170, 'brand' => 'PG COPY']);
+
+        $order = $this->actingAs($user)
+            ->get(route('product-requests.list'))
+            ->viewData('requests')
+            ->pluck('brand')
+            ->all();
+
+        $this->assertSame(['BS COPY', 'PG COPY', 'NEXT ROW'], $order);
+    }
+
     // ── Website selection drives whether mapping applies ─────────────────────
 
     public function test_a_bluesalon_request_waits_for_mapping(): void
