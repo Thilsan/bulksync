@@ -35,6 +35,13 @@ class CleanDuplicateSyncedRequests extends Command
     /** How far apart two copies of one sheet row can be and still be the same accident. */
     private const WINDOW_MINUTES = 10;
 
+    /**
+     * How long the importer takes to finish writing its own history for a
+     * request — the creation entry, the SKU check's status move, the category
+     * staffing. Anything logged after this was a person, not the import.
+     */
+    private const SETTLE_MINUTES = 5;
+
     public function handle(): int
     {
         $commit = (bool) $this->option('commit');
@@ -115,10 +122,14 @@ class CleanDuplicateSyncedRequests extends Command
             $signs[] = "{$count} comment(s)";
         }
 
-        // The sync's own staffing and status moves carry no actor. Anything with
-        // a user against it was somebody deciding something.
-        if ($count = $request->activities()->whereNotNull('user_id')->count()) {
-            $signs[] = "{$count} action(s) by a person";
+        // Who the actor is says nothing useful here: the SKU check logs its own
+        // status move against whoever ran the import, so every synced request
+        // looks "touched by a person". When it happened is the honest signal —
+        // the import writes its history within seconds, people come along later.
+        $settled = $request->created_at->copy()->addMinutes(self::SETTLE_MINUTES);
+
+        if ($count = $request->activities()->where('created_at', '>', $settled)->count()) {
+            $signs[] = "{$count} action(s) after the import finished";
         }
 
         return $signs ? implode(', ', $signs) : null;

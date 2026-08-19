@@ -107,6 +107,31 @@ class CleanDuplicateSyncsTest extends TestCase
         $this->assertNotNull($older->fresh(), 'HANRO #28 with 279 SKUs is its own request.');
     }
 
+    /**
+     * The SKU check logs its status move against whoever ran the import, so
+     * every synced request carries an activity with a user against it seconds
+     * after creation. That is the automation, and must not save a duplicate.
+     */
+    public function test_the_imports_own_history_does_not_count_as_someone_working_on_it(): void
+    {
+        $orphan = $this->request();
+        $twin   = $this->request();
+        $this->ledger($twin);
+
+        $orphan->activities()->create([
+            'user_id'     => $this->user->id,          // the person who ran the sync
+            'action'      => 'status_changed',
+            'from_status' => ProductRequest::SUBMITTED,
+            'to_status'   => ProductRequest::SKU_VERIFIED,
+            'description' => 'Status changed from Submitted to SKU Verified',
+            'created_at'  => $orphan->created_at->copy()->addSeconds(20),
+        ]);
+
+        $this->artisan('product-requests:clean-duplicate-syncs', ['--commit' => true])->assertSuccessful();
+
+        $this->assertNull($orphan->fresh(), 'An automatic status move must not protect a duplicate.');
+    }
+
     public function test_a_copy_someone_has_worked_on_is_kept_and_reported(): void
     {
         $orphan = $this->request();
