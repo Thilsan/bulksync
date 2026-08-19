@@ -89,6 +89,24 @@ class SettingsController extends Controller
             'pcr_onedrive_client_secret' => ['nullable', 'string', 'max:500'],
         ]);
 
+        // Azure shows the secret's ID and its value side by side, and the value only
+        // once — so the ID is what is still on screen when somebody comes back to
+        // copy it. Microsoft answers that with AADSTS7000215 at sign-in time, hours
+        // later; a GUID here is never a secret value, so say so now.
+        $secret = trim((string) ($validated['pcr_onedrive_client_secret'] ?? ''));
+
+        if ($secret !== '' && preg_match('/^\{?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\}?$/i', $secret)) {
+            return back()->withErrors([
+                'pcr_onedrive_client_secret' => 'That is the Secret ID, not the Secret Value. In Azure → Certificates & secrets, '
+                    . 'the Value column is the one to copy — it is only shown when the secret is first created, so if it is '
+                    . 'masked now, delete that secret and add a new one.',
+            ]);
+        }
+
+        $validated['pcr_onedrive_client_secret'] = $secret;
+        $validated['pcr_onedrive_tenant_id']     = trim((string) ($validated['pcr_onedrive_tenant_id'] ?? '')) ?: null;
+        $validated['pcr_onedrive_client_id']     = trim((string) ($validated['pcr_onedrive_client_id'] ?? '')) ?: null;
+
         // Changing the app invalidates a token consented under the old one, so
         // the connection is dropped rather than left to fail on the next sync.
         $appChanged = ($validated['pcr_onedrive_client_id'] ?? null) !== Setting::get('pcr_onedrive_client_id')

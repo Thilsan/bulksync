@@ -87,6 +87,37 @@ class ProductRequestSheetAuthTest extends TestCase
         $this->assertTrue(blank(Setting::get(self::PROFILE . '_account')));
     }
 
+    /**
+     * Azure shows the secret's ID and its value side by side, and the value only
+     * once — so the ID is what is still on screen later. Microsoft answers that
+     * with AADSTS7000215 at sign-in time; catching it at save time is kinder.
+     */
+    public function test_a_secret_id_pasted_as_the_secret_is_refused(): void
+    {
+        $this->actingAs($this->admin())
+            ->put(route('settings.sheet-app'), [
+                'pcr_onedrive_client_id'     => 'their-app',
+                'pcr_onedrive_client_secret' => 'd4c1a2b3-5e6f-7a8b-9c0d-1e2f3a4b5c6d',
+            ])
+            ->assertSessionHasErrors('pcr_onedrive_client_secret');
+
+        $this->assertTrue(blank(Setting::get(self::PROFILE . '_client_secret')));
+    }
+
+    /** A real secret value is nothing like a GUID, and is saved untouched. */
+    public function test_a_real_secret_value_is_accepted(): void
+    {
+        $this->actingAs($this->admin())
+            ->put(route('settings.sheet-app'), [
+                'pcr_onedrive_client_id'     => 'their-app',
+                'pcr_onedrive_client_secret' => '  abc8Q~Zx1.9_kLmN-OpQrStUvWxYz0123456789  ',
+            ])
+            ->assertRedirect();
+
+        // Trimmed: a stray space copied out of the portal is not part of the secret.
+        $this->assertSame('abc8Q~Zx1.9_kLmN-OpQrStUvWxYz0123456789', Setting::get(self::PROFILE . '_client_secret'));
+    }
+
     public function test_only_a_super_admin_can_touch_the_sheet_app(): void
     {
         $user = $this->admin(superAdmin: false);

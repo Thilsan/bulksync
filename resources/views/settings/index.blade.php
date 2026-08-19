@@ -259,7 +259,10 @@
                     <input type="password" name="pcr_onedrive_client_secret" autocomplete="new-password"
                         placeholder="{{ $settings['pcr_onedrive_secret_set'] ? 'Saved — leave blank to keep it' : '' }}"
                         class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent">
-                    <p class="text-xs text-gray-400 mt-1">Never shown back. Blank keeps the saved one.</p>
+                    <p class="text-xs text-gray-400 mt-1">
+                        The <span class="font-medium">Value</span> from Azure → Certificates &amp; secrets, not the Secret ID —
+                        the value is only shown when the secret is first created. Never shown back here; blank keeps the saved one.
+                    </p>
                 </div>
 
                 <div class="rounded-lg bg-gray-50 border border-gray-200 px-4 py-3">
