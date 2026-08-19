@@ -274,6 +274,97 @@ class ProductRequestMissingCopyTest extends TestCase
             ->assertSessionHasErrors('ai');
     }
 
+    // ── The banner offers the generator instead of only a sheet ──────────────
+
+    /**
+     * "This request is not using the AI Content Generator" was a dead end: the
+     * setting says where the copy was meant to come from, not whether it exists.
+     */
+    public function test_a_brand_supplied_request_with_blank_products_is_offered_the_generator(): void
+    {
+        $request = $this->request(described: 2, blank: 10);
+
+        $this->assertTrue($request->awaitingContentSheet());
+        $this->assertTrue($request->couldGenerateInsteadOfSheet());
+
+        $this->actingAs($this->user)
+            ->get(route('product-requests.show', $request))
+            ->assertOk()
+            ->assertSee('10 product(s) are live with no description')
+            ->assertSee('Generate AI content for 10');
+    }
+
+    /** With every description written, there is nothing to generate. */
+    public function test_a_request_whose_products_all_have_copy_is_only_asked_for_a_sheet(): void
+    {
+        $request = $this->request(described: 12, blank: 0);
+
+        $this->assertFalse($request->couldGenerateInsteadOfSheet());
+
+        $this->actingAs($this->user)
+            ->get(route('product-requests.show', $request))
+            ->assertOk()
+            ->assertSee('The brand team needs to upload the copy');
+    }
+
+    /**
+     * Null is "nobody looked", not "no copy" — the case every request validated
+     * before the column existed is in. Saying so beats offering to write over
+     * descriptions that may well be there.
+     */
+    public function test_unchecked_descriptions_are_reported_as_needing_a_check(): void
+    {
+        $request = $this->request(described: 0, blank: 0);
+
+        foreach (range(1, 12) as $i) {
+            ProductRequestSku::create([
+                'product_request_id' => $request->id,
+                'sku'                => "OLD-{$i}",
+                'mapping_status'     => ProductRequest::MAP_MAPPED,
+                'in_shopify'         => true,
+                'has_description'    => null,
+            ]);
+        }
+
+        $this->assertSame(12, $request->descriptionsUncheckedCount());
+        $this->assertSame(0, $request->needsContentCount());
+        $this->assertFalse($request->canOfferContentForMissing());
+
+        $this->actingAs($this->user)
+            ->get(route('product-requests.show', $request))
+            ->assertOk()
+            ->assertSee('has not read the existing descriptions back yet');
+    }
+
+    /** The backfill finds exactly those requests, and touches nothing on a dry run. */
+    public function test_the_backfill_reports_requests_whose_descriptions_were_never_read(): void
+    {
+        $request = $this->request(described: 0, blank: 0);
+
+        ProductRequestSku::create([
+            'product_request_id' => $request->id,
+            'sku'                => 'OLD-1',
+            'mapping_status'     => ProductRequest::MAP_MAPPED,
+            'in_shopify'         => true,
+            'has_description'    => null,
+        ]);
+
+        $this->artisan('product-requests:backfill-descriptions')
+            ->expectsOutputToContain("Would re-check {$request->reference}")
+            ->assertSuccessful();
+
+        $this->assertSame(1, $request->descriptionsUncheckedCount(), 'A dry run must change nothing.');
+    }
+
+    public function test_the_backfill_skips_requests_already_checked(): void
+    {
+        $this->request(described: 5, blank: 5);
+
+        $this->artisan('product-requests:backfill-descriptions')
+            ->expectsOutputToContain('Nothing to do')
+            ->assertSuccessful();
+    }
+
     public function test_publishing_reports_skus_left_without_a_description(): void
     {
         $request = $this->request(described: 10, blank: 10);

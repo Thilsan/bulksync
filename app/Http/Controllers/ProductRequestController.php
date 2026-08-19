@@ -181,13 +181,13 @@ class ProductRequestController extends Controller implements HasMiddleware
             });
         }
 
-        // Sheet order, so the list reads the same way as the tracking sheet the
-        // team works from. Requests raised by hand have no sheet number and sit
-        // after the numbered ones, newest first. The id tiebreak keeps the two or
-        // three requests one sheet row makes (BS / PG / SN) next to each other.
+        // Newest sheet row first, so the rows the team added most recently are the
+        // ones on page 1. Requests raised by hand have no sheet number and follow
+        // the numbered ones. The id tiebreak keeps the two or three requests one
+        // sheet row makes (BS / PG / SN) next to each other, in the order created.
         $requests = $query
             ->orderByRaw('sheet_request_no IS NULL')
-            ->orderBy('sheet_request_no')
+            ->orderByDesc('sheet_request_no')
             ->orderBy('id')
             ->paginate(20)
             ->withQueryString();

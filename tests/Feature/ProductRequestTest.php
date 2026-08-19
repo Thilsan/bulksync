@@ -105,9 +105,9 @@ class ProductRequestTest extends TestCase
     // ── The list reads in sheet order ────────────────────────────────────────
 
     /**
-     * The team works from the tracking sheet, so the request list has to read the
-     * same way. Requests raised by hand have no sheet number and follow the
-     * numbered ones rather than being dropped or scattered through them.
+     * Newest sheet row first, so the most recently added work is on page 1.
+     * Requests raised by hand have no sheet number and follow the numbered ones
+     * rather than being dropped or scattered through them.
      */
     public function test_the_list_is_ordered_by_sheet_request_no(): void
     {
@@ -138,7 +138,7 @@ class ProductRequestTest extends TestCase
             ->pluck('brand')
             ->all();
 
-        $this->assertSame(['AORA ATHLETICS', 'ALBERTO', 'AUBADE', 'RAISED BY HAND'], $order);
+        $this->assertSame(['AUBADE', 'ALBERTO', 'AORA ATHLETICS', 'RAISED BY HAND'], $order);
     }
 
     /** Two websites off one sheet row stay together rather than splitting up. */
@@ -165,7 +165,7 @@ class ProductRequestTest extends TestCase
             ->pluck('brand')
             ->all();
 
-        $this->assertSame(['BS COPY', 'PG COPY', 'NEXT ROW'], $order);
+        $this->assertSame(['NEXT ROW', 'BS COPY', 'PG COPY'], $order);
     }
 
     // ── Website selection drives whether mapping applies ─────────────────────
@@ -1925,9 +1925,11 @@ class ProductRequestTest extends TestCase
 
         $this->assertTrue($request->awaitingContentSheet());
 
+        // The SKU has not been checked against Shopify yet, so whether it has copy
+        // is unknown — which is a different message from "upload a sheet".
         $this->actingAs($user)->get(route('product-requests.show', $request))
             ->assertOk()
-            ->assertSee('Awaiting content sheet');
+            ->assertSee('Awaiting content');
     }
 
     public function test_an_ai_request_never_asks_for_a_content_sheet(): void

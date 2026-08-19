@@ -179,10 +179,43 @@
                 @endif
 
                 @if($request->awaitingContentSheet())
+                    @php
+                        $needsCopy = $request->needsContentCount();
+                        $unchecked = $request->descriptionsUncheckedCount();
+                    @endphp
                     <div class="mt-4 bg-amber-50 border border-amber-200 text-amber-900 rounded-lg px-4 py-2.5 text-sm">
-                        <span class="font-medium">Awaiting content sheet.</span>
-                        This request is not using the AI Content Generator — the brand team needs to upload the copy as an Excel or CSV file.
-                        <button type="button" @click="tab = 'attachments'" class="underline font-medium">Upload it now</button>
+                        <span class="font-medium">Awaiting content.</span>
+
+                        @if($needsCopy > 0)
+                            {{-- The setting says where the copy was meant to come from,
+                                 not whether it exists. Products live with nothing on
+                                 them can be written here whatever the request says. --}}
+                            {{ number_format($needsCopy) }} product(s) are live with no description.
+                            Generate the copy for those, or upload the brand team's sheet.
+
+                            <span class="inline-flex flex-wrap items-center gap-2 mt-2">
+                                <form method="POST" action="{{ route('product-requests.ai-content', $request) }}">
+                                    @csrf
+                                    <input type="hidden" name="scope" value="missing_description">
+                                    <input type="hidden" name="answer" value="generate">
+                                    <button type="submit" class="text-xs font-medium text-white px-3 py-1.5 rounded-lg"
+                                            style="background-color:#1d5a74">
+                                        Generate AI content for {{ number_format($needsCopy) }}
+                                    </button>
+                                </form>
+                                <button type="button" @click="tab = 'attachments'"
+                                        class="text-xs font-medium text-amber-900 underline">Upload a content sheet instead</button>
+                            </span>
+                        @elseif($unchecked > 0)
+                            {{-- Null is "nobody looked", not "no copy". Saying so beats
+                                 offering to write over descriptions that may exist. --}}
+                            The SKU check has not read the existing descriptions back yet, so it is not known which
+                            products need copy. Run <span class="font-medium">Validate SKUs</span> below, then this
+                            will offer to write the ones that have none.
+                        @else
+                            The brand team needs to upload the copy as an Excel or CSV file.
+                            <button type="button" @click="tab = 'attachments'" class="underline font-medium">Upload it now</button>
+                        @endif
                     </div>
                 @endif
 

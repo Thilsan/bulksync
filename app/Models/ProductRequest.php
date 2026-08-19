@@ -859,6 +859,19 @@ class ProductRequest extends Model
         return !$this->use_ai_content && $this->contentSheets()->doesntExist();
     }
 
+    /**
+     * Whether the generator is worth offering instead of waiting for a sheet.
+     *
+     * "This request is not using the AI Content Generator" was a dead end: the
+     * setting says where the copy was meant to come from, not whether the copy
+     * exists. If products are live with nothing on them, writing it here is a
+     * real option whatever the request was raised with.
+     */
+    public function couldGenerateInsteadOfSheet(): bool
+    {
+        return $this->awaitingContentSheet() && $this->needsContentCount() > 0;
+    }
+
     // ── Reference generation ─────────────────────────────────────────────────
 
     /**
@@ -1030,6 +1043,18 @@ class ProductRequest extends Model
         return $this->skusMissingDescription()
             ->whereNull('content_started_at')
             ->whereNull('content_skipped_at');
+    }
+
+    /**
+     * Live SKUs the check has not read a description back for.
+     *
+     * Null is not "has no copy" — it means nobody has looked. Generating over a
+     * description somebody wrote is worse than waiting, so these are counted
+     * apart and reported as needing a check rather than needing copy.
+     */
+    public function descriptionsUncheckedCount(): int
+    {
+        return $this->skus()->where('in_shopify', true)->whereNull('has_description')->count();
     }
 
     public function missingDescriptionCount(): int
