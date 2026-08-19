@@ -168,10 +168,17 @@
                                     </thead>
                                     <tbody class="divide-y divide-gray-50">
                                         @foreach($draft->variants as $i => $variant)
-                                            <tr>
-                                                <td class="py-2 pr-3 font-mono text-xs text-gray-700 whitespace-nowrap">
+                                            <tr x-data="{ sheet: false }">
+                                                <td class="py-2 pr-3 font-mono text-xs text-gray-700 whitespace-nowrap align-top">
                                                     {{ $variant->sku }}
                                                     <input type="hidden" name="variants[{{ $i }}][id]" value="{{ $variant->id }}">
+                                                    @if($variant->unmappedSheetColumns())
+                                                        {{-- Everything the sheet had that no Shopify field claimed. The
+                                                             price is usually in here when the mapping missed it. --}}
+                                                        <button type="button" @click="sheet = !sheet"
+                                                                class="block mt-1 text-[11px] font-sans text-brand-600 hover:text-brand-700"
+                                                                x-text="sheet ? 'hide sheet' : 'sheet data'"></button>
+                                                    @endif
                                                 </td>
                                                 @foreach($draft->optionNames() as $position => $name)
                                                     @php $field = 'option' . ($position + 1) . '_value'; @endphp
@@ -189,6 +196,21 @@
                                                     </td>
                                                 @endforeach
                                             </tr>
+
+                                            @if($columns = $variant->unmappedSheetColumns())
+                                                <tr x-show="sheet" x-cloak>
+                                                    <td colspan="{{ 5 + count($draft->optionNames()) }}" class="pb-3">
+                                                        <dl class="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-1 bg-gray-50 rounded-lg px-3 py-2 text-xs">
+                                                            @foreach($columns as $name => $value)
+                                                                <div class="min-w-0">
+                                                                    <dt class="text-gray-400 truncate">{{ $name }}</dt>
+                                                                    <dd class="text-gray-700 break-words">{{ $value }}</dd>
+                                                                </div>
+                                                            @endforeach
+                                                        </dl>
+                                                    </td>
+                                                </tr>
+                                            @endif
                                         @endforeach
                                     </tbody>
                                 </table>

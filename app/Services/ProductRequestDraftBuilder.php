@@ -15,9 +15,15 @@ use Illuminate\Support\Str;
  * Only for websites that do not go through Cegid mapping: where they do, an
  * unmatched SKU is Supply Chain's to resolve, not a product to invent.
  *
+ * The category tabs are not consistent with each other, so rather than insisting
+ * on one set of column names it takes the whole row and maps what it recognises
+ * (see config/product_request_draft.php), reporting which column it used for
+ * each field. Everything it could not place is kept against the variant and
+ * shown on the review screen — a column nobody told us about is still worth
+ * having in front of the person checking the product.
+ *
  * Nothing here talks to Shopify. It produces reviewable rows; pushing them is a
- * separate, deliberate step. See config/product_request_draft.php for the
- * sheet-column mapping this depends on.
+ * separate, deliberate step.
  */
 class ProductRequestDraftBuilder
 {
@@ -26,7 +32,7 @@ class ProductRequestDraftBuilder
     ) {}
 
     /**
-     * @return array{built: int, variants: int, skipped_existing: int, missing_from_sheet: array<int, string>}
+     * @return array{built: int, variants: int, skipped_existing: int, missing_from_sheet: array<int, string>, columns: array{used: array<string, string>, loose: array<int, string>, missing: array<int, string>, ignored: array<int, string>}}
      */
     public function build(ProductRequest $request, ?User $asUser = null): array
     {
@@ -50,16 +56,18 @@ class ProductRequestDraftBuilder
             ->pluck('sku')
             ->all();
 
+        $empty = ['used' => [], 'loose' => [], 'missing' => [], 'ignored' => []];
+
         if (empty($missing)) {
-            return ['built' => 0, 'variants' => 0, 'skipped_existing' => 0, 'missing_from_sheet' => []];
+            return ['built' => 0, 'variants' => 0, 'skipped_existing' => 0, 'missing_from_sheet' => [], 'columns' => $empty];
         }
 
-        $rows = $this->sheetRowsFor($worksheet, $missing, $asUser);
+        [$rows, $columns] = $this->sheetRowsFor($worksheet, $missing, $asUser);
 
         // A SKU the sheet has no row for cannot be invented — it is reported so
         // whoever asked can go and add it rather than wonder where it went.
-        $found             = array_map(fn ($r) => $this->normalizeSku($r['sku']), $rows);
-        $missingFromSheet  = array_values(array_diff(array_map([$this, 'normalizeSku'], $missing), $found));
+        $found            = array_map(fn ($r) => $this->normalizeSku($r['fields']['sku']), $rows);
+        $missingFromSheet = array_values(array_diff(array_map([$this, 'normalizeSku'], $missing), $found));
 
         $existingHandles = $request->draftProducts()->pluck('handle')->all();
 
@@ -103,6 +111,7 @@ class ProductRequestDraftBuilder
             'variants'           => $variants,
             'skipped_existing'   => $skipped,
             'missing_from_sheet' => $missingFromSheet,
+            'columns'            => $columns,
         ];
     }
 
@@ -119,10 +128,85 @@ class ProductRequestDraftBuilder
     }
 
     /**
-     * Rows on the category tab for the given SKUs, with the sheet's columns
-     * already renamed to the field names the rest of this class uses.
+     * Work out which column on this tab holds each field.
      *
-     * @return array<int, array<string, string|null>>
+     * Exact names first, in the order they are configured, then a substring
+     * match as a last resort. A loose match is reported separately: it is a
+     * guess, and the person reviewing should see which column it landed on.
+     *
+     * @return array{index: array<string, int>, report: array{used: array<string, string>, loose: array<int, string>, missing: array<int, string>, ignored: array<int, string>}}
+     */
+    private function resolveColumns(array $header): array
+    {
+        $normalized = array_map(fn ($h) => strtolower(trim((string) $h)), $header);
+
+        $index  = [];
+        $used   = [];
+        $loose  = [];
+        $absent = [];
+        $taken  = [];
+
+        foreach (config('product_request_draft.column_map', []) as $field => $names) {
+            $position = null;
+
+            foreach ((array) $names as $name) {
+                $found = array_search(strtolower(trim($name)), $normalized, true);
+
+                if ($found !== false && !in_array($found, $taken, true)) {
+                    $position = $found;
+                    break;
+                }
+            }
+
+            if ($position !== null) {
+                $index[$field] = $position;
+                $used[$field]  = trim((string) $header[$position]);
+                $taken[]       = $position;
+                continue;
+            }
+
+            // Nothing named right — try the substring hints for this field only.
+            foreach (config("product_request_draft.column_contains.{$field}", []) as $needle) {
+                foreach ($normalized as $at => $columnName) {
+                    if (in_array($at, $taken, true) || !str_contains($columnName, strtolower($needle))) {
+                        continue;
+                    }
+
+                    $index[$field] = $at;
+                    $used[$field]  = trim((string) $header[$at]);
+                    $loose[]       = $field . ' ← "' . trim((string) $header[$at]) . '"';
+                    $taken[]       = $at;
+                    break 2;
+                }
+            }
+
+            if (!isset($index[$field])) {
+                $absent[] = $field;
+            }
+        }
+
+        // Columns the tab has that no field claimed. Not a problem — they are
+        // kept on the variant either way — but worth naming, because one of them
+        // is usually the price nobody could find.
+        $ignored = [];
+
+        foreach ($header as $at => $name) {
+            if (!in_array($at, $taken, true) && trim((string) $name) !== '') {
+                $ignored[] = trim((string) $name);
+            }
+        }
+
+        return [
+            'index'  => $index,
+            'report' => ['used' => $used, 'loose' => $loose, 'missing' => $absent, 'ignored' => $ignored],
+        ];
+    }
+
+    /**
+     * Rows on the category tab for the given SKUs — both the mapped fields and
+     * the whole row as the sheet has it.
+     *
+     * @return array{0: array<int, array{fields: array<string, string|null>, raw: array<string, string|null>}>, 1: array<string, mixed>}
      */
     private function sheetRowsFor(string $worksheet, array $skus, ?User $asUser): array
     {
@@ -139,28 +223,15 @@ class ProductRequestDraftBuilder
         $item   = $this->drive->resolveShareItem(config('product_request_sync.master_sheet_url'));
         $values = $this->drive->worksheetValues($item['driveId'], $item['itemId'], $worksheet);
 
-        $header = array_map(fn ($h) => strtolower(trim((string) $h)), $values[0] ?? []);
-        $map    = config('product_request_draft.column_map', []);
-
-        // field => column index on this tab, for the columns it actually has.
-        $index = [];
-
-        foreach ($map as $field => $columnName) {
-            if (!$columnName) {
-                continue;
-            }
-
-            $position = array_search(strtolower(trim($columnName)), $header, true);
-
-            if ($position !== false) {
-                $index[$field] = $position;
-            }
-        }
+        $header   = $values[0] ?? [];
+        $resolved = $this->resolveColumns($header);
+        $index    = $resolved['index'];
 
         if (!isset($index['sku'])) {
             throw new \RuntimeException(
-                "The \"{$worksheet}\" tab has no \"" . ($map['sku'] ?? 'Item SKU') . '" column — '
-                . 'check config/product_request_draft.php against the sheet.'
+                "The \"{$worksheet}\" tab has no SKU column — it has: "
+                . implode(', ', array_filter(array_map(fn ($h) => trim((string) $h), $header)))
+                . '. Add the right name to config/product_request_draft.php.'
             );
         }
 
@@ -174,18 +245,36 @@ class ProductRequestDraftBuilder
                 continue;
             }
 
-            $rows[] = collect($index)
-                ->map(fn ($position) => $this->cell($row[$position] ?? null))
-                ->all();
+            $raw = [];
+
+            foreach ($header as $at => $name) {
+                $name = trim((string) $name);
+
+                if ($name !== '') {
+                    $raw[$name] = $this->cell($row[$at] ?? null);
+                }
+            }
+
+            $rows[] = [
+                'fields' => collect($index)->map(fn ($at) => $this->cell($row[$at] ?? null))->all(),
+                'raw'    => $raw,
+            ];
         }
 
-        return $rows;
+        return [$rows, $resolved['report']];
     }
 
     /**
-     * SKUs sharing a style code become one product with a variant each. Without
-     * a style code the SKU stands alone rather than being folded into someone
-     * else's product on a guess.
+     * One product per style code and colour, with a variant per size.
+     *
+     * The colour belongs in the product, not only in the variant: the team's own
+     * Shopify export puts it in the handle
+     * ("10219710-triumph-body-make-up-illusion-lace-wp-bra-nude-beige"), and a
+     * handle is one product in Shopify — so two colours sharing a style code are
+     * two products, each with its sizes as variants.
+     *
+     * Without a style code the SKU stands alone rather than being folded into
+     * someone else's product on a guess.
      *
      * @return array<string, array<string, mixed>>
      */
@@ -194,43 +283,51 @@ class ProductRequestDraftBuilder
         $optionNames = config('product_request_draft.option_names', []);
         $weightUnit  = config('product_request_draft.weight_unit', 'kg');
         $products    = [];
+        $handleOwner = [];   // handle => the group that claimed it
 
         foreach ($rows as $row) {
-            $sku       = $this->normalizeSku($row['sku']);
-            $styleCode = $row['style_code'] ?? null;
-            $vendor    = $row['brand'] ?? $request->brand;
-            $key       = filled($styleCode) ? "style:{$styleCode}" : "sku:{$sku}";
-            $handle    = Str::slug(($vendor ?: $request->brand) . '-' . (filled($styleCode) ? $styleCode : $sku));
+            $fields    = $row['fields'];
+            $sku       = $this->normalizeSku($fields['sku']);
+            $styleCode = $fields['style_code'] ?? null;
+            $colour    = $fields['option1_value'] ?? null;
+            $vendor    = $fields['brand'] ?? $request->brand;
+            $title     = $fields['title'] ?? null;
+
+            $key    = filled($styleCode)
+                ? 'style:' . strtoupper($styleCode) . '|colour:' . strtoupper((string) $colour)
+                : 'sku:' . $sku;
+            $handle = $this->handleFor($styleCode, $vendor ?: $request->brand, $title, $colour, $sku, $key, $handleOwner);
 
             if (!isset($products[$handle])) {
                 $products[$handle] = [
                     'style_code'   => filled($styleCode) ? $styleCode : null,
                     // Falls back to something a human can recognise on the review
                     // screen rather than an empty cell.
-                    'title'        => $row['title'] ?? trim(($vendor ?: $request->brand) . ' ' . (filled($styleCode) ? $styleCode : $sku)),
-                    'body_html'    => $row['body_html'] ?? null,
+                    'title'        => $fields['title'] ?? trim(($vendor ?: $request->brand) . ' ' . (filled($styleCode) ? $styleCode : $sku)),
+                    'body_html'    => $fields['body_html'] ?? null,
                     'vendor'       => $vendor ?: $request->brand,
-                    'product_type' => $row['product_type'] ?? $request->category,
-                    'tags'         => $row['tags'] ?? null,
-                    'image_src'    => $row['image_src'] ?? null,
-                    'option_names' => $this->optionNamesFor($row, $optionNames),
+                    'product_type' => $fields['product_type'] ?? $request->category,
+                    'tags'         => $fields['tags'] ?? null,
+                    'image_src'    => $fields['image_src'] ?? null,
+                    'option_names' => $this->optionNamesFor($fields, $optionNames),
                     'variants'     => [],
-                    '_key'         => $key,
                 ];
             }
 
             $products[$handle]['variants'][] = [
                 'sku'              => $sku,
-                'option1_value'    => $row['option1_value'] ?? null,
-                'option2_value'    => $row['option2_value'] ?? null,
-                'option3_value'    => $row['option3_value'] ?? null,
-                'price'            => $this->decimal($row['price'] ?? null),
-                'compare_at_price' => $this->decimal($row['compare_at_price'] ?? null),
-                'barcode'          => $row['barcode'] ?? null,
-                'weight'           => $this->decimal($row['weight'] ?? null),
+                'option1_value'    => $fields['option1_value'] ?? null,
+                'option2_value'    => $fields['option2_value'] ?? null,
+                'option3_value'    => $fields['option3_value'] ?? null,
+                'price'            => $this->decimal($fields['price'] ?? null),
+                'compare_at_price' => $this->decimal($fields['compare_at_price'] ?? null),
+                'barcode'          => $this->barcode($fields['barcode'] ?? null),
+                'weight'           => $this->decimal($fields['weight'] ?? null),
                 'weight_unit'      => $weightUnit,
-                'inventory_qty'    => (int) ($row['inventory_qty'] ?? 0),
-                'image_src'        => $row['image_src'] ?? null,
+                'inventory_qty'    => (int) $this->decimal($fields['inventory_qty'] ?? null),
+                'image_src'        => $fields['image_src'] ?? null,
+                // Everything the sheet had for this SKU, mapped or not.
+                'sheet_row'        => $row['raw'],
             ];
         }
 
@@ -251,15 +348,58 @@ class ProductRequestDraftBuilder
         return $products;
     }
 
+    /**
+     * The handle, in the shape the team's Shopify export uses: style code, then
+     * the product title, then the colour.
+     *
+     * A handle is a product's identity in Shopify, so two different groups must
+     * never land on the same one. Where they would — the same title and colour
+     * under no style code — the SKU is appended, because merging two products
+     * silently is worse than an ugly handle.
+     *
+     * @param  array<string, string>  $handleOwner  handle => group key, by reference
+     */
+    private function handleFor(
+        ?string $styleCode,
+        string $vendor,
+        ?string $title,
+        ?string $colour,
+        string $sku,
+        string $key,
+        array &$handleOwner,
+    ): string {
+        $handle = Str::slug(implode(' ', array_filter([
+            $styleCode,
+            // With a code the title already carries the brand, as in their export.
+            // Without one, the brand is what keeps two plain titles apart.
+            filled($styleCode) ? null : $vendor,
+            $title,
+            $colour,
+        ])));
+
+        // Nothing usable on the row — fall back to something guaranteed unique.
+        if ($handle === '') {
+            $handle = Str::slug("{$vendor} {$sku}");
+        }
+
+        if (($handleOwner[$handle] ?? $key) !== $key) {
+            $handle .= '-' . Str::slug($sku);
+        }
+
+        $handleOwner[$handle] = $key;
+
+        return $handle;
+    }
+
     /** Only the options this row actually carries a value for, in order. */
-    private function optionNamesFor(array $row, array $configured): array
+    private function optionNamesFor(array $fields, array $configured): array
     {
         $names = [];
 
         foreach ([1, 2, 3] as $position) {
             $name = $configured[$position - 1] ?? null;
 
-            if ($name && filled($row["option{$position}_value"] ?? null)) {
+            if ($name && filled($fields["option{$position}_value"] ?? null)) {
                 $names[] = $name;
             }
         }
@@ -272,6 +412,15 @@ class ProductRequestDraftBuilder
         $value = trim((string) ($value ?? ''));
 
         return $value === '' ? null : $value;
+    }
+
+    /**
+     * Excel writes long barcodes as '7613109523528 to stop itself turning them
+     * into scientific notation. That apostrophe is Excel's, not the barcode's.
+     */
+    private function barcode(?string $barcode): ?string
+    {
+        return $barcode === null ? null : (ltrim($barcode, "'") ?: null);
     }
 
     /** Sheet prices arrive as "QAR 1,250.00" as often as as a number. */

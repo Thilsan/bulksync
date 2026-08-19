@@ -979,6 +979,21 @@ class ProductRequestController extends Controller implements HasMiddleware
                 . (count($missing) > count($shown) ? '…' : '') . '.';
         }
 
+        // Which sheet column became which field, so a wrong guess is visible now
+        // rather than after fourteen products land in Shopify without prices.
+        $columns = $result['columns'];
+
+        if ($columns['missing']) {
+            $message .= ' No column found for: ' . implode(', ', $columns['missing'])
+                . '. The tab also has ' . (count($columns['ignored']) ?: 'no')
+                . ' unused column(s)'
+                . ($columns['ignored'] ? ': ' . implode(', ', array_slice($columns['ignored'], 0, 12)) : '') . '.';
+        }
+
+        if ($columns['loose']) {
+            $message .= ' Matched loosely — check these: ' . implode(', ', $columns['loose']) . '.';
+        }
+
         return back()->with('success', $message);
     }
 

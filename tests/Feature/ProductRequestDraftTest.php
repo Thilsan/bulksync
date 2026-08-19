@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\ProductRequest;
 use App\Models\ProductRequestDraftProduct;
+use App\Models\ProductRequestDraftVariant;
 use App\Models\ProductRequestSku;
 use App\Models\Store;
 use App\Models\User;
@@ -98,6 +99,25 @@ class ProductRequestDraftTest extends TestCase
         $this->app->instance(OneDriveService::class, $drive);
     }
 
+    /**
+     * A tab that spells everything differently — "Price" not "Retail Price",
+     * "Color" not "Colour" — plus two columns the mapping has no home for.
+     */
+    private function fakeSheetWithOtherHeaders(): void
+    {
+        $drive = Mockery::mock(OneDriveService::class);
+        $drive->shouldReceive('setUser')->andReturnSelf();
+        $drive->shouldReceive('resolveShareItem')->andReturn(['driveId' => 'd', 'itemId' => 'i']);
+        $drive->shouldReceive('worksheetValues')
+            ->with('d', 'i', 'Mens Fashion')
+            ->andReturn([
+                ['SKU', 'Style', 'Brand', 'Title', 'Color', 'Price', 'EAN', 'Country of Origin', 'Season'],
+                ['ZIM-1-W-38', 'ZIM-252', 'ZIMMERLI', 'Cotton Shirt', 'White', 'QAR 1,250.00', "'7613109523528", 'Switzerland', 'SS26'],
+            ]);
+
+        $this->app->instance(OneDriveService::class, $drive);
+    }
+
     private function build(ProductRequest $request): array
     {
         return app(ProductRequestDraftBuilder::class)->build($request);
@@ -127,6 +147,154 @@ class ProductRequestDraftTest extends TestCase
         $this->assertSame(1, $tie->variants()->count());
         $this->assertSame(['Title'], $tie->optionNames(), 'A product with no options still needs one.');
         $this->assertSame('Default Title', $tie->variants()->first()->option1_value);
+    }
+
+    /**
+     * The point of the alias list: a tab naming its columns differently still
+     * produces a complete product, instead of one with no price.
+     */
+    public function test_a_tab_with_different_column_names_still_maps(): void
+    {
+        $user    = $this->user();
+        $request = $this->request($this->store(), $user, ['ZIM-1-W-38']);
+        $this->fakeSheetWithOtherHeaders();
+
+        $result = $this->build($request);
+
+        $draft   = ProductRequestDraftProduct::sole();
+        $variant = $draft->variants()->sole();
+
+        $this->assertSame('Cotton Shirt', $draft->title);
+        $this->assertSame('ZIM-252', $draft->style_code);
+        $this->assertEqualsWithDelta(1250.00, (float) $variant->price, 0.001);
+        $this->assertSame('White', $variant->option1_value);
+        $this->assertSame('7613109523528', $variant->barcode, 'Excel\'s apostrophe is not part of the barcode.');
+
+        // And it says which column it used, so a wrong guess is visible.
+        $this->assertSame('Price', $result['columns']['used']['price']);
+        $this->assertSame('EAN', $result['columns']['used']['barcode']);
+    }
+
+    /** No column is dropped: what could not be mapped stays on the variant. */
+    public function test_columns_with_no_shopify_field_are_kept_and_reported(): void
+    {
+        $user    = $this->user();
+        $request = $this->request($this->store(), $user, ['ZIM-1-W-38']);
+        $this->fakeSheetWithOtherHeaders();
+
+        $result = $this->build($request);
+
+        $this->assertContains('Country of Origin', $result['columns']['ignored']);
+        $this->assertContains('Season', $result['columns']['ignored']);
+
+        $variant = ProductRequestDraftVariant::sole();
+        $this->assertSame('Switzerland', $variant->sheet_row['Country of Origin']);
+        $this->assertSame('SS26', $variant->sheet_row['Season']);
+
+        // And they are the ones offered to the reviewer, not the mapped values.
+        $unmapped = $variant->unmappedSheetColumns();
+        $this->assertArrayHasKey('Country of Origin', $unmapped);
+        $this->assertArrayNotHasKey('SKU', $unmapped);
+        $this->assertArrayNotHasKey('Color', $unmapped);
+    }
+
+    /** A header the alias list never heard of is still found by substring. */
+    public function test_an_unlisted_price_column_is_matched_loosely_and_flagged(): void
+    {
+        $user    = $this->user();
+        $request = $this->request($this->store(), $user, ['ZIM-1-W-38']);
+
+        $drive = Mockery::mock(OneDriveService::class);
+        $drive->shouldReceive('setUser')->andReturnSelf();
+        $drive->shouldReceive('resolveShareItem')->andReturn(['driveId' => 'd', 'itemId' => 'i']);
+        $drive->shouldReceive('worksheetValues')
+            ->with('d', 'i', 'Mens Fashion')
+            ->andReturn([
+                ['Item SKU', 'Brand Name', 'Product Name', 'Retail Price (QAR) incl VAT'],
+                ['ZIM-1-W-38', 'ZIMMERLI', 'Cotton Shirt', '1250'],
+            ]);
+
+        $this->app->instance(OneDriveService::class, $drive);
+
+        $result = $this->build($request);
+
+        $this->assertEqualsWithDelta(1250.00, (float) ProductRequestDraftVariant::sole()->price, 0.001);
+        $this->assertNotEmpty($result['columns']['loose'], 'A guessed column must be flagged as guessed.');
+        $this->assertStringContainsString('Retail Price (QAR) incl VAT', implode(' ', $result['columns']['loose']));
+    }
+
+    /**
+     * Their Shopify export writes the handle as code-title-colour, and a handle is
+     * a product — so two colours of one style are two products, sizes as variants.
+     */
+    public function test_the_handle_follows_the_shopify_export_shape(): void
+    {
+        $user    = $this->user();
+        $request = $this->request($this->store(), $user, ['ZIM-1-W-38']);
+        $this->fakeSheet();
+
+        $this->build($request);
+
+        $this->assertSame(
+            'zim-252-cotton-shirt-white',
+            ProductRequestDraftProduct::where('style_code', 'ZIM-252')->value('handle'),
+        );
+    }
+
+    public function test_two_colours_of_one_style_become_two_products(): void
+    {
+        $user    = $this->user();
+        $request = $this->request($this->store(), $user, ['ZIM-1-W-38', 'ZIM-1-W-40', 'ZIM-1-N-38']);
+
+        $drive = Mockery::mock(OneDriveService::class);
+        $drive->shouldReceive('setUser')->andReturnSelf();
+        $drive->shouldReceive('resolveShareItem')->andReturn(['driveId' => 'd', 'itemId' => 'i']);
+        $drive->shouldReceive('worksheetValues')
+            ->with('d', 'i', 'Mens Fashion')
+            ->andReturn([
+                ['Item SKU', 'Style Code', 'Brand Name', 'Product Name', 'Colour', 'Size', 'Retail Price'],
+                ['ZIM-1-W-38', 'ZIM-252', 'ZIMMERLI', 'Cotton Shirt', 'White', '38', '1250'],
+                ['ZIM-1-W-40', 'ZIM-252', 'ZIMMERLI', 'Cotton Shirt', 'White', '40', '1250'],
+                ['ZIM-1-N-38', 'ZIM-252', 'ZIMMERLI', 'Cotton Shirt', 'Navy',  '38', '1250'],
+            ]);
+
+        $this->app->instance(OneDriveService::class, $drive);
+
+        $result = $this->build($request);
+
+        $this->assertSame(2, $result['built'], 'One product per colour.');
+        $this->assertSame(3, $result['variants']);
+
+        $white = ProductRequestDraftProduct::where('handle', 'zim-252-cotton-shirt-white')->sole();
+        $navy  = ProductRequestDraftProduct::where('handle', 'zim-252-cotton-shirt-navy')->sole();
+
+        $this->assertSame(2, $white->variants()->count(), 'Both sizes on the white product.');
+        $this->assertSame(1, $navy->variants()->count());
+    }
+
+    /** Two products must never share a handle — that is one product in Shopify. */
+    public function test_the_same_title_with_no_style_code_still_gets_distinct_handles(): void
+    {
+        $user    = $this->user();
+        $request = $this->request($this->store(), $user, ['TIE-A', 'TIE-B']);
+
+        $drive = Mockery::mock(OneDriveService::class);
+        $drive->shouldReceive('setUser')->andReturnSelf();
+        $drive->shouldReceive('resolveShareItem')->andReturn(['driveId' => 'd', 'itemId' => 'i']);
+        $drive->shouldReceive('worksheetValues')
+            ->with('d', 'i', 'Mens Fashion')
+            ->andReturn([
+                ['Item SKU', 'Brand Name', 'Product Name', 'Retail Price'],
+                ['TIE-A', 'ZIMMERLI', 'Silk Tie', '400'],
+                ['TIE-B', 'ZIMMERLI', 'Silk Tie', '400'],
+            ]);
+
+        $this->app->instance(OneDriveService::class, $drive);
+
+        $result = $this->build($request);
+
+        $this->assertSame(2, $result['built']);
+        $this->assertCount(2, ProductRequestDraftProduct::pluck('handle')->unique());
     }
 
     public function test_only_skus_missing_from_shopify_are_staged(): void
