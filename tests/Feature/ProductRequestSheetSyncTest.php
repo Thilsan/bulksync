@@ -292,6 +292,45 @@ class ProductRequestSheetSyncTest extends TestCase
         $this->assertStringContainsString('Gold Gourmet', $log);
     }
 
+    /**
+     * Every request against one tab failing is a header problem, not eighteen
+     * missing rows — the message has to say which, or people go looking in the
+     * wrong place.
+     */
+    public function test_a_tab_with_the_wrong_headers_says_which_column_is_missing(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+
+        $drive = Mockery::mock(OneDriveService::class);
+        $drive->shouldReceive('setUser')->andReturnSelf();
+        $drive->shouldReceive('resolveShareItem')->andReturn(['driveId' => 'd', 'itemId' => 'i']);
+        $drive->shouldReceive('worksheetValues')
+            ->with('d', 'i', config('product_request_sync.master_worksheet'))
+            ->andReturn([
+                ['Request No', 'Request Date', 'Requested By', 'Department', 'Brand', 'Website'],
+                ['17', '05-Aug-26', 'KAYCEE', 'LINGERIE', 'AMADAMARIA', 'BS'],
+            ]);
+        $drive->shouldReceive('worksheetValues')
+            ->with('d', 'i', 'Lingerie')
+            ->andReturn([
+                ['Date', 'Brand', 'SKU'],          // "Brand Name" and "Item SKU" both wrong
+                ['05-Aug-26', 'AMADAMARIA', 'SKU-1'],
+            ]);
+
+        $this->app->instance(OneDriveService::class, $drive);
+
+        $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertSame(1, $result['unmatched_skus']);
+
+        $log = implode("\n", $result['log']);
+        $this->assertStringContainsString('"Brand Name"', $log);
+        $this->assertStringContainsString('"Item SKU"', $log);
+        $this->assertStringNotContainsString('no row in', $log, 'A header problem must not read as a missing row.');
+    }
+
     public function test_a_row_whose_skus_are_not_on_the_category_tab_says_so(): void
     {
         Queue::fake();

@@ -143,11 +143,19 @@ class ProductRequestSheetSyncService
                 $skus = $this->matchSkus($sheetCache[$sheetName], $data['Request Date'] ?? null, (string) ($data['Brand'] ?? ''));
 
                 if (empty($skus)) {
-                    $this->record($requestNo, $token, $store->id, null, 'unmatched_skus',
-                        "No rows in \"{$sheetName}\" matched this request's date + brand");
+                    $missing = $this->missingColumnsOn($sheetCache[$sheetName]);
+                    $date    = $this->normalizeExcelDate($data['Request Date'] ?? null)?->toDateString()
+                        ?? (string) ($data['Request Date'] ?? 'no date');
+
+                    // A tab that cannot be read at all is worth saying plainly:
+                    // every request against it will fail until the header is fixed.
+                    $why = $missing
+                        ? "the \"{$sheetName}\" tab has no " . implode(' or ', array_map(fn ($c) => "\"{$c}\"", $missing)) . ' column'
+                        : "no row in \"{$sheetName}\" matches date {$date} + brand \"{$data['Brand']}\"";
+
+                    $this->record($requestNo, $token, $store->id, null, 'unmatched_skus', ucfirst($why));
                     $result['unmatched_skus']++;
-                    $result['log'][] = "Skipped Request No {$requestNo} / {$token} ({$data['Brand']}): "
-                        . "no row in \"{$sheetName}\" matches date {$data['Request Date']} + brand \"{$data['Brand']}\"";
+                    $result['log'][] = "Skipped Request No {$requestNo} / {$token} ({$data['Brand']}): {$why}";
                     continue;
                 }
 
@@ -206,6 +214,33 @@ class ProductRequestSheetSyncService
         $parts      = preg_split('/\s*[-&\/,]\s*/', (string) $normalized);
 
         return array_values(array_unique(array_filter(array_map('trim', $parts ?: []))));
+    }
+
+    /**
+     * The columns that link a category tab back to a master row. A tab missing
+     * any of them can never match anything, which is a different problem from a
+     * row simply not being there yet — see missingColumnsOn().
+     */
+    private const SKU_COLUMNS = ['Date', 'Brand Name', 'Item SKU'];
+
+    /**
+     * Which of the linking columns a tab does not have.
+     *
+     * Without this a mis-headed tab looks exactly like a tab whose rows have not
+     * been filled in — every request against it is reported as "no row matched",
+     * and the person reading that goes looking for the rows rather than at the
+     * header.
+     *
+     * @return array<int, string>
+     */
+    private function missingColumnsOn(array $sheetValues): array
+    {
+        $header = array_map(fn ($h) => strtolower(trim((string) $h)), $sheetValues[0] ?? []);
+
+        return array_values(array_filter(
+            self::SKU_COLUMNS,
+            fn ($column) => !in_array(strtolower($column), $header, true),
+        ));
     }
 
     /** Rows in a category sheet whose Date + Brand Name match this request — the only link between the two tabs. */
