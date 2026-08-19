@@ -8,6 +8,7 @@ use App\Models\User;
 use App\Notifications\ProductRequestAssigned;
 use App\Notifications\ProductRequestBalanceMapped;
 use App\Notifications\ProductRequestHandedOff;
+use App\Notifications\ProductRequestMappingNeeded;
 use App\Notifications\ProductRequestStatusChanged;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
@@ -134,15 +135,21 @@ class ProductRequestWorkflow
 
             $unresolved = $request->pending_skus + $request->not_mapped_skus;
 
-            $this->transition(
+            $moved = $this->transition(
                 $request,
                 ProductRequest::WAITING_MAPPING,
                 $actor,
-                "{$unresolved} of {$request->total_skus} SKUs not yet mapped — sent to Supply Chain.",
+                "{$unresolved} of {$request->total_skus} SKUs not yet mapped — the brand manager maps these in Cegid.",
                 // Going back a stage is not a move the pipeline offers.
                 force:  $request->status === ProductRequest::SKU_VERIFIED,
                 notify: $notify,
             );
+
+            // Asked for once, when the request first parks — not on every hourly
+            // check, which would mail the same list until it was done.
+            if ($moved && $notify) {
+                $this->askForMapping($request, $actor);
+            }
 
             return;
         }
@@ -175,6 +182,7 @@ class ProductRequestWorkflow
         ?string $dueDate = null,
         bool $notify = true,
         ?string $description = null,
+        bool $auto = false,
     ): bool {
         if (!array_key_exists($field, ProductRequest::ASSIGNMENT_ROLES)) {
             return false;
@@ -222,6 +230,9 @@ class ProductRequestWorkflow
                     'assigned_by' => $actor?->id,
                     'title'       => $title,
                     'due_date'    => $dueDate,
+                    // Remembered so a later correction can move the app's own
+                    // guesses without touching what somebody chose.
+                    'auto'        => $auto,
                 ]);
             }
         }
@@ -317,7 +328,8 @@ class ProductRequestWorkflow
         // The category's brand manager holds the brand-side task — supplying the
         // information and approving the copy — rather than only being copied on
         // the emails. Where a category has none, the owner keeps it.
-        $brandManager = User::brandManagersForCategory($request->category)->first() ?? $owner;
+        $brandManager = User::brandManagerForCategory($request->category) ?? $owner;
+
 
         $staffed  = [];
         $notified = [];
@@ -349,6 +361,7 @@ class ProductRequestWorkflow
                 userId:  $person->id,
                 actor:   $actor,
                 notify:  $firstForPerson,
+                auto:    true,
             );
 
             if ($assigned) {
@@ -361,6 +374,119 @@ class ProductRequestWorkflow
         }
 
         return $staffed;
+    }
+
+    /**
+     * Re-run the category staffing against the settings as they are now.
+     *
+     * Only roles the app filled in itself are touched, and only when the right
+     * person has changed — a role somebody picked, claimed or handed over is
+     * theirs. This exists because a role with nobody configured falls back to the
+     * category owner, so the owner's name lands in slots that were never theirs,
+     * and configuring the right person afterwards has to be able to reach them.
+     *
+     * @return array<string, array{from: string, to: string}>  role label => the change
+     */
+    public function restaffFromCategory(ProductRequest $request, ?User $actor = null, bool $notify = false): array
+    {
+        if ($request->isClosed()) {
+            return [];
+        }
+
+        $owner        = $request->categoryOwner();
+        $coordinator  = $request->needsPhotoshoot() ? User::photoshootCoordinator() : null;
+        $brandManager = User::brandManagerForCategory($request->category) ?? $owner;
+
+        $moved = [];
+
+        foreach (array_keys($request->visibleAssignmentRoles()) as $field) {
+            $current = $request->assignments()->current()->where('role', $field)->first();
+
+            // Nobody chose this, or nobody holds it — either way it is not ours.
+            if (!$current || !$current->auto) {
+                continue;
+            }
+
+            $should = match ($field) {
+                'photographer_id'  => $coordinator,
+                'brand_manager_id' => $brandManager,
+                default            => $owner,
+            };
+
+            if (!$should || $should->id === $current->user_id) {
+                continue;
+            }
+
+            $was = $current->user?->name ?? 'nobody';
+
+            if ($this->assignRole(
+                request: $request,
+                field:   $field,
+                userId:  $should->id,
+                actor:   $actor,
+                notify:  $notify,
+                auto:    true,
+            )) {
+                $moved[ProductRequest::ASSIGNMENT_ROLES[$field] ?? $field] = [
+                    'from' => $was,
+                    'to'   => $should->name,
+                ];
+            }
+        }
+
+        return $moved;
+    }
+
+    /**
+     * Ask the brand manager to map what is still missing.
+     *
+     * On a Cegid website the mapping is theirs to do, so this goes to the person
+     * holding the brand-manager role on the request rather than to a team — and
+     * carries the outstanding SKUs as a CSV they can work from in Cegid.
+     *
+     * @return User|null  who was told, or null when there was nobody or nothing
+     */
+    public function askForMapping(ProductRequest $request, ?User $actor = null): ?User
+    {
+        if (!$request->requiresMapping() || !$request->hasSkuBalance() || $request->isClosed()) {
+            return null;
+        }
+
+        $manager = $this->mappingOwnerFor($request);
+
+        if (!$manager) {
+            Log::warning("ProductRequestWorkflow: {$request->reference} has nobody to ask for Cegid mapping.");
+            return null;
+        }
+
+        try {
+            NotificationFacade::send($manager, ProductRequestMappingNeeded::forRequest($request));
+        } catch (\Throwable $e) {
+            Log::error("ProductRequestWorkflow: mapping request failed for {$request->id}: " . $e->getMessage());
+            return null;
+        }
+
+        $this->log(
+            request:     $request,
+            action:      'mapping_requested',
+            description: "{$manager->name} asked to map {$request->balanceSkus()} SKU(s) in Cegid",
+            actor:       $actor,
+            remarks:     "{$request->mapped_skus} of {$request->total_skus} already mapped for " . ($request->store?->name ?? 'this website'),
+        );
+
+        return $manager;
+    }
+
+    /**
+     * Who maps this request's SKUs in Cegid: whoever holds the brand-manager
+     * role on it, else the category's brand manager, else the person who raised
+     * it — someone always has to be asked, or the balance sits forever.
+     */
+    private function mappingOwnerFor(ProductRequest $request): ?User
+    {
+        return $request->ownerFor('brand_manager_id')
+            ?? User::brandManagersForCategory($request->category)->first()
+            ?? $request->user;
     }
 
     /**

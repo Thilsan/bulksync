@@ -1125,11 +1125,18 @@ class ProductRequestController extends Controller implements HasMiddleware
             $productRequest->update(['photoshoot_scheduled_at' => $data['photoshoot_scheduled_at']]);
         }
 
+        // Publishing ends the request, so it is the last chance to say plainly
+        // what did not make it — SKUs never mapped, copy never written. Left to
+        // the activity log alone, nobody reads it until something is wrong.
+        $skipped = $data['to_status'] === ProductRequest::PUBLISHED
+            ? $productRequest->publishGaps()
+            : [];
+
         $moved = $this->workflow->transition(
             $productRequest,
             $data['to_status'],
             $user,
-            $data['remarks'] ?? null,
+            trim(($data['remarks'] ?? '') . ($skipped ? ' Skipped: ' . implode('; ', $skipped) . '.' : '')) ?: null,
         );
 
         if (!$moved) {
@@ -1139,7 +1146,13 @@ class ProductRequestController extends Controller implements HasMiddleware
             ]);
         }
 
-        return back()->with('success', 'Status updated to ' . $productRequest->fresh()->statusLabel() . '.');
+        $message = 'Status updated to ' . $productRequest->fresh()->statusLabel() . '.';
+
+        if ($skipped) {
+            $message .= ' Published without: ' . implode('; ', $skipped) . '.';
+        }
+
+        return back()->with($skipped ? 'warning' : 'success', $message);
     }
 
     /**
@@ -1150,7 +1163,7 @@ class ProductRequestController extends Controller implements HasMiddleware
      * ahead; the hourly SKU check keeps watching the balance and tells whoever
      * holds the request as soon as more of it lands.
      */
-    public function continueWithMapped(ProductRequest $productRequest, #[CurrentUser] User $user): RedirectResponse
+    public function continueWithMapped(Request $request, ProductRequest $productRequest, #[CurrentUser] User $user): RedirectResponse
     {
         $this->authorizeView($productRequest, $user);
 
@@ -1161,6 +1174,12 @@ class ProductRequestController extends Controller implements HasMiddleware
                     : 'This request is not waiting on a partial mapping.',
             ]);
         }
+
+        // Whether to write the copy for the mapped half now. Skipping is a fine
+        // answer — but it is recorded, so publishing can say it was skipped
+        // rather than leaving someone to notice the empty descriptions later.
+        $data = $request->validate(['ai_content' => 'nullable|in:generate,skip']);
+        $wants = $data['ai_content'] ?? null;
 
         $mapped  = (int) $productRequest->mapped_skus;
         $balance = $productRequest->balanceSkus();
@@ -1173,8 +1192,131 @@ class ProductRequestController extends Controller implements HasMiddleware
                 . "{$balance} still with Supply Chain.",
         );
 
-        return back()->with('success', "Carrying on with {$mapped} SKUs. The remaining {$balance} stay on the SKUs tab and "
-            . 'you will be told as soon as Supply Chain maps them.');
+        $message = "Carrying on with {$mapped} SKUs. The remaining {$balance} stay on the SKUs tab and "
+            . 'you will be told as soon as they are mapped.';
+
+        if ($wants) {
+            $productRequest->update([
+                'ai_content_decision'   => $wants,
+                'ai_content_decided_at' => now(),
+                'use_ai_content'        => $wants === 'generate',
+            ]);
+
+            $this->workflow->log(
+                request:     $productRequest,
+                action:      'ai_content',
+                description: $wants === 'generate'
+                    ? "AI content chosen for the {$mapped} mapped SKU(s)"
+                    : 'AI content skipped — the brand team supplies the copy',
+                actor:       $user,
+            );
+
+            if ($wants === 'generate') {
+                $started  = $this->startAiContent($productRequest, $user);
+                $message .= $started
+                    ? " AI content generation started for {$started} SKU(s)."
+                    : ' AI content could not start — none of the mapped SKUs is in Shopify yet.';
+            } else {
+                $message .= ' AI content skipped — the brand team supplies the copy.';
+            }
+        }
+
+        return back()->with('success', $message);
+    }
+
+    /**
+     * Start AI content for the SKUs that exist in Shopify.
+     *
+     * Shared with generateAiContent(): the generator reads the live product
+     * images, so a SKU that is not in Shopify yet has nothing to work from.
+     *
+     * @return int how many SKUs it started on, 0 when there was nothing eligible
+     */
+    private function startAiContent(ProductRequest $productRequest, User $user, bool $onlyMissingDescription = false): int
+    {
+        $eligible = ($onlyMissingDescription
+                ? $productRequest->skusNeedingContent()
+                : $productRequest->skus()->where('in_shopify', true))
+            ->orderBy('id')
+            ->pluck('sku');
+
+        if ($eligible->isEmpty()) {
+            return 0;
+        }
+
+        // Carrying on with the mapped half writes copy for those SKUs. Marking
+        // them is what lets the balance be offered separately when it lands.
+        $productRequest->skus()->whereIn('sku', $eligible)->update(['content_started_at' => now()]);
+
+        // Uppercased and deduped exactly as the AI Content Generator screen does,
+        // so a request raised from here behaves identically.
+        $skus = $eligible->map(fn ($sku) => strtoupper(trim($sku)))->filter()->unique()->values();
+
+        $session = AiContentSession::create([
+            'user_id'     => $user->id,
+            'store_id'    => $productRequest->store_id,
+            'input_type'  => 'sku_list',
+            'sku_raw'     => $skus->implode("\n"),
+            'skus_json'   => json_encode($skus->all()),
+            'status'      => 'pending',
+            'total_items' => $skus->count(),
+        ]);
+
+        $productRequest->update(['ai_content_session_id' => $session->id]);
+
+        GenerateAiContentJob::dispatch($session->id)->onQueue('bulkupload');
+
+        return $skus->count();
+    }
+
+    /**
+     * Ask the brand manager again for the SKUs still unmapped in Cegid.
+     *
+     * The automatic ask happens once, when the request parks. This is for when
+     * that was a while ago and the balance has not moved.
+     */
+    public function chaseMapping(ProductRequest $productRequest, #[CurrentUser] User $user): RedirectResponse
+    {
+        $this->authorizeView($productRequest, $user);
+
+        if (!$productRequest->requiresMapping()) {
+            return back()->with('warning', ($productRequest->store?->name ?? 'This website') . ' does not use Cegid mapping.');
+        }
+
+        if (!$productRequest->hasSkuBalance()) {
+            return back()->with('warning', 'Every SKU on this request is mapped — there is nothing to chase.');
+        }
+
+        $told = $this->workflow->askForMapping($productRequest, $user);
+
+        return back()->with($told ? 'success' : 'warning', $told
+            ? "{$told->name} asked to map the remaining {$productRequest->balanceSkus()} SKU(s), with the list attached."
+            : 'Nobody holds the brand manager role on this request, so there was no one to ask.');
+    }
+
+    /**
+     * Re-apply the category settings to the roles the app filled in itself.
+     *
+     * A role with nobody configured falls back to the category owner, so their
+     * name shows up in slots that were never theirs — this is how those get
+     * corrected once the right person is set, without disturbing anything a
+     * person chose.
+     */
+    public function restaff(ProductRequest $productRequest, #[CurrentUser] User $user): RedirectResponse
+    {
+        $this->authorizeView($productRequest, $user);
+
+        $moved = $this->workflow->restaffFromCategory($productRequest, $user, notify: true);
+
+        if (!$moved) {
+            return back()->with('warning', 'Nothing to change — every role either matches the category settings or was chosen by hand.');
+        }
+
+        $changes = collect($moved)
+            ->map(fn ($change, $role) => "{$role}: {$change['from']} → {$change['to']}")
+            ->implode(', ');
+
+        return back()->with('success', count($moved) . ' role(s) updated from the category settings. ' . $changes . '.');
     }
 
     public function assign(Request $request, ProductRequest $productRequest, #[CurrentUser] User $user): RedirectResponse
@@ -1415,27 +1557,72 @@ class ProductRequestController extends Controller implements HasMiddleware
      * Rather than failing on the rest, we generate for what exists and say
      * plainly how many were skipped and why.
      */
-    public function generateAiContent(ProductRequest $productRequest, #[CurrentUser] User $user): RedirectResponse
+    public function generateAiContent(Request $request, ProductRequest $productRequest, #[CurrentUser] User $user): RedirectResponse
     {
         $this->authorizeView($productRequest, $user);
 
-        if (!$productRequest->use_ai_content) {
-            return back()->withErrors(['ai' => 'This request is set to use content supplied by the brand team.']);
-        }
+        $data  = $request->validate([
+            'scope'  => 'nullable|in:all,missing_description',
+            'answer' => 'nullable|in:generate,skip',
+        ]);
+        $onlyBlank = ($data['scope'] ?? 'all') === 'missing_description';
 
         abort_if($productRequest->isClosed(), 403, 'This request is closed.');
 
+        // Filling in the SKUs that have no copy is worth offering whatever the
+        // request was raised with: "the brand team supplies the copy" is about
+        // the ones they wrote, not the ten nobody has touched.
+        if (!$onlyBlank && !$productRequest->use_ai_content) {
+            return back()->withErrors(['ai' => 'This request is set to use content supplied by the brand team.']);
+        }
+
+        // Turning the offer down is an answer, and recording it is what lets
+        // publishing say the copy was left as it was.
+        if (($data['answer'] ?? null) === 'skip') {
+            // Stamped on the SKUs so the offer does not come back for these —
+            // but does come back for any that are mapped later.
+            $blank = $productRequest->skusNeedingContent()->count();
+            $productRequest->skusNeedingContent()->update(['content_skipped_at' => now()]);
+
+            $productRequest->update([
+                'ai_content_decision'   => 'skip',
+                'ai_content_decided_at' => now(),
+            ]);
+
+            $this->workflow->log(
+                request:     $productRequest,
+                action:      'ai_content',
+                description: "AI content skipped for {$blank} SKU(s) with no description",
+                actor:       $user,
+            );
+
+            return back()->with('success', "Left as it is. {$blank} SKU(s) stay without a description, and publishing will say so.");
+        }
+
         // Ordered so generation runs in the order the SKUs were submitted, which
         // is what someone watching the progress bar expects to see.
-        $eligible = $productRequest->skus()->where('in_shopify', true)->orderBy('id')->pluck('sku');
+        $target   = $onlyBlank
+            ? $productRequest->skusNeedingContent()
+            : $productRequest->skus()->where('in_shopify', true);
+        $eligible = $target->orderBy('id')->pluck('sku');
         $skipped  = $productRequest->total_skus - $eligible->count();
 
         if ($eligible->isEmpty()) {
             return back()->withErrors([
-                'ai' => 'None of these SKUs exist in Shopify yet. AI content is generated from the live product images, '
+                'ai' => $onlyBlank
+                    ? 'Every SKU on this request that is live in Shopify already has a description.'
+                    : 'None of these SKUs exist in Shopify yet. AI content is generated from the live product images, '
                       . 'so upload the products first (or re-run SKU validation if they are already there).',
             ]);
         }
+
+        // Marked as under way, so a later run picks up only what arrived since.
+        $productRequest->skus()->whereIn('sku', $eligible)->update(['content_started_at' => now()]);
+
+        $productRequest->update([
+            'ai_content_decision'   => 'generate',
+            'ai_content_decided_at' => now(),
+        ]);
 
         // Uppercased and deduped exactly as the AI Content Generator screen does,
         // so a request raised from here behaves identically.
@@ -1458,17 +1645,28 @@ class ProductRequestController extends Controller implements HasMiddleware
 
         GenerateAiContentJob::dispatch($session->id)->onQueue('bulkupload');
 
+        $handled = $productRequest->contentHandledCount() - $eligible->count();
+        $why     = $onlyBlank
+            ? "AI content generation started for the {$eligible->count()} SKU(s) with no description"
+            : "AI content generation started for {$eligible->count()} SKU(s)";
+
         $this->workflow->log(
             request:     $productRequest,
             action:      'ai_content',
-            description: "AI content generation started for {$eligible->count()} SKU(s)",
+            description: $why,
             actor:       $user,
-            remarks:     $skipped > 0 ? "{$skipped} SKU(s) skipped — not in Shopify yet" : null,
+            remarks:     $onlyBlank
+                ? "{$handled} SKU(s) left alone — their copy is already written or under way"
+                : ($skipped > 0 ? "{$skipped} SKU(s) skipped — not in Shopify yet" : null),
         );
 
-        return back()->with('success', $skipped > 0
-            ? "AI content generation started for {$eligible->count()} SKU(s). {$skipped} skipped — not in Shopify yet."
-            : "AI content generation started for {$eligible->count()} SKU(s).");
+        return back()->with('success', $onlyBlank
+            ? ($handled > 0
+                ? "{$why}. The other {$handled} were left alone — their copy is already written or under way."
+                : "{$why}.")
+            : ($skipped > 0
+                ? "{$why}. {$skipped} skipped — not in Shopify yet."
+                : "{$why}."));
     }
 
     public function comment(Request $request, ProductRequest $productRequest, #[CurrentUser] User $user): RedirectResponse

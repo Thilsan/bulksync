@@ -140,6 +140,33 @@ class User extends Authenticatable
      *
      * @return \Illuminate\Support\Collection<int, self>
      */
+    /**
+     * The one brand manager a request in this category is given.
+     *
+     * More than one person can follow a category, but only one can hold the task
+     * — and which one it is has to be the same answer everywhere, or the Users
+     * screen shows a name the staffing does not use. Oldest account wins, and the
+     * screen prints it.
+     */
+    public static function brandManagerForCategory(?string $category): ?self
+    {
+        return self::brandManagersForCategory($category)->first();
+    }
+
+    /** category => the brand manager it falls to, for the Users screen. */
+    public static function brandManagerMap(): array
+    {
+        $map = [];
+
+        foreach (self::query()->where('is_active', true)->whereNotNull('pcr_brand_categories')->orderBy('id')->get() as $user) {
+            foreach ($user->pcr_brand_categories ?? [] as $category) {
+                $map[$category] ??= $user;   // first by id, the same rule staffing uses
+            }
+        }
+
+        return $map;
+    }
+
     public static function brandManagersForCategory(?string $category): \Illuminate\Support\Collection
     {
         if (blank($category)) {

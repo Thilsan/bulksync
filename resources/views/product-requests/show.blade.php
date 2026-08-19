@@ -556,15 +556,48 @@
 
                             @if($request->hasSkuBalance())
                                 <p class="text-xs text-amber-700 mt-2">
-                                    <span class="font-semibold">{{ number_format($request->balanceSkus()) }}</span> SKUs are still
-                                    with Supply Chain. The SKU check runs hourly and everyone on this request is told as soon as
+                                    <span class="font-semibold">{{ number_format($request->balanceSkus()) }}</span> SKUs still need
+                                    mapping in Cegid. The SKU check runs hourly and everyone on this request is told as soon as
                                     more of them are mapped — nothing to re-submit.
                                 </p>
 
+                                {{-- The mapping is the brand manager's own job on a Cegid website,
+                                     so this asks them again with the outstanding list attached. --}}
+                                <form method="POST" action="{{ route('product-requests.chase-mapping', $request) }}" class="mt-2">
+                                    @csrf
+                                    <button type="submit" class="text-xs font-medium text-brand-600 hover:text-brand-700">
+                                        Email the brand manager the {{ number_format($request->balanceSkus()) }} unmapped SKUs
+                                    </button>
+                                </form>
+
                                 @if($request->canContinueWithMapped())
-                                    <form method="POST" action="{{ route('product-requests.continue-mapped', $request) }}" class="mt-2.5">
+                                    <form method="POST" action="{{ route('product-requests.continue-mapped', $request) }}" class="mt-2.5"
+                                          x-data="{ asked: false }">
                                         @csrf
-                                        <button type="submit"
+
+                                        {{-- Asked here because this is the moment the mapped half moves
+                                             on: the copy is either written now or deliberately skipped,
+                                             and the publish summary reports whichever it was. --}}
+                                        <div x-show="asked" x-cloak class="mb-2.5 bg-white border border-gray-200 rounded-lg px-3 py-2.5">
+                                            <p class="text-xs text-gray-700 font-medium">
+                                                Generate AI content for these {{ number_format($request->mapped_skus) }} SKUs?
+                                            </p>
+                                            <p class="text-[11px] text-gray-400 mt-0.5">
+                                                It reads the live product images, so only SKUs already in Shopify are included.
+                                            </p>
+                                            <div class="flex flex-wrap gap-2 mt-2">
+                                                <button type="submit" name="ai_content" value="generate"
+                                                        class="text-xs font-medium text-white px-3 py-1.5 rounded-lg" style="background-color:#1d5a74">
+                                                    Yes — generate it now
+                                                </button>
+                                                <button type="submit" name="ai_content" value="skip"
+                                                        class="text-xs font-medium text-gray-700 px-3 py-1.5 rounded-lg border border-gray-300 hover:bg-gray-50">
+                                                    No — the brand team supplies the copy
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        <button type="button" x-show="!asked" @click="asked = true"
                                                 class="inline-flex items-center gap-1.5 text-xs font-medium text-white px-3 py-1.5 rounded-lg"
                                                 style="background-color:#1d5a74">
                                             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -572,7 +605,7 @@
                                             </svg>
                                             Carry on with the {{ number_format($request->mapped_skus) }} mapped SKUs
                                         </button>
-                                        <span class="ml-2 text-xs text-gray-400">
+                                        <span x-show="!asked" class="ml-2 text-xs text-gray-400">
                                             The balance stays here and follows on its own.
                                         </span>
                                     </form>
@@ -582,6 +615,55 @@
                                     Every SKU is mapped — nothing is outstanding.
                                 </p>
                             @endif
+                        </div>
+
+                    @endif
+
+                    {{-- Copy for the SKUs that have none. A request of twenty where
+                         ten already read well needs content for the other ten, and
+                         regenerating over the ten that are written is worse than
+                         doing nothing. Offered on every website: where there is no
+                         mapping step, this is the only thing left to decide. --}}
+                    @if($request->canOfferContentForMissing())
+                        @php
+                            $blank   = $request->needsContentCount();
+                            $handled = $request->contentHandledCount();
+                        @endphp
+                        <div class="mt-4 bg-white border border-gray-200 rounded-lg px-4 py-3">
+                            <p class="text-sm font-medium text-gray-800">
+                                {{ number_format($blank) }} of {{ number_format($blank + $handled) }} live SKUs still need copy
+                            </p>
+                            <p class="text-xs text-gray-500 mt-0.5">
+                                @if($handled > 0)
+                                    {{-- Covers both "already written" and "generated earlier in this
+                                         request", which is the case when a balance is mapped later. --}}
+                                    The other {{ number_format($handled) }} are written already or under way, and are left untouched.
+                                @else
+                                    None of these products has copy on it yet.
+                                @endif
+                            </p>
+
+                            <div class="flex flex-wrap gap-2 mt-2.5">
+                                <form method="POST" action="{{ route('product-requests.ai-content', $request) }}">
+                                    @csrf
+                                    <input type="hidden" name="scope" value="missing_description">
+                                    <input type="hidden" name="answer" value="generate">
+                                    <button type="submit" class="text-xs font-medium text-white px-3 py-1.5 rounded-lg"
+                                            style="background-color:#1d5a74">
+                                        Generate AI content for these {{ number_format($blank) }}
+                                    </button>
+                                </form>
+
+                                <form method="POST" action="{{ route('product-requests.ai-content', $request) }}">
+                                    @csrf
+                                    <input type="hidden" name="scope" value="missing_description">
+                                    <input type="hidden" name="answer" value="skip">
+                                    <button type="submit"
+                                            class="text-xs font-medium text-gray-700 px-3 py-1.5 rounded-lg border border-gray-300 hover:bg-gray-50">
+                                        Leave them as they are
+                                    </button>
+                                </form>
+                            </div>
                         </div>
                     @endif
 
@@ -1347,6 +1429,20 @@
                     </div>
                     @endunless
                 </form>
+
+                {{-- Roles nobody was configured for fall back to the category owner,
+                     so their name can appear in slots that were never theirs. This
+                     re-reads the settings for exactly those, and leaves alone
+                     anything a person picked, claimed or was handed. --}}
+                @unless($request->isClosed())
+                    <form method="POST" action="{{ route('product-requests.restaff', $request) }}" class="px-5 pb-4 -mt-1">
+                        @csrf
+                        <button type="submit" class="text-xs font-medium text-brand-600 hover:text-brand-700">
+                            Re-apply the category settings
+                        </button>
+                        <span class="text-xs text-gray-400 ml-1">— only the roles nobody picked by hand.</span>
+                    </form>
+                @endunless
             </div>
 
             {{-- Who held what, and for how long. Only worth showing once a role

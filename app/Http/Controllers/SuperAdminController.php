@@ -24,6 +24,9 @@ class SuperAdminController extends Controller
             // Shown against each category so it is obvious who holds it already.
             'categoryOwners'        => User::categoryOwners(),
             'categoryBrandManagers' => User::categoryBrandManagers(),
+            // Which of them actually gets the Brand Manager task, so the screen
+            // stops implying nobody does.
+            'brandManagerAssignees' => User::brandManagerMap(),
         ]);
     }
 

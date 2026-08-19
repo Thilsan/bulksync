@@ -175,7 +175,9 @@ Route::middleware('auth')->group(function () {
         Route::post('/{productRequest}/skus/mapping',      [ProductRequestController::class, 'updateMapping'])->name('skus.mapping');
         Route::post('/{productRequest}/transition',        [ProductRequestController::class, 'transition'])->name('transition');
         Route::post('/{productRequest}/continue-mapped',   [ProductRequestController::class, 'continueWithMapped'])->name('continue-mapped');
+        Route::post('/{productRequest}/chase-mapping',     [ProductRequestController::class, 'chaseMapping'])->name('chase-mapping');
         Route::post('/{productRequest}/assign',            [ProductRequestController::class, 'assign'])->name('assign');
+        Route::post('/{productRequest}/restaff',           [ProductRequestController::class, 'restaff'])->name('restaff');
         Route::post('/{productRequest}/claim',             [ProductRequestController::class, 'claim'])->name('claim');
         Route::post('/{productRequest}/reassign',          [ProductRequestController::class, 'reassign'])->name('reassign');
         Route::post('/{productRequest}/ai-content',        [ProductRequestController::class, 'generateAiContent'])->name('ai-content');

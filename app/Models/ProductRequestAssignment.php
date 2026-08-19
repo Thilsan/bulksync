@@ -19,6 +19,7 @@ class ProductRequestAssignment extends Model
         'assigned_by',
         'completed_at',
         'ended_at',
+        'auto',
     ];
 
     protected function casts(): array
@@ -27,6 +28,7 @@ class ProductRequestAssignment extends Model
             'due_date'     => 'date',
             'completed_at' => 'datetime',
             'ended_at'     => 'datetime',
+            'auto'         => 'boolean',
         ];
     }
 

@@ -18,6 +18,9 @@ class ProductRequestSku extends Model
         'shopify_product_id',
         'shopify_product_title',
         'shopify_published',
+        'has_description',
+        'content_started_at',
+        'content_skipped_at',
         'last_checked_at',
     ];
 
@@ -26,6 +29,9 @@ class ProductRequestSku extends Model
         return [
             'in_shopify'        => 'boolean',
             'shopify_published' => 'boolean',
+            'has_description'   => 'boolean',
+            'content_started_at' => 'datetime',
+            'content_skipped_at' => 'datetime',
             'mapping_set_at'    => 'datetime',
             'last_checked_at'   => 'datetime',
         ];

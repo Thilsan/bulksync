@@ -553,6 +553,8 @@ class ProductRequest extends Model
         'photoshoot_notes',
         'use_ai_content',
         'ai_content_session_id',
+        'ai_content_decision',
+        'ai_content_decided_at',
         'notes',
         'validation_status',
         'total_skus',
@@ -997,6 +999,104 @@ class ProductRequest extends Model
         }
 
         return max(0, $this->total_skus - $this->mapped_skus);
+    }
+
+    // ── Copy: which SKUs already have a description ──────────────────────────
+
+    /**
+     * SKUs live in Shopify with no copy on them.
+     *
+     * The point of counting them separately: on a website with no Cegid step, a
+     * request of twenty SKUs where ten already read well only needs content for
+     * the other ten — and regenerating over the ten that are written is worse
+     * than doing nothing.
+     */
+    public function skusMissingDescription(): HasMany
+    {
+        return $this->skus()->where('in_shopify', true)->where('has_description', false);
+    }
+
+    /**
+     * SKUs still waiting on copy: live in Shopify, no description, and nobody has
+     * either started writing or decided to leave them.
+     *
+     * Per SKU rather than per request, because the two are not the same question.
+     * Thirty SKUs where twenty-eight were mapped first, generated for, and the
+     * last two mapped afterwards leaves exactly those two here — which is what
+     * gets offered, not the twenty-eight again and not nothing at all.
+     */
+    public function skusNeedingContent(): HasMany
+    {
+        return $this->skusMissingDescription()
+            ->whereNull('content_started_at')
+            ->whereNull('content_skipped_at');
+    }
+
+    public function missingDescriptionCount(): int
+    {
+        return $this->skusMissingDescription()->count();
+    }
+
+    public function needsContentCount(): int
+    {
+        return $this->skusNeedingContent()->count();
+    }
+
+    public function describedCount(): int
+    {
+        return $this->skus()->where('in_shopify', true)->where('has_description', true)->count();
+    }
+
+    /** Live SKUs whose copy is written, being written, or deliberately left. */
+    public function contentHandledCount(): int
+    {
+        return $this->skus()->where('in_shopify', true)->count() - $this->needsContentCount();
+    }
+
+    /**
+     * Whether to offer content for the SKUs that have none.
+     *
+     * The offer comes back whenever new SKUs arrive without copy — a SKU mapped
+     * today is a fresh question, even if the same request was asked last week.
+     * What does not come back is a SKU already answered for.
+     */
+    public function canOfferContentForMissing(): bool
+    {
+        return !$this->isClosed() && $this->needsContentCount() > 0;
+    }
+
+    /**
+     * What is going live incomplete, in words.
+     *
+     * A request can be published with SKUs still unmapped and with no copy
+     * written — both are legitimate calls, and both are invisible afterwards
+     * unless somebody writes them down at the moment it is published.
+     *
+     * @return array<int, string>
+     */
+    public function publishGaps(): array
+    {
+        $gaps = [];
+
+        if ($balance = $this->balanceSkus()) {
+            $gaps[] = "{$balance} of {$this->total_skus} SKU(s) never mapped in Cegid";
+        }
+
+        if ($this->not_mapped_skus > 0) {
+            $gaps[] = "{$this->not_mapped_skus} SKU(s) marked as not mappable";
+        }
+
+        if ($this->ai_content_decision === 'skip') {
+            $gaps[] = 'AI content skipped — copy supplied by the brand team';
+        } elseif ($this->use_ai_content && !$this->ai_content_session_id) {
+            $gaps[] = 'AI content was never generated';
+        }
+
+        if ($blank = $this->missingDescriptionCount()) {
+            $gaps[] = "{$blank} SKU(s) live in Shopify with no description";
+        }
+
+        return $gaps;
     }
 
     public function hasSkuBalance(): bool
