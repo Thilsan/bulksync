@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\ProductRequest;
 use App\Models\ProductRequestSheetSync;
+use App\Models\ProductRequestSku;
 use App\Models\Store;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -132,6 +133,66 @@ class CleanDuplicateSyncsTest extends TestCase
         $this->artisan('product-requests:clean-duplicate-syncs', ['--commit' => true])->assertSuccessful();
 
         $this->assertNull($orphan->fresh(), 'An automatic status move must not protect a duplicate.');
+    }
+
+    /**
+     * Turning a website's Cegid tick on pulls half-mapped requests back a stage.
+     * That is the app reacting to a setting, not anybody working on this copy.
+     */
+    public function test_the_cegid_pull_back_does_not_protect_the_copy(): void
+    {
+        $orphan = $this->request();
+        $this->ledger($this->request());
+
+        $orphan->activities()->create([
+            'user_id'     => $this->user->id,
+            'action'      => 'status_changed',
+            'from_status' => ProductRequest::SKU_VERIFIED,
+            'to_status'   => ProductRequest::WAITING_MAPPING,
+            'description' => 'Status changed from SKU Verified to Waiting for Mapping',
+        ]);
+
+        $this->artisan('product-requests:clean-duplicate-syncs', ['--commit' => true])->assertSuccessful();
+
+        $this->assertNull($orphan->fresh());
+    }
+
+    /** The hourly recheck announces newly mapped SKUs on every open request. */
+    public function test_an_automatic_balance_announcement_does_not_protect_the_copy(): void
+    {
+        $orphan = $this->request();
+        $this->ledger($this->request());
+
+        $orphan->activities()->create([
+            'action'      => 'sku_mapping',
+            'to_status'   => ProductRequest::SKU_VERIFIED,
+            'description' => '3 more SKU(s) mapped — 5 of 5',
+        ]);
+
+        $this->artisan('product-requests:clean-duplicate-syncs', ['--commit' => true])->assertSuccessful();
+
+        $this->assertNull($orphan->fresh());
+    }
+
+    /** Supply Chain recording a mapping by hand is real work, and it is theirs. */
+    public function test_a_sku_mapped_by_hand_protects_the_copy(): void
+    {
+        $orphan = $this->request();
+        $this->ledger($this->request());
+
+        ProductRequestSku::create([
+            'product_request_id' => $orphan->id,
+            'sku'                => 'HAN-1',
+            'mapping_status'     => ProductRequest::MAP_MAPPED,
+            'mapping_set_by'     => $this->user->id,
+            'mapping_set_at'     => now(),
+        ]);
+
+        $this->artisan('product-requests:clean-duplicate-syncs', ['--commit' => true])
+            ->expectsOutputToContain('mapped by hand')
+            ->assertSuccessful();
+
+        $this->assertNotNull($orphan->fresh());
     }
 
     /** Carrying on with the mapped half makes the same move, but it is a decision. */

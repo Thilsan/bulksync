@@ -47,7 +47,18 @@ class CleanDuplicateSyncedRequests extends Command
         ProductRequest::SUBMITTED . '>' . ProductRequest::WAITING_MAPPING,
         ProductRequest::SUBMITTED . '>' . ProductRequest::SKU_VERIFIED,
         ProductRequest::WAITING_MAPPING . '>' . ProductRequest::SKU_VERIFIED,
+        // The pull-back that runs when a website's Cegid tick is turned on.
+        ProductRequest::SKU_VERIFIED . '>' . ProductRequest::WAITING_MAPPING,
     ];
+
+    /**
+     * Actions that record what Shopify or Cegid now says, rather than something
+     * a person decided. announceBalance() writes 'sku_mapping' from the hourly
+     * recheck as well as from the Supply Chain screen, and neither carries an
+     * actor — so real Supply Chain work is recognised by mapping_set_by on the
+     * SKU rows instead, which only the screen ever sets.
+     */
+    private const AUTOMATIC_ACTIONS = ['created', 'sku_mapping'];
 
     public function handle(): int
     {
@@ -131,11 +142,17 @@ class CleanDuplicateSyncedRequests extends Command
             $signs[] = "{$count} assignment(s)";
         }
 
+        // Supply Chain writing a mapping outcome by hand — the one thing on this
+        // request that only comes from a person sitting at the SKUs screen.
+        if ($count = $request->skus()->whereNotNull('mapping_set_by')->count()) {
+            $signs[] = "{$count} SKU(s) mapped by hand";
+        }
+
         // Who the actor is says nothing useful either: the SKU check logs its
         // status move against whoever ran the import, so every synced request
         // carries one. What was done is the honest signal.
         $byHand = $request->activities->reject(function ($activity) {
-            if ($activity->action === 'created') {
+            if (in_array($activity->action, self::AUTOMATIC_ACTIONS, true)) {
                 return true;
             }
 
