@@ -416,6 +416,44 @@ class ProductRequestSheetSyncTest extends TestCase
         $this->assertStringContainsString('does have CERRUTI 1881', implode("\n", $result['log']));
     }
 
+    /**
+     * The sheet often names the department the way this app names the category —
+     * "LUGGAGE" instead of "Travel". Matching on the category too means the
+     * obvious word works without an alias for every variation somebody types.
+     */
+    public function test_a_department_named_after_the_category_still_maps(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+
+        $drive = Mockery::mock(OneDriveService::class);
+        $drive->shouldReceive('asServiceAccount')->andReturnSelf();
+        $drive->shouldReceive('setUser')->andReturnSelf();
+        $drive->shouldReceive('resolveShareItem')->andReturn(['driveId' => 'd', 'itemId' => 'i']);
+        $drive->shouldReceive('worksheetValues')
+            ->with('d', 'i', config('product_request_sync.master_worksheet'))
+            ->andReturn([
+                ['Request No', 'Request Date', 'Requested By', 'Department', 'Brand', 'Website'],
+                // "LUGGAGE" is the category name, not one of the department keys.
+                ['191', '19-Aug-26', 'ANJALI', 'LUGGAGE', 'Stokke', 'BS'],
+            ]);
+        $drive->shouldReceive('worksheetValues')
+            ->with('d', 'i', 'Luggage')
+            ->andReturn([
+                ['Date', 'Brand Name', 'Item SKU'],
+                ['19-Aug-26', 'Stokke', 'JKD207LUG00010'],
+            ]);
+
+        $this->app->instance(OneDriveService::class, $drive);
+
+        $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertSame(0, $result['unmatched_department']);
+        $this->assertSame(1, $result['created']);
+        $this->assertSame('Luggage', ProductRequest::sole()->category);
+    }
+
     /** The same department typed short still finds its tab. */
     public function test_a_short_department_name_still_maps(): void
     {

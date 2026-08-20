@@ -199,8 +199,20 @@ class ProductRequestSheetSyncService
      */
     private function departmentConfigFor(string $department): ?array
     {
-        foreach (config('product_request_sync.department_map', []) as $key => $config) {
+        $map = config('product_request_sync.department_map', []);
+
+        foreach ($map as $key => $config) {
             if (strcasecmp($key, $department) === 0) {
+                return $config;
+            }
+        }
+
+        // The sheet often names the department the way this app names the category
+        // — "LUGGAGE" rather than "Travel", "BEAUTY" rather than "Perfumes &
+        // Cosmetics". Matching on the category as well means the obvious spelling
+        // works without another alias every time somebody types the plain word.
+        foreach ($map as $config) {
+            if (strcasecmp($config['category'] ?? '', $department) === 0) {
                 return $config;
             }
         }
