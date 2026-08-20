@@ -587,6 +587,125 @@ class ProductRequestSheetSyncTest extends TestCase
         $this->assertSame(0, $result['count_mismatch']);
     }
 
+    // ── Edits made on the sheet after the request exists ─────────────────────
+
+    /** Correcting the brand on the sheet should reach the request. */
+    public function test_a_brand_changed_on_the_sheet_updates_the_request(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+
+        $this->fakeSheet(['Brand' => 'AMADAMARIA']);
+        app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $request = ProductRequest::sole();
+        $this->assertSame('AMADAMARIA', $request->brand);
+
+        $this->fakeSheet(['Brand' => 'AMADA MARIA']);
+        $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertSame(1, $result['updated']);
+        $this->assertSame('AMADA MARIA', $request->refresh()->brand);
+        $this->assertTrue(
+            $request->activities()->where('action', 'sheet_updated')->exists(),
+            'A change from the sheet belongs on the record.',
+        );
+    }
+
+    public function test_priority_and_launch_date_follow_the_sheet_too(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+
+        $this->fakeSheet(['Priority' => 'High', 'Requested Website Go-Live Date' => '20-Aug-26']);
+        app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->fakeSheet(['Priority' => 'Low', 'Requested Website Go-Live Date' => '25-Aug-26']);
+        app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $request = ProductRequest::sole()->refresh();
+        $this->assertSame('low', $request->priority);
+        $this->assertSame('2026-08-25', $request->online_launch_date->toDateString());
+    }
+
+    /**
+     * The reason this is three-way rather than "the sheet always wins": somebody
+     * correcting a request here must not have it undone by a spreadsheet.
+     */
+    public function test_a_change_made_here_is_not_overwritten_by_the_sheet(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+
+        $this->fakeSheet(['Brand' => 'AMADAMARIA']);
+        app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        // Corrected on the request itself.
+        $request = ProductRequest::sole();
+        $request->update(['brand' => 'AMADAMARIA (CORRECTED HERE)']);
+
+        $this->fakeSheet(['Brand' => 'SOMETHING ELSE']);
+        $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertSame(0, $result['updated']);
+        $this->assertSame(1, $result['conflicts']);
+        $this->assertSame('AMADAMARIA (CORRECTED HERE)', $request->refresh()->brand);
+        $this->assertStringContainsString('left as it is', implode("\n", $result['log']));
+    }
+
+    /** Nothing changed on the sheet means nothing reported. */
+    public function test_an_unchanged_sheet_row_updates_nothing(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+
+        $this->fakeSheet();
+        app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->fakeSheet();
+        $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertSame(0, $result['updated']);
+        $this->assertSame(0, $result['conflicts']);
+    }
+
+    /**
+     * Everything imported before this existed has no snapshot, so the first run
+     * records one and changes nothing — otherwise it could not tell an edited
+     * sheet from an edited request and would overwrite on a guess.
+     */
+    public function test_a_request_with_no_snapshot_is_only_recorded_the_first_time(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+
+        $this->fakeSheet(['Brand' => 'AMADAMARIA']);
+        app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        // As it would look if it had been imported before snapshots existed.
+        $request = ProductRequest::sole();
+        $request->update(['sheet_snapshot' => null]);
+
+        $this->fakeSheet(['Brand' => 'SOMETHING ELSE']);
+        $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertSame(0, $result['updated'], 'Nothing to compare against yet.');
+        $this->assertSame('AMADAMARIA', $request->refresh()->brand);
+        $this->assertNotNull($request->sheet_snapshot, 'But the snapshot is now recorded.');
+
+        // From here on, a sheet edit is detectable.
+        $this->fakeSheet(['Brand' => 'A THIRD NAME']);
+        $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertSame(1, $result['updated']);
+        $this->assertSame('A THIRD NAME', $request->refresh()->brand);
+    }
+
     // ── SKUs appended to a category tab after the request exists ─────────────
 
     /**

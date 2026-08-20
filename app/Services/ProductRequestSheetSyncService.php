@@ -53,6 +53,8 @@ class ProductRequestSheetSyncService
             'backfilled'            => 0,
             'skus_added'            => 0,
             'count_mismatch'        => 0,
+            'updated'               => 0,
+            'conflicts'             => 0,
             'ignored'               => 0,
             'unmatched_store'       => 0,
             'unmatched_department'  => 0,
@@ -119,6 +121,18 @@ class ProductRequestSheetSyncService
                         // came in short stays short, and the first import is the
                         // one moment nobody is looking at the numbers.
                         $total = $existing->productRequest->skus()->count() + ($commit ? 0 : $added);
+
+                        $edits = $this->applySheetEdits($existing->productRequest, $data, $commit);
+
+                        if ($edits['applied']) {
+                            $fixed[] = implode('; ', $edits['applied']);
+                            $result['updated']++;
+                        }
+
+                        foreach ($edits['conflicts'] as $conflict) {
+                            $result['conflicts']++;
+                            $result['log'][] = "{$existing->productRequest->reference} — {$conflict}";
+                        }
 
                         if ($shortfall = $this->countShortfall($data, $total)) {
                             $result['count_mismatch']++;
@@ -518,6 +532,9 @@ class ProductRequestSheetSyncService
             'notes'                     => $notes ?: null,
             'validation_status'         => 'pending',
             'total_skus'                => count($skus),
+            // What the sheet said now, so a later edit can be told apart from
+            // somebody changing the request here.
+            'sheet_snapshot'            => $this->sheetValues($data),
         ]);
 
         $this->mapping->syncSkus($productRequest, $skus);
@@ -539,6 +556,117 @@ class ProductRequestSheetSyncService
         ValidateProductRequestSkusJob::dispatch($productRequest->id, $requester->id)->onQueue('bulkupload');
 
         return $productRequest;
+    }
+
+    /**
+     * The fields the sheet is allowed to change on a request that already exists.
+     *
+     * Deliberately short. Category is left out: it decides which tab the SKUs
+     * come from and who is staffed, so a change there is reported rather than
+     * applied. Notes are left out because the team writes in them.
+     */
+    private const SHEET_OWNED = ['brand', 'priority', 'online_launch_date'];
+
+    /**
+     * What the sheet currently says, in the request's own terms.
+     *
+     * @return array<string, string|null>
+     */
+    private function sheetValues(array $data): array
+    {
+        $priority = strtolower(trim((string) ($data['Priority'] ?? '')));
+
+        return [
+            'brand'              => trim((string) ($data['Brand'] ?? '')) ?: null,
+            'priority'           => in_array($priority, ['high', 'medium', 'low'], true) ? $priority : null,
+            'online_launch_date' => $this->normalizeExcelDate($data['Requested Website Go-Live Date'] ?? null)?->toDateString(),
+        ];
+    }
+
+    /**
+     * The same fields as sheetValues(), read off the request instead.
+     *
+     * @return array<string, string|null>
+     */
+    private function requestValues(ProductRequest $request): array
+    {
+        return [
+            'brand'              => trim((string) $request->brand) ?: null,
+            'priority'           => $request->priority,
+            'online_launch_date' => $request->online_launch_date?->toDateString(),
+        ];
+    }
+
+    /**
+     * Bring a request into line with an edited sheet row.
+     *
+     * Three-way, against the snapshot taken when the sheet was last read: where
+     * the request still holds what the sheet last said, the sheet's new value is
+     * applied. Where somebody has changed it here since, theirs wins and the
+     * disagreement is reported — a spreadsheet edit must not quietly undo it.
+     *
+     * A request with no snapshot yet (everything imported before this existed)
+     * gets one recorded and nothing changed, so the first run after this is
+     * always safe.
+     *
+     * @return array{applied: array<int, string>, conflicts: array<int, string>}
+     */
+    private function applySheetEdits(ProductRequest $request, array $data, bool $commit): array
+    {
+        $sheet    = $this->sheetValues($data);
+        $snapshot = $request->sheet_snapshot;
+
+        // Nothing to compare against yet. The snapshot records what the REQUEST
+        // holds, not what the sheet says: taking the sheet's values would declare
+        // any difference a local edit and then refuse to ever apply it. Assuming
+        // the two were in step means the next sheet change is seen as a change.
+        if ($snapshot === null) {
+            if ($commit) {
+                $request->update(['sheet_snapshot' => $this->requestValues($request)]);
+            }
+
+            return ['applied' => [], 'conflicts' => []];
+        }
+
+        $applied   = [];
+        $conflicts = [];
+        $updates   = [];
+
+        foreach (self::SHEET_OWNED as $field) {
+            $now  = $sheet[$field] ?? null;
+            $then = $snapshot[$field] ?? null;
+
+            if ($now === null || $now === $then) {
+                continue;   // the sheet has not changed this
+            }
+
+            $mine = $field === 'online_launch_date'
+                ? $request->online_launch_date?->toDateString()
+                : (string) $request->$field;
+
+            if ($mine !== null && $then !== null && $mine !== $then) {
+                $conflicts[] = "{$field} is \"{$mine}\" here but the sheet now says \"{$now}\" — left as it is";
+                continue;
+            }
+
+            $updates[$field] = $now;
+            $applied[]       = "{$field}: \"{$then}\" → \"{$now}\"";
+        }
+
+        if ($commit && ($updates || $snapshot !== $sheet)) {
+            $request->update($updates + ['sheet_snapshot' => $sheet]);
+
+            if ($applied) {
+                $this->workflow->log(
+                    request:     $request,
+                    action:      'sheet_updated',
+                    description: 'Updated from the tracking sheet',
+                    remarks:     implode('; ', $applied),
+                );
+            }
+        }
+
+        return ['applied' => $applied, 'conflicts' => $conflicts];
     }
 
     /**

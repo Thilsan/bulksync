@@ -40,6 +40,8 @@ class SyncProductRequestsFromSheet extends Command
             ['Backfilled',             $result['backfilled']],
             ['SKUs added',             $result['skus_added']],
             ['SKU count disagrees',    $result['count_mismatch']],
+            ['Updated from the sheet',  $result['updated']],
+            ['Edited here, left alone', $result['conflicts']],
             ['Already synced',         $result['skipped_existing']],
             ['Not synced by choice',   $result['ignored']],
             ['Unmatched department',   $result['unmatched_department']],

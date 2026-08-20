@@ -532,6 +532,7 @@ class ProductRequest extends Model
         'reference',
         'sheet_request_no',
         'sheet_requested_by',
+        'sheet_snapshot',
         'name',
         'user_id',
         'store_id',
@@ -576,6 +577,7 @@ class ProductRequest extends Model
     protected function casts(): array
     {
         return [
+            'sheet_snapshot'            => 'array',
             'store_launch_date'         => 'date',    // legacy: no longer collected
             'online_launch_date'        => 'datetime',
             // A booking, so it carries a time — "Tuesday" is not a slot.
