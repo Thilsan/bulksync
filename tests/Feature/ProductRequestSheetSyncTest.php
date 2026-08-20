@@ -425,6 +425,32 @@ class ProductRequestSheetSyncTest extends TestCase
         );
     }
 
+    /**
+     * The sheet writes the bare name, the app names its stores "<x> Website" —
+     * so a token has to find the store despite the suffix, or every new website
+     * needs a config edit and a deploy before it can sync.
+     */
+    public function test_a_token_finds_a_store_named_with_the_website_suffix(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+
+        Store::create([
+            'name'                 => 'Gold Gourmet Website',
+            'shopify_domain'       => 'goldgourmet.myshopify.com',
+            'is_active'            => true,
+            'requires_sku_mapping' => false,
+        ]);
+
+        $this->fakeSheet(['Website' => 'Gold Gourmet']);
+
+        $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertSame(0, $result['unmatched_store']);
+        $this->assertSame(1, $result['created']);
+        $this->assertSame('Gold Gourmet Website', ProductRequest::sole()->store->name);
+    }
+
     public function test_a_dry_run_creates_nothing(): void
     {
         Queue::fake();

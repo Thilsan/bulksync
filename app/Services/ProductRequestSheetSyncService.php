@@ -235,7 +235,19 @@ class ProductRequestSheetSyncService
             }
         }
 
-        return Store::whereRaw('LOWER(TRIM(name)) = ?', [strtolower(trim($token))])->first();
+        // Every store here is named "<something> Website", while the sheet writes
+        // the bare name — so "Gold Gourmet" has to find "Gold Gourmet Website".
+        $name = strtolower(trim($token));
+
+        foreach ([$name, "{$name} website", preg_replace('/\s*website$/', '', $name)] as $candidate) {
+            $store = Store::whereRaw('LOWER(TRIM(name)) = ?', [$candidate])->first();
+
+            if ($store) {
+                return $store;
+            }
+        }
+
+        return null;
     }
 
     /** "BS - PG-SN" / "BS & Samsonite" / "BS and Gold Gourmet" → ["BS", "PG", "SN"] etc. */
