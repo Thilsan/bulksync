@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Jobs\ValidateProductRequestSkusJob;
 use App\Models\ProductRequest;
+use App\Models\ProductRequestSku;
 use App\Models\ProductRequestSheetSync;
 use App\Models\Store;
 use App\Models\User;
@@ -50,6 +51,7 @@ class ProductRequestSheetSyncService
         $result = [
             'created'               => 0,
             'backfilled'            => 0,
+            'skus_added'            => 0,
             'ignored'               => 0,
             'unmatched_store'       => 0,
             'unmatched_department'  => 0,
@@ -89,6 +91,29 @@ class ProductRequestSheetSyncService
                     // were stored have those two columns empty — fill them in on the
                     // next run rather than making the team re-create the request.
                     $fixed = $this->backfillExisting($existing, $data, $commit);
+
+                    // The category tabs are appended to over time: ten SKUs today,
+                    // ten more against the same brand and date tomorrow. Without
+                    // this the request keeps whatever it had when it was created
+                    // and the later ones are never seen by anyone.
+                    if ($deptConfig && $existing->productRequest) {
+                        $sheetName = $deptConfig['sheet'];
+
+                        if (!array_key_exists($sheetName, $sheetCache)) {
+                            $sheetCache[$sheetName] = $this->drive->worksheetValues($item['driveId'], $item['itemId'], $sheetName);
+                        }
+
+                        $added = $this->addNewSkus(
+                            $existing->productRequest,
+                            $this->matchSkus($sheetCache[$sheetName], $data['Request Date'] ?? null, (string) ($data['Brand'] ?? '')),
+                            $commit,
+                        );
+
+                        if ($added > 0) {
+                            $fixed[] = "{$added} new SKU(s)";
+                            $result['skus_added'] += $added;
+                        }
+                    }
 
                     if ($fixed) {
                         $result['backfilled']++;
@@ -493,6 +518,62 @@ class ProductRequestSheetSyncService
         ValidateProductRequestSkusJob::dispatch($productRequest->id, $requester->id)->onQueue('bulkupload');
 
         return $productRequest;
+    }
+
+    /**
+     * Adds SKUs the sheet has gained since this request was created.
+     *
+     * Additive only, deliberately. A SKU on the request but not on the sheet may
+     * have been added by hand, or had its mapping recorded by Supply Chain —
+     * removing it would throw that away over a spreadsheet edit. So the sheet can
+     * grow a request but never shrink one.
+     *
+     * @return int how many were added
+     */
+    private function addNewSkus(ProductRequest $request, array $sheetSkus, bool $commit): int
+    {
+        if (empty($sheetSkus)) {
+            return 0;
+        }
+
+        $have = $request->skus()->pluck('sku')
+            ->map(fn ($sku) => strtoupper(trim($sku)))
+            ->all();
+
+        $new = array_values(array_filter(
+            $sheetSkus,
+            fn ($sku) => !in_array(strtoupper(trim($sku)), $have, true),
+        ));
+
+        if (empty($new) || !$commit) {
+            return count($new);
+        }
+
+        foreach (array_chunk($new, 500) as $chunk) {
+            ProductRequestSku::insert(array_map(fn ($sku) => [
+                'product_request_id' => $request->id,
+                'sku'                => $sku,
+                'mapping_status'     => ProductRequest::MAP_PENDING,
+                'in_shopify'         => false,
+                'created_at'         => now(),
+                'updated_at'         => now(),
+            ], $chunk));
+        }
+
+        $this->mapping->rollUp($request);
+
+        $this->workflow->log(
+            request:     $request,
+            action:      'skus_added',
+            description: count($new) . ' SKU(s) added from the tracking sheet',
+            remarks:     'Now ' . $request->fresh()->total_skus . ' in total',
+        );
+
+        // The new ones have never been looked for in Shopify, and the stage this
+        // request sits at depends on whether they are there.
+        ValidateProductRequestSkusJob::dispatch($request->id, null)->onQueue('bulkupload');
+
+        return count($new);
     }
 
     /**

@@ -489,6 +489,112 @@ class ProductRequestSheetSyncTest extends TestCase
         $this->assertSame('Gold Gourmet Website', ProductRequest::sole()->store->name);
     }
 
+    // ── SKUs appended to a category tab after the request exists ─────────────
+
+    /**
+     * The case the team actually works in: ten SKUs today, ten more against the
+     * same brand and date tomorrow. Without this the request keeps its original
+     * ten and nobody ever sees the rest.
+     */
+    public function test_skus_added_to_the_sheet_later_are_added_to_the_request(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+
+        $this->fakeSheetWithSkus(['SKU-1', 'SKU-2']);
+        app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $request = ProductRequest::sole();
+        $this->assertSame(2, $request->skus()->count());
+
+        // Two more appear on the tab under the same brand and date.
+        $this->fakeSheetWithSkus(['SKU-1', 'SKU-2', 'SKU-3', 'SKU-4']);
+        $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertSame(0, $result['created'], 'It is the same request, not a new one.');
+        $this->assertSame(2, $result['skus_added']);
+        $this->assertSame(4, $request->refresh()->skus()->count());
+        $this->assertSame(4, $request->total_skus, 'The roll-up has to follow, or the counts lie.');
+        $this->assertStringContainsString('2 new SKU(s)', implode("\n", $result['log']));
+    }
+
+    /**
+     * A SKU on the request but not on the sheet may have been added by hand, or
+     * had its mapping recorded — a spreadsheet edit must not delete that.
+     */
+    public function test_a_sku_missing_from_the_sheet_is_never_removed(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+
+        $this->fakeSheetWithSkus(['SKU-1', 'SKU-2']);
+        app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $request = ProductRequest::sole();
+
+        $this->fakeSheetWithSkus(['SKU-1']);        // SKU-2 taken off the tab
+        app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertSame(2, $request->refresh()->skus()->count());
+    }
+
+    public function test_a_dry_run_reports_the_new_skus_without_adding_them(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+
+        $this->fakeSheetWithSkus(['SKU-1']);
+        app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->fakeSheetWithSkus(['SKU-1', 'SKU-2', 'SKU-3']);
+        $result = app(ProductRequestSheetSyncService::class)->run(commit: false);
+
+        $this->assertSame(2, $result['skus_added']);
+        $this->assertSame(1, ProductRequest::sole()->skus()->count(), 'A dry run must change nothing.');
+    }
+
+    public function test_nothing_is_reported_when_the_sheet_has_not_changed(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+
+        $this->fakeSheetWithSkus(['SKU-1', 'SKU-2']);
+        app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->fakeSheetWithSkus(['SKU-1', 'SKU-2']);
+        $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertSame(0, $result['skus_added']);
+        $this->assertSame(1, $result['skipped_existing']);
+    }
+
+    /** One master row, one category tab, whatever SKUs it is given. */
+    private function fakeSheetWithSkus(array $skus): void
+    {
+        $drive = Mockery::mock(OneDriveService::class);
+        $drive->shouldReceive('asServiceAccount')->andReturnSelf();
+        $drive->shouldReceive('setUser')->andReturnSelf();
+        $drive->shouldReceive('resolveShareItem')->andReturn(['driveId' => 'd', 'itemId' => 'i']);
+        $drive->shouldReceive('worksheetValues')
+            ->with('d', 'i', config('product_request_sync.master_worksheet'))
+            ->andReturn([
+                ['Request No', 'Request Date', 'Requested By', 'Department', 'Brand', 'Website'],
+                ['17', '05-Aug-26', 'KAYCEE', 'LINGERIE', 'AMADAMARIA', 'BS'],
+            ]);
+        $drive->shouldReceive('worksheetValues')
+            ->with('d', 'i', 'Lingerie')
+            ->andReturn(array_merge(
+                [['Date', 'Brand Name', 'Item SKU']],
+                array_map(fn ($sku) => ['05-Aug-26', 'AMADAMARIA', $sku], $skus),
+            ));
+
+        $this->app->instance(OneDriveService::class, $drive);
+    }
+
     public function test_a_dry_run_creates_nothing(): void
     {
         Queue::fake();
