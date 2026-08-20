@@ -158,9 +158,11 @@ class ProductRequestSheetSyncService
 
                     // A tab that cannot be read at all is worth saying plainly:
                     // every request against it will fail until the header is fixed.
+                    $rawDate = trim((string) ($data['Request Date'] ?? ''));
+
                     $why = $missing
                         ? "the \"{$sheetName}\" tab has no " . implode(' or ', array_map(fn ($c) => "\"{$c}\"", $missing)) . ' column'
-                        : "no row in \"{$sheetName}\" matches date {$date} + brand \"{$data['Brand']}\""
+                        : "no row in \"{$sheetName}\" matches date {$date} (cell \"{$rawDate}\") + brand \"{$data['Brand']}\""
                             . $this->mismatchHint($sheetCache[$sheetName], (string) ($data['Brand'] ?? ''));
 
                     $this->record($requestNo, $token, $store->id, null, 'unmatched_skus', ucfirst($why));
@@ -301,10 +303,11 @@ class ProductRequestSheetSyncService
             }
 
             if (strcasecmp($rowBrand, trim($brand)) === 0) {
-                $on = $this->normalizeExcelDate($row[$dateCol] ?? null)?->toDateString();
+                $raw = trim((string) ($row[$dateCol] ?? ''));
+                $on  = $this->normalizeExcelDate($row[$dateCol] ?? null)?->toDateString();
 
                 if ($on) {
-                    $dates[$on] = true;
+                    $dates[$raw] = $on;
                 }
 
                 continue;
@@ -320,11 +323,18 @@ class ProductRequestSheetSyncService
         }
 
         if ($dates) {
-            $shown = array_slice(array_keys($dates), 0, 4);
+            $shown = array_slice($dates, 0, 4, preserve_keys: true);
 
-            return ' — that brand is on the tab, dated ' . implode(', ', $shown)
-                . (count($dates) > count($shown) ? ' and others' : '')
-                . ' (so the Request Date on the master tab does not agree with it)';
+            // The raw cell alongside the parsed date: a day/month swap looks like a
+            // disagreement between the tabs when it is really this app reading one
+            // of them the wrong way round, and only the raw text tells them apart.
+            return ' — that brand is on the tab, dated '
+                . implode(', ', array_map(
+                    fn ($raw, $parsed) => $parsed . ' (cell "' . $raw . '")',
+                    array_keys($shown),
+                    $shown,
+                ))
+                . (count($dates) > count($shown) ? ' and others' : '');
         }
 
         if ($near) {
