@@ -530,6 +530,50 @@ class ProductRequestSheetSyncTest extends TestCase
         $this->assertStringContainsString('expects 4 SKU(s) but only 3 matched', implode("\n", $result['log']));
     }
 
+    /**
+     * The first import is the one moment nobody is checking the numbers, so a
+     * request that came in short has to keep saying so on later runs.
+     */
+    public function test_an_already_synced_request_that_is_short_keeps_being_reported(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+
+        // Imported with 2 of the 3 the sheet claims.
+        $this->fakeSheetWithSkus(['SKU-1', 'SKU-2'], expected: 3);
+        app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertSame(2, ProductRequest::sole()->skus()->count());
+
+        // Nothing has changed on the sheet — it must still say the count is wrong.
+        $this->fakeSheetWithSkus(['SKU-1', 'SKU-2'], expected: 3);
+        $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertSame(0, $result['created']);
+        $this->assertSame(1, $result['count_mismatch']);
+        $this->assertStringContainsString('expects 3 SKU(s) but only 2 matched', implode("\n", $result['log']));
+    }
+
+    /** Once the sheet is fixed and the SKUs top up, it stops complaining. */
+    public function test_the_report_stops_once_the_count_agrees(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+
+        $this->fakeSheetWithSkus(['SKU-1', 'SKU-2'], expected: 3);
+        app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        // The third row's date is corrected on the sheet, so it now matches.
+        $this->fakeSheetWithSkus(['SKU-1', 'SKU-2', 'SKU-3'], expected: 3);
+        $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertSame(1, $result['skus_added']);
+        $this->assertSame(0, $result['count_mismatch']);
+        $this->assertSame(3, ProductRequest::sole()->skus()->count());
+    }
+
     /** Matching the stated count says nothing, which is how it should read. */
     public function test_a_matching_sku_count_is_not_reported(): void
     {
@@ -627,7 +671,7 @@ class ProductRequestSheetSyncTest extends TestCase
     }
 
     /** One master row, one category tab, whatever SKUs it is given. */
-    private function fakeSheetWithSkus(array $skus): void
+    private function fakeSheetWithSkus(array $skus, ?int $expected = null): void
     {
         $drive = Mockery::mock(OneDriveService::class);
         $drive->shouldReceive('asServiceAccount')->andReturnSelf();
@@ -636,8 +680,8 @@ class ProductRequestSheetSyncTest extends TestCase
         $drive->shouldReceive('worksheetValues')
             ->with('d', 'i', config('product_request_sync.master_worksheet'))
             ->andReturn([
-                ['Request No', 'Request Date', 'Requested By', 'Department', 'Brand', 'Website'],
-                ['17', '05-Aug-26', 'KAYCEE', 'LINGERIE', 'AMADAMARIA', 'BS'],
+                ['Request No', 'Request Date', 'Requested By', 'Department', 'Brand', 'Website', 'SKU Count'],
+                ['17', '05-Aug-26', 'KAYCEE', 'LINGERIE', 'AMADAMARIA', 'BS', (string) ($expected ?? count($skus))],
             ]);
         $drive->shouldReceive('worksheetValues')
             ->with('d', 'i', 'Lingerie')

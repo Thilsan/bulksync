@@ -114,6 +114,17 @@ class ProductRequestSheetSyncService
                             $fixed[] = "{$added} new SKU(s)";
                             $result['skus_added'] += $added;
                         }
+
+                        // Checked on every run, not only at import: a request that
+                        // came in short stays short, and the first import is the
+                        // one moment nobody is looking at the numbers.
+                        $total = $existing->productRequest->skus()->count() + ($commit ? 0 : $added);
+
+                        if ($shortfall = $this->countShortfall($data, $total)) {
+                            $result['count_mismatch']++;
+                            $result['log'][] = "{$existing->productRequest->reference} — Request No {$requestNo} / {$token} "
+                                . "({$data['Brand']}): {$shortfall}";
+                        }
                     }
 
                     if ($fixed) {
