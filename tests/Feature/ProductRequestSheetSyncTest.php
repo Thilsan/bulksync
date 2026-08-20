@@ -527,7 +527,7 @@ class ProductRequestSheetSyncTest extends TestCase
         $this->assertSame(1, $result['created'], 'It still imports — short, not skipped.');
         $this->assertSame(3, ProductRequest::sole()->skus()->count());
         $this->assertSame(1, $result['count_mismatch']);
-        $this->assertStringContainsString('expects 4 SKU(s) but only 3 matched', implode("\n", $result['log']));
+        $this->assertStringContainsString('the tab only has 3 row(s) for that date', implode("\n", $result['log']));
     }
 
     /**
@@ -552,7 +552,7 @@ class ProductRequestSheetSyncTest extends TestCase
 
         $this->assertSame(0, $result['created']);
         $this->assertSame(1, $result['count_mismatch']);
-        $this->assertStringContainsString('expects 3 SKU(s) but only 2 matched', implode("\n", $result['log']));
+        $this->assertStringContainsString('the tab only has 2 row(s) for that date', implode("\n", $result['log']));
     }
 
     /** Once the sheet is fixed and the SKUs top up, it stops complaining. */
@@ -575,12 +575,49 @@ class ProductRequestSheetSyncTest extends TestCase
     }
 
     /**
-     * A shortfall of hundreds is not a stray date, so the report shows where the
-     * brand's other rows actually are and lets the reader draw the conclusion —
-     * spread across other dates means the master SKU Count covers the brand's
-     * whole history on the tab, which is a different problem entirely.
+     * The master row counts rows; a request holds distinct SKUs. Where the whole
+     * difference is the same SKU listed twice, nothing is missing — and warning
+     * about it teaches people to ignore the warning.
      */
-    public function test_a_shortfall_reports_where_the_brands_other_rows_are(): void
+    public function test_repeated_skus_on_the_tab_are_not_reported_as_missing(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+
+        $drive = Mockery::mock(OneDriveService::class);
+        $drive->shouldReceive('asServiceAccount')->andReturnSelf();
+        $drive->shouldReceive('setUser')->andReturnSelf();
+        $drive->shouldReceive('resolveShareItem')->andReturn(['driveId' => 'd', 'itemId' => 'i']);
+        $drive->shouldReceive('worksheetValues')
+            ->with('d', 'i', config('product_request_sync.master_worksheet'))
+            ->andReturn([
+                ['Request No', 'Request Date', 'Requested By', 'Department', 'Brand', 'Website', 'SKU Count'],
+                ['18', '05-Aug-26', 'KAYCEE', 'LINGERIE', 'BELDONA', 'BS', '4'],
+            ]);
+        $drive->shouldReceive('worksheetValues')
+            ->with('d', 'i', 'Lingerie')
+            ->andReturn([
+                ['Date', 'Brand Name', 'Item SKU'],
+                ['05-Aug-26', 'BELDONA', 'B-1'],
+                ['05-Aug-26', 'BELDONA', 'B-2'],
+                ['05-Aug-26', 'BELDONA', 'B-1'],     // the same SKU again
+                ['05-Aug-26', 'BELDONA', 'B-2'],
+            ]);
+
+        $this->app->instance(OneDriveService::class, $drive);
+
+        $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertSame(2, ProductRequest::sole()->skus()->count());
+        $this->assertSame(0, $result['count_mismatch'], 'Four rows, two SKUs — nothing is missing.');
+    }
+
+    /**
+     * Rows the master row counts that are genuinely not on the tab — the case
+     * worth interrupting somebody about.
+     */
+    public function test_rows_missing_from_the_tab_are_reported_with_the_evidence(): void
     {
         Queue::fake();
         $this->syncUser();
@@ -602,7 +639,7 @@ class ProductRequestSheetSyncTest extends TestCase
                 ['Date', 'Brand Name', 'Item SKU'],
                 ['05-Aug-26', 'COTTONREAL', 'C-1'],
                 ['05-Aug-26', 'COTTONREAL', 'C-2'],
-                ['02-Jun-26', 'COTTONREAL', 'C-3'],      // an earlier request's rows
+                ['02-Jun-26', 'COTTONREAL', 'C-3'],      // an earlier request's row
                 ['05-Aug-26', 'COTTONREAL', ''],          // a row with no SKU at all
             ]);
 
@@ -612,11 +649,10 @@ class ProductRequestSheetSyncTest extends TestCase
         $log    = implode("\n", $result['log']);
 
         $this->assertSame(1, $result['count_mismatch']);
-        $this->assertStringContainsString('expects 4 SKU(s) but only 2 matched', $log);
+        $this->assertStringContainsString('the tab only has 2 row(s) for that date', $log);
+        $this->assertStringContainsString('2 row(s) the master row counts are not on the tab', $log);
 
-        // The evidence, not a guess: three rows carry a SKU, one does not, and
-        // one of the three sits under a different date.
-        $this->assertStringContainsString('3 row(s) with a SKU on the tab plus 1 with none', $log);
+        // And where the brand's other rows sit, so the reader can judge.
         $this->assertStringContainsString('2026-08-05 (2)', $log);
         $this->assertStringContainsString('2026-06-02 (1)', $log);
     }

@@ -134,11 +134,7 @@ class ProductRequestSheetSyncService
                             $result['log'][] = "{$existing->productRequest->reference} — {$conflict}";
                         }
 
-                        if ($shortfall = $this->countShortfall(
-                            $data,
-                            $total,
-                            $this->brandBreakdown($sheetCache[$sheetName], (string) ($data['Brand'] ?? '')),
-                        )) {
+                        if ($shortfall = $this->countShortfall($data, $total, $sheetCache[$sheetName])) {
                             $result['count_mismatch']++;
                             $result['log'][] = "{$existing->productRequest->reference} — Request No {$requestNo} / {$token} "
                                 . "({$data['Brand']}): {$shortfall}";
@@ -230,11 +226,7 @@ class ProductRequestSheetSyncService
                 // rows on the category tab disagree with the master row — a wrong
                 // date on one line is invisible otherwise, because the request
                 // still imports and simply comes in short.
-                if ($shortfall = $this->countShortfall(
-                    $data,
-                    count($skus),
-                    $this->brandBreakdown($sheetCache[$sheetName], (string) ($data['Brand'] ?? '')),
-                )) {
+                if ($shortfall = $this->countShortfall($data, count($skus), $sheetCache[$sheetName])) {
                     $result['count_mismatch']++;
                     $result['log'][] = "Request No {$requestNo} / {$token} ({$data['Brand']}): {$shortfall}";
                 }
@@ -685,7 +677,7 @@ class ProductRequestSheetSyncService
      * different date from the rest. Without this the request imports quietly short
      * and nobody notices until the SKUs are counted by hand.
      */
-    private function countShortfall(array $data, int $matched, string $breakdown = ''): ?string
+    private function countShortfall(array $data, int $matched, array $sheetValues): ?string
     {
         $expected = (int) preg_replace('/[^0-9]/', '', (string) ($data['SKU Count'] ?? ''));
 
@@ -693,15 +685,75 @@ class ProductRequestSheetSyncService
             return null;
         }
 
-        $direction = $matched < $expected
-            ? "the sheet expects {$expected} SKU(s) but only {$matched} matched"
-            : "the sheet expects {$expected} SKU(s) but {$matched} matched";
+        $brand = (string) ($data['Brand'] ?? '');
+        $rows  = $this->rowsOnDateFor($sheetValues, $data['Request Date'] ?? null, $brand);
 
-        // Where the brand's other rows are, rather than a guess at why. A count
-        // that spans several dates means the master row's SKU Count covers the
-        // brand's whole history on the tab, not just its own request — which is a
-        // completely different conclusion from one row carrying a stray date.
-        return $direction . $breakdown;
+        // The master row counts ROWS; a request holds distinct SKUs. Where the
+        // difference is entirely repeats, nothing is missing and saying otherwise
+        // trains people to ignore the warning.
+        $repeats = $rows['rows'] - $rows['distinct'];
+        $absent  = $expected - $rows['rows'];
+
+        if ($absent <= 0 && $repeats > 0) {
+            return null;
+        }
+
+        if ($absent > 0) {
+            return "the sheet says {$expected} SKU(s) but the tab only has {$rows['rows']} row(s) for that date"
+                . ($repeats > 0 ? " ({$repeats} of them repeating a SKU, so {$matched} distinct)" : '')
+                . ' — ' . $absent . ' row(s) the master row counts are not on the tab'
+                . $this->brandBreakdown($sheetValues, $brand);
+        }
+
+        if ($rows['rows'] > $expected) {
+            return "the sheet says {$expected} SKU(s) but the tab has {$rows['rows']} row(s) for that date"
+                . " ({$matched} distinct) — the master row's count is behind the tab";
+        }
+
+        return null;
+    }
+
+    /**
+     * Rows on a category tab for one date and brand, and how many distinct SKUs
+     * they amount to.
+     *
+     * The two are not the same number and the gap is the usual explanation for a
+     * request looking short: the same Item SKU listed on several rows becomes one
+     * SKU on the request, because that is what a SKU is.
+     *
+     * @return array{rows: int, distinct: int}
+     */
+    private function rowsOnDateFor(array $sheetValues, mixed $requestDateRaw, string $brand): array
+    {
+        $header   = array_map('trim', $sheetValues[0] ?? []);
+        $dateCol  = array_search('Date', $header, true);
+        $brandCol = array_search('Brand Name', $header, true);
+        $skuCol   = array_search('Item SKU', $header, true);
+
+        if ($dateCol === false || $brandCol === false || $skuCol === false) {
+            return ['rows' => 0, 'distinct' => 0];
+        }
+
+        $target = $this->normalizeExcelDate($requestDateRaw)?->toDateString();
+        $rows   = 0;
+        $seen   = [];
+
+        foreach (array_slice($sheetValues, 1) as $row) {
+            $sku = trim((string) ($row[$skuCol] ?? ''));
+
+            if ($sku === '' || strcasecmp(trim((string) ($row[$brandCol] ?? '')), trim($brand)) !== 0) {
+                continue;
+            }
+
+            if ($this->normalizeExcelDate($row[$dateCol] ?? null)?->toDateString() !== $target) {
+                continue;
+            }
+
+            $rows++;
+            $seen[strtoupper($sku)] = true;
+        }
+
+        return ['rows' => $rows, 'distinct' => count($seen)];
     }
 
     /**
