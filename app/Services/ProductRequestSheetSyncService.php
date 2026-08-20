@@ -134,7 +134,11 @@ class ProductRequestSheetSyncService
                             $result['log'][] = "{$existing->productRequest->reference} — {$conflict}";
                         }
 
-                        if ($shortfall = $this->countShortfall($data, $total)) {
+                        if ($shortfall = $this->countShortfall(
+                            $data,
+                            $total,
+                            $this->brandBreakdown($sheetCache[$sheetName], (string) ($data['Brand'] ?? '')),
+                        )) {
                             $result['count_mismatch']++;
                             $result['log'][] = "{$existing->productRequest->reference} — Request No {$requestNo} / {$token} "
                                 . "({$data['Brand']}): {$shortfall}";
@@ -226,7 +230,11 @@ class ProductRequestSheetSyncService
                 // rows on the category tab disagree with the master row — a wrong
                 // date on one line is invisible otherwise, because the request
                 // still imports and simply comes in short.
-                if ($shortfall = $this->countShortfall($data, count($skus))) {
+                if ($shortfall = $this->countShortfall(
+                    $data,
+                    count($skus),
+                    $this->brandBreakdown($sheetCache[$sheetName], (string) ($data['Brand'] ?? '')),
+                )) {
                     $result['count_mismatch']++;
                     $result['log'][] = "Request No {$requestNo} / {$token} ({$data['Brand']}): {$shortfall}";
                 }
@@ -677,7 +685,7 @@ class ProductRequestSheetSyncService
      * different date from the rest. Without this the request imports quietly short
      * and nobody notices until the SKUs are counted by hand.
      */
-    private function countShortfall(array $data, int $matched): ?string
+    private function countShortfall(array $data, int $matched, string $breakdown = ''): ?string
     {
         $expected = (int) preg_replace('/[^0-9]/', '', (string) ($data['SKU Count'] ?? ''));
 
@@ -685,10 +693,72 @@ class ProductRequestSheetSyncService
             return null;
         }
 
-        return $matched < $expected
-            ? "the sheet expects {$expected} SKU(s) but only {$matched} matched — " . ($expected - $matched)
-                . ' row(s) on the category tab disagree with the master row, usually a different date'
-            : "the sheet expects {$expected} SKU(s) but {$matched} matched — the category tab has more rows than the master row says";
+        $direction = $matched < $expected
+            ? "the sheet expects {$expected} SKU(s) but only {$matched} matched"
+            : "the sheet expects {$expected} SKU(s) but {$matched} matched";
+
+        // Where the brand's other rows are, rather than a guess at why. A count
+        // that spans several dates means the master row's SKU Count covers the
+        // brand's whole history on the tab, not just its own request — which is a
+        // completely different conclusion from one row carrying a stray date.
+        return $direction . $breakdown;
+    }
+
+    /**
+     * How many rows the tab holds for a brand, per date.
+     *
+     * @return string  a readable tail, or '' when there is nothing to add
+     */
+    private function brandBreakdown(array $sheetValues, string $brand): string
+    {
+        $header   = array_map('trim', $sheetValues[0] ?? []);
+        $dateCol  = array_search('Date', $header, true);
+        $brandCol = array_search('Brand Name', $header, true);
+        $skuCol   = array_search('Item SKU', $header, true);
+
+        if ($dateCol === false || $brandCol === false || $skuCol === false) {
+            return '';
+        }
+
+        $perDate = [];
+        $blank   = 0;
+
+        foreach (array_slice($sheetValues, 1) as $row) {
+            if (strcasecmp(trim((string) ($row[$brandCol] ?? '')), trim($brand)) !== 0) {
+                continue;
+            }
+
+            // A row with no SKU cannot become one, and counting it explains part
+            // of the gap on its own.
+            if (trim((string) ($row[$skuCol] ?? '')) === '') {
+                $blank++;
+                continue;
+            }
+
+            $on            = $this->normalizeExcelDate($row[$dateCol] ?? null)?->toDateString() ?? 'no date';
+            $perDate[$on]  = ($perDate[$on] ?? 0) + 1;
+        }
+
+        if (!$perDate && !$blank) {
+            return '';
+        }
+
+        arsort($perDate);
+        $shown = array_slice($perDate, 0, 5, preserve_keys: true);
+
+        $parts = [];
+
+        foreach ($shown as $date => $count) {
+            $parts[] = "{$date} ({$count})";
+        }
+
+        if (count($perDate) > count($shown)) {
+            $parts[] = 'and ' . (count($perDate) - count($shown)) . ' more date(s)';
+        }
+
+        return ' — that brand has ' . array_sum($perDate) . ' row(s) with a SKU on the tab'
+            . ($blank ? " plus {$blank} with none" : '')
+            . ', dated: ' . implode(', ', $parts);
     }
 
     /**

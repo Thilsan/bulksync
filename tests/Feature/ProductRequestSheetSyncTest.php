@@ -574,6 +574,53 @@ class ProductRequestSheetSyncTest extends TestCase
         $this->assertSame(3, ProductRequest::sole()->skus()->count());
     }
 
+    /**
+     * A shortfall of hundreds is not a stray date, so the report shows where the
+     * brand's other rows actually are and lets the reader draw the conclusion —
+     * spread across other dates means the master SKU Count covers the brand's
+     * whole history on the tab, which is a different problem entirely.
+     */
+    public function test_a_shortfall_reports_where_the_brands_other_rows_are(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+
+        $drive = Mockery::mock(OneDriveService::class);
+        $drive->shouldReceive('asServiceAccount')->andReturnSelf();
+        $drive->shouldReceive('setUser')->andReturnSelf();
+        $drive->shouldReceive('resolveShareItem')->andReturn(['driveId' => 'd', 'itemId' => 'i']);
+        $drive->shouldReceive('worksheetValues')
+            ->with('d', 'i', config('product_request_sync.master_worksheet'))
+            ->andReturn([
+                ['Request No', 'Request Date', 'Requested By', 'Department', 'Brand', 'Website', 'SKU Count'],
+                ['21', '05-Aug-26', 'KAYCEE', 'LINGERIE', 'COTTONREAL', 'BS', '4'],
+            ]);
+        $drive->shouldReceive('worksheetValues')
+            ->with('d', 'i', 'Lingerie')
+            ->andReturn([
+                ['Date', 'Brand Name', 'Item SKU'],
+                ['05-Aug-26', 'COTTONREAL', 'C-1'],
+                ['05-Aug-26', 'COTTONREAL', 'C-2'],
+                ['02-Jun-26', 'COTTONREAL', 'C-3'],      // an earlier request's rows
+                ['05-Aug-26', 'COTTONREAL', ''],          // a row with no SKU at all
+            ]);
+
+        $this->app->instance(OneDriveService::class, $drive);
+
+        $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
+        $log    = implode("\n", $result['log']);
+
+        $this->assertSame(1, $result['count_mismatch']);
+        $this->assertStringContainsString('expects 4 SKU(s) but only 2 matched', $log);
+
+        // The evidence, not a guess: three rows carry a SKU, one does not, and
+        // one of the three sits under a different date.
+        $this->assertStringContainsString('3 row(s) with a SKU on the tab plus 1 with none', $log);
+        $this->assertStringContainsString('2026-08-05 (2)', $log);
+        $this->assertStringContainsString('2026-06-02 (1)', $log);
+    }
+
     /** Matching the stated count says nothing, which is how it should read. */
     public function test_a_matching_sku_count_is_not_reported(): void
     {
