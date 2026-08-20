@@ -388,6 +388,46 @@ class ProductRequestDraftTest extends TestCase
         app(ProductRequestDraftBuilder::class)->syncSheetDescriptions($request);
     }
 
+    /** The Beauty tab calls it "Inventory"; Shopify calls it Variant Inventory Qty. */
+    public function test_the_inventory_column_reaches_the_variant_and_the_csv(): void
+    {
+        $user    = $this->user();
+        $request = $this->request($this->store(), $user, ['ARM-1']);
+
+        $drive = Mockery::mock(OneDriveService::class);
+        $drive->shouldReceive('asServiceAccount')->andReturnSelf();
+        $drive->shouldReceive('setUser')->andReturnSelf();
+        $drive->shouldReceive('resolveShareItem')->andReturn(['driveId' => 'd', 'itemId' => 'i']);
+        $drive->shouldReceive('worksheetValues')
+            ->with('d', 'i', 'Mens Fashion')
+            ->andReturn([
+                ['Item SKU', 'Brand Name', 'Product Name', 'Retail Price', 'Inventory', 'Sub-Category'],
+                ['ARM-1', 'ARMANI BEAUTY', 'Stronger With You 30ml', '300', '3', 'Men Fragrance'],
+            ]);
+
+        $this->app->instance(OneDriveService::class, $drive);
+
+        $result = $this->build($request);
+
+        $this->assertSame('Inventory', $result['columns']['used']['inventory_qty']);
+        $this->assertSame('Sub-Category', $result['columns']['used']['product_type']);
+
+        $variant = ProductRequestDraftVariant::sole();
+        $this->assertSame(3, $variant->inventory_qty);
+        $this->assertSame('Men Fragrance', ProductRequestDraftProduct::sole()->product_type);
+
+        // And it lands in the column Shopify's importer reads.
+        $handle = fopen('php://memory', 'r+');
+        app(ProductRequestDraftCsv::class)->write($request, $handle);
+        rewind($handle);
+
+        $header = fgetcsv($handle);
+        $row    = fgetcsv($handle);
+        fclose($handle);
+
+        $this->assertSame('3', $row[array_search('Variant Inventory Qty', $header, true)]);
+    }
+
     public function test_only_skus_missing_from_shopify_are_staged(): void
     {
         $user    = $this->user();

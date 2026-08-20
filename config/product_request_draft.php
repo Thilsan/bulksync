@@ -30,7 +30,7 @@ return [
         'brand'            => ['Brand Name', 'Brand', 'Vendor'],
         'title'            => ['Product Name', 'Title', 'Item Name', 'Item Description', 'Product Title'],
         'body_html'        => ['Description', 'Product Description', 'Long Description', 'Details'],
-        'product_type'     => ['Product Type', 'Type', 'Sub Category', 'Subcategory', 'Product Category'],
+        'product_type'     => ['Product Type', 'Type', 'Sub-Category', 'Sub Category', 'Subcategory', 'Product Category'],
         'tags'             => ['Tags', 'Keywords'],
         'option1_value'    => ['Colour', 'Color', 'Shade', 'Colour Name', 'Color Name'],
         'option2_value'    => ['Size', 'Volume', 'Capacity', 'Size Name'],
@@ -39,7 +39,7 @@ return [
         'compare_at_price' => ['Compare At Price', 'Was Price', 'Original Price', 'Old Price', 'Strike Price'],
         'barcode'          => ['Barcode', 'EAN', 'UPC', 'EAN Code', 'Barcode/EAN'],
         'weight'           => ['Weight', 'Weight (kg)', 'Gross Weight'],
-        'inventory_qty'    => ['Qty', 'Quantity', 'Stock', 'Stock Qty', 'On Hand'],
+        'inventory_qty'    => ['Inventory', 'Qty', 'Quantity', 'Stock', 'Stock Qty', 'On Hand'],
         'image_src'        => ['Image URL', 'Image', 'Image Link', 'Photo URL'],
     ],
 
@@ -66,6 +66,7 @@ return [
         'style_code'       => ['style'],
         'image_src'        => ['image', 'photo'],
         'body_html'        => ['description'],
+        'inventory_qty'    => ['inventory', 'stock', 'qty'],
     ],
 
     /*

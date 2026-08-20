@@ -37,6 +37,20 @@ return [
     | add the missing store to Settings, then add its code below.
     |
     */
+    /*
+    | Tokens the sheet uses that this app deliberately does not sync. Reported as
+    | skipped on purpose rather than as a missing store, so a permanent decision
+    | stops looking like an outstanding job every single run.
+    */
+    'ignored_website_tokens' => [
+        'COLE HAAN WEBSITE',
+    ],
+
+    /*
+    | A token with no entry here is matched against the store names in Settings
+    | before it is given up on — so creating a store called "Gold Gourmet" is
+    | enough, without also editing this file.
+    */
     'website_store_map' => [
         'BS'           => 'qatarbluesalon.myshopify.com',
         'PG'           => 'paris-gallery-qatar.myshopify.com',
@@ -65,11 +79,16 @@ return [
         'F&B'                  => ['category' => 'Food & Beverages',    'sheet' => 'Food & Beverages'],
         'Perfumes & Cosmetics' => ['category' => 'Beauty',              'sheet' => 'Perfumes & Cosmetics'],
         'Travel'               => ['category' => 'Luggage',             'sheet' => 'Luggage'],
+        // Some rows put the website in the Department column. Travel is what it
+        // means, and correcting it here beats leaving the row unsynced.
+        'MOSAFER'              => ['category' => 'Luggage',             'sheet' => 'Luggage'],
         'KIDS FASHION'         => ['category' => 'Kids',                'sheet' => 'Kids Fashion'],
         'LINGERIE'             => ['category' => 'Lingerie',            'sheet' => 'Lingerie'],
         'MENS'                 => ['category' => "Men's Fashion",       'sheet' => 'Mens Fashion'],
         'WOMEN FASHION'        => ['category' => "Women's Fashion",     'sheet' => 'Womens Fashion'],
         'LEATHER GOODS'        => ['category' => 'Leather Goods',       'sheet' => 'Leather Goods'],
+        // The same department, typed short on some rows.
+        'LEATHER'              => ['category' => 'Leather Goods',       'sheet' => 'Leather Goods'],
         'WATCHES & JEWELLERY'  => ['category' => 'Watches',             'sheet' => 'Watches & Jewellery'],
         'FASHION ACCESSORIES'  => ['category' => 'Fashion Accessories', 'sheet' => 'Fashion Accessories'],
         'Home'                 => ['category' => 'Home',                'sheet' => 'Home'],

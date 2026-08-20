@@ -346,6 +346,85 @@ class ProductRequestSheetSyncTest extends TestCase
         $this->assertStringContainsString('no row in "Lingerie"', implode("\n", $result['log']));
     }
 
+    /**
+     * "No row matched" is true but unusable. When the brand is on the tab under
+     * other dates, saying so points at the master tab's Request Date — which is
+     * the actual edit.
+     */
+    public function test_a_date_mismatch_says_which_dates_the_brand_is_on(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+
+        $drive = Mockery::mock(OneDriveService::class);
+        $drive->shouldReceive('asServiceAccount')->andReturnSelf();
+        $drive->shouldReceive('setUser')->andReturnSelf();
+        $drive->shouldReceive('resolveShareItem')->andReturn(['driveId' => 'd', 'itemId' => 'i']);
+        $drive->shouldReceive('worksheetValues')
+            ->with('d', 'i', config('product_request_sync.master_worksheet'))
+            ->andReturn([
+                ['Request No', 'Request Date', 'Requested By', 'Department', 'Brand', 'Website'],
+                ['55', '12-Aug-26', 'KAYCEE', 'LINGERIE', 'CERRUTI', 'BS'],
+            ]);
+        $drive->shouldReceive('worksheetValues')
+            ->with('d', 'i', 'Lingerie')
+            ->andReturn([
+                ['Date', 'Brand Name', 'Item SKU'],
+                ['10-Aug-26', 'CERRUTI', 'CER-1'],
+                ['11-Aug-26', 'CERRUTI', 'CER-2'],
+            ]);
+
+        $this->app->instance(OneDriveService::class, $drive);
+
+        $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
+        $log    = implode("\n", $result['log']);
+
+        $this->assertSame(1, $result['unmatched_skus']);
+        $this->assertStringContainsString('that brand is on the tab, dated', $log);
+        $this->assertStringContainsString('2026-08-10', $log);
+    }
+
+    /** A near-miss spelling is the other common cause, and worth naming. */
+    public function test_a_brand_spelled_differently_is_named(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+
+        $drive = Mockery::mock(OneDriveService::class);
+        $drive->shouldReceive('asServiceAccount')->andReturnSelf();
+        $drive->shouldReceive('setUser')->andReturnSelf();
+        $drive->shouldReceive('resolveShareItem')->andReturn(['driveId' => 'd', 'itemId' => 'i']);
+        $drive->shouldReceive('worksheetValues')
+            ->with('d', 'i', config('product_request_sync.master_worksheet'))
+            ->andReturn([
+                ['Request No', 'Request Date', 'Requested By', 'Department', 'Brand', 'Website'],
+                ['55', '12-Aug-26', 'KAYCEE', 'LINGERIE', 'CERRUTI', 'BS'],
+            ]);
+        $drive->shouldReceive('worksheetValues')
+            ->with('d', 'i', 'Lingerie')
+            ->andReturn([
+                ['Date', 'Brand Name', 'Item SKU'],
+                ['12-Aug-26', 'CERRUTI 1881', 'CER-1'],
+            ]);
+
+        $this->app->instance(OneDriveService::class, $drive);
+
+        $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertStringContainsString('does have CERRUTI 1881', implode("\n", $result['log']));
+    }
+
+    /** The same department typed short still finds its tab. */
+    public function test_a_short_department_name_still_maps(): void
+    {
+        $this->assertSame(
+            config('product_request_sync.department_map.LEATHER GOODS'),
+            config('product_request_sync.department_map.LEATHER'),
+        );
+    }
+
     public function test_a_dry_run_creates_nothing(): void
     {
         Queue::fake();

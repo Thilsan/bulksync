@@ -50,6 +50,7 @@ class ProductRequestSheetSyncService
         $result = [
             'created'               => 0,
             'backfilled'            => 0,
+            'ignored'               => 0,
             'unmatched_store'       => 0,
             'unmatched_department'  => 0,
             'unmatched_skus'        => 0,
@@ -99,6 +100,11 @@ class ProductRequestSheetSyncService
                     continue;
                 }
 
+                if ($this->isIgnoredToken($token)) {
+                    $result['ignored']++;
+                    continue;
+                }
+
                 // Claim this (request no, website token) before doing any work. The
                 // unique index is what makes the claim safe: two runs racing on
                 // the same row both read no ledger entry a moment ago, and without
@@ -126,8 +132,7 @@ class ProductRequestSheetSyncService
                     continue;
                 }
 
-                $domain = $this->storeDomainForToken($token);
-                $store  = $domain ? Store::where('shopify_domain', $domain)->first() : null;
+                $store = $this->storeForToken($token);
 
                 if (!$store) {
                     $this->record($requestNo, $token, null, null, 'unmatched_store',
@@ -155,7 +160,8 @@ class ProductRequestSheetSyncService
                     // every request against it will fail until the header is fixed.
                     $why = $missing
                         ? "the \"{$sheetName}\" tab has no " . implode(' or ', array_map(fn ($c) => "\"{$c}\"", $missing)) . ' column'
-                        : "no row in \"{$sheetName}\" matches date {$date} + brand \"{$data['Brand']}\"";
+                        : "no row in \"{$sheetName}\" matches date {$date} + brand \"{$data['Brand']}\""
+                            . $this->mismatchHint($sheetCache[$sheetName], (string) ($data['Brand'] ?? ''));
 
                     $this->record($requestNo, $token, $store->id, null, 'unmatched_skus', ucfirst($why));
                     $result['unmatched_skus']++;
@@ -200,15 +206,34 @@ class ProductRequestSheetSyncService
         return null;
     }
 
-    private function storeDomainForToken(string $token): ?string
+    /** Tokens this app is told not to sync — a decision, not a missing store. */
+    private function isIgnoredToken(string $token): bool
     {
-        foreach (config('product_request_sync.website_store_map', []) as $key => $domain) {
-            if (strcasecmp($key, $token) === 0) {
-                return $domain;
+        foreach (config('product_request_sync.ignored_website_tokens', []) as $ignored) {
+            if (strcasecmp($ignored, $token) === 0) {
+                return true;
             }
         }
 
-        return null;
+        return false;
+    }
+
+    /**
+     * The store a website token means.
+     *
+     * Mapped domains first, then the store names in Settings — so a token the
+     * config has never heard of still resolves once somebody creates a store
+     * called that, without a deploy.
+     */
+    private function storeForToken(string $token): ?Store
+    {
+        foreach (config('product_request_sync.website_store_map', []) as $key => $domain) {
+            if (strcasecmp($key, $token) === 0) {
+                return Store::where('shopify_domain', $domain)->first();
+            }
+        }
+
+        return Store::whereRaw('LOWER(TRIM(name)) = ?', [strtolower(trim($token))])->first();
     }
 
     /** "BS - PG-SN" / "BS & Samsonite" / "BS and Gold Gourmet" → ["BS", "PG", "SN"] etc. */
@@ -245,6 +270,68 @@ class ProductRequestSheetSyncService
             self::SKU_COLUMNS,
             fn ($column) => !in_array(strtolower($column), $header, true),
         ));
+    }
+
+    /**
+     * Why a row did not match, in the only terms that let somebody fix it.
+     *
+     * "No row matched date + brand" is true but useless: the brand may be absent
+     * from the tab entirely, or present under different dates, or spelled another
+     * way — three different jobs. Saying which turns a puzzle into an edit.
+     */
+    private function mismatchHint(array $sheetValues, string $brand): string
+    {
+        $header   = array_map('trim', $sheetValues[0] ?? []);
+        $dateCol  = array_search('Date', $header, true);
+        $brandCol = array_search('Brand Name', $header, true);
+
+        if ($dateCol === false || $brandCol === false) {
+            return '';
+        }
+
+        $wanted = strtolower(trim($brand));
+        $dates  = [];
+        $near   = [];
+
+        foreach (array_slice($sheetValues, 1) as $row) {
+            $rowBrand = trim((string) ($row[$brandCol] ?? ''));
+
+            if ($rowBrand === '') {
+                continue;
+            }
+
+            if (strcasecmp($rowBrand, trim($brand)) === 0) {
+                $on = $this->normalizeExcelDate($row[$dateCol] ?? null)?->toDateString();
+
+                if ($on) {
+                    $dates[$on] = true;
+                }
+
+                continue;
+            }
+
+            // One name containing the other is the usual near miss — "CERRUTI"
+            // against "CERRUTI 1881", or a brand with a suffix on one tab only.
+            $other = strtolower($rowBrand);
+
+            if ($wanted !== '' && (str_contains($other, $wanted) || str_contains($wanted, $other))) {
+                $near[$rowBrand] = true;
+            }
+        }
+
+        if ($dates) {
+            $shown = array_slice(array_keys($dates), 0, 4);
+
+            return ' — that brand is on the tab, dated ' . implode(', ', $shown)
+                . (count($dates) > count($shown) ? ' and others' : '')
+                . ' (so the Request Date on the master tab does not agree with it)';
+        }
+
+        if ($near) {
+            return ' — the tab has no such brand, but does have ' . implode(', ', array_slice(array_keys($near), 0, 3));
+        }
+
+        return ' — that brand does not appear on the tab at all';
     }
 
     /** Rows in a category sheet whose Date + Brand Name match this request — the only link between the two tabs. */
