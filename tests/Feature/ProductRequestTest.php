@@ -502,7 +502,11 @@ class ProductRequestTest extends TestCase
         $request = $this->submitFor($author, $this->mappingSite(), 'CATOWN-1');
 
         $this->assertSame($owner->id, $this->ownerId($request, 'assigned_to'));
-        $this->assertSame($owner->id, $this->ownerId($request, 'supply_chain_id'));
+
+        // Supply Chain is retired — there is no such team, and the brand manager
+        // does the Cegid mapping themselves.
+        $this->assertNull($this->ownerId($request, 'supply_chain_id'));
+        $this->assertArrayNotHasKey('supply_chain_id', ProductRequest::assignableRoles());
 
         // Photo Editor is retired — the photoshoot delivers finished images.
         $this->assertNull($this->ownerId($request, 'image_editor_id'));
@@ -1797,7 +1801,10 @@ class ProductRequestTest extends TestCase
         $user    = $this->brandManager();
         $store   = $this->mappingSite();
         $mine    = $this->submitFor($user, $store, 'MINE-1');
-        $notMine = $this->submitFor($user, $store, 'THEIRS-1');
+        // On a website with no Cegid step, so it does not land at Waiting for
+        // Mapping — a stage this brand manager's role now owns, which would put it
+        // in their unclaimed team work rather than nowhere.
+        $notMine = $this->submitFor($user, $this->plainSite(), 'THEIRS-1');
 
         $mine->update(['brand' => 'MY BRAND']);
         $this->assign($mine, 'qa_owner_id', $user);
@@ -1960,7 +1967,7 @@ class ProductRequestTest extends TestCase
             $this->assertNotEmpty($guide['what'], "Stage {$stage} has no guidance text");
         }
 
-        $this->assertSame('Supply Chain Team', $request->guideFor(ProductRequest::WAITING_MAPPING)['role']);
+        $this->assertSame('Brand Manager', $request->guideFor(ProductRequest::WAITING_MAPPING)['role']);
         $this->assertSame('Photoshoot Coordinator', $request->guideFor(ProductRequest::PHOTOSHOOT_SCHEDULED)['role']);
         // One person per category writes the copy, reviews it and publishes it,
         // so the content stages belong to the E-Commerce owner.
@@ -2329,32 +2336,33 @@ class ProductRequestTest extends TestCase
         $requester = $this->brandManager();
         $request   = $this->submitFor($requester, $this->mappingSite(), 'ROLE-1');
 
-        // Waiting for Mapping can now name a person, not just "Supply Chain".
+        // Waiting for Mapping names the brand manager: they map in Cegid
+        // themselves, and there is no Supply Chain team to hand it to.
         $this->assertSame(ProductRequest::WAITING_MAPPING, $request->status);
-        $this->assertSame('supply_chain_id', $request->currentGuide()['field']);
+        $this->assertSame('brand_manager_id', $request->currentGuide()['field']);
 
-        $supply = User::create([
-            'name' => 'Supply Person', 'email' => 'sc@example.test', 'password' => 'password',
-            'is_active' => true, 'perm_product_request' => true, 'pcr_role' => 'supply_chain',
+        $manager = User::create([
+            'name' => 'Mapping Manager', 'email' => 'map@example.test', 'password' => 'password',
+            'is_active' => true, 'perm_product_request' => true, 'pcr_role' => 'brand_manager',
         ]);
         $editor = User::create([
             'name' => 'Editor Person', 'email' => 'ed@example.test', 'password' => 'password',
             'is_active' => true, 'perm_product_request' => true, 'pcr_role' => 'image_editor',
         ]);
 
-        // Unclaimed mapping work now reaches the Supply Chain team.
-        $this->assertSame('my_team', $request->ownershipFor($supply));
+        // Unclaimed mapping work reaches the brand managers.
+        $this->assertSame('my_team', $request->ownershipFor($manager));
 
         $this->actingAs($requester)->post(route('product-requests.assign', $request), [
-            'supply_chain_id' => $supply->id,
-            'image_editor_id' => $editor->id,
+            'brand_manager_id' => $manager->id,
+            'image_editor_id'  => $editor->id,
         ])->assertRedirect();
 
         $request->refresh();
 
-        $this->assertSame($supply->id, $this->ownerId($request, 'supply_chain_id'));
-        $this->assertSame('mine', $request->ownershipFor($supply));
-        Notification::assertSentTo($supply, ProductRequestAssigned::class);
+        $this->assertSame($manager->id, $this->ownerId($request, 'brand_manager_id'));
+        $this->assertSame('mine', $request->ownershipFor($manager));
+        Notification::assertSentTo($manager, ProductRequestAssigned::class);
 
         // Image Editing is retired, so a request still parked there belongs to
         // whoever runs it rather than to a Photo Editor nobody appoints now.
@@ -2957,11 +2965,17 @@ class ProductRequestTest extends TestCase
         // Assigning yourself is not announced to yourself.
         Notification::assertNotSentTo($requester, ProductRequestAssigned::class);
 
-        // The assignee can see who wants it, from their own task list.
+        // The assignee can see who wants it, from their own task list. Asked of
+        // the QA owner rather than the photographer: photoshoot work is run from
+        // the Photoshoot Room and deliberately kept off this list.
+        $this->actingAs($qa)->get(route('product-requests.my-tasks'))
+            ->assertOk()
+            ->assertSee($requester->name)
+            ->assertSee('QA Team');
+
         $this->actingAs($shooter)->get(route('product-requests.my-tasks'))
             ->assertOk()
-            ->assertSee('requested by')
-            ->assertSee($requester->name);
+            ->assertSee('Photoshoot Room');
 
         // The task is taken from the workflow, not typed by the requester.
         $brief = $request->assignmentFor('photographer_id');

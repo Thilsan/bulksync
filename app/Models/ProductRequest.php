@@ -103,9 +103,11 @@ class ProductRequest extends Model
             'what'  => 'Review the request, check the SKU validation result, and assign the people who will work on it.',
         ],
         self::WAITING_MAPPING => [
-            'role'  => 'Supply Chain Team',
-            'role_key' => 'supply_chain',
-            'field' => 'supply_chain_id',
+            // The brand manager maps in Cegid themselves — there is no separate
+            // Supply Chain team to hand it to.
+            'role'  => 'Brand Manager',
+            'role_key' => 'brand_manager',
+            'field' => 'brand_manager_id',
             'what'  => 'Map the outstanding SKUs in Cegid, then record the result on the SKUs tab. The request moves on by itself once every SKU is mapped — nobody needs to re-submit it.',
         ],
         self::SKU_VERIFIED => [
@@ -347,9 +349,22 @@ class ProductRequest extends Model
     }
 
     /** Requests with a shoot to think about — the Photoshoot Room's whole list. */
+    /**
+     * Requests actually bound for the studio.
+     *
+     * Only where somebody said a shoot is needed. An undecided request is not a
+     * shoot waiting to happen, and treating it as one filled the room with every
+     * request in the system.
+     */
     public function scopeWithPhotoshoot($query)
     {
-        return $query->whereNotNull('photoshoot_status');
+        return $query->where('photoshoot_decision', 'yes')->whereNotNull('photoshoot_status');
+    }
+
+    /** Nobody has said yet whether these products need photographing. */
+    public function needsPhotoshootDecision(): bool
+    {
+        return $this->photoshoot_decision === null && !$this->isClosed();
     }
 
     public const IMAGES_AT_URL = 'url';
@@ -465,7 +480,6 @@ class ProductRequest extends Model
 
                 return match ($field) {
                     'photographer_id' => $this->needsPhotoshoot(),
-                    'supply_chain_id' => $this->requiresMapping(),
                     default           => true,
                 };
             })
@@ -502,7 +516,16 @@ class ProductRequest extends Model
      * still shows it, and it can be cleared; hiding it outright would strand the
      * assignment.
      */
-    public const RETIRED_ROLES = ['qa_owner_id', 'content_owner_id', 'image_editor_id'];
+    /**
+     * Roles no longer offered. Kept in ASSIGNMENT_ROLES so requests that still
+     * hold one keep rendering and reading correctly — they are simply never
+     * proposed again.
+     *
+     * supply_chain_id joined them because there is no Supply Chain team: the brand
+     * manager does the Cegid mapping themselves, which is who the mapping stage
+     * now names and who gets asked for it.
+     */
+    public const RETIRED_ROLES = ['qa_owner_id', 'content_owner_id', 'image_editor_id', 'supply_chain_id'];
 
     /** The people a request can be assigned to, and what to call each. */
     public const ASSIGNMENT_ROLES = [
@@ -531,6 +554,7 @@ class ProductRequest extends Model
     protected $fillable = [
         'reference',
         'sheet_request_no',
+        'sheet_request_date',
         'sheet_requested_by',
         'sheet_snapshot',
         'name',
@@ -550,6 +574,8 @@ class ProductRequest extends Model
         'photoshoot_required',
         'photoshoot_scheduled_at',
         'photoshoot_status',
+        'photoshoot_decision',
+        'photoshoot_decided_at',
         'photoshoot_studio',
         'photoshoot_notes',
         'use_ai_content',
@@ -578,6 +604,8 @@ class ProductRequest extends Model
     {
         return [
             'sheet_snapshot'            => 'array',
+            'sheet_request_date'        => 'date',
+            'photoshoot_decided_at'     => 'datetime',
             'store_launch_date'         => 'date',    // legacy: no longer collected
             'online_launch_date'        => 'datetime',
             // A booking, so it carries a time — "Tuesday" is not a slot.
@@ -1167,6 +1195,23 @@ class ProductRequest extends Model
     }
 
     /**
+     * How the team refers to this request on the sheet: its number and its date.
+     *
+     * The pair is what they search by, and the date is also half of what ties the
+     * request to its SKU rows on the category tab — so showing it saves opening
+     * the sheet to look it up.
+     */
+    public function sheetLabel(): ?string
+    {
+        if (!$this->sheet_request_no) {
+            return null;
+        }
+
+        return 'Sheet #' . $this->sheet_request_no
+            . ($this->sheet_request_date ? ' · ' . $this->sheet_request_date->format('d M Y') : '');
+    }
+
+    /**
      * Whether this request has ever been parked with Supply Chain.
      *
      * Separates a request that was waved straight past the mapping stage
@@ -1479,10 +1524,29 @@ class ProductRequest extends Model
     }
 
     /** Requests this user currently holds a role on. */
-    public function scopeAssignedTo($query, User $user)
+    /**
+     * Requests this person currently holds a role on.
+     *
+     * @param  array<int, string>  $except  roles that do not count as "assigned to
+     *         me" — the photoshoot is run from the Photoshoot Room, so listing it
+     *         here as well makes the same job look like two.
+     */
+    public function scopeAssignedTo($query, User $user, array $except = [])
     {
-        return $query->whereHas('currentAssignments', fn ($q) => $q->where('user_id', $user->id));
+        return $query->whereHas('currentAssignments', function ($q) use ($user, $except) {
+            $q->where('user_id', $user->id);
+
+            if ($except) {
+                $q->whereNotIn('role', $except);
+            }
+        });
     }
+
+    /**
+     * Roles whose work lives on a screen of its own, so it is not repeated on My
+     * Tasks. Only the photoshoot, which the Photoshoot Room owns end to end.
+     */
+    public const ROLES_ELSEWHERE = ['photographer_id'];
 
     /** Which hats this user is wearing on this request, e.g. ["Photographer"]. */
     public function rolesFor(User $user): array

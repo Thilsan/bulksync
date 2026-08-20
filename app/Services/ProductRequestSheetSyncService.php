@@ -515,6 +515,7 @@ class ProductRequestSheetSyncService
         $productRequest = ProductRequest::create([
             'reference'                 => ProductRequest::nextReference(),
             'sheet_request_no'          => (int) ($data['Request No'] ?? 0) ?: null,
+            'sheet_request_date'        => $this->normalizeExcelDate($data['Request Date'] ?? null)?->toDateString(),
             'sheet_requested_by'        => $requestedBy ?: null,
             'user_id'                   => $requester->id,
             'store_id'                  => $store->id,
@@ -526,8 +527,11 @@ class ProductRequestSheetSyncService
             'online_launch_date'        => $this->normalizeExcelDate($data['Requested Website Go-Live Date'] ?? null)?->toDateString(),
             'image_source'              => $imagesReady ? ProductRequest::IMG_SUPPLIER : ProductRequest::IMG_PHOTOSHOOT,
             'supplier_images_available' => $imagesReady,
-            'photoshoot_required'       => !$imagesReady,
-            'photoshoot_status'         => !$imagesReady ? ProductRequest::SHOOT_PENDING : null,
+            // Left undecided rather than assumed. The sheet not saying the images
+            // are ready is not the same as saying a shoot is needed, and treating
+            // it as one put every imported request in the Photoshoot Room.
+            'photoshoot_required'       => false,
+            'photoshoot_status'         => null,
             'use_ai_content'            => false,
             'notes'                     => $notes ?: null,
             'validation_status'         => 'pending',
@@ -899,6 +903,16 @@ class ProductRequestSheetSyncService
         if (!filled($productRequest->sheet_requested_by) && $requestedBy !== '') {
             $updates['sheet_requested_by'] = $requestedBy;
             $fixed[] = 'requested by';
+        }
+
+        // A mirror of the sheet rather than something anybody edits here, so it
+        // follows the sheet whenever it changes — which is exactly what happens
+        // when a wrong Request Date is corrected.
+        $onSheet = $this->normalizeExcelDate($data['Request Date'] ?? null)?->toDateString();
+
+        if ($onSheet && $productRequest->sheet_request_date?->toDateString() !== $onSheet) {
+            $updates['sheet_request_date'] = $onSheet;
+            $fixed[] = 'request date';
         }
 
         // staffFromCategory already skips any role that has someone on it, so an

@@ -17,12 +17,17 @@
         </div>
 
         <div class="flex flex-wrap gap-2">
-            <form method="POST" action="{{ route('product-requests.drafts.build', $request) }}">
-                @csrf
-                <button type="submit" class="px-3 py-1.5 text-sm font-medium rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50">
-                    {{ $drafts->isEmpty() ? 'Build from sheet' : 'Rebuild from sheet' }}
-                </button>
-            </form>
+            {{-- With every SKU already in Shopify there is nothing a build could
+                 produce, and rebuilding would only discard the drafts already
+                 here. Offering the button anyway invites a pointless click. --}}
+            @if($missingSkus > 0)
+                <form method="POST" action="{{ route('product-requests.drafts.build', $request) }}">
+                    @csrf
+                    <button type="submit" class="px-3 py-1.5 text-sm font-medium rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50">
+                        {{ $drafts->isEmpty() ? 'Build from sheet' : 'Rebuild from sheet' }}
+                    </button>
+                </form>
+            @endif
 
             @if($drafts->isNotEmpty())
                 <a href="{{ route('product-requests.drafts.download', $request) }}"

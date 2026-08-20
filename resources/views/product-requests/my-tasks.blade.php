@@ -115,6 +115,17 @@
                     Nothing is assigned to you by name right now.
                     @if($teamTasks->isNotEmpty()) Your team has unclaimed work above. @endif
                 </p>
+
+                {{-- An empty list reads as "there is nothing to do", which is wrong
+                     for a coordinator whose work is all on the other screen. --}}
+                @if(auth()->user()->pcr_role === 'photographer')
+                    <p class="text-sm text-gray-500 mt-1">
+                        Photoshoots are run from the
+                        <a href="{{ route('product-requests.photoshoot-room') }}" class="text-brand-600 hover:text-brand-700 font-medium">Photoshoot Room</a>,
+                        not from here.
+                    </p>
+                @endif
+
                 <a href="{{ route('product-requests.list') }}" class="text-sm text-brand-600 hover:text-brand-700 font-medium mt-2 inline-block">
                     View all requests &rarr;
                 </a>
@@ -126,84 +137,90 @@
                     <tr class="text-left text-xs text-gray-500 border-b border-gray-100 bg-gray-50/60">
                         <th class="px-5 py-2.5 font-medium">Request</th>
                         <th class="px-3 py-2.5 font-medium">Brand / Category</th>
-                        <th class="px-3 py-2.5 font-medium">My Task</th>
-                        <th class="px-3 py-2.5 font-medium">My Deadline</th>
-                        <th class="px-3 py-2.5 font-medium">Current Stage</th>
+                        <th class="px-3 py-2.5 font-medium text-right">SKUs</th>
+                        <th class="px-3 py-2.5 font-medium">Mapping</th>
                         <th class="px-3 py-2.5 font-medium">Launch</th>
-                        <th class="px-5 py-2.5 font-medium">Priority</th>
+                        <th class="px-3 py-2.5 font-medium">Status</th>
+                        <th class="px-3 py-2.5 font-medium">Priority</th>
+                        <th class="px-5 py-2.5 font-medium">My Role</th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-gray-50">
                     @foreach($requests as $item)
-                        @php $days = $item->daysToOnlineLaunch(); @endphp
                         <tr class="hover:bg-gray-50/70 transition-colors">
                             <td class="px-5 py-3">
                                 <a href="{{ route('product-requests.show', $item) }}"
                                    class="text-brand-600 hover:text-brand-700 font-medium">{{ $item->displayName() }}</a>
                                 <p class="text-xs text-gray-400">
-                                    {{ $item->reference }} &middot; requested by
-                                    <span class="text-gray-600 font-medium">{{ $item->user?->name ?? 'Unknown' }}</span>
+                                    {{ $item->reference }}
+                                    @if($label = $item->sheetLabel())
+                                        &middot; <span title="Request No and Request Date on the tracking sheet">{{ $label }}</span>
+                                    @endif
+                                    &middot; by {{ $item->requesterName() }}
                                 </p>
                             </td>
-                            <td class="px-3 py-3 text-gray-700">{{ $item->brand }} / {{ $item->category }}</td>
-                            @php $mine = $item->assignments->where('user_id', $me->id); @endphp
+                            <td class="px-3 py-3 text-gray-700">
+                                {{ $item->brand }} / {{ $item->category }}
+                                <p class="text-xs text-gray-400">{{ $item->store?->name ?? 'no website' }}</p>
+                            </td>
+                            <td class="px-3 py-3 text-right text-gray-700 tabular-nums">{{ number_format($item->total_skus) }}</td>
                             <td class="px-3 py-3">
-                                <div class="space-y-1">
-                                    @forelse($mine as $brief)
-                                        <div>
-                                            <span class="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-brand-50 text-brand-700 border border-brand-100 whitespace-nowrap">
-                                                {{ $brief->roleLabel() }}
-                                            </span>
-                                            @if($brief->title)
-                                                <p class="text-xs text-gray-600 mt-0.5">{{ $brief->title }}</p>
-                                            @endif
-                                        </div>
-                                    @empty
-                                        @foreach($item->rolesFor($me) as $role)
-                                            <span class="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-brand-50 text-brand-700 border border-brand-100 whitespace-nowrap">
-                                                {{ $role }}
-                                            </span>
-                                        @endforeach
-                                    @endforelse
+                                <div class="flex items-center gap-1.5 text-xs">
+                                    <span class="inline-flex items-center gap-1" title="Mapped"><span class="w-2 h-2 rounded-full bg-green-500"></span>{{ $item->mapped_skus }}</span>
+                                    <span class="inline-flex items-center gap-1" title="Pending mapping"><span class="w-2 h-2 rounded-full bg-amber-500"></span>{{ $item->pending_skus }}</span>
+                                    <span class="inline-flex items-center gap-1" title="Not mapped"><span class="w-2 h-2 rounded-full bg-red-500"></span>{{ $item->not_mapped_skus }}</span>
                                 </div>
+                                @if($item->hasSkuBalance())
+                                    <p class="text-[11px] text-amber-700 font-medium mt-1">{{ $item->skuCompletionPercent() }}% ready</p>
+                                @endif
+                            </td>
+                            <td class="px-3 py-3 whitespace-nowrap {{ $item->isOverdue() ? 'text-red-600 font-medium' : 'text-gray-600' }}">
+                                {{ $item->online_launch_date?->format('d M Y') ?? '—' }}
+                                @if($item->online_launch_date)
+                                    <p class="text-xs {{ $item->isOverdue() ? 'text-red-500' : 'text-gray-400' }}">{{ $item->online_launch_date->format('H:i') }}</p>
+                                @endif
                             </td>
                             <td class="px-3 py-3">
-                                @php $withDates = $mine->filter->due_date; @endphp
-                                @forelse($withDates as $brief)
-                                    <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold {{ $brief->dueTone() }}">
-                                        {{ $brief->dueLabel() }}
-                                    </span>
-                                    <p class="text-xs text-gray-400">{{ $brief->due_date->format('d M Y') }}</p>
-                                @empty
-                                    <span class="text-gray-300 text-xs">—</span>
-                                @endforelse
-                            </td>
-                            <td class="px-3 py-3">
-                                <span class="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium border whitespace-nowrap {{ $item->statusColor() }}">
+                                <span class="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium border {{ $item->statusColor() }} whitespace-nowrap">
                                     {{ $item->statusLabel() }}
                                 </span>
                                 @if($item->isOnHold())
-                                    <p class="text-xs text-red-600 font-medium mt-0.5">On hold: {{ $item->hold_reason }}</p>
+                                    <p class="text-xs text-red-600 font-medium mt-0.5 truncate max-w-[10rem]" title="{{ $item->hold_reason }}">On hold: {{ $item->hold_reason }}</p>
                                 @endif
                             </td>
-                            <td class="px-3 py-3 whitespace-nowrap">
-                                @if($days === null)
-                                    <span class="text-gray-400">—</span>
-                                @else
-                                    <span class="{{ $days < 0 ? 'text-red-600 font-medium' : ($days <= 3 ? 'text-amber-600 font-medium' : 'text-gray-600') }}">
-                                        {{ $item->launchLabel('d M Y, H:i') }}
-                                    </span>
-                                    <p class="text-xs {{ $days < 0 ? 'text-red-500' : 'text-gray-400' }}">
-                                        @if($days < 0) {{ abs($days) }}d overdue
-                                        @elseif($days === 0) today
-                                        @else in {{ $days }}d @endif
-                                    </p>
-                                @endif
-                            </td>
-                            <td class="px-5 py-3">
+                            <td class="px-3 py-3">
                                 <span class="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium border {{ $item->priorityColor() }}">
                                     {{ $item->priorityLabel() }}
                                 </span>
+                            </td>
+                            {{-- The one column the request list cannot show: which hat
+                                 puts this on your desk, and any deadline that came
+                                 with it. The brief itself is on the request — a
+                                 paragraph per row buried everything else. --}}
+                            @php
+                                $mine      = $item->assignments->where('user_id', $me->id)->where('ended_at', null);
+                                $withDates = $mine->filter->due_date;
+                            @endphp
+                            <td class="px-5 py-3">
+                                @forelse($mine as $brief)
+                                    <span class="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-brand-50 text-brand-700 border border-brand-100 whitespace-nowrap">
+                                        {{ $brief->roleLabel() }}
+                                    </span>
+                                @empty
+                                    @foreach($item->rolesFor($me) as $role)
+                                        <span class="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-brand-50 text-brand-700 border border-brand-100 whitespace-nowrap">
+                                            {{ $role }}
+                                        </span>
+                                    @endforeach
+                                @endforelse
+
+                                @foreach($withDates as $brief)
+                                    <p class="mt-0.5">
+                                        <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold {{ $brief->dueTone() }}">
+                                            {{ $brief->dueLabel() }}
+                                        </span>
+                                    </p>
+                                @endforeach
                             </td>
                         </tr>
                     @endforeach

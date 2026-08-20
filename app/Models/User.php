@@ -41,7 +41,7 @@ class User extends Authenticatable
     /** Product Creation Request workflow roles — drive notification routing. */
     public const PCR_ROLES = [
         'brand_manager' => 'Brand Manager / Team',
-        'supply_chain'  => 'Supply Chain Team',
+
         'ecommerce'     => 'E-Commerce Team',
         'photographer'  => 'Photoshoot Coordinator',
         'image_editor'  => 'Image / Photo Editor',

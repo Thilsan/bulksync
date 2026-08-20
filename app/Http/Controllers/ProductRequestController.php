@@ -318,8 +318,11 @@ class ProductRequestController extends Controller implements HasMiddleware
     /** Everything currently sitting with this user, in any of the four roles. */
     public function myTasks(Request $request, #[CurrentUser] User $user): View
     {
+        // The photoshoot is run from the Photoshoot Room, which has the calendar
+        // and the studio detail this list cannot show — so it is not repeated
+        // here. A request where this person also holds another role still counts.
         $query = ProductRequest::query()
-            ->assignedTo($user)
+            ->assignedTo($user, ProductRequest::ROLES_ELSEWHERE)
             ->with(['user', 'store', 'assignments.user', 'currentAssignments.user']);
 
         // Closed work is hidden by default — this is a to-do list, not history.
@@ -336,7 +339,7 @@ class ProductRequestController extends Controller implements HasMiddleware
             'requests'    => $requests,
             'teamTasks'   => $this->unclaimedForRole($user),
             'overdue'     => $requests->filter->isOverdue()->count(),
-            'closedCount' => ProductRequest::query()->assignedTo($user)
+            'closedCount' => ProductRequest::query()->assignedTo($user, ProductRequest::ROLES_ELSEWHERE)
                 ->whereIn('status', ProductRequest::CLOSED_STATUSES)->count(),
         ]);
     }
@@ -351,6 +354,13 @@ class ProductRequestController extends Controller implements HasMiddleware
     private function unclaimedForRole(User $user)
     {
         if (!$user->pcr_role) {
+            return collect();
+        }
+
+        // A photoshoot coordinator's queue is the Photoshoot Room, where the dates
+        // and studio live. Repeating it here would be the same work in two places,
+        // each with a different amount of the detail needed to act on it.
+        if ($user->pcr_role === 'photographer') {
             return collect();
         }
 
@@ -551,6 +561,10 @@ class ProductRequestController extends Controller implements HasMiddleware
             // reading these booleans stay correct.
             'supplier_images_available' => $data['image_source'] === ProductRequest::IMG_SUPPLIER,
             'photoshoot_required'       => $data['image_source'] === ProductRequest::IMG_PHOTOSHOOT,
+            // Picking the image source on the form IS the decision — unlike the
+            // sheet import, where nobody chose and it must be asked.
+            'photoshoot_decision'       => $data['image_source'] === ProductRequest::IMG_PHOTOSHOOT ? 'yes' : 'no',
+            'photoshoot_decided_at'     => now(),
             // A shoot enters the Photoshoot Room the moment the request is raised,
             // waiting for a date rather than waiting to be noticed.
             'photoshoot_status'         => $data['image_source'] === ProductRequest::IMG_PHOTOSHOOT
@@ -699,6 +713,10 @@ class ProductRequestController extends Controller implements HasMiddleware
         $productRequest->update($data + [
             'supplier_images_available' => $isSupplier,
             'photoshoot_required'       => $needsShoot,
+            // Changing the image source here is answering the photoshoot question,
+            // so it counts as decided and stops being asked.
+            'photoshoot_decision'       => $needsShoot ? 'yes' : 'no',
+            'photoshoot_decided_at'     => now(),
             // Deciding to shoot puts the request in the Photoshoot Room; deciding
             // not to takes it back out, and its old booking with it.
             'photoshoot_status'         => $needsShoot
@@ -1302,6 +1320,32 @@ class ProductRequestController extends Controller implements HasMiddleware
         }
 
         return back()->with('success', $message);
+    }
+
+    /**
+     * Answer "does this need a photoshoot?".
+     *
+     * Yes puts it in the Photoshoot Room and asks the brand manager for the
+     * products; no keeps it out of the studio's way. Until it is answered the
+     * request is in neither state, which is why the room was full of requests
+     * nobody had chosen to shoot.
+     */
+    public function decidePhotoshoot(Request $request, ProductRequest $productRequest, #[CurrentUser] User $user): RedirectResponse
+    {
+        $this->authorizeView($productRequest, $user);
+
+        $data   = $request->validate(['needed' => 'required|in:yes,no']);
+        $needed = $data['needed'] === 'yes';
+
+        $told = $this->workflow->decidePhotoshoot($productRequest, $needed, $user);
+
+        if (!$needed) {
+            return back()->with('success', 'Noted — no photoshoot for this request.');
+        }
+
+        return back()->with('success', $told
+            ? "Added to the Photoshoot Room. {$told->name} has been asked for the products."
+            : 'Added to the Photoshoot Room. Nobody holds the brand manager role, so no one was asked for the products.');
     }
 
     /**

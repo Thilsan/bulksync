@@ -121,8 +121,8 @@
                         </div>
                         <p class="text-sm text-gray-500 mt-0.5">
                             <span class="font-mono text-gray-600">{{ $request->reference }}</span>
-                            @if($request->sheet_request_no)
-                                &middot; <span title="Request No on the tracking sheet">Sheet #{{ $request->sheet_request_no }}</span>
+                            @if($label = $request->sheetLabel())
+                                &middot; <span title="Request No and Request Date on the tracking sheet">{{ $label }}</span>
                             @endif
                             &middot; created {{ $request->created_at->format('d M Y, h:i A') }} by {{ $request->requesterName() }}
                         </p>
@@ -175,6 +175,36 @@
                 @elseif($request->imagesInPim())
                     <div class="mt-4 bg-gray-50 border border-gray-200 rounded-lg px-4 py-2.5 text-sm text-gray-700">
                         <span class="font-medium">Supplier images:</span> already in the PIM.
+                    </div>
+                @endif
+
+                {{-- Asked once, plainly. Until it is answered the request is neither
+                     bound for the studio nor excused from it — which is how the
+                     Photoshoot Room ended up holding every request there was. --}}
+                @if($request->needsPhotoshootDecision())
+                    <div class="mt-4 bg-blue-50 border border-blue-200 text-blue-900 rounded-lg px-4 py-3 text-sm">
+                        <span class="font-medium">Does this need a photoshoot?</span>
+                        Answering yes puts it in the Photoshoot Room and asks the brand manager for the products.
+
+                        <div class="flex flex-wrap gap-2 mt-2.5">
+                            <form method="POST" action="{{ route('product-requests.photoshoot-decision', $request) }}">
+                                @csrf
+                                <input type="hidden" name="needed" value="yes">
+                                <button type="submit" class="text-xs font-medium text-white px-3 py-1.5 rounded-lg"
+                                        style="background-color:#1d5a74">
+                                    Yes — we need photos
+                                </button>
+                            </form>
+
+                            <form method="POST" action="{{ route('product-requests.photoshoot-decision', $request) }}">
+                                @csrf
+                                <input type="hidden" name="needed" value="no">
+                                <button type="submit"
+                                        class="text-xs font-medium text-blue-900 px-3 py-1.5 rounded-lg border border-blue-300 hover:bg-blue-100">
+                                    No — images are covered
+                                </button>
+                            </form>
+                        </div>
                     </div>
                 @endif
 
@@ -1540,6 +1570,7 @@
                         'Request Name'  => $request->displayName(),
                         'Request ID'    => $request->reference,
                         'Sheet Request No' => $request->sheet_request_no ? '#' . $request->sheet_request_no : '—',
+                        'Sheet Request Date' => $request->sheet_request_date?->format('d M Y') ?? '—',
                         'Requested By'  => $request->requesterName(),
                         'Request Type'  => $request->request_type === 'new_brand' ? 'New Brand' : 'Existing Brand',
                         'Store'         => $request->store?->name ?? '—',

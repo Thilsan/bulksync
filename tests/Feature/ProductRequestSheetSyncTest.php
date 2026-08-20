@@ -275,6 +275,53 @@ class ProductRequestSheetSyncTest extends TestCase
         $this->assertSame($before, $request->refresh()->currentAssignments()->pluck('user_id', 'role')->all());
     }
 
+    /**
+     * The team searches the sheet by number and date, so both are stored and
+     * shown together rather than making somebody open the sheet to look one up.
+     */
+    public function test_the_sheet_request_date_is_stored_and_labelled(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+        $this->fakeSheet();
+
+        app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $request = ProductRequest::sole();
+        $this->assertSame('2026-08-05', $request->sheet_request_date->toDateString());
+        $this->assertSame('Sheet #17 · 05 Aug 2026', $request->sheetLabel());
+    }
+
+    /**
+     * The stored date mirrors the sheet, so correcting a wrong Request Date there
+     * — the fix for most of the unmatched rows — is reflected here.
+     */
+    public function test_a_corrected_request_date_follows_the_sheet(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+
+        $this->fakeSheet(['Request Date' => '05-Aug-26']);
+        app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $request = ProductRequest::sole();
+        $this->assertSame('2026-08-05', $request->sheet_request_date->toDateString());
+
+        $this->fakeSheet(['Request Date' => '06-Aug-26']);
+        $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertSame('2026-08-06', $request->refresh()->sheet_request_date->toDateString());
+        $this->assertStringContainsString('request date', implode("\n", $result['log']));
+    }
+
+    /** Nothing to label when the request was raised in the app, not the sheet. */
+    public function test_a_request_with_no_sheet_number_has_no_label(): void
+    {
+        $this->assertNull((new ProductRequest())->sheetLabel());
+    }
+
     /** A skipped row has to say which row and why, or nobody can fix the sheet. */
     public function test_a_row_with_an_unmapped_website_says_which_row_and_why(): void
     {

@@ -164,8 +164,8 @@
                                class="text-brand-600 hover:text-brand-700 font-medium">{{ $item->displayName() }}</a>
                             <p class="text-xs text-gray-400">
                                 {{ $item->reference }}
-                                @if($item->sheet_request_no)
-                                    &middot; <span title="Request No on the tracking sheet">Sheet #{{ $item->sheet_request_no }}</span>
+                                @if($label = $item->sheetLabel())
+                                    &middot; <span title="Request No and Request Date on the tracking sheet">{{ $label }}</span>
                                 @endif
                             </p>
                         </td>

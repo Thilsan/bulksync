@@ -9,6 +9,7 @@ use App\Notifications\ProductRequestAssigned;
 use App\Notifications\ProductRequestBalanceMapped;
 use App\Notifications\ProductRequestHandedOff;
 use App\Notifications\ProductRequestMappingNeeded;
+use App\Notifications\ProductRequestPhotosNeeded;
 use App\Notifications\ProductRequestStatusChanged;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
@@ -29,7 +30,8 @@ class ProductRequestWorkflow
      */
     private const NOTIFY_ROLES = [
         ProductRequest::SUBMITTED            => ['ecommerce'],
-        ProductRequest::WAITING_MAPPING      => ['supply_chain', 'ecommerce'],
+        // No Supply Chain team: the brand manager does the Cegid mapping.
+        ProductRequest::WAITING_MAPPING      => ['brand_manager', 'ecommerce'],
         ProductRequest::SKU_VERIFIED         => ['ecommerce'],
         ProductRequest::WAITING_IMAGES       => ['photographer', 'ecommerce'],
         ProductRequest::PHOTOSHOOT_SCHEDULED => ['photographer'],
@@ -435,6 +437,66 @@ class ProductRequestWorkflow
         }
 
         return $moved;
+    }
+
+    /**
+     * Record whether this request needs a photoshoot, and act on the answer.
+     *
+     * Yes puts it in the Photoshoot Room and asks the brand manager for the
+     * products, because the studio cannot start without them. No takes it out of
+     * the studio's way entirely. Either answer is recorded, so the question is
+     * asked once and the request stops sitting in a queue nobody chose for it.
+     *
+     * @return User|null  the brand manager told, when there was one to tell
+     */
+    public function decidePhotoshoot(ProductRequest $request, bool $needed, ?User $actor = null, bool $notify = true): ?User
+    {
+        $request->update($needed
+            ? [
+                'photoshoot_decision'   => 'yes',
+                'photoshoot_decided_at' => now(),
+                'photoshoot_required'   => true,
+                'photoshoot_status'     => $request->photoshoot_status ?? ProductRequest::SHOOT_PENDING,
+                'image_source'          => ProductRequest::IMG_PHOTOSHOOT,
+            ]
+            : [
+                'photoshoot_decision'   => 'no',
+                'photoshoot_decided_at' => now(),
+                'photoshoot_required'   => false,
+                'photoshoot_status'     => null,
+            ]);
+
+        $this->log(
+            request:     $request,
+            action:      'photoshoot_decision',
+            description: $needed
+                ? 'Photoshoot needed — added to the Photoshoot Room'
+                : 'No photoshoot needed',
+            actor:       $actor,
+        );
+
+        if (!$needed || !$notify) {
+            return null;
+        }
+
+        $manager = $this->mappingOwnerFor($request);
+
+        if (!$manager) {
+            Log::warning("ProductRequestWorkflow: {$request->reference} has nobody to ask for the products.");
+            return null;
+        }
+
+        try {
+            NotificationFacade::send(
+                $manager,
+                ProductRequestPhotosNeeded::forRequest($request, $actor?->name ?? 'System'),
+            );
+        } catch (\Throwable $e) {
+            Log::error("ProductRequestWorkflow: photo request failed for {$request->id}: " . $e->getMessage());
+            return null;
+        }
+
+        return $manager;
     }
 
     /**

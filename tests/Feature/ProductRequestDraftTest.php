@@ -695,6 +695,35 @@ class ProductRequestDraftTest extends TestCase
         $this->assertFalse(ProductRequestDraftProduct::sole()->isPushed());
     }
 
+    /**
+     * A button whose only possible outcome is "nothing to do" should not be
+     * there — and on a request with drafts it would actively discard them.
+     */
+    public function test_the_build_button_is_hidden_when_every_sku_is_in_shopify(): void
+    {
+        $user    = $this->user();
+        $user->stores()->attach($this->store()->id);
+        $request = $this->request(Store::sole(), $user, ['ZIM-1-W-38'], alreadyInShopify: ['ZIM-1-W-38']);
+
+        $this->actingAs($user)
+            ->get(route('product-requests.show', $request))
+            ->assertOk()
+            ->assertSee('Every SKU on this request is already in Shopify')
+            ->assertDontSee('Build from sheet');
+    }
+
+    public function test_the_build_button_is_offered_when_skus_are_missing(): void
+    {
+        $user    = $this->user();
+        $user->stores()->attach($this->store()->id);
+        $request = $this->request(Store::sole(), $user, ['ZIM-1-W-38']);
+
+        $this->actingAs($user)
+            ->get(route('product-requests.show', $request))
+            ->assertOk()
+            ->assertSee('Build from sheet');
+    }
+
     /** Records every payload handed to Shopify, and hands back fake product ids. */
     private function fakeShopify(array &$payloads): void
     {
