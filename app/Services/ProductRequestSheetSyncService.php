@@ -52,6 +52,7 @@ class ProductRequestSheetSyncService
             'created'               => 0,
             'backfilled'            => 0,
             'skus_added'            => 0,
+            'count_mismatch'        => 0,
             'ignored'               => 0,
             'unmatched_store'       => 0,
             'unmatched_department'  => 0,
@@ -194,6 +195,15 @@ class ProductRequestSheetSyncService
                     $result['unmatched_skus']++;
                     $result['log'][] = "Skipped Request No {$requestNo} / {$token} ({$data['Brand']}): {$why}";
                     continue;
+                }
+
+                // The sheet states how many SKUs it expects. When fewer match, some
+                // rows on the category tab disagree with the master row — a wrong
+                // date on one line is invisible otherwise, because the request
+                // still imports and simply comes in short.
+                if ($shortfall = $this->countShortfall($data, count($skus))) {
+                    $result['count_mismatch']++;
+                    $result['log'][] = "Request No {$requestNo} / {$token} ({$data['Brand']}): {$shortfall}";
                 }
 
                 if (!$commit) {
@@ -518,6 +528,28 @@ class ProductRequestSheetSyncService
         ValidateProductRequestSkusJob::dispatch($productRequest->id, $requester->id)->onQueue('bulkupload');
 
         return $productRequest;
+    }
+
+    /**
+     * How far short of the sheet's own SKU Count the matched rows fall.
+     *
+     * The master row states the number, so a disagreement is the sheet telling us
+     * some of its category rows do not line up — almost always one line carrying a
+     * different date from the rest. Without this the request imports quietly short
+     * and nobody notices until the SKUs are counted by hand.
+     */
+    private function countShortfall(array $data, int $matched): ?string
+    {
+        $expected = (int) preg_replace('/[^0-9]/', '', (string) ($data['SKU Count'] ?? ''));
+
+        if ($expected < 1 || $expected === $matched) {
+            return null;
+        }
+
+        return $matched < $expected
+            ? "the sheet expects {$expected} SKU(s) but only {$matched} matched — " . ($expected - $matched)
+                . ' row(s) on the category tab disagree with the master row, usually a different date'
+            : "the sheet expects {$expected} SKU(s) but {$matched} matched — the category tab has more rows than the master row says";
     }
 
     /**

@@ -489,6 +489,60 @@ class ProductRequestSheetSyncTest extends TestCase
         $this->assertSame('Gold Gourmet Website', ProductRequest::sole()->store->name);
     }
 
+    /**
+     * Request 191 imported with 3 SKUs while the sheet said 4 — one row carried a
+     * September date among August ones. The request still imports; the point is
+     * that nobody has to count by hand to notice.
+     */
+    public function test_a_short_sku_count_is_reported_against_the_sheets_own_number(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+
+        $drive = Mockery::mock(OneDriveService::class);
+        $drive->shouldReceive('asServiceAccount')->andReturnSelf();
+        $drive->shouldReceive('setUser')->andReturnSelf();
+        $drive->shouldReceive('resolveShareItem')->andReturn(['driveId' => 'd', 'itemId' => 'i']);
+        $drive->shouldReceive('worksheetValues')
+            ->with('d', 'i', config('product_request_sync.master_worksheet'))
+            ->andReturn([
+                ['Request No', 'Request Date', 'Requested By', 'Department', 'Brand', 'Website', 'SKU Count'],
+                ['191', '19-Aug-26', 'ANJALI', 'LUGGAGE', 'Stokke', 'BS', '4'],
+            ]);
+        $drive->shouldReceive('worksheetValues')
+            ->with('d', 'i', 'Luggage')
+            ->andReturn([
+                ['Date', 'Brand Name', 'Item SKU'],
+                ['19-Sep-26', 'Stokke', 'JKD207LUG00010'],   // a month out, so it will not match
+                ['19-Aug-26', 'Stokke', 'JKD207LUG00011'],
+                ['19-Aug-26', 'Stokke', 'JKD207LUG00012'],
+                ['19-Aug-26', 'Stokke', 'JKD207LUG00013'],
+            ]);
+
+        $this->app->instance(OneDriveService::class, $drive);
+
+        $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertSame(1, $result['created'], 'It still imports — short, not skipped.');
+        $this->assertSame(3, ProductRequest::sole()->skus()->count());
+        $this->assertSame(1, $result['count_mismatch']);
+        $this->assertStringContainsString('expects 4 SKU(s) but only 3 matched', implode("\n", $result['log']));
+    }
+
+    /** Matching the stated count says nothing, which is how it should read. */
+    public function test_a_matching_sku_count_is_not_reported(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+        $this->fakeSheet(['SKU Count' => '2']);
+
+        $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertSame(0, $result['count_mismatch']);
+    }
+
     // ── SKUs appended to a category tab after the request exists ─────────────
 
     /**

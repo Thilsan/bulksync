@@ -39,6 +39,7 @@ class SyncProductRequestsFromSheet extends Command
             ['Created',                $result['created']],
             ['Backfilled',             $result['backfilled']],
             ['SKUs added',             $result['skus_added']],
+            ['SKU count disagrees',    $result['count_mismatch']],
             ['Already synced',         $result['skipped_existing']],
             ['Not synced by choice',   $result['ignored']],
             ['Unmatched department',   $result['unmatched_department']],
