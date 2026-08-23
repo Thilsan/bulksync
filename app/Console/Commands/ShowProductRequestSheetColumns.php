@@ -39,7 +39,15 @@ class ShowProductRequestSheetColumns extends Command
             try {
                 $values = $drive->worksheetValues($item['driveId'], $item['itemId'], $tab);
             } catch (\Throwable $e) {
-                $this->error("{$tab}: could not be read — " . $e->getMessage());
+                // Almost always the name, not the tab: a trailing space or a
+                // rename. Say what the workbook actually calls its worksheets
+                // rather than repeating Graph's "doesn't exist".
+                $this->error("{$tab}: could not be read.");
+
+                foreach ($this->closestNames($drive, $item, $tab) as $suggestion) {
+                    $this->line("  the workbook has \"{$suggestion}\" — check for a trailing space or a rename");
+                }
+
                 continue;
             }
 
@@ -75,6 +83,27 @@ class ShowProductRequestSheetColumns extends Command
         }
 
         return self::SUCCESS;
+    }
+
+    /**
+     * Worksheet names that look like the one asked for, ignoring case and
+     * spacing — which is where the difference nearly always is.
+     *
+     * @return array<int, string>
+     */
+    private function closestNames(OneDriveService $drive, array $item, string $wanted): array
+    {
+        try {
+            $names = $drive->worksheetNames($item['driveId'], $item['itemId']);
+        } catch (\Throwable) {
+            return [];
+        }
+
+        $flatten = fn (string $name) => strtolower(preg_replace('/[^a-z0-9]/i', '', $name));
+
+        $close = array_values(array_filter($names, fn ($name) => $flatten($name) === $flatten($wanted)));
+
+        return $close ?: ['tabs: ' . implode(', ', array_map(fn ($n) => "\"{$n}\"", $names))];
     }
 
     /** 0 → A, 26 → AA — so a header can be found by eye in Excel. */

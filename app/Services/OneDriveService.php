@@ -170,6 +170,29 @@ class OneDriveService
         return $data['values'] ?? [];
     }
 
+    /**
+     * The workbook's worksheet names, exactly as Excel holds them.
+     *
+     * Worth having because a tab is addressed by name and a name is typed by a
+     * person: "Home" and "Home " are different worksheets to Graph, and the
+     * only symptom is a 404 that says nothing about which.
+     *
+     * @return array<int, string>
+     */
+    public function worksheetNames(string $driveId, string $itemId): array
+    {
+        $token = $this->getAccessToken();
+
+        $response = $this->http->get(
+            "https://graph.microsoft.com/v1.0/drives/{$driveId}/items/{$itemId}/workbook/worksheets",
+            ['headers' => ['Authorization' => "Bearer {$token}"]],
+        );
+
+        $data = json_decode((string) $response->getBody(), true);
+
+        return array_column($data['value'] ?? [], 'name');
+    }
+
     public function streamFolderImages(string $shareUrl, callable $callback): void
     {
         $token   = $this->getAccessToken();
