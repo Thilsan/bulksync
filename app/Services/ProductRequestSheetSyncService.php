@@ -61,6 +61,7 @@ class ProductRequestSheetSyncService
             'unmatched_skus'        => 0,
             'errors'                => 0,
             'skipped_existing'      => 0,
+            'already_listed'        => 0,
             'log'                   => [],
         ];
 
@@ -74,9 +75,17 @@ class ProductRequestSheetSyncService
                 continue;
             }
 
-            // Already actioned before this automation existed — not ours to touch.
+            // Listed By / Listed Date mean e-commerce already handled this row by
+            // hand, before the automation existed — there is no work left in it.
+            //
+            // Unless the sheet calls it Completed. Then it is a product that went
+            // live and has no record here at all, which is the one thing worth
+            // importing: it comes in published rather than as work to do.
             if (filled($data['Listed By'] ?? null) || filled($data['Listed Date'] ?? null)) {
-                continue;
+                if (!$this->sheetSaysPublished($data)) {
+                    $result['already_listed']++;
+                    continue;
+                }
             }
 
             $department = trim((string) ($data['Department'] ?? ''));

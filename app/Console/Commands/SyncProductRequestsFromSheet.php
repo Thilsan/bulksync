@@ -44,6 +44,7 @@ class SyncProductRequestsFromSheet extends Command
             ['Edited here, left alone', $result['conflicts']],
             ['Already synced',         $result['skipped_existing']],
             ['Not synced by choice',   $result['ignored']],
+            ['Already listed by hand',  $result['already_listed']],
             ['Unmatched department',   $result['unmatched_department']],
             ['Unmatched store',        $result['unmatched_store']],
             ['Unmatched SKUs',         $result['unmatched_skus']],

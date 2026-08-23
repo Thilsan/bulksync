@@ -288,6 +288,42 @@ class ProductRequestSheetSyncTest extends TestCase
         $this->assertSame(ProductRequest::CANCELLED, $request->refresh()->status);
     }
 
+    /**
+     * The rows the team already listed by hand are skipped as having no work in
+     * them — but a Completed one is a live product with no record here at all,
+     * and that is worth having.
+     */
+    public function test_a_row_listed_by_hand_still_comes_in_when_it_is_completed(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+        $this->fakeSheet(['Listed By' => 'Rasul', 'Listed Date' => '18-Aug-26', 'e-com Status' => 'Completed']);
+
+        $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertSame(1, $result['created']);
+        $this->assertSame(0, $result['already_listed']);
+        $this->assertSame(ProductRequest::PUBLISHED, ProductRequest::sole()->status);
+    }
+
+    /** Listed by hand and not completed: still nothing to do with it. */
+    public function test_a_row_listed_by_hand_is_otherwise_left_out(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+        $this->fakeSheet(['Listed By' => 'Rasul', 'e-com Status' => 'Missing images']);
+
+        $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertSame(0, $result['created']);
+        $this->assertSame(0, ProductRequest::count());
+
+        // Counted, not silent — these rows were invisible in the summary before.
+        $this->assertSame(1, $result['already_listed']);
+    }
+
     /** The header is hand-typed, so its casing and spacing cannot be relied on. */
     public function test_the_column_is_found_however_it_is_written(): void
     {
