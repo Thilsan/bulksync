@@ -10,7 +10,10 @@
     $pipeline    = $request->displayStages();
     $labels      = \App\Models\ProductRequest::STATUS_LABELS;
     $currentStep = $request->displayStageIndex();
-    $transitions = $request->allowedTransitions();
+    // Not allowedTransitions(): the two photoshoot stages stay permitted, because
+    // the Photoshoot Room performs exactly those moves — they are simply not
+    // offered here, where there is no calendar to set a date on.
+    $transitions = $request->manualTransitions();
     $usesMapping = $request->requiresMapping();
 
         $me        = auth()->user();
@@ -184,7 +187,7 @@
                 @if($request->needsPhotoshootDecision())
                     <div class="mt-4 bg-blue-50 border border-blue-200 text-blue-900 rounded-lg px-4 py-3 text-sm">
                         <span class="font-medium">Does this need a photoshoot?</span>
-                        Answering yes puts it in the Photoshoot Room and asks the brand manager for the products.
+                        Answering yes puts it in the Photoshoot Room, where the shoot is booked.
 
                         <div class="flex flex-wrap gap-2 mt-2.5">
                             <form method="POST" action="{{ route('product-requests.photoshoot-decision', $request) }}">
@@ -201,79 +204,115 @@
                                 <input type="hidden" name="needed" value="no">
                                 <button type="submit"
                                         class="text-xs font-medium text-blue-900 px-3 py-1.5 rounded-lg border border-blue-300 hover:bg-blue-100">
-                                    No — images are covered
+                                    No — no photoshoot
                                 </button>
                             </form>
                         </div>
                     </div>
                 @endif
 
-                @if($request->awaitingContentSheet())
-                    @php
-                        $needsCopy = $request->needsContentCount();
-                        $unchecked = $request->sheetUncheckedCount();
-                        $supplied  = $request->sheetSuppliedCount();
-                    @endphp
-                    <div class="mt-4 bg-amber-50 border border-amber-200 text-amber-900 rounded-lg px-4 py-2.5 text-sm">
-                        <span class="font-medium">Awaiting content.</span>
+                {{-- Only once a shoot is ruled out: with no shoot the images come
+                     from somewhere, and "the brand manager is sending them" and
+                     "we already have them" are different states to be in. --}}
+                @if($request->needsImageSourceDecision())
+                    <div class="mt-4 bg-blue-50 border border-blue-200 text-blue-900 rounded-lg px-4 py-3 text-sm">
+                        <span class="font-medium">Where are the images coming from?</span>
+                        Asking sends the brand manager a request for them.
 
-                        @if($needsCopy > 0)
-                            {{-- The sheet is the brand team's own input, so a blank
-                                 Description column there settles it: no copy is
-                                 coming, and the choice is to write it or go without. --}}
-                            The sheet has no description for {{ number_format($needsCopy) }} product(s), so none is coming for them.
-                            Generate the copy, or leave them without it.
-                            @if($supplied > 0)
-                                <span class="block text-xs mt-0.5">{{ number_format($supplied) }} do have copy on the sheet — upload it as a file to apply it.</span>
-                            @endif
+                        <div class="flex flex-wrap gap-2 mt-2.5">
+                            <form method="POST" action="{{ route('product-requests.image-request-decision', $request) }}">
+                                @csrf
+                                <input type="hidden" name="ask" value="yes">
+                                <button type="submit" class="text-xs font-medium text-white px-3 py-1.5 rounded-lg"
+                                        style="background-color:#1d5a74">
+                                    Request images from the brand manager
+                                </button>
+                            </form>
 
-                            <span class="inline-flex flex-wrap items-center gap-2 mt-2">
-                                <form method="POST" action="{{ route('product-requests.ai-content', $request) }}">
-                                    @csrf
-                                    <input type="hidden" name="scope" value="missing_description">
-                                    <input type="hidden" name="answer" value="generate">
-                                    <button type="submit" class="text-xs font-medium text-white px-3 py-1.5 rounded-lg"
-                                            style="background-color:#1d5a74">
-                                        Generate AI content for {{ number_format($needsCopy) }}
-                                    </button>
-                                </form>
-                                <form method="POST" action="{{ route('product-requests.ai-content', $request) }}">
-                                    @csrf
-                                    <input type="hidden" name="scope" value="missing_description">
-                                    <input type="hidden" name="answer" value="skip">
-                                    <button type="submit"
-                                            class="text-xs font-medium text-amber-900 px-3 py-1.5 rounded-lg border border-amber-300 hover:bg-amber-100">
-                                        Skip — go without
-                                    </button>
-                                </form>
-                                <button type="button" @click="tab = 'attachments'"
-                                        class="text-xs font-medium text-amber-900 underline">Upload a content sheet instead</button>
-                            </span>
-                        @elseif($unchecked > 0)
-                            {{-- Null is "nobody read the sheet", not "the sheet is blank".
-                                 Offering to generate on that risks writing over copy the
-                                 brand team did supply. --}}
-                            The sheet has not been read for {{ number_format($unchecked) }} product(s), so it is not known
-                            which of them the brand team supplied copy for.
-
-                            <span class="inline-flex flex-wrap items-center gap-2 mt-2">
-                                <form method="POST" action="{{ route('product-requests.check-sheet-copy', $request) }}">
-                                    @csrf
-                                    <button type="submit" class="text-xs font-medium text-white px-3 py-1.5 rounded-lg"
-                                            style="background-color:#1d5a74">
-                                        Check the sheet for descriptions
-                                    </button>
-                                </form>
-                                <button type="button" @click="tab = 'attachments'"
-                                        class="text-xs font-medium text-amber-900 underline">Upload a content sheet instead</button>
-                            </span>
-                        @else
-                            The brand team needs to upload the copy as an Excel or CSV file.
-                            <button type="button" @click="tab = 'attachments'" class="underline font-medium">Upload it now</button>
-                        @endif
+                            <form method="POST" action="{{ route('product-requests.image-request-decision', $request) }}">
+                                @csrf
+                                <input type="hidden" name="ask" value="no">
+                                <button type="submit"
+                                        class="text-xs font-medium text-blue-900 px-3 py-1.5 rounded-lg border border-blue-300 hover:bg-blue-100">
+                                    We already have them
+                                </button>
+                            </form>
+                        </div>
                     </div>
                 @endif
 
+                {{-- Published or not, the pictures are still outstanding. Saying so
+                     next to the status stops "done" meaning two different things. --}}
+                @if($request->isWaitingOnPhotoshoot() && $request->isClosed())
+                    <div class="mt-4 bg-amber-50 border border-amber-200 text-amber-900 rounded-lg px-4 py-2.5 text-sm">
+                        <span class="font-medium">Waiting on the photoshoot.</span>
+                        Everything else is finished, but the studio has not delivered the images yet
+                        ({{ \App\Models\ProductRequest::SHOOT_STATUSES[$request->photoshoot_status] ?? 'not started' }}).
+                        It is tracked in the
+                        <a href="{{ route('product-requests.photoshoot-room') }}" class="underline font-medium">Photoshoot Room</a>.
+                    </div>
+                @endif
+
+                {{-- Copy is either written here or not written at all: nothing
+                     arrives from the brand team as a file, so there is no upload
+                     to offer and no waiting for one. --}}
+                @php
+                    $needsCopy = $request->needsContentCount();
+                    $unchecked = $request->sheetUncheckedCount();
+                    $supplied  = $request->sheetSuppliedCount();
+                @endphp
+
+                @if($needsCopy > 0)
+                    <div class="mt-4 bg-amber-50 border border-amber-200 text-amber-900 rounded-lg px-4 py-2.5 text-sm">
+                        <span class="font-medium">Awaiting content.</span>
+                        The sheet has no description for {{ number_format($needsCopy) }} product(s), so none is coming for them.
+                        Generate the copy, or leave them without it.
+                        @if($supplied > 0)
+                            <span class="block text-xs mt-0.5">{{ number_format($supplied) }} do have copy on the sheet.</span>
+                        @endif
+
+                        <span class="inline-flex flex-wrap items-center gap-2 mt-2">
+                            <form method="POST" action="{{ route('product-requests.ai-content', $request) }}">
+                                @csrf
+                                <input type="hidden" name="scope" value="missing_description">
+                                <input type="hidden" name="answer" value="generate">
+                                <button type="submit" class="text-xs font-medium text-white px-3 py-1.5 rounded-lg"
+                                        style="background-color:#1d5a74">
+                                    Generate AI content for {{ number_format($needsCopy) }}
+                                </button>
+                            </form>
+
+                            <form method="POST" action="{{ route('product-requests.ai-content', $request) }}">
+                                @csrf
+                                <input type="hidden" name="scope" value="missing_description">
+                                <input type="hidden" name="answer" value="skip">
+                                <button type="submit"
+                                        class="text-xs font-medium text-amber-900 px-3 py-1.5 rounded-lg border border-amber-300 hover:bg-amber-100">
+                                    Skip — go without
+                                </button>
+                            </form>
+                        </span>
+                    </div>
+                @elseif($unchecked > 0)
+                    {{-- Null is "nobody read the sheet", not "the sheet is blank".
+                         Offering to generate on that risks writing over copy the
+                         brand team did supply. --}}
+                    <div class="mt-4 bg-amber-50 border border-amber-200 text-amber-900 rounded-lg px-4 py-2.5 text-sm">
+                        <span class="font-medium">Awaiting content.</span>
+                        The sheet has not been read for {{ number_format($unchecked) }} product(s), so it is not known
+                        which of them the brand team supplied copy for.
+
+                        <span class="inline-flex flex-wrap items-center gap-2 mt-2">
+                            <form method="POST" action="{{ route('product-requests.check-sheet-copy', $request) }}">
+                                @csrf
+                                <button type="submit" class="text-xs font-medium text-white px-3 py-1.5 rounded-lg"
+                                        style="background-color:#1d5a74">
+                                    Check the sheet for descriptions
+                                </button>
+                            </form>
+                        </span>
+                    </div>
+                @endif
 
                 {{-- Next task, owner and time left — sits beside the stepper so the
                      two halves of "where is this?" are answered side by side. --}}
@@ -555,7 +594,7 @@
                                 Not validated yet
                             @endif
                             @if($usesMapping)
-                                &middot; <span class="text-gray-500">Supply Chain records mapping on the SKUs tab</span>
+                                &middot; <span class="text-gray-500">The brand manager records mapping on the SKUs tab</span>
                             @else
                                 &middot; <span class="text-gray-500">{{ $request->store?->name }} has no Cegid mapping step</span>
                             @endif
@@ -778,7 +817,7 @@
 
                     @if($request->isBlockedOnMapping())
                         <div class="mt-4 bg-amber-50 border border-amber-200 text-amber-900 rounded-lg px-4 py-3 text-sm">
-                            <p class="font-medium">Waiting for Supply Chain to complete mapping.</p>
+                            <p class="font-medium">Waiting for the brand manager to complete mapping.</p>
                             <p class="text-xs mt-0.5">
                                 The request stays here until every SKU is mapped. Once mapping is done it moves to
                                 <span class="font-medium">SKU Verified</span> automatically — no re-submission needed.
@@ -927,7 +966,7 @@
                         'details'     => 'Request Details',
                         'skus'        => 'SKUs (' . $request->total_skus . ')',
                         // Only where SKUs are not resolved through Cegid — elsewhere
-                        // an unmatched SKU goes to Supply Chain, not into a product.
+                        // an unmatched SKU is the brand manager's to map, not a product to invent.
                         'drafts'      => $request->requiresMapping() ? null : 'Shopify Drafts (' . $drafts->count() . ')',
                         'attachments' => 'Attachments (' . $request->attachments()->count() . ')',
                         'comments'    => 'Comments',
@@ -1126,16 +1165,7 @@
                 </div>
 
                 {{-- Tab: SKUs --}}
-                <div x-show="tab === 'skus'" x-cloak class="px-5 py-5"
-                     x-data="{
-                        selected: [],
-                        selectAll: false,
-                        applyToAll: false,
-                        pageCount: {{ $skus->count() }},
-                        totalCount: {{ $skus->total() }},
-                        get onePageOnly() { return this.pageCount >= this.totalCount },
-                        get affected() { return this.applyToAll ? this.totalCount : this.selected.length },
-                     }">
+                <div x-show="tab === 'skus'" x-cloak class="px-5 py-5">
 
                     @unless($request->isClosed())
                     <form method="POST" action="{{ route('product-requests.skus.add', $request) }}" enctype="multipart/form-data" class="mb-5 pb-5 border-b border-gray-100">
@@ -1152,57 +1182,22 @@
                         </div>
                     </form>
 
-                    {{-- Supply Chain records the mapping outcome here. --}}
+                    {{-- Mapping is not typed in here. The SKU check reads Shopify and
+                         writes the status itself, so there is one answer, not two. --}}
                     @if($usesMapping)
-                    <form method="POST" action="{{ route('product-requests.skus.mapping', $request) }}" class="mb-4">
-                        @csrf
-                        <input type="hidden" name="scope" :value="applyToAll ? 'all' : 'selected'">
-                        <template x-for="id in selected" :key="id">
-                            <input type="hidden" name="sku_ids[]" :value="id">
-                        </template>
-                        <div class="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2.5">
-                            <div class="flex flex-wrap items-center gap-2">
-                                <span class="text-xs font-medium text-gray-600">Supply Chain — update mapping status</span>
-                                <span class="text-xs text-gray-500">
-                                    (<span x-text="affected"></span>
-                                    <span x-text="applyToAll ? 'SKUs — the whole request' : 'selected'"></span>)
-                                </span>
-                                <div class="flex-1"></div>
-                                <button type="submit" name="mapping_status" value="{{ \App\Models\ProductRequest::MAP_MAPPED }}" :disabled="!affected"
-                                        class="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors bg-green-600 hover:bg-green-700 text-white disabled:opacity-40 disabled:cursor-not-allowed">
-                                    <span class="w-1.5 h-1.5 rounded-full bg-white"></span> Mapped
-                                </button>
-                                <button type="submit" name="mapping_status" value="{{ \App\Models\ProductRequest::MAP_PENDING }}" :disabled="!affected"
-                                        class="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors bg-amber-500 hover:bg-amber-600 text-white disabled:opacity-40 disabled:cursor-not-allowed">
-                                    <span class="w-1.5 h-1.5 rounded-full bg-white"></span> Pending
-                                </button>
-                                <button type="submit" name="mapping_status" value="{{ \App\Models\ProductRequest::MAP_NOT_MAPPED }}" :disabled="!affected"
-                                        class="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors bg-red-600 hover:bg-red-700 text-white disabled:opacity-40 disabled:cursor-not-allowed">
-                                    <span class="w-1.5 h-1.5 rounded-full bg-white"></span> Not Mapped
-                                </button>
-                            </div>
-                            {{-- Ticking the header box only reaches the rows on screen. When the
-                                 table spans pages, offer the whole request explicitly rather than
-                                 letting "select all" quietly mean "select this page". --}}
-                            <template x-if="!onePageOnly">
-                                <label class="flex items-center gap-2 mt-2 cursor-pointer">
-                                    <input type="checkbox" x-model="applyToAll"
-                                           class="rounded border-gray-300 text-brand-600 focus:ring-brand-500">
-                                    <span class="text-xs text-gray-700">
-                                        Apply to <span class="font-semibold" x-text="totalCount"></span> SKUs — the whole request,
-                                        not just this page
-                                    </span>
-                                </label>
-                            </template>
-
-                            <input type="text" name="mapping_note" maxlength="255" placeholder="Optional note — e.g. awaiting supplier article code"
-                                   class="w-full mt-2 rounded-lg border border-gray-300 px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500">
-                        </div>
-                        <p class="text-xs text-gray-400 mt-1.5">
-                            Mapping is done in Cegid by Supply Chain and recorded here. Marking the last outstanding SKU as
-                            <span class="font-medium">Mapped</span> releases the request to <span class="font-medium">SKU Verified</span> automatically.
+                    <div class="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2.5 mb-4">
+                        <p class="text-xs text-gray-600">
+                            <span class="font-medium text-gray-700">Mapping status comes from the SKU check.</span>
+                            The brand manager does the mapping in Cegid; once the product reaches Shopify the check
+                            finds it and marks it <span class="font-medium">Mapped</span> on its own. Everything else
+                            stays <span class="font-medium">Pending Mapping</span>.
                         </p>
-                    </form>
+                        <p class="text-xs text-gray-500 mt-1.5">
+                            It runs every hour, and <span class="font-medium">Validate SKUs</span> runs it now.
+                            When the last outstanding SKU lands the request is released to
+                            <span class="font-medium">SKU Verified</span> automatically.
+                        </p>
+                    </div>
                     @endif
                     @endunless
 
@@ -1213,18 +1208,9 @@
                         <table class="w-full text-sm">
                             <thead>
                                 <tr class="text-left text-xs text-gray-500 border-b border-gray-100">
-                                    @if(!$request->isClosed() && $usesMapping)
-                                    <th class="py-2 pr-3 w-8">
-                                        <input type="checkbox" x-model="selectAll" :disabled="applyToAll"
-                                               title="Selects the rows on this page"
-                                               @change="selected = selectAll ? Array.from($root.querySelectorAll('[data-sku-id]')).map(el => el.dataset.skuId) : []"
-                                               class="rounded border-gray-300 text-brand-600 focus:ring-brand-500 disabled:opacity-40">
-                                    </th>
-                                    @endif
                                     <th class="py-2 pr-3 font-medium">SKU</th>
                                     @if($usesMapping)
                                     <th class="py-2 pr-3 font-medium">Mapping Status</th>
-                                    <th class="py-2 pr-3 font-medium">Recorded By</th>
                                     @endif
                                     <th class="py-2 pr-3 font-medium">In Shopify</th>
                                     <th class="py-2 pr-3 font-medium">Product</th>
@@ -1234,12 +1220,6 @@
                             <tbody class="divide-y divide-gray-50">
                                 @foreach($skus as $sku)
                                 <tr class="hover:bg-gray-50/70 transition-colors">
-                                    @if(!$request->isClosed() && $usesMapping)
-                                    <td class="py-2.5 pr-3">
-                                        <input type="checkbox" data-sku-id="{{ $sku->id }}" value="{{ $sku->id }}" x-model="selected"
-                                               class="rounded border-gray-300 text-brand-600 focus:ring-brand-500">
-                                    </td>
-                                    @endif
                                     <td class="py-2.5 pr-3 font-mono text-xs text-gray-800">{{ $sku->sku }}</td>
                                     @if($usesMapping)
                                     <td class="py-2.5 pr-3">
@@ -1247,12 +1227,6 @@
                                             <span class="w-1.5 h-1.5 rounded-full {{ $sku->dot() }}"></span>
                                             {{ $sku->label() }}
                                         </span>
-                                    </td>
-                                    <td class="py-2.5 pr-3 text-xs text-gray-600">
-                                        <span class="{{ $sku->isManuallySet() ? '' : 'text-gray-400 italic' }}">{{ $sku->sourceLabel() }}</span>
-                                        @if($sku->mapping_note)
-                                            <p class="text-gray-400">{{ $sku->mapping_note }}</p>
-                                        @endif
                                     </td>
                                     @endif
                                     <td class="py-2.5 pr-3 text-xs text-gray-600">{{ $sku->in_shopify ? 'Yes' : 'No' }}</td>
@@ -1610,12 +1584,9 @@
                             @endforeach
                         </select>
                     </div>
-                    <div @class(['hidden' => !$request->needsPhotoshoot()])>
-                        <label class="block text-xs font-medium text-gray-600 mb-1.5">Photoshoot Date <span class="text-gray-400 font-normal">(if scheduling)</span></label>
-                        <input type="datetime-local" name="photoshoot_scheduled_at"
-                               value="{{ $request->photoshoot_scheduled_at?->format('Y-m-d\TH:i') }}"
-                               class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
-                    </div>
+                    {{-- No photoshoot date here: this dialog no longer offers the
+                         stages it would apply to. The date is set in the Photoshoot
+                         Room alongside the studio, which is where a shoot is booked. --}}
                     <div class="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2.5 text-xs text-gray-600">
                         <span class="font-medium text-gray-700">Suggested next:</span>
                         {{ $request->suggestedNextStatus() ? $request->stageLabel($request->suggestedNextStatus()) : '—' }}
@@ -1630,7 +1601,7 @@
                             <span class="font-semibold">{{ number_format($request->mapped_skus) }} of
                             {{ number_format($request->total_skus) }} SKUs ({{ $request->skuCompletionPercent() }}%)</span>
                             are mapped. The other {{ number_format($request->balanceSkus()) }} cannot go live yet — finish
-                            those once Supply Chain maps them, then mark the request complete.
+                            those once they are mapped, then mark the request complete.
                         </div>
                     @endif
 

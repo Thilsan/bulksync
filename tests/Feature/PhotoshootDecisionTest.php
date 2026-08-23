@@ -77,7 +77,8 @@ class PhotoshootDecisionTest extends TestCase
         $this->assertSame(0, ProductRequest::withPhotoshoot()->count());
     }
 
-    public function test_saying_yes_puts_it_in_the_room_and_asks_for_the_products(): void
+    /** A shoot is arranged in the room — nobody is emailed for it. */
+    public function test_saying_yes_puts_it_in_the_room_and_emails_nobody(): void
     {
         $manager = $this->brandManager();
         $request = $this->request();
@@ -90,15 +91,15 @@ class PhotoshootDecisionTest extends TestCase
         $request->refresh();
         $this->assertSame('yes', $request->photoshoot_decision);
         $this->assertSame(ProductRequest::SHOOT_PENDING, $request->photoshoot_status);
-        $this->assertTrue((bool) $request->photoshoot_required);
         $this->assertSame(1, ProductRequest::withPhotoshoot()->count());
 
-        Notification::assertSentTo($manager, ProductRequestPhotosNeeded::class, function ($notification) {
-            return $notification->brand === 'POURCHET' && $notification->skus === 34;
-        });
+        Notification::assertNotSentTo($manager, ProductRequestPhotosNeeded::class);
+
+        // And with a shoot booked there is nothing more to ask about images.
+        $this->assertFalse($request->needsImageSourceDecision());
     }
 
-    public function test_saying_no_keeps_it_out_of_the_room_and_tells_nobody(): void
+    public function test_saying_no_keeps_it_out_of_the_room_and_asks_where_images_come_from(): void
     {
         $manager = $this->brandManager();
         $request = $this->request();
@@ -113,6 +114,89 @@ class PhotoshootDecisionTest extends TestCase
         $this->assertSame(0, ProductRequest::withPhotoshoot()->count());
 
         Notification::assertNotSentTo($manager, ProductRequestPhotosNeeded::class);
+        $this->assertTrue($request->needsImageSourceDecision());
+    }
+
+    // ── With no shoot, where do the images come from? ────────────────────────
+
+    public function test_asking_writes_to_the_brand_manager(): void
+    {
+        $manager = $this->brandManager();
+        $request = $this->request(decision: 'no');
+
+        $this->actingAs($this->admin)
+            ->post(route('product-requests.image-request-decision', $request), ['ask' => 'yes'])
+            ->assertRedirect()
+            ->assertSessionHas('success');
+
+        $this->assertSame('yes', $request->refresh()->image_request_decision);
+
+        Notification::assertSentTo($manager, ProductRequestPhotosNeeded::class, function ($notification) {
+            return $notification->brand === 'POURCHET' && $notification->skus === 34;
+        });
+    }
+
+    public function test_already_having_the_images_tells_nobody(): void
+    {
+        $manager = $this->brandManager();
+        $request = $this->request(decision: 'no');
+
+        $this->actingAs($this->admin)
+            ->post(route('product-requests.image-request-decision', $request), ['ask' => 'no'])
+            ->assertRedirect();
+
+        $this->assertSame('no', $request->refresh()->image_request_decision);
+        $this->assertFalse($request->needsImageSourceDecision());
+
+        Notification::assertNotSentTo($manager, ProductRequestPhotosNeeded::class);
+    }
+
+    // ── The shoot gates completion without blocking it ───────────────────────
+
+    /**
+     * The copy and the mapping do not wait on a camera, so the request can be
+     * published — but "finished" must not be claimed while the pictures are not.
+     */
+    public function test_a_published_request_still_shows_it_is_waiting_on_the_shoot(): void
+    {
+        $request = $this->request(decision: 'yes', shootStatus: ProductRequest::SHOOT_PENDING);
+
+        $this->assertTrue($request->isWaitingOnPhotoshoot());
+        $this->assertStringContainsString('the photoshoot is not finished', implode(' ', $request->publishGaps()));
+
+        $request->update(['status' => ProductRequest::PUBLISHED]);
+
+        $this->actingAs($this->admin)
+            ->get(route('product-requests.show', $request))
+            ->assertOk()
+            ->assertSee('Waiting on the photoshoot');
+    }
+
+    public function test_a_finished_shoot_clears_the_wait(): void
+    {
+        $request = $this->request(decision: 'yes', shootStatus: ProductRequest::SHOOT_COMPLETED);
+
+        $this->assertFalse($request->isWaitingOnPhotoshoot());
+        $this->assertStringNotContainsString('photoshoot', implode(' ', $request->publishGaps()));
+    }
+
+    /** No shoot asked for means nothing to wait on. */
+    public function test_a_request_with_no_shoot_never_waits_on_one(): void
+    {
+        $this->assertFalse($this->request(decision: 'no')->isWaitingOnPhotoshoot());
+    }
+
+    /** The room owns booking and finishing, so neither is offered on the request. */
+    public function test_the_photoshoot_stages_are_not_offered_as_manual_moves(): void
+    {
+        $request = $this->request(decision: 'yes', shootStatus: ProductRequest::SHOOT_PENDING);
+        $request->update(['image_source' => ProductRequest::IMG_PHOTOSHOOT, 'photoshoot_required' => true]);
+
+        // Offered on the request: no. Permitted at all: yes — the Photoshoot Room
+        // makes exactly these moves, so forbidding them would break booking.
+        $this->assertNotContains(ProductRequest::PHOTOSHOOT_SCHEDULED, $request->manualTransitions());
+        $this->assertNotContains(ProductRequest::PHOTOSHOOT_COMPLETED, $request->manualTransitions());
+        $this->assertContains(ProductRequest::PHOTOSHOOT_SCHEDULED, $request->allowedTransitions());
     }
 
     /** Asked once — an answered request stops being asked. */

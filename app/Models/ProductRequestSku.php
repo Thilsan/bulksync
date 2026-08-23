@@ -65,16 +65,10 @@ class ProductRequestSku extends Model
         return $this->belongsTo(ProductRequest::class);
     }
 
-    /** The Supply Chain user who recorded the mapping outcome, if anyone has. */
+    /** Whoever recorded a mapping outcome by hand before the check took it over. */
     public function mappedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'mapping_set_by');
-    }
-
-    /** True once a human has set the status — the automatic check leaves it alone. */
-    public function isManuallySet(): bool
-    {
-        return $this->mapping_set_by !== null;
     }
 
     public function label(): string
@@ -90,14 +84,5 @@ class ProductRequestSku extends Model
     public function dot(): string
     {
         return self::DOTS[$this->mapping_status] ?? 'bg-gray-400';
-    }
-
-    public function sourceLabel(): string
-    {
-        if ($this->isManuallySet()) {
-            return $this->mappedBy?->name ?? 'Supply Chain';
-        }
-
-        return $this->in_shopify ? 'Auto (found in Shopify)' : 'Awaiting Supply Chain';
     }
 }

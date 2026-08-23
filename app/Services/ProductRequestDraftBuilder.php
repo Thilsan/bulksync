@@ -13,7 +13,7 @@ use Illuminate\Support\Str;
  * Shopify, using the product information on the tracking sheet's category tab.
  *
  * Only for websites that do not go through Cegid mapping: where they do, an
- * unmatched SKU is Supply Chain's to resolve, not a product to invent.
+ * unmatched SKU is the brand manager's to map, not a product to invent.
  *
  * The category tabs are not consistent with each other, so rather than insisting
  * on one set of column names it takes the whole row and maps what it recognises
@@ -38,7 +38,7 @@ class ProductRequestDraftBuilder
     {
         if ($request->requiresMapping()) {
             throw new \RuntimeException(
-                "{$request->store?->name} maps its SKUs in Cegid — unmatched SKUs there go to Supply Chain, not into a draft product."
+                "{$request->store?->name} maps its SKUs in Cegid — unmatched SKUs there are the brand manager's to map, not products to invent."
             );
         }
 

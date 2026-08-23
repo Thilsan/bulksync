@@ -10,7 +10,7 @@ use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
 
 /**
- * Supply Chain has mapped more of the balance.
+ * More of the balance has been mapped.
  *
  * A request that carried on with part of its SKUs has work waiting the moment
  * the rest resolve — and nobody was watching for that. Without this the balance
@@ -86,7 +86,7 @@ class ProductRequestBalanceMapped extends Notification implements ShouldQueue
                 'subject'       => $subject,
                 'preheader'     => $this->isComplete()
                     ? "Every SKU on {$name} is mapped — finish the remaining products and mark it complete."
-                    : "{$this->justMapped} more mapped, {$this->remaining} still with Supply Chain.",
+                    : "{$this->justMapped} more mapped, {$this->remaining} still to map.",
             ]);
     }
 

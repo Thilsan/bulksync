@@ -35,8 +35,21 @@ class ProductRequest extends Model
      */
     public const CLOSED_STATUSES = [self::PUBLISHED, self::COMPLETED, self::CANCELLED];
 
-    /** Stages no longer part of the flow, kept only so historic requests work. */
-    public const RETIRED_STAGES = [self::IMAGE_EDITING, self::READY_FOR_UPLOAD, self::COMPLETED];
+    /**
+     * Stages no longer part of the flow, kept only so historic requests work.
+     *
+     * Content and QA joined them because one person runs a request end to end:
+     * they write the copy, check it and publish it. Three stages for one person's
+     * afternoon is ceremony, not tracking — and a stage nobody moves through
+     * makes the pipeline read as stalled when it is simply not used.
+     */
+    public const RETIRED_STAGES = [
+        self::IMAGE_EDITING,
+        self::READY_FOR_UPLOAD,
+        self::COMPLETED,
+        self::AI_CONTENT,
+        self::QA_REVIEW,
+    ];
 
     /** Ordered pipeline — drives the progress stepper and "is this a step forward?" checks. */
     public const PIPELINE = [
@@ -367,6 +380,32 @@ class ProductRequest extends Model
         return $this->photoshoot_decision === null && !$this->isClosed();
     }
 
+    /**
+     * No shoot, so the images come from somewhere — has anyone said where?
+     *
+     * Asked only after a photoshoot is ruled out, because with a shoot booked the
+     * question answers itself.
+     */
+    public function needsImageSourceDecision(): bool
+    {
+        return $this->photoshoot_decision === 'no'
+            && $this->image_request_decision === null
+            && !$this->isClosed();
+    }
+
+    /**
+     * A shoot was asked for and the studio has not finished it.
+     *
+     * The rest of the request can carry on and even be published — the copy and
+     * the mapping do not wait on a camera. What cannot be true is that the whole
+     * thing is finished while the pictures are still outstanding.
+     */
+    public function isWaitingOnPhotoshoot(): bool
+    {
+        return $this->photoshoot_decision === 'yes'
+            && $this->photoshoot_status !== self::SHOOT_COMPLETED;
+    }
+
     public const IMAGES_AT_URL = 'url';
     public const IMAGES_AT_PIM = 'pim';
 
@@ -456,7 +495,7 @@ class ProductRequest extends Model
     /**
      * Which roles to offer for this request.
      *
-     * Photography roles are pointless without a shoot, and Supply Chain without
+     * Photography roles are pointless without a shoot, and mapping roles without
      * a mapping step — but a role is always kept when somebody already holds it,
      * or when it owns the stage the request is sitting at, so an assignment can
      * never become stranded and un-editable.
@@ -576,6 +615,8 @@ class ProductRequest extends Model
         'photoshoot_status',
         'photoshoot_decision',
         'photoshoot_decided_at',
+        'image_request_decision',
+        'image_requested_at',
         'photoshoot_studio',
         'photoshoot_notes',
         'use_ai_content',
@@ -606,6 +647,7 @@ class ProductRequest extends Model
             'sheet_snapshot'            => 'array',
             'sheet_request_date'        => 'date',
             'photoshoot_decided_at'     => 'datetime',
+            'image_requested_at'        => 'datetime',
             'store_launch_date'         => 'date',    // legacy: no longer collected
             'online_launch_date'        => 'datetime',
             // A booking, so it carries a time — "Tuesday" is not a slot.
@@ -1008,7 +1050,7 @@ class ProductRequest extends Model
     /**
      * Whether this request's website goes through Cegid mapping at all.
      * Only websites flagged in Stores (Blue Salon) do — everywhere else there is
-     * no mapping step, so the request must not wait on Supply Chain.
+     * no mapping step, so the request must not wait on anybody to map it.
      */
     public function requiresMapping(): bool
     {
@@ -1029,7 +1071,7 @@ class ProductRequest extends Model
     // ── The balance: SKUs still waiting on Cegid ─────────────────────────────
 
     /**
-     * SKUs Supply Chain has not resolved yet.
+     * SKUs nobody has mapped yet.
      *
      * Only meaningful on a Cegid website — everywhere else a SKU that isn't in
      * Shopify is simply a product nobody has uploaded yet, which is the normal
@@ -1172,6 +1214,11 @@ class ProductRequest extends Model
             $gaps[] = "{$blank} SKU(s) live in Shopify with no description";
         }
 
+        if ($this->isWaitingOnPhotoshoot()) {
+            $gaps[] = 'the photoshoot is not finished — '
+                . strtolower(self::SHOOT_STATUSES[$this->photoshoot_status] ?? 'not started');
+        }
+
         return $gaps;
     }
 
@@ -1212,7 +1259,7 @@ class ProductRequest extends Model
     }
 
     /**
-     * Whether this request has ever been parked with Supply Chain.
+     * Whether this request has ever been parked at Waiting for Mapping.
      *
      * Separates a request that was waved straight past the mapping stage
      * (submitted → SKU verified, because the website's Cegid tick was off) from
@@ -1228,7 +1275,7 @@ class ProductRequest extends Model
      * Enough mapped to get on with, but not all of it.
      *
      * The condition for carrying on with part of a request rather than holding
-     * ten good SKUs hostage to ten that Supply Chain has not reached yet.
+     * ten good SKUs hostage to ten nobody has mapped yet.
      */
     public function canContinueWithMapped(): bool
     {
@@ -1294,7 +1341,8 @@ class ProductRequest extends Model
             // hand-off and no separate completion. Any of these still shows on a
             // request that is sitting on it from before the change, because the
             // check above returns early for the current stage.
-            self::IMAGE_EDITING, self::READY_FOR_UPLOAD, self::COMPLETED => false,
+            self::IMAGE_EDITING, self::READY_FOR_UPLOAD, self::COMPLETED,
+            self::AI_CONTENT, self::QA_REVIEW => false,
 
             default => true,
         };
@@ -1350,6 +1398,23 @@ class ProductRequest extends Model
         return array_values(array_filter(self::PIPELINE, fn ($s) => $this->stageApplies($s)));
     }
 
+    /**
+     * Stages offered in the Move to next stage dialog.
+     *
+     * Everything allowed, less the two the Photoshoot Room owns: booking and
+     * finishing a shoot happen there, where the date and studio are set at the
+     * same time. They stay *allowed* — the room performs exactly these moves — but
+     * offering them here too gives two ways to do one thing, and the way without
+     * the calendar wins by being closer to hand.
+     */
+    public function manualTransitions(): array
+    {
+        return array_values(array_diff(
+            $this->allowedTransitions(),
+            [self::PHOTOSHOOT_SCHEDULED, self::PHOTOSHOOT_COMPLETED],
+        ));
+    }
+
     /** Position within displayStages() — drives the stepper and the progress bar. */
     public function displayStageIndex(): int
     {
@@ -1383,7 +1448,7 @@ class ProductRequest extends Model
 
         if ($this->status === self::WAITING_MAPPING) {
             // Part-mapped still points forward: the mapped SKUs are ready to work
-            // on even while the balance sits with Supply Chain.
+            // on even while the balance is still unmapped.
             return $this->isFullyMapped() || $this->mapped_skus > 0 ? self::SKU_VERIFIED : null;
         }
 
@@ -1469,7 +1534,7 @@ class ProductRequest extends Model
         // Who may OPEN a request — not what fills their dashboard; see onMyDesk().
         //
         // Anyone with a workflow role can reach any request, because they have to:
-        // Supply Chain records mappings on requests they hold nothing on, a team
+        // Mappings are recorded on requests the person holds nothing on, a team
         // has to be able to pick up unclaimed work, and every stage email links
         // to a request. The accounts copied on everything need it for the same
         // reason. Without a role, you get what you raised, hold, or brand-manage.

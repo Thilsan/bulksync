@@ -19,7 +19,7 @@
         ])
     @else
         <p style="margin:0;">
-            Supply Chain has mapped <strong>{{ $justMapped }}</strong>
+            The brand manager has mapped <strong>{{ $justMapped }}</strong>
             {{ $justMapped === 1 ? 'more SKU' : 'more SKUs' }} on <strong>{{ $requestName }}</strong>.
         </p>
 
@@ -28,7 +28,7 @@
             'heading' => 'Where the SKUs stand',
             'body'    => '<div style="font-weight:700; font-size:15px; margin-bottom:2px;">'
                        . $mapped . ' of ' . $total . ' mapped (' . $percent . '%)</div>'
-                       . '<div style="font-size:13px;">' . $remaining . ' still with Supply Chain — you can carry on with the rest.</div>',
+                       . '<div style="font-size:13px;">' . $remaining . ' still to map — you can carry on with the rest.</div>',
         ])
     @endif
 

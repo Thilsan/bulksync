@@ -181,7 +181,7 @@ class ProductRequestTest extends TestCase
         $this->assertMatchesRegularExpression('/^PCR-\d{4}-\d{5}$/', $request->reference);
         $this->assertSame(3, $request->skus()->count());
 
-        // Nothing mapped yet, so it parks with Supply Chain rather than
+        // Nothing mapped yet, so it parks at Waiting for Mapping rather than
         // rejecting the submission.
         $this->assertTrue($request->requiresMapping());
         $this->assertSame(ProductRequest::WAITING_MAPPING, $request->status);
@@ -202,7 +202,12 @@ class ProductRequestTest extends TestCase
         // The stage is absent from the stepper and can never be moved to.
         $this->assertNotContains(ProductRequest::WAITING_MAPPING, $request->displayStages());
         $this->assertNotContains(ProductRequest::WAITING_MAPPING, $request->allowedTransitions());
-        $this->assertCount(8, $request->displayStages());
+
+        // Submitted, SKU Verified, the three image stages, Published. Content and
+        // QA are retired: one person writes the copy, checks it and publishes.
+        $this->assertCount(6, $request->displayStages());
+        $this->assertNotContains(ProductRequest::AI_CONTENT, $request->displayStages());
+        $this->assertNotContains(ProductRequest::QA_REVIEW, $request->displayStages());
     }
 
     public function test_the_website_must_be_one_the_user_can_access(): void
@@ -887,16 +892,41 @@ class ProductRequestTest extends TestCase
 
     // ── Carrying on with part of a request ───────────────────────────────────
 
-    /** Mark some of a request's SKUs mapped, the way Supply Chain would. */
+    /**
+     * Mapped in Cegid and now live in Shopify — which is the only way a SKU
+     * becomes Mapped, since nobody types a status in.
+     */
     private function mapSome(ProductRequest $request, int $howMany): ProductRequest
     {
-        $rows    = $request->skus()->orderBy('id')->limit($howMany)->get();
-        $mapping = app(SkuMappingService::class);
+        $request->skus()->orderBy('id')->limit($howMany)->get()->each(function ($row) use ($request) {
+            // Warmed too, so a later re-check still finds them and does not
+            // read "gone from Shopify" as "unmapped again".
+            $this->appearsInShopify($request, $row->sku);
 
-        $mapping->setMappingStatus($rows, ProductRequest::MAP_MAPPED, $request->user, 'Mapped in Cegid');
-        $mapping->rollUp($request);
+            $row->update([
+                'mapping_status'        => ProductRequest::MAP_MAPPED,
+                'in_shopify'            => true,
+                'shopify_product_id'    => 111,
+                'shopify_product_title' => 'Mapped in Cegid',
+                'last_checked_at'       => now(),
+            ]);
+        });
+
+        app(SkuMappingService::class)->rollUp($request);
 
         return $request->refresh();
+    }
+
+    /** Put a SKU in Shopify as far as the read-only check can see. */
+    private function appearsInShopify(ProductRequest $request, string $sku): void
+    {
+        $shop = $request->store->shopify_domain;
+
+        \Illuminate\Support\Facades\Cache::put('shopify_sku_warmed_' . md5($shop), 1);
+        \Illuminate\Support\Facades\Cache::put(
+            'shopify_sku_' . md5($shop) . '_v1_' . md5($sku),
+            [['product_id' => 111, 'product_title' => 'Now in Shopify', 'published' => true]],
+        );
     }
 
     public function test_ten_mapped_skus_do_not_wait_on_ten_that_are_not(): void
@@ -907,7 +937,7 @@ class ProductRequestTest extends TestCase
         $skus    = collect(range(1, 20))->map(fn ($i) => 'BAL-' . $i)->implode("\n");
         $request = $this->submitFor($author, $this->mappingSite(), $skus);
 
-        // Cegid site, nothing mapped: the request parks with Supply Chain.
+        // Cegid site, nothing mapped: the request parks with the brand manager.
         $this->assertSame(ProductRequest::WAITING_MAPPING, $request->status);
         $this->assertSame(20, $request->balanceSkus());
         $this->assertSame(0, $request->skuCompletionPercent());
@@ -939,7 +969,12 @@ class ProductRequestTest extends TestCase
             ->exists());
     }
 
-    public function test_supply_chain_mapping_the_balance_tells_the_people_waiting_on_it(): void
+    /**
+     * Nobody records a mapping outcome by hand any more, so pressing Validate
+     * SKUs is how the balance arrives — and the people who carried on with the
+     * mapped half have to hear about it, since they are not on the SKUs tab.
+     */
+    public function test_validating_picks_up_the_balance_and_tells_the_people_waiting_on_it(): void
     {
         Notification::fake();
 
@@ -949,19 +984,10 @@ class ProductRequestTest extends TestCase
         $request = $this->mapSome($request, 2);
         $this->actingAs($author)->post(route('product-requests.continue-mapped', $request))->assertRedirect();
 
-        $supplyChain = User::create([
-            'name' => 'Cegid Desk', 'email' => 'cegid@example.test', 'password' => 'password',
-            'is_active' => true, 'perm_product_request' => true, 'pcr_role' => 'supply_chain',
-        ]);
+        // The brand manager finishes one in Cegid and it reaches Shopify.
+        $this->appearsInShopify($request, 'BAL-3');
 
-        // Supply Chain maps one of the balance on the SKUs tab.
-        $third = $request->skus()->where('mapping_status', ProductRequest::MAP_PENDING)->orderBy('id')->first();
-
-        $this->actingAs($supplyChain)->post(route('product-requests.skus.mapping', $request), [
-            'sku_ids'        => [$third->id],
-            'mapping_status' => ProductRequest::MAP_MAPPED,
-            'scope'          => 'selected',
-        ])->assertRedirect();
+        $this->actingAs($author)->post(route('product-requests.revalidate', $request))->assertRedirect();
 
         Notification::assertSentTo($author, ProductRequestBalanceMapped::class, function ($n) {
             return $n->justMapped === 1 && $n->mapped === 3 && $n->total === 4
@@ -969,19 +995,32 @@ class ProductRequestTest extends TestCase
         });
 
         // The last one lands: the message says it can be finished now.
-        $last = $request->skus()->where('mapping_status', ProductRequest::MAP_PENDING)->orderBy('id')->first();
+        $this->appearsInShopify($request, 'BAL-4');
 
-        $this->actingAs($supplyChain)->post(route('product-requests.skus.mapping', $request), [
-            'sku_ids'        => [$last->id],
-            'mapping_status' => ProductRequest::MAP_MAPPED,
-            'scope'          => 'selected',
-        ])->assertRedirect();
+        $this->actingAs($author)->post(route('product-requests.revalidate', $request))->assertRedirect();
 
         Notification::assertSentTo($author, ProductRequestBalanceMapped::class,
             fn ($n) => $n->isComplete() && $n->remaining === 0 && $n->mapped === 4);
 
         $this->assertFalse($request->fresh()->hasSkuBalance());
         $this->assertSame(100, $request->fresh()->skuCompletionPercent());
+    }
+
+    /** The status is the check's to set, and only the check's. */
+    public function test_the_skus_tab_offers_no_way_to_type_a_status_in(): void
+    {
+        $author  = $this->brandManager();
+        $author->update(['is_super_admin' => true]);
+        $request = $this->submitFor($author, $this->mappingSite(), "BAL-1\nBAL-2");
+
+        $response = $this->actingAs($author)->get(route('product-requests.show', $request))->assertOk();
+
+        $response->assertDontSee('Update mapping status');
+        $response->assertDontSee('Recorded By');
+        $response->assertSee('Mapping status comes from the SKU check.');
+
+        // And no endpoint left behind the removed buttons.
+        $this->assertFalse(\Illuminate\Support\Facades\Route::has('product-requests.skus.mapping'));
     }
 
     public function test_the_hourly_check_announces_a_balance_that_appears_in_shopify_by_itself(): void
@@ -1400,7 +1439,7 @@ class ProductRequestTest extends TestCase
 
     // ── Mapping lifecycle (Blue Salon only) ─────────────────────────────────
 
-    public function test_supply_chain_mapping_releases_the_request_automatically(): void
+    public function test_the_check_releases_the_request_once_the_products_reach_shopify(): void
     {
         Notification::fake();
 
@@ -1409,47 +1448,41 @@ class ProductRequestTest extends TestCase
 
         $this->assertSame(ProductRequest::WAITING_MAPPING, $request->status);
 
-        $this->actingAs($user)->post(route('product-requests.skus.mapping', $request), [
-            'sku_ids'        => $request->skus()->pluck('id')->all(),
-            'mapping_status' => ProductRequest::MAP_MAPPED,
-            'mapping_note'   => 'Mapped in Cegid by Supply Chain',
-            'scope'          => 'selected',
-        ])->assertRedirect();
+        // Mapped in Cegid on the brand manager's side, so the products appear.
+        $this->appearsInShopify($request, 'A-1');
+        $this->appearsInShopify($request, 'A-2');
+
+        $this->actingAs($user)->post(route('product-requests.revalidate', $request))->assertRedirect();
 
         $request->refresh();
 
-        // No re-submission needed — the request advances on its own.
+        // No re-submission and nothing typed in — the request advances on its own.
         $this->assertSame(ProductRequest::SKU_VERIFIED, $request->status);
         $this->assertSame(2, $request->mapped_skus);
         $this->assertSame(0, $request->pending_skus);
 
-        // The entry is attributed, so the audit trail shows who released it.
-        $row = $request->skus()->first();
-        $this->assertTrue($row->isManuallySet());
-        $this->assertSame($user->id, $row->mapping_set_by);
-        $this->assertSame('Mapped in Cegid by Supply Chain', $row->mapping_note);
-
         Notification::assertSentTo($user, ProductRequestStatusChanged::class);
     }
 
-    public function test_mapping_can_be_applied_to_the_whole_request_not_just_one_page(): void
+    /** Paging is a table concern; the check has always read the whole request. */
+    public function test_the_check_covers_every_sku_not_just_the_page_on_screen(): void
     {
         Notification::fake();
 
         $user = $this->brandManager();
 
-        // More SKUs than the 50-per-page table shows, so a page-scoped
-        // "select all" would silently leave the rest untouched.
+        // More SKUs than the 50-per-page table shows.
         $skus    = collect(range(1, 60))->map(fn ($i) => "PAGE-{$i}")->implode("\n");
         $request = $this->submitFor($user, $this->mappingSite(), $skus);
 
         $this->assertSame(60, $request->skus()->count());
         $this->assertSame(ProductRequest::WAITING_MAPPING, $request->status);
 
-        $this->actingAs($user)->post(route('product-requests.skus.mapping', $request), [
-            'scope'          => 'all',
-            'mapping_status' => ProductRequest::MAP_MAPPED,
-        ])->assertRedirect();
+        foreach ($request->skus as $row) {
+            $this->appearsInShopify($request, $row->sku);
+        }
+
+        $this->actingAs($user)->post(route('product-requests.revalidate', $request))->assertRedirect();
 
         $request->refresh();
 
@@ -1458,25 +1491,29 @@ class ProductRequestTest extends TestCase
         $this->assertSame(ProductRequest::SKU_VERIFIED, $request->status);
     }
 
-    public function test_the_automatic_check_never_overwrites_supply_chains_entry(): void
+    /**
+     * Rows carry statuses somebody typed in before the buttons were removed.
+     * The check owns them now, or they would sit on an answer nothing can
+     * correct — including a red one on a SKU that has since gone live.
+     */
+    public function test_the_check_takes_over_a_status_that_was_once_set_by_hand(): void
     {
         Notification::fake();
 
         $user    = $this->brandManager();
         $request = $this->submitFor($user, $this->mappingSite(), 'G-1');
 
-        $this->actingAs($user)->post(route('product-requests.skus.mapping', $request), [
-            'sku_ids'        => $request->skus()->pluck('id')->all(),
+        $request->skus()->update([
             'mapping_status' => ProductRequest::MAP_NOT_MAPPED,
-            'scope'          => 'selected',
-        ])->assertRedirect();
+            'mapping_set_by' => $user->id,
+            'mapping_set_at' => now(),
+        ]);
 
-        $this->assertSame(ProductRequest::MAP_NOT_MAPPED, $request->skus()->first()->mapping_status);
+        $this->appearsInShopify($request, 'G-1');
 
         app(SkuMappingService::class)->validate($request->fresh());
 
-        $this->assertSame(ProductRequest::MAP_NOT_MAPPED, $request->skus()->first()->mapping_status);
-        $this->assertSame(ProductRequest::WAITING_MAPPING, $request->fresh()->status);
+        $this->assertSame(ProductRequest::MAP_MAPPED, $request->skus()->first()->mapping_status);
     }
 
     public function test_a_request_cannot_leave_waiting_for_mapping_while_skus_are_unmapped(): void
@@ -1930,13 +1967,13 @@ class ProductRequestTest extends TestCase
 
         $request = ProductRequest::first();
 
-        $this->assertTrue($request->awaitingContentSheet());
-
-        // The SKU has not been checked against Shopify yet, so whether it has copy
-        // is unknown — which is a different message from "upload a sheet".
+        // Its SKU is not in Shopify yet, so there is no product to write copy on
+        // and nothing to say about it. Nor is there an upload to offer: copy is
+        // written here or not at all, never sent in as a file.
         $this->actingAs($user)->get(route('product-requests.show', $request))
             ->assertOk()
-            ->assertSee('Awaiting content');
+            ->assertDontSee('Awaiting content')
+            ->assertDontSee('Upload a content sheet');
     }
 
     public function test_an_ai_request_never_asks_for_a_content_sheet(): void
@@ -2414,11 +2451,14 @@ class ProductRequestTest extends TestCase
         $this->assertNotContains(ProductRequest::IMAGE_EDITING, $stages);
         $this->assertNotContains(ProductRequest::PHOTOSHOOT_SCHEDULED, $stages);
         $this->assertNotContains(ProductRequest::WAITING_IMAGES, $stages);
-        $this->assertContains(ProductRequest::AI_CONTENT, $stages);
-        $this->assertCount(5, $stages);
+
+        // Supplier images and no content or QA stage leaves the shortest run
+        // there is: submitted, verified, published.
+        $this->assertNotContains(ProductRequest::AI_CONTENT, $stages);
+        $this->assertCount(3, $stages);
 
         // The suggestion must land on a stage this request actually has.
-        $this->assertSame(ProductRequest::AI_CONTENT, $request->suggestedNextStatus());
+        $this->assertSame(ProductRequest::PUBLISHED, $request->suggestedNextStatus());
 
         // And the Move Stage dropdown must not offer it either.
         $this->assertNotContains(ProductRequest::IMAGE_EDITING, $request->allowedTransitions());
@@ -2515,7 +2555,7 @@ class ProductRequestTest extends TestCase
 
         // Editing is part of the shoot, so it is not a stage of its own.
         $this->assertNotContains(ProductRequest::IMAGE_EDITING, $stages);
-        $this->assertCount(8, $stages);
+        $this->assertCount(6, $stages);
     }
 
     public function test_photography_roles_are_hidden_when_there_is_no_photoshoot(): void
@@ -3256,7 +3296,7 @@ class ProductRequestTest extends TestCase
         $html    = $partial->toMail($user)->render();
 
         $this->assertStringContainsString('3 of 4 mapped (75%)', $html);
-        $this->assertStringContainsString('1 still with Supply Chain', $html);
+        $this->assertStringContainsString('1 still to map', $html);
         // The bell entry says the same thing in one line.
         $this->assertSame('3 of 4 SKUs mapped', $partial->toArray($user)['status_label']);
 
@@ -3301,7 +3341,9 @@ class ProductRequestTest extends TestCase
             ->assertOk()
             ->assertSee('How this works')
             ->assertSee('Who does what')
-            ->assertSee('Supply Chain');
+            // Supply Chain is retired, so the explainer names the roles that exist.
+            ->assertSee('Brand Manager')
+            ->assertDontSee('Supply Chain');
     }
 
     public function test_an_unknown_queue_is_not_found(): void

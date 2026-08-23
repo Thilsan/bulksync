@@ -142,6 +142,67 @@ class ProductRequestRestaffTest extends TestCase
             ->assertSessionHas('success');
     }
 
+    /**
+     * A retired role somebody still holds is cleared, not handed to somebody
+     * else: the role no longer exists, so re-staffing it would give out work
+     * nobody is meant to do — and the slot is only on screen because it is held.
+     */
+    public function test_re_applying_clears_a_retired_role_rather_than_moving_it(): void
+    {
+        $owner   = $this->user('Ghassen', ['pcr_role' => 'ecommerce', 'pcr_categories' => ['Lingerie']]);
+        $request = $this->request($owner);
+
+        // As the import left it, before Supply Chain was known not to exist.
+        app(ProductRequestWorkflow::class)->assignRole(
+            request: $request, field: 'supply_chain_id', userId: $owner->id, actor: $owner, notify: false, auto: true,
+        );
+        $this->assertSame($owner->id, $request->refresh()->ownerFor('supply_chain_id')?->id);
+
+        $moved = app(ProductRequestWorkflow::class)->restaffFromCategory($request->refresh());
+
+        $this->assertArrayHasKey('Supply Chain', $moved);
+        $this->assertSame('nobody — the role is retired', $moved['Supply Chain']['to']);
+        $this->assertNull($request->refresh()->ownerFor('supply_chain_id'));
+
+        // And with nobody holding it, the slot leaves the panel.
+        $this->assertArrayNotHasKey('supply_chain_id', $request->visibleAssignmentRoles());
+    }
+
+    public function test_the_command_clears_retired_roles_across_requests(): void
+    {
+        $owner   = $this->user('Ghassen', ['pcr_role' => 'ecommerce', 'pcr_categories' => ['Lingerie']]);
+        $request = $this->request($owner);
+
+        app(ProductRequestWorkflow::class)->assignRole(
+            request: $request, field: 'supply_chain_id', userId: $owner->id, notify: false,
+        );
+
+        $this->artisan('product-requests:clear-retired-roles')
+            ->expectsOutputToContain('would be cleared')
+            ->assertSuccessful();
+
+        $this->assertNotNull($request->refresh()->ownerFor('supply_chain_id'), 'A dry run must change nothing.');
+
+        $this->artisan('product-requests:clear-retired-roles', ['--commit' => true])->assertSuccessful();
+
+        $this->assertNull($request->refresh()->ownerFor('supply_chain_id'));
+    }
+
+    /** A role somebody actively holds and still uses is untouched. */
+    public function test_a_live_role_is_not_cleared(): void
+    {
+        $owner   = $this->user('Ghassen', ['pcr_role' => 'ecommerce', 'pcr_categories' => ['Lingerie']]);
+        $request = $this->request($owner);
+
+        app(ProductRequestWorkflow::class)->assignRole(
+            request: $request, field: 'assigned_to', userId: $owner->id, notify: false,
+        );
+
+        $this->artisan('product-requests:clear-retired-roles', ['--commit' => true])->assertSuccessful();
+
+        $this->assertSame($owner->id, $request->refresh()->ownerFor('assigned_to')?->id);
+    }
+
     public function test_the_button_says_so_when_there_is_nothing_to_do(): void
     {
         $owner = $this->user('Ghassen', [

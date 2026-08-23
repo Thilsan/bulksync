@@ -27,6 +27,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Notification as NotificationFacade;
@@ -266,20 +267,31 @@ class ProductRequestController extends Controller implements HasMiddleware
     /**
      * Pulls new rows from the shared tracking sheet and creates matching
      * requests — the UI equivalent of `php artisan product-requests:sync-sheet
-     * --commit`. Gated to super admins: unlike everything else on this
-     * controller, one click here can create hundreds of real requests at once.
+     * --commit`. Anyone on the module can run it: the sheet is the team's own
+     * record, and waiting for a super admin to press a button is not a control,
+     * it is a delay.
+     *
+     * One run at a time, though. It reads several large worksheets and takes
+     * minutes, so two people pressing it together would only read the same
+     * sheet twice — the ledger already stops that from creating anything twice.
      */
     public function syncSheet(#[CurrentUser] User $user): RedirectResponse
     {
-        abort_unless($user->is_super_admin, 403, 'Only a super admin can sync from the tracking sheet.');
-
         set_time_limit(300); // several large worksheets to read on a slow connection
+
+        $lock = Cache::lock('product-request-sheet-sync', 600);
+
+        if (!$lock->get()) {
+            return back()->with('warning', 'A sync is already running — give it a minute and refresh.');
+        }
 
         try {
             $result = $this->sheetSync->run(commit: true);
         } catch (\Throwable $e) {
             Log::error('Product request sheet sync failed: ' . $e->getMessage());
             return back()->with('warning', 'Sync failed: ' . $e->getMessage());
+        } finally {
+            $lock->release();
         }
 
         $message = "{$result['created']} request(s) created.";
@@ -632,12 +644,12 @@ class ProductRequestController extends Controller implements HasMiddleware
             'user', 'store', 'attachments.user', 'aiContentSession', 'assignments.user', 'assignments.assignedBy', 'currentAssignments.user',
         ]);
 
-        $skus       = $productRequest->skus()->with('mappedBy')->orderBy('id')->paginate(50, ['*'], 'skus');
+        $skus       = $productRequest->skus()->orderBy('id')->paginate(50, ['*'], 'skus');
         $activities = $productRequest->activities()->with('user')->limit(20)->get();
         $teamPool   = User::where('is_active', true)->orderBy('name')->get(['id', 'name', 'pcr_role']);
 
         // The draft builder only applies where SKUs are not resolved through
-        // Cegid — everywhere else an unmatched SKU is Supply Chain's to answer.
+        // Cegid — everywhere else an unmatched SKU is simply a product nobody made.
         $drafts     = $productRequest->requiresMapping()
             ? collect()
             : $productRequest->draftProducts()->with('variants')->orderBy('id')->get();
@@ -850,75 +862,6 @@ class ProductRequestController extends Controller implements HasMiddleware
         return back()->with('success', "{$added} SKU(s) added. Validation restarted.");
     }
 
-    /**
-     * Supply Chain records the mapping outcome. They do the mapping in Cegid on
-     * their own side — there is no integration — so this entry is the signal
-     * that releases a request from Waiting for Mapping.
-     */
-    public function updateMapping(Request $request, ProductRequest $productRequest, #[CurrentUser] User $user): RedirectResponse
-    {
-        $this->authorizeView($productRequest, $user);
-
-        $data = $request->validate([
-            'sku_ids'        => 'nullable|array',
-            'sku_ids.*'      => 'integer',
-            'mapping_status' => 'required|in:' . implode(',', [
-                ProductRequest::MAP_MAPPED,
-                ProductRequest::MAP_PENDING,
-                ProductRequest::MAP_NOT_MAPPED,
-            ]),
-            'mapping_note'   => 'nullable|string|max:255',
-            'scope'          => 'nullable|in:selected,all',
-        ]);
-
-        $query = $productRequest->skus();
-
-        if (($data['scope'] ?? 'selected') === 'selected') {
-            if (empty($data['sku_ids'])) {
-                return back()->withErrors(['sku_ids' => 'Select at least one SKU.']);
-            }
-            $query->whereIn('id', $data['sku_ids']);
-        }
-
-        $wasMapped = (int) $productRequest->mapped_skus;
-        $wasStatus = $productRequest->status;
-
-        $touched = $this->mapping->setMappingStatus(
-            $query->get(),
-            $data['mapping_status'],
-            $user,
-            $data['mapping_note'] ?? null,
-        );
-
-        $this->mapping->rollUp($productRequest);
-        $productRequest->refresh();
-
-        $label = ProductRequestSku::LABELS[$data['mapping_status']];
-
-        $this->workflow->log(
-            request:     $productRequest,
-            action:      'mapping_updated',
-            description: "{$touched} SKU(s) marked as {$label}",
-            actor:       $user,
-            remarks:     $data['mapping_note'] ?? null,
-        );
-
-        // Releases the request automatically when the last SKU lands.
-        $this->workflow->reconcileMapping($productRequest, $user);
-
-        // A request that carried on with part of its SKUs has people waiting on
-        // the balance. They are not looking at the SKUs tab, so tell them.
-        if ($productRequest->mapped_skus > $wasMapped
-            && !in_array($wasStatus, [ProductRequest::SUBMITTED, ProductRequest::WAITING_MAPPING], true)) {
-            $this->workflow->announceBalance($productRequest, $productRequest->mapped_skus - $wasMapped);
-        }
-
-        return back()->with('success', "{$touched} SKU(s) updated to {$label}."
-            . ($productRequest->hasSkuBalance()
-                ? " {$productRequest->balanceSkus()} still outstanding ({$productRequest->skuCompletionPercent()}% ready)."
-                : ''));
-    }
-
     /** Streamed so no export file ever lands on disk. */
     public function downloadSkus(ProductRequest $productRequest, Request $request, #[CurrentUser] User $user): StreamedResponse
     {
@@ -936,16 +879,13 @@ class ProductRequestController extends Controller implements HasMiddleware
 
         return response()->stream(function () use ($query) {
             $out = fopen('php://output', 'w');
-            fputcsv($out, ['SKU', 'Mapping Status', 'Recorded By', 'Recorded On', 'Mapping Note', 'In Shopify', 'Shopify Product ID', 'Product Name', 'Published', 'Last Checked']);
+            fputcsv($out, ['SKU', 'Mapping Status', 'In Shopify', 'Shopify Product ID', 'Product Name', 'Published', 'Last Checked']);
 
-            $query->with('mappedBy')->chunk(500, function ($rows) use ($out) {
+            $query->chunk(500, function ($rows) use ($out) {
                 foreach ($rows as $row) {
                     fputcsv($out, [
                         $row->sku,
                         $row->label(),
-                        $row->sourceLabel(),
-                        $row->mapping_set_at?->format('Y-m-d H:i'),
-                        $row->mapping_note,
                         $row->in_shopify ? 'Yes' : 'No',
                         $row->shopify_product_id,
                         $row->shopify_product_title,
@@ -1176,7 +1116,7 @@ class ProductRequestController extends Controller implements HasMiddleware
     /**
      * Carry on with the SKUs that are mapped, and leave the rest as the balance.
      *
-     * Ten mappable SKUs used to wait on ten that Supply Chain had not reached, so
+     * Ten mappable SKUs used to wait on ten nobody had mapped yet, so
      * a whole launch moved at the speed of its slowest line. The mapped part goes
      * ahead; the hourly SKU check keeps watching the balance and tells whoever
      * holds the request as soon as more of it lands.
@@ -1207,7 +1147,7 @@ class ProductRequestController extends Controller implements HasMiddleware
             ProductRequest::SKU_VERIFIED,
             $user,
             "Continuing with {$mapped} of {$productRequest->total_skus} SKUs ({$productRequest->skuCompletionPercent()}%) — "
-                . "{$balance} still with Supply Chain.",
+                . "{$balance} still to map.",
         );
 
         $message = "Carrying on with {$mapped} SKUs. The remaining {$balance} stay on the SKUs tab and "
@@ -1337,15 +1277,36 @@ class ProductRequestController extends Controller implements HasMiddleware
         $data   = $request->validate(['needed' => 'required|in:yes,no']);
         $needed = $data['needed'] === 'yes';
 
-        $told = $this->workflow->decidePhotoshoot($productRequest, $needed, $user);
+        $this->workflow->decidePhotoshoot($productRequest, $needed, $user);
 
-        if (!$needed) {
-            return back()->with('success', 'Noted — no photoshoot for this request.');
+        return back()->with('success', $needed
+            ? 'Added to the Photoshoot Room — the shoot is booked from there.'
+            : 'Noted — no photoshoot. Say where the images are coming from below.');
+    }
+
+    /**
+     * With no photoshoot, say where the images come from.
+     *
+     * Asking writes to the brand manager; not asking records that the team
+     * already has them, so the request is not left looking like it is waiting on
+     * somebody who was never told.
+     */
+    public function decideImageRequest(Request $request, ProductRequest $productRequest, #[CurrentUser] User $user): RedirectResponse
+    {
+        $this->authorizeView($productRequest, $user);
+
+        $data = $request->validate(['ask' => 'required|in:yes,no']);
+        $ask  = $data['ask'] === 'yes';
+
+        $told = $this->workflow->decideImageRequest($productRequest, $ask, $user);
+
+        if (!$ask) {
+            return back()->with('success', 'Noted — the images are already in hand.');
         }
 
-        return back()->with('success', $told
-            ? "Added to the Photoshoot Room. {$told->name} has been asked for the products."
-            : 'Added to the Photoshoot Room. Nobody holds the brand manager role, so no one was asked for the products.');
+        return back()->with($told ? 'success' : 'warning', $told
+            ? "{$told->name} has been asked for the images."
+            : 'Nobody holds the brand manager role on this request, so there was no one to ask.');
     }
 
     /**

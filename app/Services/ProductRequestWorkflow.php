@@ -110,7 +110,7 @@ class ProductRequestWorkflow
     /**
      * Called after SKU validation finishes. Parks the request in Waiting for
      * Mapping when anything is unresolved, and — crucially — releases it again
-     * on its own the moment Supply Chain finishes, with no re-submission.
+     * on its own the moment the mapping is finished, with no re-submission.
      */
     public function reconcileMapping(ProductRequest $request, ?User $actor = null, bool $notify = true): void
     {
@@ -127,7 +127,7 @@ class ProductRequestWorkflow
         $beforeMapping = [ProductRequest::SUBMITTED, ProductRequest::SKU_VERIFIED];
 
         if (!$fullyMapped && in_array($request->status, $beforeMapping, true)) {
-            // A request that has already been to Supply Chain is left where it
+            // A request that has already been to Waiting for Mapping is left where it
             // is: either they finished, or the team chose to carry on with the
             // mapped half and hold the balance (continueWithMapped). Both are
             // their decision to make, and neither is the tick's to undo.
@@ -409,13 +409,19 @@ class ProductRequestWorkflow
                 continue;
             }
 
-            $should = match ($field) {
+            $retired = in_array($field, ProductRequest::RETIRED_ROLES, true);
+
+            // A retired role somebody is still holding is cleared, not moved to a
+            // different person: the role no longer exists, so re-staffing it would
+            // hand out work nobody is meant to do — and the slot only stays on the
+            // screen at all because it is occupied.
+            $should = $retired ? null : match ($field) {
                 'photographer_id'  => $coordinator,
                 'brand_manager_id' => $brandManager,
                 default            => $owner,
             };
 
-            if (!$should || $should->id === $current->user_id) {
+            if (!$retired && (!$should || $should->id === $current->user_id)) {
                 continue;
             }
 
@@ -424,14 +430,14 @@ class ProductRequestWorkflow
             if ($this->assignRole(
                 request: $request,
                 field:   $field,
-                userId:  $should->id,
+                userId:  $should?->id,
                 actor:   $actor,
                 notify:  $notify,
                 auto:    true,
             )) {
                 $moved[ProductRequest::ASSIGNMENT_ROLES[$field] ?? $field] = [
                     'from' => $was,
-                    'to'   => $should->name,
+                    'to'   => $should?->name ?? 'nobody — the role is retired',
                 ];
             }
         }
@@ -475,14 +481,45 @@ class ProductRequestWorkflow
             actor:       $actor,
         );
 
-        if (!$needed || !$notify) {
+        // Nobody is emailed here. A shoot is arranged from the Photoshoot Room,
+        // and the brand manager is only written to when there is no shoot and
+        // somebody decides to ask them for the images instead.
+        return null;
+    }
+
+    /**
+     * With no shoot, say where the images come from.
+     *
+     * Asking sends the brand manager a request for them. Not asking means the
+     * team already has them, and nothing is outstanding — which is the difference
+     * between a request waiting on somebody and one that is simply ready.
+     *
+     * @return User|null  the brand manager written to, when one was
+     */
+    public function decideImageRequest(ProductRequest $request, bool $ask, ?User $actor = null, bool $notify = true): ?User
+    {
+        $request->update([
+            'image_request_decision' => $ask ? 'yes' : 'no',
+            'image_requested_at'     => now(),
+        ]);
+
+        $this->log(
+            request:     $request,
+            action:      'image_source_decision',
+            description: $ask
+                ? 'Images requested from the brand manager'
+                : 'Images already in hand — nobody asked',
+            actor:       $actor,
+        );
+
+        if (!$ask || !$notify) {
             return null;
         }
 
         $manager = $this->mappingOwnerFor($request);
 
         if (!$manager) {
-            Log::warning("ProductRequestWorkflow: {$request->reference} has nobody to ask for the products.");
+            Log::warning("ProductRequestWorkflow: {$request->reference} has nobody to ask for images.");
             return null;
         }
 
@@ -492,7 +529,7 @@ class ProductRequestWorkflow
                 ProductRequestPhotosNeeded::forRequest($request, $actor?->name ?? 'System'),
             );
         } catch (\Throwable $e) {
-            Log::error("ProductRequestWorkflow: photo request failed for {$request->id}: " . $e->getMessage());
+            Log::error("ProductRequestWorkflow: image request failed for {$request->id}: " . $e->getMessage());
             return null;
         }
 
@@ -571,7 +608,7 @@ class ProductRequestWorkflow
                 ? "{$justMapped} more SKU(s) mapped — {$request->mapped_skus} of {$request->total_skus}"
                 : "The balance is mapped — all {$request->total_skus} SKUs are ready",
             remarks:     $request->hasSkuBalance()
-                ? "{$request->balanceSkus()} still with Supply Chain"
+                ? "{$request->balanceSkus()} still to map"
                 : 'Nothing outstanding — the request can be finished',
         );
 

@@ -12,25 +12,24 @@ use Illuminate\Support\Facades\Log;
  * Keeps the mapping state of a request's SKUs up to date and rolls it up onto
  * the request.
  *
- * Two sources feed a SKU's status, and only two:
+ * One source feeds a SKU's status: a read-only Shopify check (the existing SKU
+ * Checker). The brand manager does the mapping in Cegid on their own side, and
+ * the product turning up in Shopify is how that becomes visible here — so the
+ * check decides, and nobody types a status in. Two sources meant two answers,
+ * and a row somebody had marked by hand then stopped tracking reality.
  *
- *   1. Supply Chain, by hand. They do the mapping in Cegid on their side and
- *      record the outcome here. There is no Cegid integration — this entry IS
- *      the signal, and it always wins.
- *   2. A read-only Shopify check (the existing SKU Checker). If a SKU is
- *      already live, it is plainly mapped, so an untouched row is filled in
- *      automatically. This module NEVER writes to Shopify.
+ * This module NEVER writes to Shopify.
  *
  * Legend the brand team works to:
  *   🟢 Mapped        — mapping done; E-Commerce can proceed
- *   🟡 Pending       — with Supply Chain
- *   🔴 Not Mapped    — Supply Chain confirmed it cannot be mapped yet
+ *   🟡 Pending       — with the brand manager
+ *   🔴 Not Mapped    — confirmed as not mappable yet
  */
 class SkuMappingService
 {
     /**
-     * Refresh the read-only Shopify check for rows Supply Chain hasn't set, then
-     * recompute the roll-up. Safe to call repeatedly — the hourly re-check does.
+     * Refresh the read-only Shopify check for every row, then recompute the
+     * roll-up. Safe to call repeatedly — the hourly re-check does.
      */
     public function validate(ProductRequest $request): void
     {
@@ -64,11 +63,7 @@ class SkuMappingService
                     'last_checked_at'       => now(),
                 ];
 
-                // A status Supply Chain set by hand is never overwritten by the
-                // automatic check — they are the authority on mapping.
-                if (!$row->isManuallySet()) {
-                    $attributes['mapping_status'] = $this->autoStatus($inShopify);
-                }
+                $attributes['mapping_status'] = $this->autoStatus($inShopify);
 
                 $row->update($attributes);
             }
@@ -87,36 +82,12 @@ class SkuMappingService
 
     /**
      * Status for a row nobody has touched. Already in Shopify → clearly mapped;
-     * otherwise it sits with Supply Chain. Never auto-flags red: "we haven't
+     * otherwise it sits with the brand manager. Never auto-flags red: "we haven't
      * been told yet" is not the same as "it cannot be mapped".
      */
     public function autoStatus(bool $inShopify): string
     {
         return $inShopify ? ProductRequest::MAP_MAPPED : ProductRequest::MAP_PENDING;
-    }
-
-    /**
-     * Supply Chain records the mapping outcome for a set of SKUs.
-     *
-     * @param  \Illuminate\Support\Collection<int, ProductRequestSku>  $rows
-     * @return int  number of rows updated
-     */
-    public function setMappingStatus($rows, string $status, User $actor, ?string $note = null): int
-    {
-        $touched = 0;
-
-        foreach ($rows as $row) {
-            $row->update([
-                'mapping_status'  => $status,
-                'mapping_set_by'  => $actor->id,
-                'mapping_set_at'  => now(),
-                'mapping_note'    => $note,
-                'last_checked_at' => now(),
-            ]);
-            $touched++;
-        }
-
-        return $touched;
     }
 
     /** Recompute the denormalised counters the dashboard and workflow gate read. */
@@ -183,7 +154,8 @@ class SkuMappingService
 
     /**
      * Read-only lookup. A Shopify hiccup must not fail the whole request, so a
-     * failure reads as "not found" and Supply Chain's entry still decides.
+     * failure reads as "not found" — the SKU stays pending and the next run,
+     * hourly or on the button, picks it up.
      */
     private function lookupShopify(ShopifyService $shopify, string $sku): array
     {

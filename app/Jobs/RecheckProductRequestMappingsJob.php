@@ -13,12 +13,12 @@ use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
 
 /**
- * Re-checks every request still waiting on Supply Chain and releases the ones
+ * Re-checks every request still waiting on mapping and releases the ones
  * that have since been mapped.
  *
  * This is what makes "no re-submission needed" true: the brand team files once,
  * and the request moves to SKU Verified by itself as soon as the mapping is
- * recorded — whether that came from Supply Chain's entry or the read-only
+ * recorded — whether that came from a hand-written entry or the read-only
  * Shopify check picking the product up.
  */
 class RecheckProductRequestMappingsJob implements ShouldQueue
@@ -41,7 +41,7 @@ class RecheckProductRequestMappingsJob implements ShouldQueue
                 $q->whereIn('status', [ProductRequest::SUBMITTED, ProductRequest::WAITING_MAPPING])
                   // …and ones that carried on with part of their SKUs. Those have
                   // a balance nobody is watching otherwise: the request has left
-                  // Supply Chain's queue but is not finishable until Cegid
+                  // the mapping queue but is not finishable until Cegid
                   // catches up with the rest.
                   ->orWhereRaw('mapped_skus < total_skus');
             })

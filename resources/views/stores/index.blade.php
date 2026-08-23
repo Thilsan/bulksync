@@ -137,7 +137,7 @@
                                 <span class="text-sm text-gray-700">SKUs are mapped in Cegid for this website</span>
                                 <span class="block text-xs text-gray-400">
                                     Product Creation Requests for this website go through the
-                                    <span class="font-medium">Waiting for Mapping</span> stage with Supply Chain.
+                                    <span class="font-medium">Waiting for Mapping</span> stage with the brand manager.
                                     Leave off and requests skip straight to SKU Verified.
                                 </span>
                             </span>
@@ -215,7 +215,7 @@
                                 <span class="text-sm text-gray-700">SKUs are mapped in Cegid for this website</span>
                                 <span class="block text-xs text-gray-400">
                                     Product Creation Requests for this website go through the
-                                    <span class="font-medium">Waiting for Mapping</span> stage with Supply Chain.
+                                    <span class="font-medium">Waiting for Mapping</span> stage with the brand manager.
                                 </span>
                             </span>
                         </label>

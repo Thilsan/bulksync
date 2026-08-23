@@ -32,19 +32,17 @@
                 </svg>
                 View Requests
             </a>
-            @if(auth()->user()?->is_super_admin)
-                <form method="POST" action="{{ route('product-requests.sync-sheet') }}"
-                      onsubmit="return confirm('Pull new rows from the tracking sheet and create matching requests now?\n\nThis can create many requests at once — rows that can\'t be matched are left flagged for manual review, nothing is skipped silently.');">
-                    @csrf
-                    <button type="submit"
-                            class="inline-flex items-center gap-2 border border-gray-300 text-gray-700 text-sm font-medium px-4 py-2 rounded-lg hover:bg-gray-50 transition-colors">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-                        </svg>
-                        Sync from Sheet
-                    </button>
-                </form>
-            @endif
+            <form method="POST" action="{{ route('product-requests.sync-sheet') }}"
+                  onsubmit="return confirm('Pull new rows from the tracking sheet and create matching requests now?\n\nThis can create many requests at once — rows that can\'t be matched are left flagged for manual review, nothing is skipped silently.');">
+                @csrf
+                <button type="submit"
+                        class="inline-flex items-center gap-2 border border-gray-300 text-gray-700 text-sm font-medium px-4 py-2 rounded-lg hover:bg-gray-50 transition-colors">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                    </svg>
+                    Sync from Sheet
+                </button>
+            </form>
         </div>
     </div>
 
@@ -106,7 +104,6 @@
                 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-2">
                     @foreach([
                         'Brand Manager'    => 'Supplies the product information and samples, and approves the content.',
-                        'Supply Chain'     => 'Maps the SKUs in Cegid and records it here.',
                         'E-Commerce Team'  => 'Runs the request end to end — images, copy, QA and publishing.',
                         'Photoshoot Coordinator' => 'Arranges the shoot and delivers finished, website-ready images.',
                     ] as $team => $does)
@@ -120,7 +117,7 @@
 
             <p class="text-xs text-gray-400 mt-4">
                 Stages run: Submitted &rsaquo; SKU Verified &rsaquo; Photoshoot &rsaquo; Content &rsaquo; QA &rsaquo; Published.
-                If SKUs are not mapped yet the request waits with Supply Chain and then continues on its own.
+                If SKUs are not mapped yet the request waits with the brand manager and then continues on its own.
             </p>
         </div>
     </div>

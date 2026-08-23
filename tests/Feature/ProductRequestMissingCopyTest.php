@@ -308,17 +308,20 @@ class ProductRequestMissingCopyTest extends TestCase
             ->assertSee('Generate AI content for 10');
     }
 
-    /** With every description written, there is nothing to generate. */
-    public function test_a_request_whose_products_all_have_copy_is_only_asked_for_a_sheet(): void
+    /**
+     * With every description written there is nothing to say. Copy is written
+     * here or not at all — no file arrives from the brand team — so there is no
+     * upload to offer and nothing to be waiting for.
+     */
+    public function test_a_request_whose_products_all_have_copy_says_nothing(): void
     {
         $request = $this->request(described: 12, blank: 0);
-
-        $this->assertFalse($request->couldGenerateInsteadOfSheet());
 
         $this->actingAs($this->user)
             ->get(route('product-requests.show', $request))
             ->assertOk()
-            ->assertSee('The brand team needs to upload the copy');
+            ->assertDontSee('Awaiting content')
+            ->assertDontSee('Upload a content sheet');
     }
 
     /**

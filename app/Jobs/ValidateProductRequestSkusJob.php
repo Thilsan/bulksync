@@ -16,7 +16,10 @@ use Illuminate\Support\Facades\Log;
 /**
  * Refreshes the read-only Shopify check for a request's SKUs, then lets the
  * workflow decide whether it is blocked on mapping or ready to move on.
- * Statuses Supply Chain recorded by hand are left untouched.
+ *
+ * This is what the Validate SKUs button runs, and since the check is the only
+ * thing that sets a mapping status, it is also where somebody first learns the
+ * balance has come through.
  */
 class ValidateProductRequestSkusJob implements ShouldQueue
 {
@@ -40,12 +43,23 @@ class ValidateProductRequestSkusJob implements ShouldQueue
             return;
         }
 
+        $beforeMapped = (int) $request->mapped_skus;
+        $beforeStatus = $request->status;
+
         $mapping->validate($request);
 
         $request->refresh();
 
         if ($this->reconcile && $request->validation_status === 'completed') {
             $workflow->reconcileMapping($request, $this->actorId ? User::find($this->actorId) : null);
+            $request->refresh();
+
+            // A request already carrying on with part of its SKUs has people
+            // waiting on the rest, and they are not watching the SKUs tab.
+            if ($request->mapped_skus > $beforeMapped
+                && !in_array($beforeStatus, [ProductRequest::SUBMITTED, ProductRequest::WAITING_MAPPING], true)) {
+                $workflow->announceBalance($request, $request->mapped_skus - $beforeMapped);
+            }
         }
 
         Log::info("ValidateProductRequestSkusJob: {$request->reference} — {$request->mapped_skus} mapped, {$request->pending_skus} pending, {$request->not_mapped_skus} not mapped.");

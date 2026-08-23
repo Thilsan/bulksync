@@ -54,8 +54,8 @@ class CleanDuplicateSyncedRequests extends Command
     /**
      * Actions that record what Shopify or Cegid now says, rather than something
      * a person decided. announceBalance() writes 'sku_mapping' from the hourly
-     * recheck as well as from the Supply Chain screen, and neither carries an
-     * actor — so real Supply Chain work is recognised by mapping_set_by on the
+     * recheck as well as from the SKUs screen, and neither carries an
+     * actor — so real mapping work is recognised by mapping_set_by on the
      * SKU rows instead, which only the screen ever sets.
      */
     private const AUTOMATIC_ACTIONS = ['created', 'sku_mapping'];
@@ -142,7 +142,7 @@ class CleanDuplicateSyncedRequests extends Command
             $signs[] = "{$count} assignment(s)";
         }
 
-        // Supply Chain writing a mapping outcome by hand — the one thing on this
+        // A mapping outcome written by hand — the one thing on this
         // request that only comes from a person sitting at the SKUs screen.
         if ($count = $request->skus()->whereNotNull('mapping_set_by')->count()) {
             $signs[] = "{$count} SKU(s) mapped by hand";

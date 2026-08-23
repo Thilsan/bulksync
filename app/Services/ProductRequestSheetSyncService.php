@@ -499,6 +499,7 @@ class ProductRequestSheetSyncService
         $requester   = ($requestedBy !== '' ? User::where('name', $requestedBy)->first() : null) ?? $syncUser;
 
         $imagesReady = strcasecmp(trim((string) ($data['Images Ready'] ?? '')), 'yes') === 0;
+        $published   = $this->sheetSaysPublished($data);
         $priority    = strtolower(trim((string) ($data['Priority'] ?? '')));
 
         // sub_category/department/collection no longer exist on product_requests
@@ -522,7 +523,11 @@ class ProductRequestSheetSyncService
             'request_type'              => 'new_brand',
             'brand'                     => trim((string) ($data['Brand'] ?? '')),
             'category'                  => $category,
-            'status'                    => ProductRequest::SUBMITTED,
+            // The sheet already calls this one done, so it comes in finished
+            // rather than starting a workflow for work that has happened.
+            'status'                    => $published ? ProductRequest::PUBLISHED : ProductRequest::SUBMITTED,
+            'published_at'              => $published ? now() : null,
+            'completed_at'              => $published ? now() : null,
             'priority'                  => in_array($priority, ['high', 'medium', 'low'], true) ? $priority : 'medium',
             'online_launch_date'        => $this->normalizeExcelDate($data['Requested Website Go-Live Date'] ?? null)?->toDateString(),
             'image_source'              => $imagesReady ? ProductRequest::IMG_SUPPLIER : ProductRequest::IMG_PHOTOSHOOT,
@@ -547,8 +552,9 @@ class ProductRequestSheetSyncService
             request:     $productRequest,
             action:      'created',
             description: 'Product request created automatically from the SharePoint tracking sheet',
-            toStatus:    ProductRequest::SUBMITTED,
-            remarks:     count($skus) . ' SKUs imported',
+            toStatus:    $published ? ProductRequest::PUBLISHED : ProductRequest::SUBMITTED,
+            remarks:     count($skus) . ' SKUs imported'
+                         . ($published ? ' — the sheet marks this Completed, so it is recorded as published' : ''),
         );
 
         // Same staffing as a request raised by hand: the category's owner takes
@@ -557,9 +563,32 @@ class ProductRequestSheetSyncService
         // every imported request lands on "nobody assigned yet".
         $this->workflow->staffFromCategory($productRequest, $syncUser, notify: false);
 
-        ValidateProductRequestSkusJob::dispatch($productRequest->id, $requester->id)->onQueue('bulkupload');
+        ValidateProductRequestSkusJob::dispatch($productRequest->id, $requester->id, reconcile: !$published)
+            ->onQueue('bulkupload');
 
         return $productRequest;
+    }
+
+    /**
+     * The sheet's own word on where a row stands: "Completed" means e-commerce
+     * has it live. Anything else — "Missing images", "Product images are not
+     * available", blank — is not completion and is left to the workflow.
+     *
+     * Matched loosely on the header because the column is typed by hand and has
+     * appeared as "e-com Status" and "E-Com Status"; matched exactly on the
+     * value, so no free-text remark is ever read as finished.
+     */
+    private function sheetSaysPublished(array $data): bool
+    {
+        foreach ($data as $header => $value) {
+            if (preg_replace('/[^a-z]/', '', strtolower((string) $header)) !== 'ecomstatus') {
+                continue;
+            }
+
+            return strcasecmp(trim((string) $value), 'completed') === 0;
+        }
+
+        return false;
     }
 
     /**
@@ -821,7 +850,7 @@ class ProductRequestSheetSyncService
      * Adds SKUs the sheet has gained since this request was created.
      *
      * Additive only, deliberately. A SKU on the request but not on the sheet may
-     * have been added by hand, or had its mapping recorded by Supply Chain —
+     * have been added by hand, or had its mapping recorded by the brand manager —
      * removing it would throw that away over a spreadsheet edit. So the sheet can
      * grow a request but never shrink one.
      *
@@ -913,6 +942,24 @@ class ProductRequestSheetSyncService
         if ($onSheet && $productRequest->sheet_request_date?->toDateString() !== $onSheet) {
             $updates['sheet_request_date'] = $onSheet;
             $fixed[] = 'request date';
+        }
+
+        // The sheet is where e-commerce records that a request is done, so a row
+        // marked Completed after the request was imported has to reach it. Only
+        // forwards: a request already published has nothing to change, and one
+        // that was cancelled here is a decision the sheet does not overrule.
+        if ($this->sheetSaysPublished($data) && !$productRequest->isClosed()) {
+            if ($commit) {
+                $this->workflow->transition(
+                    request: $productRequest,
+                    to:      ProductRequest::PUBLISHED,
+                    remarks: 'The tracking sheet marks this Completed',
+                    force:   true,
+                    notify:  false,
+                );
+            }
+
+            $fixed[] = 'published (Completed on the sheet)';
         }
 
         // staffFromCategory already skips any role that has someone on it, so an

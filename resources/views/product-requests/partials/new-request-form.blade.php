@@ -87,7 +87,7 @@
                             </select>
                             <p x-show="usesMapping" x-cloak class="text-xs text-amber-600 mt-1">
                                 SKUs for this website are mapped in Cegid — unmapped SKUs will go to
-                                <span class="font-medium">Waiting for Mapping</span> with Supply Chain first.
+                                <span class="font-medium">Waiting for Mapping</span> with the brand manager first.
                             </p>
                             <p x-show="!usesMapping" x-cloak class="text-xs text-gray-400 mt-1">
                                 This website has no Cegid mapping step — the request goes straight to
@@ -159,7 +159,7 @@
                     <p x-show="usesMapping" x-cloak class="text-xs text-gray-400 mt-2">
                         You can submit even if the SKUs or brand are not mapped yet — the request will move to
                         <span class="font-medium text-amber-600">Waiting for Mapping</span> and continue automatically once
-                        Supply Chain records the mapping. No re-submission needed.
+                        The brand manager records the mapping. No re-submission needed.
                     </p>
                 </section>
 
@@ -367,7 +367,7 @@
                     <p class="text-xs font-semibold text-gray-700 mb-1.5">What happens after you submit</p>
                     <ol class="text-xs text-gray-500 space-y-1 list-decimal list-inside">
                         <li>Your SKUs are checked automatically and you get a request ID (e.g. PCR-2026-00045).</li>
-                        <li>If any SKU is not mapped yet, the request waits with Supply Chain and continues on its own once they finish — you do not resubmit.</li>
+                        <li>If any SKU is not mapped yet, the request waits with the brand manager and continues on its own once they finish — you do not resubmit.</li>
                         <li>The E-Commerce team picks it up, and photoshoot, content and QA follow.</li>
                         <li>You are notified at every stage change, and can follow progress on the request page at any time.</li>
                     </ol>

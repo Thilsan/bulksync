@@ -177,6 +177,130 @@ class ProductRequestSheetSyncTest extends TestCase
         $this->assertSame($store->id, $request->store_id);
     }
 
+    // ── What the sheet's e-com Status column means ───────────────────────────
+
+    /** "Completed" is e-commerce saying it is live — so it arrives finished. */
+    public function test_a_row_the_sheet_calls_completed_comes_in_published(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+        $this->fakeSheet(['e-com Status' => 'Completed']);
+
+        app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $request = ProductRequest::sole();
+
+        $this->assertSame(ProductRequest::PUBLISHED, $request->status);
+        $this->assertNotNull($request->published_at);
+        $this->assertNotNull($request->completed_at);
+
+        // Nothing left to ask about a request that is already out.
+        $this->assertFalse($request->needsPhotoshootDecision());
+
+        // The SKU check still runs — it fills in the Shopify side — but it must
+        // not reconcile a published request back to Waiting for Mapping.
+        Queue::assertPushed(ValidateProductRequestSkusJob::class, fn ($job) => $job->reconcile === false);
+    }
+
+    /** Anything short of "Completed" is not completion, whatever it says. */
+    public function test_another_status_is_not_read_as_finished(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+        $this->fakeSheet(['e-com Status' => 'Product images are not available']);
+
+        app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertNotSame(ProductRequest::PUBLISHED, ProductRequest::sole()->status);
+        Queue::assertPushed(ValidateProductRequestSkusJob::class, fn ($job) => $job->reconcile === true);
+    }
+
+    public function test_a_blank_status_is_not_read_as_finished(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+        $this->fakeSheet(['e-com Status' => '']);
+
+        app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertNotSame(ProductRequest::PUBLISHED, ProductRequest::sole()->status);
+    }
+
+    /** Marked Completed after it was imported — the request has to follow. */
+    public function test_a_request_already_here_is_published_when_the_sheet_says_completed(): void
+    {
+        Queue::fake();
+        Notification::fake();
+        $this->syncUser();
+        $this->store();
+        $this->fakeSheet();
+
+        app(ProductRequestSheetSyncService::class)->run(commit: true);
+        $request = ProductRequest::sole();
+        $this->assertNotSame(ProductRequest::PUBLISHED, $request->status);
+
+        // E-Commerce finishes it and writes that on the sheet.
+        $this->fakeSheet(['e-com Status' => 'Completed']);
+        $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertSame(1, $result['backfilled']);
+        $this->assertSame(ProductRequest::PUBLISHED, $request->refresh()->status);
+        $this->assertNotNull($request->published_at);
+    }
+
+    /** A dry run says what it would do and does none of it. */
+    public function test_a_dry_run_does_not_publish_an_existing_request(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+        $this->fakeSheet();
+
+        app(ProductRequestSheetSyncService::class)->run(commit: true);
+        $request = ProductRequest::sole();
+
+        $this->fakeSheet(['e-com Status' => 'Completed']);
+        $result = app(ProductRequestSheetSyncService::class)->run(commit: false);
+
+        $this->assertStringContainsString('published (Completed on the sheet)', implode(' ', $result['log']));
+        $this->assertNotSame(ProductRequest::PUBLISHED, $request->refresh()->status);
+    }
+
+    /** Cancelling is a decision taken here; the sheet does not overrule it. */
+    public function test_a_cancelled_request_is_left_alone(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+        $this->fakeSheet();
+
+        app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $request = ProductRequest::sole();
+        $request->forceFill(['status' => ProductRequest::CANCELLED])->save();
+
+        $this->fakeSheet(['e-com Status' => 'Completed']);
+        app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertSame(ProductRequest::CANCELLED, $request->refresh()->status);
+    }
+
+    /** The header is hand-typed, so its casing and spacing cannot be relied on. */
+    public function test_the_column_is_found_however_it_is_written(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+        $this->fakeSheet(['E-Com Status' => 'completed']);
+
+        app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertSame(ProductRequest::PUBLISHED, ProductRequest::sole()->status);
+    }
+
     public function test_a_second_run_with_nothing_to_fix_creates_and_changes_nothing(): void
     {
         Queue::fake();
@@ -940,6 +1064,66 @@ class ProductRequestSheetSyncTest extends TestCase
             ));
 
         $this->app->instance(OneDriveService::class, $drive);
+    }
+
+    // ── The button on the dashboard ──────────────────────────────────────────
+
+    /**
+     * The sheet is the team's own record. Making everybody wait for a super
+     * admin to press the button is not a safeguard, it is a queue.
+     */
+    public function test_anybody_on_the_module_can_sync_from_the_sheet(): void
+    {
+        Queue::fake();
+        Notification::fake();
+
+        $this->syncUser();
+        $store = $this->store();
+        $this->fakeSheet();
+
+        $member = User::create([
+            'name' => 'Category Owner', 'email' => 'member@example.test', 'password' => 'password',
+            'is_active' => true, 'perm_product_request' => true, 'pcr_role' => 'ecommerce',
+            'pcr_categories' => ['Lingerie'],
+        ]);
+        $member->stores()->attach($store->id);
+
+        $this->assertFalse((bool) $member->is_super_admin);
+
+        $this->actingAs($member)
+            ->post(route('product-requests.sync-sheet'))
+            ->assertRedirect()
+            ->assertSessionHas('success');
+
+        $this->assertSame(1, ProductRequest::count());
+    }
+
+    /** Reading the whole workbook twice at once helps nobody. */
+    public function test_a_second_sync_waits_rather_than_running_alongside_the_first(): void
+    {
+        Queue::fake();
+        Notification::fake();
+
+        $this->syncUser();
+        $store = $this->store();
+        $this->fakeSheet();
+
+        $member = User::create([
+            'name' => 'Category Owner', 'email' => 'member@example.test', 'password' => 'password',
+            'is_active' => true, 'perm_product_request' => true, 'pcr_role' => 'ecommerce',
+            'pcr_categories' => ['Lingerie'],
+        ]);
+        $member->stores()->attach($store->id);
+
+        // Somebody else's run is under way.
+        \Illuminate\Support\Facades\Cache::lock('product-request-sheet-sync', 600)->get();
+
+        $this->actingAs($member)
+            ->post(route('product-requests.sync-sheet'))
+            ->assertRedirect()
+            ->assertSessionHas('warning');
+
+        $this->assertSame(0, ProductRequest::count());
     }
 
     public function test_a_dry_run_creates_nothing(): void
