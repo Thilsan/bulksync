@@ -157,6 +157,26 @@ class OneDriveService
      */
     public function worksheetValues(string $driveId, string $itemId, string $worksheetName): array
     {
+        try {
+            return $this->usedRange($driveId, $itemId, $worksheetName);
+        } catch (\Throwable $e) {
+            // A tab is addressed by a name somebody typed, and "Home " is not
+            // "Home" to Graph — it is a 404 that reads like a missing tab. The
+            // sheet is not ours to tidy, so match what is actually there.
+            $actual = $this->matchWorksheetName($driveId, $itemId, $worksheetName);
+
+            if ($actual === null || $actual === $worksheetName) {
+                throw $e;
+            }
+
+            Log::info("OneDriveService: worksheet \"{$worksheetName}\" resolved to \"{$actual}\".");
+
+            return $this->usedRange($driveId, $itemId, $actual);
+        }
+    }
+
+    private function usedRange(string $driveId, string $itemId, string $worksheetName): array
+    {
         $token = $this->getAccessToken();
         $name  = rawurlencode($worksheetName);
 
@@ -168,6 +188,24 @@ class OneDriveService
         $data = json_decode((string) $response->getBody(), true);
 
         return $data['values'] ?? [];
+    }
+
+    /** The workbook's own spelling of a tab, ignoring case and spacing. */
+    private function matchWorksheetName(string $driveId, string $itemId, string $wanted): ?string
+    {
+        $flatten = fn (string $name) => strtolower(preg_replace('/[^a-z0-9]/i', '', $name));
+
+        try {
+            foreach ($this->worksheetNames($driveId, $itemId) as $name) {
+                if ($flatten($name) === $flatten($wanted)) {
+                    return $name;
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::warning('OneDriveService: could not list worksheets — ' . $e->getMessage());
+        }
+
+        return null;
     }
 
     /**

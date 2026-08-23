@@ -62,6 +62,7 @@ class ProductRequestSheetSyncService
             'errors'                => 0,
             'skipped_existing'      => 0,
             'already_listed'        => 0,
+            'swapped_dates'         => 0,
             'log'                   => [],
         ];
 
@@ -115,15 +116,23 @@ class ProductRequestSheetSyncService
                             $sheetCache[$sheetName] = $this->drive->worksheetValues($item['driveId'], $item['itemId'], $sheetName);
                         }
 
+                        $swapNote = null;
+
                         $added = $this->addNewSkus(
                             $existing->productRequest,
-                            $this->matchSkus($sheetCache[$sheetName], $data['Request Date'] ?? null, (string) ($data['Brand'] ?? '')),
+                            $this->matchSkus($sheetCache[$sheetName], $data['Request Date'] ?? null, (string) ($data['Brand'] ?? ''), $swapNote),
                             $commit,
                         );
 
                         if ($added > 0) {
                             $fixed[] = "{$added} new SKU(s)";
                             $result['skus_added'] += $added;
+                        }
+
+                        if ($swapNote && $added > 0) {
+                            $result['swapped_dates']++;
+                            $result['log'][] = "{$existing->productRequest->reference} — Request No {$requestNo} / {$token} "
+                                . "({$data['Brand']}): {$swapNote}";
                         }
 
                         // Checked on every run, not only at import: a request that
@@ -209,7 +218,15 @@ class ProductRequestSheetSyncService
                     $sheetCache[$sheetName] = $this->drive->worksheetValues($item['driveId'], $item['itemId'], $sheetName);
                 }
 
-                $skus = $this->matchSkus($sheetCache[$sheetName], $data['Request Date'] ?? null, (string) ($data['Brand'] ?? ''));
+                $swapNote = null;
+                $skus     = $this->matchSkus($sheetCache[$sheetName], $data['Request Date'] ?? null, (string) ($data['Brand'] ?? ''), $swapNote);
+
+                // Said out loud every time. A request whose SKUs were found only
+                // by guessing at a typo is one somebody should glance at.
+                if ($swapNote && $skus) {
+                    $result['swapped_dates']++;
+                    $result['log'][] = "Request No {$requestNo} / {$token} ({$data['Brand']}): {$swapNote}";
+                }
 
                 if (empty($skus)) {
                     $missing = $this->missingColumnsOn($sheetCache[$sheetName]);
@@ -438,7 +455,7 @@ class ProductRequestSheetSyncService
     }
 
     /** Rows in a category sheet whose Date + Brand Name match this request — the only link between the two tabs. */
-    private function matchSkus(array $sheetValues, mixed $requestDateRaw, string $brand): array
+    private function matchSkus(array $sheetValues, mixed $requestDateRaw, string $brand, ?string &$note = null): array
     {
         $header   = array_map('trim', $sheetValues[0] ?? []);
         $dateCol  = array_search('Date', $header, true);
@@ -449,9 +466,14 @@ class ProductRequestSheetSyncService
             return [];
         }
 
-        $targetDate = $this->normalizeExcelDate($requestDateRaw)?->toDateString();
+        [$targetDate, $swapped] = $this->tabDateFor($sheetValues, $requestDateRaw, $brand);
+
         if (!$targetDate) {
             return [];
+        }
+
+        if ($swapped) {
+            $note = "matched on {$targetDate} — day and month are swapped on the tab";
         }
 
         $skus = [];
@@ -469,6 +491,93 @@ class ProductRequestSheetSyncService
         }
 
         return array_values(array_unique($skus));
+    }
+
+    /**
+     * Which date on a category tab holds this request's rows.
+     *
+     * Normally the master row's date, verbatim. But the tabs are filled in by
+     * people using different date settings, so a request dated 9 August is
+     * written on the tab as 8 September — the same day typed with the parts
+     * transposed. Roughly a third of the unmatched rows are exactly this, and
+     * skipping them loses real work over a locale.
+     *
+     * Guessing is only safe when there is nothing to guess between: the swap is
+     * accepted only when that brand appears on exactly one date on the tab and
+     * that date is the transposition. A brand spread over several dates is
+     * ambiguous and stays skipped, which is why RAGO (5 Aug and 17 Aug) is left
+     * for a person to sort out.
+     *
+     * @return array{0: ?string, 1: bool}  the date to match on, and whether it was a swap
+     */
+    private function tabDateFor(array $sheetValues, mixed $requestDateRaw, string $brand): array
+    {
+        $target = $this->normalizeExcelDate($requestDateRaw)?->toDateString();
+
+        if (!$target) {
+            return [null, false];
+        }
+
+        $dates = $this->brandDates($sheetValues, $brand);
+
+        if (in_array($target, $dates, true)) {
+            return [$target, false];
+        }
+
+        $swapped = $this->swapDayAndMonth($target);
+
+        if ($swapped !== null && $dates === [$swapped]) {
+            return [$swapped, true];
+        }
+
+        return [$target, false];
+    }
+
+    /**
+     * The distinct dates a brand's SKU rows carry on a tab.
+     *
+     * @return array<int, string>
+     */
+    private function brandDates(array $sheetValues, string $brand): array
+    {
+        $header   = array_map('trim', $sheetValues[0] ?? []);
+        $dateCol  = array_search('Date', $header, true);
+        $brandCol = array_search('Brand Name', $header, true);
+        $skuCol   = array_search('Item SKU', $header, true);
+
+        if ($dateCol === false || $brandCol === false || $skuCol === false) {
+            return [];
+        }
+
+        $dates = [];
+
+        foreach (array_slice($sheetValues, 1) as $row) {
+            if (trim((string) ($row[$skuCol] ?? '')) === ''
+                || strcasecmp(trim((string) ($row[$brandCol] ?? '')), trim($brand)) !== 0) {
+                continue;
+            }
+
+            if ($date = $this->normalizeExcelDate($row[$dateCol] ?? null)?->toDateString()) {
+                $dates[$date] = true;
+            }
+        }
+
+        $dates = array_keys($dates);
+        sort($dates);
+
+        return $dates;
+    }
+
+    /** 2026-08-09 → 2026-09-08. Null when the day is past 12 and cannot be a month. */
+    private function swapDayAndMonth(string $date): ?string
+    {
+        [$year, $month, $day] = array_map('intval', explode('-', $date));
+
+        if ($day > 12 || $day < 1 || $month === $day) {
+            return null;
+        }
+
+        return sprintf('%04d-%02d-%02d', $year, $day, $month);
     }
 
     /** The sheet stores dates as Excel serials in most tabs, but as three different string formats in others. */
@@ -776,9 +885,9 @@ class ProductRequestSheetSyncService
             return ['rows' => 0, 'distinct' => 0];
         }
 
-        $target = $this->normalizeExcelDate($requestDateRaw)?->toDateString();
-        $rows   = 0;
-        $seen   = [];
+        [$target, ] = $this->tabDateFor($sheetValues, $requestDateRaw, $brand);
+        $rows       = 0;
+        $seen       = [];
 
         foreach (array_slice($sheetValues, 1) as $row) {
             $sku = trim((string) ($row[$skuCol] ?? ''));

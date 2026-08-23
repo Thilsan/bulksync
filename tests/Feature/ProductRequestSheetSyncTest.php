@@ -1162,6 +1162,119 @@ class ProductRequestSheetSyncTest extends TestCase
         $this->assertSame(0, ProductRequest::count());
     }
 
+    // ── Dates typed with the day and month the other way round ───────────────
+
+    /** A tab filled in with a different date setting still holds real work. */
+    private function fakeSheetDated(string $masterDate, array $tabDates): void
+    {
+        $masterRow = [
+            'Request No'   => '17',
+            'Request Date' => $masterDate,
+            'Requested By' => 'KAYCEE',
+            'Department'   => 'LINGERIE',
+            'Brand'        => 'AMADAMARIA',
+            'Website'      => 'BS',
+            'SKU Count'    => (string) count($tabDates),
+        ];
+
+        $rows = [];
+
+        foreach (array_values($tabDates) as $index => $date) {
+            $rows[] = [$date, 'AMADAMARIA', 'SKU-' . ($index + 1)];
+        }
+
+        $drive = Mockery::mock(OneDriveService::class);
+        $drive->shouldReceive('asServiceAccount')->andReturnSelf();
+        $drive->shouldReceive('setUser')->andReturnSelf();
+        $drive->shouldReceive('resolveShareItem')->andReturn(['driveId' => 'd', 'itemId' => 'i']);
+        $drive->shouldReceive('worksheetValues')
+            ->with('d', 'i', config('product_request_sync.master_worksheet'))
+            ->andReturn([array_keys($masterRow), array_values($masterRow)]);
+        $drive->shouldReceive('worksheetValues')
+            ->with('d', 'i', 'Lingerie')
+            ->andReturn(array_merge([['Date', 'Brand Name', 'Item SKU']], $rows));
+
+        $this->app->instance(OneDriveService::class, $drive);
+    }
+
+    /** The exact case: master says 9 August, the tab says 8 September. */
+    public function test_a_transposed_date_on_the_tab_still_matches(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+        $this->fakeSheetDated('09-Aug-26', ['08-Sep-26', '08-Sep-26']);
+
+        $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertSame(1, $result['created']);
+        $this->assertSame(2, ProductRequest::sole()->skus()->count());
+
+        // Never silently: a request found by guessing at a typo is flagged.
+        $this->assertSame(1, $result['swapped_dates']);
+        $this->assertStringContainsString('day and month are swapped', implode(' ', $result['log']));
+    }
+
+    /** Two dates for one brand is a guess between them, so it stays skipped. */
+    public function test_an_ambiguous_brand_is_left_for_a_person(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+        $this->fakeSheetDated('09-Aug-26', ['08-Sep-26', '17-Aug-26']);
+
+        $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertSame(0, $result['created']);
+        $this->assertSame(1, $result['unmatched_skus']);
+        $this->assertSame(0, $result['swapped_dates']);
+    }
+
+    /** A day past the 12th cannot be a month, so there is nothing to swap. */
+    public function test_a_date_that_cannot_be_transposed_is_not_guessed_at(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+        $this->fakeSheetDated('17-Aug-26', ['08-Sep-26']);
+
+        $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertSame(0, $result['created']);
+        $this->assertSame(1, $result['unmatched_skus']);
+    }
+
+    /** An exact match is never reinterpreted as a swap. */
+    public function test_a_date_that_matches_is_taken_at_face_value(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+        $this->fakeSheetDated('09-Aug-26', ['09-Aug-26', '09-Aug-26']);
+
+        $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertSame(1, $result['created']);
+        $this->assertSame(0, $result['swapped_dates']);
+    }
+
+    /**
+     * The count check has to measure the rows that were actually imported. If it
+     * kept looking at the master's date it would find nothing there and report a
+     * shortfall on every swap-matched request.
+     */
+    public function test_a_swap_matched_request_is_not_also_reported_as_short(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+        $this->fakeSheetDated('09-Aug-26', ['08-Sep-26', '08-Sep-26']);
+
+        $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertSame(0, $result['count_mismatch']);
+    }
+
     public function test_a_dry_run_creates_nothing(): void
     {
         Queue::fake();
