@@ -258,6 +258,10 @@ class ProductRequestSheetSyncService
                 }
 
                 if (!$commit) {
+                    // Counted, not just logged. A dry run reporting "Created 0"
+                    // while listing rows it would create reads as "nothing to do"
+                    // — the one thing a dry run must never get wrong.
+                    $result['created']++;
                     $result['log'][] = "Would create: Request No {$requestNo} / {$token} → {$store->name}, "
                         . "category={$deptConfig['category']}, brand={$data['Brand']}, " . count($skus) . ' SKUs';
                     continue;

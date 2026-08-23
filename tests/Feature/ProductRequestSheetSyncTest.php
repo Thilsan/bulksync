@@ -1285,7 +1285,12 @@ class ProductRequestSheetSyncTest extends TestCase
         $result = app(ProductRequestSheetSyncService::class)->run(commit: false);
 
         $this->assertSame(0, ProductRequest::count());
-        $this->assertSame(0, $result['created']);
         Queue::assertNothingPushed();
+
+        // But it says what it would have done. Reporting 0 while listing rows it
+        // would create reads as "nothing to do", which is how two real imports
+        // were nearly missed.
+        $this->assertSame(1, $result['created']);
+        $this->assertStringContainsString('Would create', implode(' ', $result['log']));
     }
 }

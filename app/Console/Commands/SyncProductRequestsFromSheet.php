@@ -36,8 +36,8 @@ class SyncProductRequestsFromSheet extends Command
 
         $this->newLine();
         $this->table(['Outcome', 'Count'], [
-            ['Created',                $result['created']],
-            ['Backfilled',             $result['backfilled']],
+            [$commit ? 'Created' : 'Would create', $result['created']],
+            [$commit ? 'Backfilled' : 'Would backfill', $result['backfilled']],
             ['SKUs added',             $result['skus_added']],
             ['SKU count disagrees',    $result['count_mismatch']],
             ['Updated from the sheet',  $result['updated']],
