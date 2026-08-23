@@ -2442,7 +2442,10 @@ class ProductRequestTest extends TestCase
         $user    = $this->brandManager();
         $request = $this->submitFor($user, $this->plainSite(), 'NOEDIT-1');
 
-        $request->update(['image_source' => ProductRequest::IMG_SUPPLIER, 'photoshoot_required' => false, 'supplier_images_available' => true]);
+        $request->update([
+            'image_source' => ProductRequest::IMG_SUPPLIER, 'photoshoot_required' => false,
+            'supplier_images_available' => true, 'photoshoot_decision' => 'no',
+        ]);
         $request->refresh();
 
         $stages = $request->displayStages();
@@ -2506,6 +2509,7 @@ class ProductRequestTest extends TestCase
             'image_source'              => ProductRequest::IMG_BRAND_WEBSITE,
             'photoshoot_required'       => false,
             'supplier_images_available' => false,
+            'photoshoot_decision'       => 'no',
         ]);
         $request->refresh();
 
@@ -2565,7 +2569,10 @@ class ProductRequestTest extends TestCase
         $user    = $this->brandManager();
         $request = $this->submitFor($user, $this->plainSite(), 'NOSHOOT-1');
 
-        $request->update(['image_source' => ProductRequest::IMG_SUPPLIER, 'photoshoot_required' => false, 'supplier_images_available' => true]);
+        $request->update([
+            'image_source' => ProductRequest::IMG_SUPPLIER, 'photoshoot_required' => false,
+            'supplier_images_available' => true, 'photoshoot_decision' => 'no',
+        ]);
         $request->refresh();
 
         $roles = $request->visibleAssignmentRoles();
@@ -2628,7 +2635,10 @@ class ProductRequestTest extends TestCase
         $request = $this->submitFor($user, $this->plainSite(), 'REAPPEAR-1');
 
         // Someone already holds the role — hiding it would strand the assignment.
-        $request->update(['image_source' => ProductRequest::IMG_SUPPLIER, 'photoshoot_required' => false]);
+        $request->update([
+            'image_source' => ProductRequest::IMG_SUPPLIER, 'photoshoot_required' => false,
+            'photoshoot_decision' => 'no',
+        ]);
         $this->assign($request, 'image_editor_id', $editor);
         $this->assertArrayHasKey('image_editor_id', $request->refresh()->visibleAssignmentRoles());
 

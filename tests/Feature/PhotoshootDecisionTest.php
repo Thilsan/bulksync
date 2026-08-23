@@ -151,6 +151,86 @@ class PhotoshootDecisionTest extends TestCase
         Notification::assertNotSentTo($manager, ProductRequestPhotosNeeded::class);
     }
 
+    // ── The answer has to show up in the workflow ────────────────────────────
+
+    /**
+     * Answering the question has to change what the request looks like. The
+     * stepper was reading image_source — what the import guessed off the sheet —
+     * so a request answered "no photoshoot, images in hand" still displayed a
+     * Product Images phase with Photoshoot Scheduled and Photoshoot Completed in
+     * it, which is the opposite of what was just said.
+     */
+    public function test_no_shoot_and_images_in_hand_removes_the_whole_images_phase(): void
+    {
+        $request = $this->request();
+        $request->update(['image_source' => ProductRequest::IMG_PHOTOSHOOT]);
+
+        $this->actingAs($this->admin)
+            ->post(route('product-requests.photoshoot-decision', $request), ['needed' => 'no']);
+        $this->actingAs($this->admin)
+            ->post(route('product-requests.image-request-decision', $request), ['ask' => 'no']);
+
+        $request->refresh();
+
+        $this->assertFalse($request->needsPhotoshoot());
+        $this->assertFalse($request->needsImagesGathered());
+
+        $stages = $request->displayStages();
+        $this->assertNotContains(ProductRequest::WAITING_IMAGES, $stages);
+        $this->assertNotContains(ProductRequest::PHOTOSHOOT_SCHEDULED, $stages);
+        $this->assertNotContains(ProductRequest::PHOTOSHOOT_COMPLETED, $stages);
+
+        $this->assertNotContains('Product Images', array_column($request->phaseProgress(), 'label'));
+    }
+
+    /** Asked for from the brand manager: still waiting, but no shoot. */
+    public function test_asking_the_brand_manager_keeps_the_wait_without_the_shoot(): void
+    {
+        $this->brandManager();
+        $request = $this->request();
+        $request->update(['image_source' => ProductRequest::IMG_PHOTOSHOOT]);
+
+        $this->actingAs($this->admin)
+            ->post(route('product-requests.photoshoot-decision', $request), ['needed' => 'no']);
+        $this->actingAs($this->admin)
+            ->post(route('product-requests.image-request-decision', $request), ['ask' => 'yes']);
+
+        $stages = $request->refresh()->displayStages();
+
+        $this->assertContains(ProductRequest::WAITING_IMAGES, $stages);
+        $this->assertNotContains(ProductRequest::PHOTOSHOOT_SCHEDULED, $stages);
+
+        // Named for what it is, since no camera is involved.
+        $this->assertContains('Product Images', array_column($request->phaseProgress(), 'label'));
+    }
+
+    /** Saying yes puts the shoot stages back. */
+    public function test_a_shoot_keeps_its_stages(): void
+    {
+        $request = $this->request();
+
+        $this->actingAs($this->admin)
+            ->post(route('product-requests.photoshoot-decision', $request), ['needed' => 'yes']);
+
+        $stages = $request->refresh()->displayStages();
+
+        $this->assertContains(ProductRequest::PHOTOSHOOT_SCHEDULED, $stages);
+        $this->assertContains(ProductRequest::PHOTOSHOOT_COMPLETED, $stages);
+        $this->assertContains('Photoshoot', array_column($request->phaseProgress(), 'label'));
+    }
+
+    /** No photographer is needed for a request that is not being photographed. */
+    public function test_the_photographer_slot_goes_with_the_shoot(): void
+    {
+        $request = $this->request();
+        $request->update(['image_source' => ProductRequest::IMG_PHOTOSHOOT]);
+
+        $this->actingAs($this->admin)
+            ->post(route('product-requests.photoshoot-decision', $request), ['needed' => 'no']);
+
+        $this->assertArrayNotHasKey('photographer_id', $request->refresh()->visibleAssignmentRoles());
+    }
+
     // ── The shoot gates completion without blocking it ───────────────────────
 
     /**

@@ -456,6 +456,14 @@ class ProductRequest extends Model
     /** Only a studio shoot brings the photoshoot stages into play. */
     public function needsPhotoshoot(): bool
     {
+        // Somebody answered the question, so that is the answer. image_source is
+        // only what the import guessed from the sheet, and a guess must not
+        // outrank a person — answering "no photoshoot" has to actually remove the
+        // photoshoot from the request, not just from the room.
+        if ($this->photoshoot_decision !== null) {
+            return $this->photoshoot_decision === 'yes';
+        }
+
         return $this->image_source === self::IMG_PHOTOSHOOT;
     }
 
@@ -468,10 +476,31 @@ class ProductRequest extends Model
         return $this->image_source !== self::IMG_SUPPLIER;
     }
 
-    /** Supplier images are already in hand; everything else has to be gathered. */
+    /**
+     * Is anyone still waiting on the pictures?
+     *
+     * A shoot means yes. No shoot means it depends on the follow-up question: if
+     * the brand manager has been asked for them we are waiting, and if the images
+     * are already in hand there is nothing to wait for and the whole Product
+     * Images phase drops off the request.
+     */
     public function needsImagesGathered(): bool
     {
-        return $this->image_source !== self::IMG_SUPPLIER;
+        if ($this->needsPhotoshoot()) {
+            return true;
+        }
+
+        // Supplier images arrive with the product — there was never anything to
+        // wait for, whatever was answered afterwards.
+        if ($this->image_source === self::IMG_SUPPLIER) {
+            return false;
+        }
+
+        if ($this->photoshoot_decision === 'no') {
+            return $this->image_request_decision !== 'no';
+        }
+
+        return true;
     }
 
     /**
@@ -1366,7 +1395,7 @@ class ProductRequest extends Model
 
             // Without a shoot this phase is just "we're waiting on images" —
             // calling it Photoshoot would be misleading.
-            $label = ($key === 'photoshoot' && !$this->photoshoot_required)
+            $label = ($key === 'photoshoot' && !$this->needsPhotoshoot())
                 ? 'Product Images'
                 : $phase['label'];
 
