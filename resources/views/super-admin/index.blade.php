@@ -178,69 +178,60 @@
 
                             {{-- One person handles a category end to end, so a request
                                  raised against it lands on them without anyone choosing. --}}
-                            <div class="pt-3">
-                                <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Categories Handled</label>
-                                <div class="grid grid-cols-2 gap-x-3 gap-y-1.5 rounded-lg border border-gray-200 bg-white px-3 py-2.5">
-                                    @foreach(\App\Models\ProductRequest::CATEGORIES as $category)
-                                        @php $heldBy = $categoryOwners[$category] ?? null; @endphp
-                                        <label class="flex items-start gap-2 cursor-pointer select-none group">
-                                            <input type="checkbox" name="pcr_categories[]" value="{{ $category }}"
-                                                {{ $user->ownsCategory($category) ? 'checked' : '' }}
-                                                class="mt-0.5 w-4 h-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500">
-                                            <span class="text-sm text-gray-700 group-hover:text-gray-900 leading-tight">
-                                                {{ $category }}
-                                                @if($heldBy && $heldBy->id !== $user->id)
-                                                    <span class="block text-xs text-gray-400">{{ $heldBy->name }}</span>
-                                                @endif
-                                            </span>
-                                        </label>
-                                    @endforeach
-                                </div>
-                                <p class="text-xs text-gray-400 mt-1">
-                                    New requests in these categories are assigned to this user automatically —
-                                    every role except the photoshoot. Ticking one here takes it off whoever holds it now.
-                                </p>
-                            </div>
+                            @php
+                                $ownedOptions = [];
 
-                            {{-- The first person ticked for a category is given the
-                                 Brand Manager task on its requests; the rest are
-                                 copied. Which one that is is printed, because a
-                                 setting whose effect is invisible gets mistrusted. --}}
-                            <div class="pt-3">
-                                <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Brand Manager For</label>
-                                <div class="grid grid-cols-2 gap-x-3 gap-y-1.5 rounded-lg border border-gray-200 bg-white px-3 py-2.5">
-                                    @foreach(\App\Models\ProductRequest::CATEGORIES as $category)
-                                        @php
-                                            $assignee = $brandManagerAssignees[$category] ?? null;
-                                            $others   = ($categoryBrandManagers[$category] ?? collect())
-                                                ->where('id', '!=', $user->id)
-                                                ->where('id', '!=', $assignee?->id);
-                                        @endphp
-                                        <label class="flex items-start gap-2 cursor-pointer select-none group">
-                                            <input type="checkbox" name="pcr_brand_categories[]" value="{{ $category }}"
-                                                {{ $user->managesBrandCategory($category) ? 'checked' : '' }}
-                                                class="mt-0.5 w-4 h-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500">
-                                            <span class="text-sm text-gray-700 group-hover:text-gray-900 leading-tight">
-                                                {{ $category }}
-                                                @if($assignee)
-                                                    <span class="block text-xs {{ $assignee->id === $user->id ? 'text-brand-600 font-medium' : 'text-gray-500' }}">
-                                                        task: {{ $assignee->id === $user->id ? 'this user' : $assignee->name }}
-                                                    </span>
-                                                @endif
-                                                @if($others->isNotEmpty())
-                                                    <span class="block text-xs text-gray-400">copied: {{ $others->pluck('name')->join(', ') }}</span>
-                                                @endif
-                                            </span>
-                                        </label>
-                                    @endforeach
-                                </div>
-                                <p class="text-xs text-gray-400 mt-1">
-                                    The first person ticked for a category holds the Brand Manager task on its new requests —
-                                    supplying the product information and approving the content. Anyone else ticked is copied
-                                    on everything with no task of their own. Where nobody is ticked, the task falls to whoever
-                                    handles the category.
-                                </p>
-                            </div>
+                                foreach (\App\Models\ProductRequest::CATEGORIES as $category) {
+                                    $heldBy = $categoryOwners[$category] ?? null;
+
+                                    $ownedOptions[$category] = [
+                                        'note' => $heldBy && $heldBy->id !== $user->id ? $heldBy->name : null,
+                                    ];
+                                }
+                            @endphp
+
+                            @include('super-admin.partials.category-picker', [
+                                'name'     => 'pcr_categories',
+                                'label'    => 'Categories Handled',
+                                'options'  => $ownedOptions,
+                                'selected' => $user->pcr_categories ?? [],
+                                'help'     => 'New requests in these categories are assigned to this user automatically — '
+                                            . 'every role except the photoshoot. Choosing one here takes it off whoever holds it now.',
+                            ])
+
+                            {{-- Several people can hold one category. The first is given
+                                 the Brand Manager task on its requests and the rest are
+                                 copied, so both are printed — a setting whose effect is
+                                 invisible gets mistrusted. --}}
+                            @php
+                                $brandOptions = [];
+
+                                foreach (\App\Models\ProductRequest::CATEGORIES as $category) {
+                                    $assignee = $brandManagerAssignees[$category] ?? null;
+                                    $others   = ($categoryBrandManagers[$category] ?? collect())
+                                        ->where('id', '!=', $user->id)
+                                        ->where('id', '!=', $assignee?->id);
+
+                                    $brandOptions[$category] = [
+                                        'note'   => $assignee
+                                            ? 'task: ' . ($assignee->id === $user->id ? 'this user' : $assignee->name)
+                                            : null,
+                                        'strong' => $assignee?->id === $user->id,
+                                        'extra'  => $others->isNotEmpty() ? 'copied: ' . $others->pluck('name')->join(', ') : null,
+                                    ];
+                                }
+                            @endphp
+
+                            @include('super-admin.partials.category-picker', [
+                                'name'     => 'pcr_brand_categories',
+                                'label'    => 'Brand Manager For',
+                                'options'  => $brandOptions,
+                                'selected' => $user->pcr_brand_categories ?? [],
+                                'help'     => 'Several people can be brand manager for one category. The first holds the '
+                                            . 'Brand Manager task on its new requests — supplying the product information and '
+                                            . 'approving the content. Anyone else is copied on everything with no task of '
+                                            . 'their own. Where nobody is chosen, the task falls to whoever handles the category.',
+                            ])
 
                             {{-- For a shared inbox that watches the whole process
                                  without holding a role on any one request. --}}

@@ -658,6 +658,74 @@ class ProductRequestTest extends TestCase
         $this->assertSame(['Home', "Women's Fashion", 'Kids'], $ahmad->fresh()->ownedCategories());
     }
 
+    /**
+     * Thirteen categories as a grid of tick boxes takes the same space whether
+     * one is on or all of them. The picker has to render, and — more to the
+     * point — still submit every chosen category.
+     */
+    public function test_the_category_picker_saves_what_was_chosen(): void
+    {
+        $admin = User::create([
+            'name' => 'Root', 'email' => 'root@example.test', 'password' => 'password',
+            'is_active' => true, 'is_super_admin' => true,
+        ]);
+
+        $manager = User::create([
+            'name' => 'Brand One', 'email' => 'brand1@example.test', 'password' => 'password',
+            'is_active' => true, 'perm_product_request' => true, 'pcr_role' => 'brand_manager',
+        ]);
+
+        $this->actingAs($admin)->get(route('super-admin.index'))
+            ->assertOk()
+            ->assertSee('Brand Manager For')
+            ->assertSee('Categories Handled')
+            ->assertSee('Search categories');
+
+        $this->actingAs($admin)->post(route('super-admin.users.permissions', $manager), [
+            'perm_product_request'  => 1,
+            'pcr_role'              => 'brand_manager',
+            'pcr_brand_categories'  => ['Beauty', 'Lingerie', 'Watches'],
+        ])->assertRedirect();
+
+        $this->assertSame(['Beauty', 'Lingerie', 'Watches'], $manager->fresh()->pcr_brand_categories);
+    }
+
+    /**
+     * More than one person can be brand manager for a category: the first holds
+     * the task, the rest are copied. Naming a second must not take it off the
+     * first, the way the owner categories do.
+     */
+    public function test_a_category_can_have_several_brand_managers(): void
+    {
+        $admin = User::create([
+            'name' => 'Root', 'email' => 'root@example.test', 'password' => 'password',
+            'is_active' => true, 'is_super_admin' => true,
+        ]);
+
+        $first = User::create([
+            'name' => 'First Manager', 'email' => 'first@example.test', 'password' => 'password',
+            'is_active' => true, 'perm_product_request' => true, 'pcr_role' => 'brand_manager',
+            'pcr_brand_categories' => ['Beauty'],
+        ]);
+
+        $second = User::create([
+            'name' => 'Second Manager', 'email' => 'second@example.test', 'password' => 'password',
+            'is_active' => true, 'perm_product_request' => true, 'pcr_role' => 'brand_manager',
+        ]);
+
+        $this->actingAs($admin)->post(route('super-admin.users.permissions', $second), [
+            'perm_product_request'  => 1,
+            'pcr_role'              => 'brand_manager',
+            'pcr_brand_categories'  => ['Beauty'],
+        ])->assertRedirect();
+
+        $this->assertSame(['Beauty'], $first->fresh()->pcr_brand_categories, 'The first must keep it.');
+        $this->assertSame(['Beauty'], $second->fresh()->pcr_brand_categories);
+
+        // And the task still lands on one person, not both.
+        $this->assertSame($first->id, User::brandManagerForCategory('Beauty')->id);
+    }
+
     // ── Whose dashboard is it ────────────────────────────────────────────────
 
     public function test_the_dashboard_and_list_show_only_your_own_requests(): void
