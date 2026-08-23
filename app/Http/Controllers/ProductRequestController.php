@@ -330,7 +330,7 @@ class ProductRequestController extends Controller implements HasMiddleware
     /** Everything currently sitting with this user, in any of the four roles. */
     public function myTasks(Request $request, #[CurrentUser] User $user): View
     {
-        // The photoshoot is run from the Photoshoot Room, which has the calendar
+        // The photoshoot is run from the Photoshoot Schedule, which has the calendar
         // and the studio detail this list cannot show — so it is not repeated
         // here. A request where this person also holds another role still counts.
         $query = ProductRequest::query()
@@ -369,7 +369,7 @@ class ProductRequestController extends Controller implements HasMiddleware
             return collect();
         }
 
-        // A photoshoot coordinator's queue is the Photoshoot Room, where the dates
+        // A photoshoot coordinator's queue is the Photoshoot Schedule, where the dates
         // and studio live. Repeating it here would be the same work in two places,
         // each with a different amount of the detail needed to act on it.
         if ($user->pcr_role === 'photographer') {
@@ -577,7 +577,7 @@ class ProductRequestController extends Controller implements HasMiddleware
             // sheet import, where nobody chose and it must be asked.
             'photoshoot_decision'       => $data['image_source'] === ProductRequest::IMG_PHOTOSHOOT ? 'yes' : 'no',
             'photoshoot_decided_at'     => now(),
-            // A shoot enters the Photoshoot Room the moment the request is raised,
+            // A shoot enters the Photoshoot Schedule the moment the request is raised,
             // waiting for a date rather than waiting to be noticed.
             'photoshoot_status'         => $data['image_source'] === ProductRequest::IMG_PHOTOSHOOT
                 ? ProductRequest::SHOOT_PENDING
@@ -729,7 +729,7 @@ class ProductRequestController extends Controller implements HasMiddleware
             // so it counts as decided and stops being asked.
             'photoshoot_decision'       => $needsShoot ? 'yes' : 'no',
             'photoshoot_decided_at'     => now(),
-            // Deciding to shoot puts the request in the Photoshoot Room; deciding
+            // Deciding to shoot puts the request in the Photoshoot Schedule; deciding
             // not to takes it back out, and its old booking with it.
             'photoshoot_status'         => $needsShoot
                 ? ($productRequest->photoshoot_status ?? ProductRequest::SHOOT_PENDING)
@@ -1271,7 +1271,7 @@ class ProductRequestController extends Controller implements HasMiddleware
     /**
      * Answer "does this need a photoshoot?".
      *
-     * Yes puts it in the Photoshoot Room and asks the brand manager for the
+     * Yes puts it in the Photoshoot Schedule and asks the brand manager for the
      * products; no keeps it out of the studio's way. Until it is answered the
      * request is in neither state, which is why the room was full of requests
      * nobody had chosen to shoot.
@@ -1286,7 +1286,7 @@ class ProductRequestController extends Controller implements HasMiddleware
         $this->workflow->decidePhotoshoot($productRequest, $needed, $user);
 
         return back()->with('success', $needed
-            ? 'Added to the Photoshoot Room — the shoot is booked from there.'
+            ? 'Added to the Photoshoot Schedule — the shoot is booked from there.'
             : 'Noted — no photoshoot. Say where the images are coming from below.');
     }
 

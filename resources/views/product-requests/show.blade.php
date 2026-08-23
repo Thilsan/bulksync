@@ -11,7 +11,7 @@
     $labels      = \App\Models\ProductRequest::STATUS_LABELS;
     $currentStep = $request->displayStageIndex();
     // Not allowedTransitions(): the two photoshoot stages stay permitted, because
-    // the Photoshoot Room performs exactly those moves — they are simply not
+    // the Photoshoot Schedule performs exactly those moves — they are simply not
     // offered here, where there is no calendar to set a date on.
     $transitions = $request->manualTransitions();
     $usesMapping = $request->requiresMapping();
@@ -183,11 +183,11 @@
 
                 {{-- Asked once, plainly. Until it is answered the request is neither
                      bound for the studio nor excused from it — which is how the
-                     Photoshoot Room ended up holding every request there was. --}}
+                     Photoshoot Schedule ended up holding every request there was. --}}
                 @if($request->needsPhotoshootDecision())
                     <div class="mt-4 bg-blue-50 border border-blue-200 text-blue-900 rounded-lg px-4 py-3 text-sm">
                         <span class="font-medium">Does this need a photoshoot?</span>
-                        Answering yes puts it in the Photoshoot Room, where the shoot is booked.
+                        Answering yes puts it in the Photoshoot Schedule, where the shoot is booked.
 
                         <div class="flex flex-wrap gap-2 mt-2.5">
                             <form method="POST" action="{{ route('product-requests.photoshoot-decision', $request) }}">
@@ -256,7 +256,7 @@
                             It cannot be published until the shoot is marked completed.
                         @endif
                         The shoot is tracked in the
-                        <a href="{{ route('product-requests.photoshoot-room') }}" class="underline font-medium">Photoshoot Room</a>,
+                        <a href="{{ route('product-requests.photoshoot-room') }}" class="underline font-medium">Photoshoot Schedule</a>,
                         and this request follows whatever the coordinator sets there.
                     </div>
                 @endif
@@ -1096,7 +1096,7 @@
                                     Photoshoot Scheduled On
                                     @if($request->photoshoot_status)
                                         <a href="{{ route('product-requests.photoshoot-room') }}"
-                                           class="ml-1 font-normal text-brand-600 hover:text-brand-700">Photoshoot Room &rarr;</a>
+                                           class="ml-1 font-normal text-brand-600 hover:text-brand-700">Photoshoot Schedule &rarr;</a>
                                     @endif
                                 </label>
                                 <template x-if="!editing">

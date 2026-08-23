@@ -1,6 +1,6 @@
 @extends('layouts.app')
 
-@section('title', 'Photoshoot Room')
+@section('title', 'Photoshoot Schedule')
 @section('page-title', 'Product Creation Request')
 
 @section('content')
@@ -50,9 +50,9 @@
             <nav class="text-xs text-gray-400 mb-1">
                 <a href="{{ route('product-requests.index') }}" class="hover:text-gray-600">Product Creation Request</a>
                 <span class="mx-1.5">&gt;</span>
-                <span class="text-gray-600">Photoshoot Room</span>
+                <span class="text-gray-600">Photoshoot Schedule</span>
             </nav>
-            <h2 class="text-lg font-semibold text-gray-800">Photoshoot Room</h2>
+            <h2 class="text-lg font-semibold text-gray-800">Photoshoot Schedule</h2>
             <p class="text-sm text-gray-500">
                 Every request that needs a shoot, on one calendar.
                 @if($canEdit)

@@ -70,7 +70,7 @@ class ProductRequestPhotosNeeded extends Notification implements ShouldQueue
         return $mail
             ->line("Asked by {$this->askedBy}.")
             ->action('Open the request', $this->requestUrl($this->requestId))
-            ->line('The shoot is booked from the Photoshoot Room once the samples arrive.');
+            ->line('The shoot is booked from the Photoshoot Schedule once the samples arrive.');
     }
 
     public function toArray(object $notifiable): array

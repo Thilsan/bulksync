@@ -238,21 +238,17 @@ $pruneProductRequestData = function () {
         }
     }
 
-    DB::table('notifications')
-        ->whereNotNull('read_at')
-        ->where('read_at', '<', now()->subDays(60))
-        ->delete();
-
-    // An account copied on every request collects bell entries far faster than
-    // anyone clears them, and unread rows were never swept. Six months is long
-    // past the point where an unread notice is still worth acting on.
-    DB::table('notifications')
-        ->whereNull('read_at')
-        ->where('created_at', '<', now()->subDays(180))
-        ->delete();
 };
 
 Schedule::call($pruneProductRequestData)->daily()->name('prune-product-request-data')->withoutOverlapping();
+
+// The bell is a "what happened lately" list, not an archive: one sync creates
+// hundreds of requests and a notification apiece. Hourly rather than daily, so
+// the window really is about 48 hours rather than anything up to 72.
+Schedule::command('notifications:prune --commit')
+    ->hourly()
+    ->name('prune-notifications')
+    ->withoutOverlapping();
 
 // Chase requests that have gone quiet. Once each weekday morning: a digest is
 // only useful if it arrives when someone can act on it, and daily-including-

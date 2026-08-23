@@ -14,7 +14,7 @@ use Tests\TestCase;
  * A photoshoot is something somebody asks for, not something the import assumes.
  *
  * Reading "the sheet does not say the images are ready" as "this needs a shoot"
- * put all 156 requests in the Photoshoot Room, and a queue holding everything
+ * put all 156 requests in the Photoshoot Schedule, and a queue holding everything
  * tells the coordinator nothing.
  */
 class PhotoshootDecisionTest extends TestCase
@@ -255,7 +255,7 @@ class PhotoshootDecisionTest extends TestCase
             ->assertSessionHasErrors('to_status');
 
         $this->assertNotSame(ProductRequest::PUBLISHED, $request->refresh()->status);
-        $this->assertStringContainsString('Photoshoot Room', (string) $request->publishBlockedBecause());
+        $this->assertStringContainsString('Photoshoot Schedule', (string) $request->publishBlockedBecause());
     }
 
     public function test_a_finished_shoot_lets_it_be_published(): void
@@ -349,7 +349,7 @@ class PhotoshootDecisionTest extends TestCase
         $request = $this->request(decision: 'yes', shootStatus: ProductRequest::SHOOT_PENDING);
         $request->update(['image_source' => ProductRequest::IMG_PHOTOSHOOT, 'photoshoot_required' => true]);
 
-        // Offered on the request: no. Permitted at all: yes — the Photoshoot Room
+        // Offered on the request: no. Permitted at all: yes — the Photoshoot Schedule
         // makes exactly these moves, so forbidding them would break booking.
         $this->assertNotContains(ProductRequest::PHOTOSHOOT_SCHEDULED, $request->manualTransitions());
         $this->assertNotContains(ProductRequest::PHOTOSHOOT_COMPLETED, $request->manualTransitions());

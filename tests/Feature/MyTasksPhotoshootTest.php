@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\Notification;
 use Tests\TestCase;
 
 /**
- * The photoshoot is run from the Photoshoot Room, which has the calendar and the
+ * The photoshoot is run from the Photoshoot Schedule, which has the calendar and the
  * studio detail My Tasks cannot show. Listing it in both places makes one job
  * look like two, each missing something the other has.
  */
@@ -77,7 +77,7 @@ class MyTasksPhotoshootTest extends TestCase
             ->get(route('product-requests.my-tasks'))
             ->assertOk()
             ->assertDontSee('PHOTOSHOOT ONLY')
-            ->assertSee('Photoshoot Room');
+            ->assertSee('Photoshoot Schedule');
     }
 
     /** Holding another role on the same request still puts it on the list. */

@@ -448,7 +448,7 @@ class ProductRequestWorkflow
     /**
      * Record whether this request needs a photoshoot, and act on the answer.
      *
-     * Yes puts it in the Photoshoot Room and asks the brand manager for the
+     * Yes puts it in the Photoshoot Schedule and asks the brand manager for the
      * products, because the studio cannot start without them. No takes it out of
      * the studio's way entirely. Either answer is recorded, so the question is
      * asked once and the request stops sitting in a queue nobody chose for it.
@@ -476,12 +476,12 @@ class ProductRequestWorkflow
             request:     $request,
             action:      'photoshoot_decision',
             description: $needed
-                ? 'Photoshoot needed — added to the Photoshoot Room'
+                ? 'Photoshoot needed — added to the Photoshoot Schedule'
                 : 'No photoshoot needed',
             actor:       $actor,
         );
 
-        // Nobody is emailed here. A shoot is arranged from the Photoshoot Room,
+        // Nobody is emailed here. A shoot is arranged from the Photoshoot Schedule,
         // and the brand manager is only written to when there is no shoot and
         // somebody decides to ask them for the images instead.
         return null;

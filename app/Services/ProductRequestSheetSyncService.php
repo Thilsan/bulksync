@@ -656,7 +656,7 @@ class ProductRequestSheetSyncService
             'supplier_images_available' => $imagesReady,
             // Left undecided rather than assumed. The sheet not saying the images
             // are ready is not the same as saying a shoot is needed, and treating
-            // it as one put every imported request in the Photoshoot Room.
+            // it as one put every imported request in the Photoshoot Schedule.
             'photoshoot_required'       => false,
             'photoshoot_status'         => null,
             'use_ai_content'            => false,

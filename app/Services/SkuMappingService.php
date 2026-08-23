@@ -45,6 +45,10 @@ class SkuMappingService
 
             $shopify = $this->shopifyFor($request);
 
+            if ($shopify) {
+                $this->warmIfWorthIt($shopify, $rows->count());
+            }
+
             foreach ($rows as $row) {
                 $variants  = $shopify ? $this->lookupShopify($shopify, $row->sku) : [];
                 $inShopify = !empty($variants);
@@ -77,6 +81,34 @@ class SkuMappingService
                 'validation_status' => 'failed',
                 'validation_error'  => $e->getMessage(),
             ]);
+        }
+    }
+
+    /**
+     * Above this many SKUs, reading the store once beats asking about each SKU.
+     *
+     * A cached lookup is free; an uncached one is a throttled GraphQL call, so a
+     * request of 1,020 SKUs spends over an hour asking Shopify a thousand
+     * questions it could have answered from one pass. The warm costs a single
+     * paginated read and is shared by every request against that store for four
+     * hours — which, on a re-sync of two hundred requests, it pays back on the
+     * first one.
+     */
+    private const WARM_ABOVE = 100;
+
+    private function warmIfWorthIt(ShopifyService $shopify, int $skuCount): void
+    {
+        if ($skuCount < self::WARM_ABOVE || $shopify->isSkuCacheWarmed()) {
+            return;
+        }
+
+        try {
+            Log::info("SkuMappingService: {$skuCount} SKUs to check — warming the Shopify cache first.");
+            $shopify->warmSkuCache();
+        } catch (\Throwable $e) {
+            // Not fatal: without the warm every lookup goes live, which is slow
+            // but correct. Losing the whole validation over it would not be.
+            Log::warning('SkuMappingService: could not warm the SKU cache — ' . $e->getMessage());
         }
     }
 

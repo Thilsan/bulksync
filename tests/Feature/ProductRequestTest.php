@@ -726,6 +726,41 @@ class ProductRequestTest extends TestCase
         $this->assertSame($first->id, User::brandManagerForCategory('Beauty')->id);
     }
 
+    /**
+     * A thousand SKUs must not become a thousand Shopify calls.
+     *
+     * Validation asks Shopify about each SKU, and an unwarmed lookup is a live,
+     * throttled request — so a 1,020-SKU request took over an hour while the
+     * same answer was one paginated read away.
+     */
+    public function test_a_large_request_reads_the_store_once_instead_of_per_sku(): void
+    {
+        Notification::fake();
+
+        $store = $this->plainSite();
+        $user  = $this->brandManager();
+
+        $skus    = collect(range(1, 120))->map(fn ($i) => "WARM-{$i}")->implode("\n");
+        $request = $this->submitFor($user, $store, $skus);
+
+        $this->assertSame(120, $request->skus()->count());
+
+        // Warmed during that validation, so the lookups came from the cache.
+        $this->assertTrue((new \App\Services\ShopifyService($store))->isSkuCacheWarmed());
+    }
+
+    /** A handful of SKUs is cheaper asked one at a time than warming for. */
+    public function test_a_small_request_does_not_warm_the_whole_store(): void
+    {
+        Notification::fake();
+
+        $store = $this->plainSite();
+
+        $this->submitFor($this->brandManager(), $store, "SMALL-1\nSMALL-2");
+
+        $this->assertFalse((new \App\Services\ShopifyService($store))->isSkuCacheWarmed());
+    }
+
     // ── Whose dashboard is it ────────────────────────────────────────────────
 
     public function test_the_dashboard_and_list_show_only_your_own_requests(): void
@@ -1140,7 +1175,7 @@ class ProductRequestTest extends TestCase
         $this->assertNotSame(ProductRequest::WAITING_MAPPING, $request->status);
     }
 
-    // ── The Photoshoot Room ──────────────────────────────────────────────────
+    // ── The Photoshoot Schedule ──────────────────────────────────────────────────
 
     public function test_a_shoot_enters_the_room_pending_and_leaves_when_it_is_not_needed(): void
     {
@@ -3096,7 +3131,7 @@ class ProductRequestTest extends TestCase
 
         // The assignee can see who wants it, from their own task list. Asked of
         // the QA owner rather than the photographer: photoshoot work is run from
-        // the Photoshoot Room and deliberately kept off this list.
+        // the Photoshoot Schedule and deliberately kept off this list.
         $this->actingAs($qa)->get(route('product-requests.my-tasks'))
             ->assertOk()
             ->assertSee($requester->name)
@@ -3104,7 +3139,7 @@ class ProductRequestTest extends TestCase
 
         $this->actingAs($shooter)->get(route('product-requests.my-tasks'))
             ->assertOk()
-            ->assertSee('Photoshoot Room');
+            ->assertSee('Photoshoot Schedule');
 
         // The task is taken from the workflow, not typed by the requester.
         $brief = $request->assignmentFor('photographer_id');

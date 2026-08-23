@@ -62,7 +62,7 @@
             @if($user->hasFeature('product_request'))
                 <a href="{{ route('product-requests.index') }}"
                    class="inline-flex items-center gap-2 border border-gray-300 text-gray-700 text-sm font-medium px-4 py-2 rounded-lg hover:bg-gray-50 transition-colors">
-                    Product Requests
+                    Product Creation Requests
                 </a>
             @endif
         </div>

@@ -121,7 +121,7 @@
                 @if(auth()->user()->pcr_role === 'photographer')
                     <p class="text-sm text-gray-500 mt-1">
                         Photoshoots are run from the
-                        <a href="{{ route('product-requests.photoshoot-room') }}" class="text-brand-600 hover:text-brand-700 font-medium">Photoshoot Room</a>,
+                        <a href="{{ route('product-requests.photoshoot-room') }}" class="text-brand-600 hover:text-brand-700 font-medium">Photoshoot Schedule</a>,
                         not from here.
                     </p>
                 @endif
@@ -161,7 +161,7 @@
                             </td>
                             <td class="px-3 py-3 text-gray-700">
                                 {{ $item->brand }} / {{ $item->category }}
-                                <p class="text-xs text-gray-400">{{ $item->store?->name ?? 'no website' }}</p>
+                                <p class="text-xs font-medium" style="color:#b4540a">{{ $item->store?->name ?? 'no website' }}</p>
                             </td>
                             <td class="px-3 py-3 text-right text-gray-700 tabular-nums">{{ number_format($item->total_skus) }}</td>
                             <td class="px-3 py-3">

@@ -15,7 +15,7 @@ use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 
 /**
- * The Photoshoot Room: every request that needs a shoot, on one calendar.
+ * The Photoshoot Schedule: every request that needs a shoot, on one calendar.
  *
  * Scheduling used to live inside each request, which meant nobody could answer
  * "what are we shooting next week" without opening them one at a time. The room

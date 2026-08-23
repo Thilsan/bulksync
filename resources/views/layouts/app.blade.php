@@ -234,7 +234,7 @@
                         ],
                     ],
                     [
-                        'label' => 'Product Requests',
+                        'label' => 'Product Creation Requests',
                         'url'   => route('product-requests.index'),
                         'icon'  => 'tasks',
                         'on'    => request()->routeIs('product-requests.*'),
@@ -243,7 +243,7 @@
                         // No "Dashboard" entry — the parent link already goes there.
                         'children' => [
                             ['label' => 'All Requests',    'url' => route('product-requests.list'),            'on' => request()->routeIs('product-requests.list')],
-                            ['label' => 'Photoshoot Room', 'url' => route('product-requests.photoshoot-room'), 'on' => request()->routeIs('product-requests.photoshoot-room*')],
+                            ['label' => 'Photoshoot Schedule', 'url' => route('product-requests.photoshoot-room'), 'on' => request()->routeIs('product-requests.photoshoot-room*')],
                             ['label' => 'Assigned to Me',  'url' => route('product-requests.my-tasks'),        'on' => request()->routeIs('product-requests.my-tasks')],
                             ['label' => 'Notifications',   'url' => route('product-requests.notifications'),   'on' => request()->routeIs('product-requests.notifications'), 'badge' => $bellUnreadCount ?? 0],
                         ],

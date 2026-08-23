@@ -4,7 +4,11 @@
 @section('page-title', 'Product Creation Request')
 
 @section('content')
-<div class="space-y-5" x-data="{ newRequestOpen: {{ $errors->any() && old('brand') ? 'true' : 'false' }} }">
+<div class="space-y-5" x-data="{
+        newRequestOpen: {{ $errors->any() && old('brand') ? 'true' : 'false' }},
+        syncAsking: false,
+        syncing: false,
+     }">
 
     {{-- Header actions --}}
     <div class="flex items-center justify-between">
@@ -32,17 +36,16 @@
                 </svg>
                 View Requests
             </a>
-            <form method="POST" action="{{ route('product-requests.sync-sheet') }}"
-                  onsubmit="return confirm('Pull new rows from the tracking sheet and create matching requests now?\n\nThis can create many requests at once — rows that can\'t be matched are left flagged for manual review, nothing is skipped silently.');">
-                @csrf
-                <button type="submit"
-                        class="inline-flex items-center gap-2 border border-gray-300 text-gray-700 text-sm font-medium px-4 py-2 rounded-lg hover:bg-gray-50 transition-colors">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-                    </svg>
-                    Sync from Sheet
-                </button>
-            </form>
+            {{-- The browser's own confirm box cannot say this in a way anybody
+                 reads, and it leaves the page looking frozen for the several
+                 minutes the sync actually takes. --}}
+            <button type="button" @click="syncAsking = true"
+                    class="inline-flex items-center gap-2 border border-gray-300 text-gray-700 text-sm font-medium px-4 py-2 rounded-lg hover:bg-gray-50 transition-colors">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                </svg>
+                Sync from Sheet
+            </button>
         </div>
     </div>
 
@@ -358,5 +361,82 @@
 
     @include('product-requests.partials.new-request-form')
 
+    {{-- Confirming the sync, then waiting for it. Both live here rather than in
+         the header so the overlay can cover the page while it runs. --}}
+    <div x-show="syncAsking" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4"
+         @keydown.escape.window="syncAsking = false">
+        <div class="absolute inset-0 bg-gray-900/50" @click="syncAsking = false"></div>
+
+        <div class="relative bg-white rounded-xl shadow-xl w-full max-w-md">
+            <div class="px-5 py-4 border-b border-gray-100 flex items-start gap-3">
+                <div class="w-9 h-9 rounded-lg bg-brand-50 text-brand-600 flex items-center justify-center shrink-0">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                    </svg>
+                </div>
+                <div>
+                    <h3 class="text-sm font-semibold text-gray-800">Sync from the tracking sheet</h3>
+                    <p class="text-xs text-gray-500 mt-0.5">Reads the SharePoint sheet and creates any requests it does not have yet.</p>
+                </div>
+            </div>
+
+            <div class="px-5 py-4 space-y-2.5 text-sm text-gray-600">
+                <p class="flex gap-2">
+                    <span class="text-gray-400">&bull;</span>
+                    <span>It can create <span class="font-medium text-gray-800">many requests at once</span> — one per website on each sheet row.</span>
+                </p>
+                <p class="flex gap-2">
+                    <span class="text-gray-400">&bull;</span>
+                    <span>Requests already here are left alone. Nothing is duplicated and nothing is deleted.</span>
+                </p>
+                <p class="flex gap-2">
+                    <span class="text-gray-400">&bull;</span>
+                    <span>Rows that cannot be matched are reported, never skipped quietly.</span>
+                </p>
+                <p class="flex gap-2">
+                    <span class="text-gray-400">&bull;</span>
+                    <span>It reads every category tab, so it usually takes <span class="font-medium text-gray-800">a few minutes</span>.</span>
+                </p>
+            </div>
+
+            <div class="px-5 py-3.5 border-t border-gray-100 flex items-center justify-end gap-2">
+                <button type="button" @click="syncAsking = false"
+                        class="text-sm font-medium text-gray-600 hover:text-gray-800 px-3 py-2 rounded-lg hover:bg-gray-50">
+                    Cancel
+                </button>
+
+                <form method="POST" action="{{ route('product-requests.sync-sheet') }}"
+                      @submit="syncAsking = false; syncing = true">
+                    @csrf
+                    <button type="submit"
+                            class="inline-flex items-center gap-2 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+                            style="background-color:#1d5a74">
+                        Start sync
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    {{-- Held until the response lands, which is the whole point: the request is
+         synchronous and several minutes of a still page reads as a crash. --}}
+    <div x-show="syncing" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div class="absolute inset-0 bg-gray-900/60"></div>
+
+        <div class="relative bg-white rounded-xl shadow-xl px-6 py-6 w-full max-w-sm text-center">
+            <svg class="w-10 h-10 mx-auto text-brand-600 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-20" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+            </svg>
+
+            <h3 class="text-sm font-semibold text-gray-800 mt-4">Syncing from the tracking sheet…</h3>
+            <p class="text-xs text-gray-500 mt-1.5">
+                Reading the master tab and every category tab. This usually takes a few minutes —
+                please leave this page open.
+            </p>
+            <p class="text-xs text-gray-400 mt-3">The results appear here as soon as it finishes.</p>
+        </div>
+    </div>
 </div>
+
 @endsection

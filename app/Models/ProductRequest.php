@@ -363,7 +363,7 @@ class ProductRequest extends Model
         return in_array($this->photoshoot_status, self::SHOOT_OPEN_STATUSES, true);
     }
 
-    /** Requests with a shoot to think about — the Photoshoot Room's whole list. */
+    /** Requests with a shoot to think about — the Photoshoot Schedule's whole list. */
     /**
      * Requests actually bound for the studio.
      *
@@ -1443,7 +1443,7 @@ class ProductRequest extends Model
     /**
      * Stages offered in the Move to next stage dialog.
      *
-     * Everything allowed, less the two the Photoshoot Room owns: booking and
+     * Everything allowed, less the two the Photoshoot Schedule owns: booking and
      * finishing a shoot happen there, where the date and studio are set at the
      * same time. They stay *allowed* — the room performs exactly these moves — but
      * offering them here too gives two ways to do one thing, and the way without
@@ -1561,7 +1561,7 @@ class ProductRequest extends Model
 
         return 'The photoshoot is not finished ('
             . strtolower(self::SHOOT_STATUSES[$this->photoshoot_status] ?? 'not started')
-            . '). The Photoshoot Room releases this request when the shoot is marked completed.';
+            . '). The Photoshoot Schedule releases this request when the shoot is marked completed.';
     }
 
     public function canTransitionTo(string $status): bool
@@ -1660,7 +1660,7 @@ class ProductRequest extends Model
      * Requests this person currently holds a role on.
      *
      * @param  array<int, string>  $except  roles that do not count as "assigned to
-     *         me" — the photoshoot is run from the Photoshoot Room, so listing it
+     *         me" — the photoshoot is run from the Photoshoot Schedule, so listing it
      *         here as well makes the same job look like two.
      */
     public function scopeAssignedTo($query, User $user, array $except = [])
@@ -1676,7 +1676,7 @@ class ProductRequest extends Model
 
     /**
      * Roles whose work lives on a screen of its own, so it is not repeated on My
-     * Tasks. Only the photoshoot, which the Photoshoot Room owns end to end.
+     * Tasks. Only the photoshoot, which the Photoshoot Schedule owns end to end.
      */
     public const ROLES_ELSEWHERE = ['photographer_id'];
 

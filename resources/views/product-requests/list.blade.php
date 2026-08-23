@@ -235,7 +235,7 @@
                             {{ $item->brand }} / {{ $item->category }}
                             {{-- The website is what separates two otherwise identical rows: the
                                  sheet's "BS - PG-SN" is one brand raised against three sites. --}}
-                            <p class="text-xs text-gray-400">{{ $item->store?->name ?? 'no website' }}</p>
+                            <p class="text-xs font-medium" style="color:#b4540a">{{ $item->store?->name ?? 'no website' }}</p>
                         </td>
                         <td class="px-3 py-3 text-right text-gray-700 tabular-nums">{{ number_format($item->total_skus) }}</td>
                         <td class="px-3 py-3">

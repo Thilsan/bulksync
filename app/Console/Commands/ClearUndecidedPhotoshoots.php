@@ -6,7 +6,7 @@ use App\Models\ProductRequest;
 use Illuminate\Console\Command;
 
 /**
- * Empties the Photoshoot Room of requests nobody chose to shoot.
+ * Empties the Photoshoot Schedule of requests nobody chose to shoot.
  *
  * The import used to read "the sheet does not say the images are ready" as "this
  * needs a photoshoot", which put every request in the room at once. A queue
@@ -20,7 +20,7 @@ class ClearUndecidedPhotoshoots extends Command
     protected $signature = 'product-requests:clear-undecided-photoshoots
                             {--commit : Actually clear them, instead of only reporting what would go}';
 
-    protected $description = 'Take requests out of the Photoshoot Room where nobody asked for a shoot';
+    protected $description = 'Take requests out of the Photoshoot Schedule where nobody asked for a shoot';
 
     public function handle(): int
     {
@@ -67,7 +67,7 @@ class ClearUndecidedPhotoshoots extends Command
 
         $this->newLine();
         $this->info($cleared . ' request(s) ' . ($commit ? 'taken out of' : 'would be taken out of')
-            . ' the Photoshoot Room. They are asked whether they need one when somebody opens them.');
+            . ' the Photoshoot Schedule. They are asked whether they need one when somebody opens them.');
 
         return self::SUCCESS;
     }

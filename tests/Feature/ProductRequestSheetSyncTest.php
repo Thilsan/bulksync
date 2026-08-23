@@ -1134,6 +1134,32 @@ class ProductRequestSheetSyncTest extends TestCase
         $this->assertSame(1, ProductRequest::count());
     }
 
+    /**
+     * The browser's confirm box could not explain what the sync does, and left
+     * the page looking frozen for the several minutes it takes.
+     */
+    public function test_the_sync_asks_in_the_page_and_shows_it_is_working(): void
+    {
+        $this->syncUser();
+        $store = $this->store();
+
+        $member = User::create([
+            'name' => 'Category Owner', 'email' => 'member@example.test', 'password' => 'password',
+            'is_active' => true, 'perm_product_request' => true, 'pcr_role' => 'ecommerce',
+            'pcr_categories' => ['Lingerie'],
+        ]);
+        $member->stores()->attach($store->id);
+
+        $page = $this->actingAs($member)->get(route('product-requests.index'))->assertOk();
+
+        $page->assertSee('Sync from the tracking sheet');
+        $page->assertSee('Start sync');
+        $page->assertSee('Syncing from the tracking sheet');
+
+        // And no browser confirm() left behind it.
+        $page->assertDontSee('onsubmit="return confirm', false);
+    }
+
     /** Reading the whole workbook twice at once helps nobody. */
     public function test_a_second_sync_waits_rather_than_running_alongside_the_first(): void
     {
