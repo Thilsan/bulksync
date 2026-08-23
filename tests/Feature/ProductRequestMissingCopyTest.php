@@ -127,6 +127,36 @@ class ProductRequestMissingCopyTest extends TestCase
         $this->assertSame('generate', $request->refresh()->ai_content_decision);
     }
 
+    /**
+     * Starting a generation has to be visible. The panel that reports progress is
+     * the only place it can be watched, and it was hidden behind use_ai_content —
+     * which this path never set, so the work ran with nowhere to see it.
+     */
+    public function test_the_request_can_be_watched_once_generation_starts(): void
+    {
+        $request = $this->request(described: 0, blank: 4);
+
+        $this->assertFalse((bool) $request->use_ai_content);
+
+        $this->actingAs($this->user)
+            ->post(route('product-requests.ai-content', $request), [
+                'scope'  => 'missing_description',
+                'answer' => 'generate',
+            ])
+            ->assertRedirect();
+
+        $request->refresh();
+
+        $this->assertTrue((bool) $request->use_ai_content, 'Asking for the generator is choosing it.');
+        $this->assertNotNull($request->ai_content_session_id);
+
+        $this->actingAs($this->user)
+            ->get(route('product-requests.show', $request))
+            ->assertOk()
+            ->assertSee('AI Content')
+            ->assertSee('Open in AI Content Generator');
+    }
+
     /** A SKU not in Shopify has no product to write copy onto. */
     public function test_skus_not_in_shopify_are_not_included(): void
     {

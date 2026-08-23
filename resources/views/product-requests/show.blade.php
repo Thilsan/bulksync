@@ -836,7 +836,9 @@
                 ], true);
                 $aiSession = $request->aiContentSession;
             @endphp
-            @if($request->use_ai_content && ($atContent || $aiSession))
+            {{-- A session on the request is reason enough on its own: something is
+                 running and the person who started it has to be able to watch it. --}}
+            @if($aiSession || ($request->use_ai_content && $atContent))
             <div class="bg-white rounded-xl border border-gray-200 shadow-sm">
                 <div class="px-5 py-3.5 border-b border-gray-100 flex items-center justify-between gap-3">
                     <div>

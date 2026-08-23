@@ -1662,6 +1662,10 @@ class ProductRequestController extends Controller implements HasMiddleware
         $productRequest->update([
             'ai_content_decision'   => 'generate',
             'ai_content_decided_at' => now(),
+            // Asking for it IS choosing the generator. Without this the request
+            // still read as "copy comes from the brand team", which hid the panel
+            // showing the very generation that had just been started.
+            'use_ai_content'        => true,
         ]);
 
         // Uppercased and deduped exactly as the AI Content Generator screen does,
