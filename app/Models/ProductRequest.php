@@ -47,7 +47,6 @@ class ProductRequest extends Model
         self::IMAGE_EDITING,
         self::READY_FOR_UPLOAD,
         self::COMPLETED,
-        self::AI_CONTENT,
         self::QA_REVIEW,
     ];
 
@@ -56,11 +55,14 @@ class ProductRequest extends Model
         self::SUBMITTED,
         self::WAITING_MAPPING,
         self::SKU_VERIFIED,
+        // Copy is written from the products themselves, so it does not wait on
+        // the studio — and putting it after the shoot made a request using the
+        // generator look like it had nothing happening for weeks.
+        self::AI_CONTENT,
         self::WAITING_IMAGES,
         self::PHOTOSHOOT_SCHEDULED,
         self::PHOTOSHOOT_COMPLETED,
         self::IMAGE_EDITING,
-        self::AI_CONTENT,
         self::QA_REVIEW,
         self::READY_FOR_UPLOAD,
         self::PUBLISHED,
@@ -1326,15 +1328,20 @@ class ProductRequest extends Model
             'label'  => 'Intake & Verification',
             'stages' => [self::SUBMITTED, self::WAITING_MAPPING, self::SKU_VERIFIED],
         ],
-        'photoshoot' => [
-            'label'  => 'Photoshoot',
-            'stages' => [self::WAITING_IMAGES, self::PHOTOSHOOT_SCHEDULED, self::PHOTOSHOOT_COMPLETED],
-        ],
         'content' => [
             'label'  => 'Content Creation',
+            'stages' => [self::AI_CONTENT],
+        ],
+        'photoshoot' => [
+            'label'  => 'Photoshoot',
             // IMAGE_EDITING is retired but still listed, so a request parked on it
-            // shows inside a phase rather than falling outside the stepper.
-            'stages' => [self::IMAGE_EDITING, self::AI_CONTENT],
+            // shows inside a phase rather than falling outside the stepper. It
+            // belongs here rather than with the copy: editing is what the people
+            // who took the pictures do to them.
+            'stages' => [
+                self::WAITING_IMAGES, self::PHOTOSHOOT_SCHEDULED,
+                self::PHOTOSHOOT_COMPLETED, self::IMAGE_EDITING,
+            ],
         ],
         'launch' => [
             'label'  => 'Review & Launch',
@@ -1371,7 +1378,13 @@ class ProductRequest extends Model
             // request that is sitting on it from before the change, because the
             // check above returns early for the current stage.
             self::IMAGE_EDITING, self::READY_FOR_UPLOAD, self::COMPLETED,
-            self::AI_CONTENT, self::QA_REVIEW => false,
+            self::QA_REVIEW => false,
+
+            // Not retired, just conditional: a request whose copy comes from the
+            // brand team has no generation step, and one that uses the generator
+            // should be able to see it in the stepper rather than watching a
+            // banner with no place in the workflow.
+            self::AI_CONTENT => (bool) $this->use_ai_content,
 
             default => true,
         };

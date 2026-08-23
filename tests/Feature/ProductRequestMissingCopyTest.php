@@ -157,6 +157,37 @@ class ProductRequestMissingCopyTest extends TestCase
             ->assertSee('Open in AI Content Generator');
     }
 
+    /**
+     * The generation has to be somewhere in the workflow, not only in a banner.
+     * A request using the generator shows a Content Creation phase, and it sits
+     * before the photoshoot because the copy is written from the products rather
+     * than from the photographs.
+     */
+    public function test_the_content_step_appears_in_the_workflow_above_the_photoshoot(): void
+    {
+        $request = $this->request(described: 0, blank: 4);
+        $request->update(['use_ai_content' => true, 'photoshoot_decision' => 'yes',
+                          'image_source' => ProductRequest::IMG_PHOTOSHOOT]);
+
+        $labels = array_column($request->refresh()->phaseProgress(), 'label');
+
+        $this->assertContains('Content Creation', $labels);
+        $this->assertLessThan(
+            array_search('Photoshoot', $labels, true),
+            array_search('Content Creation', $labels, true),
+        );
+    }
+
+    /** Copy from the brand team is not a stage of ours. */
+    public function test_a_brand_supplied_request_has_no_content_step(): void
+    {
+        $request = $this->request(described: 4, blank: 0);
+        $request->update(['use_ai_content' => false]);
+
+        $this->assertNotContains(ProductRequest::AI_CONTENT, $request->refresh()->displayStages());
+        $this->assertNotContains('Content Creation', array_column($request->phaseProgress(), 'label'));
+    }
+
     /** A SKU not in Shopify has no product to write copy onto. */
     public function test_skus_not_in_shopify_are_not_included(): void
     {

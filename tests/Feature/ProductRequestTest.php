@@ -203,10 +203,10 @@ class ProductRequestTest extends TestCase
         $this->assertNotContains(ProductRequest::WAITING_MAPPING, $request->displayStages());
         $this->assertNotContains(ProductRequest::WAITING_MAPPING, $request->allowedTransitions());
 
-        // Submitted, SKU Verified, the three image stages, Published. Content and
-        // QA are retired: one person writes the copy, checks it and publishes.
-        $this->assertCount(6, $request->displayStages());
-        $this->assertNotContains(ProductRequest::AI_CONTENT, $request->displayStages());
+        // Submitted, SKU Verified, AI Content, the three image stages, Published.
+        // QA is retired: the person who writes the copy checks it and publishes.
+        $this->assertCount(7, $request->displayStages());
+        $this->assertContains(ProductRequest::AI_CONTENT, $request->displayStages());
         $this->assertNotContains(ProductRequest::QA_REVIEW, $request->displayStages());
     }
 
@@ -2458,13 +2458,14 @@ class ProductRequestTest extends TestCase
         $this->assertNotContains(ProductRequest::PHOTOSHOOT_SCHEDULED, $stages);
         $this->assertNotContains(ProductRequest::WAITING_IMAGES, $stages);
 
-        // Supplier images and no content or QA stage leaves the shortest run
-        // there is: submitted, verified, published.
-        $this->assertNotContains(ProductRequest::AI_CONTENT, $stages);
-        $this->assertCount(3, $stages);
+        // Supplier images and no QA leaves the shortest run there is: submitted,
+        // verified, the copy, published.
+        $this->assertContains(ProductRequest::AI_CONTENT, $stages);
+        $this->assertCount(4, $stages);
 
-        // The suggestion must land on a stage this request actually has.
-        $this->assertSame(ProductRequest::PUBLISHED, $request->suggestedNextStatus());
+        // The suggestion must land on a stage this request actually has, and the
+        // copy comes before anything else that is left.
+        $this->assertSame(ProductRequest::AI_CONTENT, $request->suggestedNextStatus());
 
         // And the Move Stage dropdown must not offer it either.
         $this->assertNotContains(ProductRequest::IMAGE_EDITING, $request->allowedTransitions());
@@ -2562,7 +2563,14 @@ class ProductRequestTest extends TestCase
 
         // Editing is part of the shoot, so it is not a stage of its own.
         $this->assertNotContains(ProductRequest::IMAGE_EDITING, $stages);
-        $this->assertCount(6, $stages);
+        $this->assertCount(7, $stages);
+
+        // The copy is written from the products, not from the photographs, so it
+        // sits before the shoot rather than waiting on it.
+        $this->assertLessThan(
+            array_search(ProductRequest::WAITING_IMAGES, $stages, true),
+            array_search(ProductRequest::AI_CONTENT, $stages, true),
+        );
     }
 
     public function test_photography_roles_are_hidden_when_there_is_no_photoshoot(): void
