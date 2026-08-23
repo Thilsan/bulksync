@@ -224,7 +224,7 @@
 
                             @include('super-admin.partials.category-picker', [
                                 'name'     => 'pcr_brand_categories',
-                                'label'    => 'Brand Manager For',
+                                'label'    => 'Brand Manager / Brand Coordinator',
                                 'options'  => $brandOptions,
                                 'selected' => $user->pcr_brand_categories ?? [],
                                 'help'     => 'Several people can be brand manager for one category. The first holds the '

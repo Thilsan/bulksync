@@ -677,7 +677,7 @@ class ProductRequestTest extends TestCase
 
         $this->actingAs($admin)->get(route('super-admin.index'))
             ->assertOk()
-            ->assertSee('Brand Manager For')
+            ->assertSee('Brand Manager / Brand Coordinator')
             ->assertSee('Categories Handled')
             ->assertSee('Search categories');
 
