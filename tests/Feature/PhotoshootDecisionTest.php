@@ -231,33 +231,110 @@ class PhotoshootDecisionTest extends TestCase
         $this->assertArrayNotHasKey('photographer_id', $request->refresh()->visibleAssignmentRoles());
     }
 
-    // ── The shoot gates completion without blocking it ───────────────────────
+    // ── The shoot gates publishing ───────────────────────────────────────────
 
     /**
-     * The copy and the mapping do not wait on a camera, so the request can be
-     * published — but "finished" must not be claimed while the pictures are not.
+     * A request that asked for photographs is not finished until it has them.
+     * Publishing says the products are live with their pictures, so the studio
+     * has to deliver before anybody can say that.
      */
-    public function test_a_published_request_still_shows_it_is_waiting_on_the_shoot(): void
+    public function test_an_unfinished_shoot_stops_the_request_being_published(): void
     {
         $request = $this->request(decision: 'yes', shootStatus: ProductRequest::SHOOT_PENDING);
 
         $this->assertTrue($request->isWaitingOnPhotoshoot());
-        $this->assertStringContainsString('the photoshoot is not finished', implode(' ', $request->publishGaps()));
+        $this->assertNotContains(ProductRequest::PUBLISHED, $request->allowedTransitions());
+        $this->assertFalse($request->canTransitionTo(ProductRequest::PUBLISHED));
 
+        // Refused, and told what would unblock it.
+        $this->actingAs($this->admin)
+            ->post(route('product-requests.transition', $request), [
+                'to_status' => ProductRequest::PUBLISHED,
+            ])
+            ->assertRedirect()
+            ->assertSessionHasErrors('to_status');
+
+        $this->assertNotSame(ProductRequest::PUBLISHED, $request->refresh()->status);
+        $this->assertStringContainsString('Photoshoot Room', (string) $request->publishBlockedBecause());
+    }
+
+    public function test_a_finished_shoot_lets_it_be_published(): void
+    {
+        $request = $this->request(decision: 'yes', shootStatus: ProductRequest::SHOOT_COMPLETED);
+
+        $this->assertNull($request->publishBlockedBecause());
+        $this->assertContains(ProductRequest::PUBLISHED, $request->allowedTransitions());
+    }
+
+    /** No shoot was asked for, so there is nothing to wait on. */
+    public function test_a_request_with_no_shoot_can_be_published(): void
+    {
+        $request = $this->request(decision: 'no');
+
+        $this->assertNull($request->publishBlockedBecause());
+        $this->assertContains(ProductRequest::PUBLISHED, $request->allowedTransitions());
+    }
+
+    /** The coordinator's screen is what moves the request along. */
+    public function test_the_room_drives_the_request_stage(): void
+    {
+        $coordinator = User::create([
+            'name' => 'Coordinator', 'email' => 'shoot@example.test', 'password' => 'password',
+            'is_active' => true, 'perm_product_request' => true, 'pcr_role' => 'photographer',
+        ]);
+
+        $request = $this->request(decision: 'yes', shootStatus: ProductRequest::SHOOT_PENDING);
+        $request->update(['image_source' => ProductRequest::IMG_PHOTOSHOOT, 'photoshoot_required' => true]);
+
+        // Booked: the request follows into Photoshoot Scheduled.
+        $this->actingAs($coordinator)
+            ->put(route('product-requests.photoshoot-room.update', $request), [
+                'photoshoot_status'       => ProductRequest::SHOOT_SCHEDULED,
+                'photoshoot_scheduled_at' => now()->addWeek()->format('Y-m-d H:i'),
+            ])
+            ->assertRedirect();
+
+        $this->assertSame(ProductRequest::PHOTOSHOOT_SCHEDULED, $request->refresh()->status);
+        $this->assertNotContains(ProductRequest::PUBLISHED, $request->allowedTransitions());
+
+        // Shot: the request reaches Photoshoot Completed and publishing opens up.
+        $this->actingAs($coordinator)
+            ->put(route('product-requests.photoshoot-room.update', $request), [
+                'photoshoot_status'       => ProductRequest::SHOOT_COMPLETED,
+                'photoshoot_scheduled_at' => now()->addWeek()->format('Y-m-d H:i'),
+            ])
+            ->assertRedirect();
+
+        $request->refresh();
+
+        $this->assertSame(ProductRequest::PHOTOSHOOT_COMPLETED, $request->status);
+        $this->assertFalse($request->isWaitingOnPhotoshoot());
+        $this->assertContains(ProductRequest::PUBLISHED, $request->allowedTransitions());
+
+        // Which is a person's move to make, not the room's.
+        $this->actingAs($this->admin)
+            ->post(route('product-requests.transition', $request), ['to_status' => ProductRequest::PUBLISHED])
+            ->assertRedirect();
+
+        $this->assertSame(ProductRequest::PUBLISHED, $request->refresh()->status);
+    }
+
+    /**
+     * Requests published before the shoot became a gate cannot be un-published,
+     * and the images really are still outstanding on them, so they keep saying so.
+     */
+    public function test_a_request_published_before_the_gate_still_reports_the_wait(): void
+    {
+        $request = $this->request(decision: 'yes', shootStatus: ProductRequest::SHOOT_PENDING);
         $request->update(['status' => ProductRequest::PUBLISHED]);
+
+        $this->assertTrue($request->isWaitingOnPhotoshoot());
 
         $this->actingAs($this->admin)
             ->get(route('product-requests.show', $request))
             ->assertOk()
-            ->assertSee('Waiting on the photoshoot');
-    }
-
-    public function test_a_finished_shoot_clears_the_wait(): void
-    {
-        $request = $this->request(decision: 'yes', shootStatus: ProductRequest::SHOOT_COMPLETED);
-
-        $this->assertFalse($request->isWaitingOnPhotoshoot());
-        $this->assertStringNotContainsString('photoshoot', implode(' ', $request->publishGaps()));
+            ->assertSee('Waiting on the photoshoot')
+            ->assertSee('published before the images were delivered');
     }
 
     /** No shoot asked for means nothing to wait on. */

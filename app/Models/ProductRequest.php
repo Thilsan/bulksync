@@ -1521,9 +1521,34 @@ class ProductRequest extends Model
             array_unshift($allowed, $stages[$i - 1]);
         }
 
+        // A request that asked for a photoshoot is not finished until the
+        // photoshoot is. Publishing means the products are live with their
+        // pictures, so it waits for the studio — the room's status is what
+        // releases it, not somebody moving past it here.
+        if ($this->isWaitingOnPhotoshoot()) {
+            $allowed = array_values(array_diff($allowed, [self::PUBLISHED, self::COMPLETED]));
+        }
+
         $allowed[] = self::CANCELLED;
 
         return $allowed;
+    }
+
+    /**
+     * Why this request cannot be published yet, or null when it can.
+     *
+     * One sentence, written for whoever is looking at the button — the block is
+     * only useful if it says what would unblock it.
+     */
+    public function publishBlockedBecause(): ?string
+    {
+        if (!$this->isWaitingOnPhotoshoot()) {
+            return null;
+        }
+
+        return 'The photoshoot is not finished ('
+            . strtolower(self::SHOOT_STATUSES[$this->photoshoot_status] ?? 'not started')
+            . '). The Photoshoot Room releases this request when the shoot is marked completed.';
     }
 
     public function canTransitionTo(string $status): bool

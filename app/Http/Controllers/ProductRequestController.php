@@ -1098,6 +1098,12 @@ class ProductRequestController extends Controller implements HasMiddleware
         );
 
         if (!$moved) {
+            // Named blocks first: "not allowed from SKU Verified" tells somebody
+            // nothing they can act on, and the photoshoot one has a clear answer.
+            if ($data['to_status'] === ProductRequest::PUBLISHED && $blocked = $productRequest->publishBlockedBecause()) {
+                return back()->withErrors(['to_status' => $blocked]);
+            }
+
             return back()->withErrors([
                 'to_status' => 'That status change is not allowed from ' . $productRequest->statusLabel()
                     . ($productRequest->isBlockedOnMapping() ? ' — no SKU has been mapped yet.' : '.'),

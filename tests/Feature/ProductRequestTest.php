@@ -1607,6 +1607,9 @@ class ProductRequestTest extends TestCase
         $this->assertNotContains(ProductRequest::READY_FOR_UPLOAD, $stages);
         $this->assertNotContains(ProductRequest::COMPLETED, $stages);
 
+        // The shoot this request asked for is finished, so nothing holds it back.
+        $request->update(['photoshoot_status' => ProductRequest::SHOOT_COMPLETED]);
+
         app(ProductRequestWorkflow::class)->transition($request, ProductRequest::PUBLISHED, $user, 'Live');
         $request->refresh();
 

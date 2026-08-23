@@ -241,15 +241,23 @@
                     </div>
                 @endif
 
-                {{-- Published or not, the pictures are still outstanding. Saying so
-                     next to the status stops "done" meaning two different things. --}}
-                @if($request->isWaitingOnPhotoshoot() && $request->isClosed())
+                {{-- The pictures are the last thing outstanding, so say so next to
+                     the status rather than letting "everything else is done" read
+                     as finished. Published requests from before the shoot became a
+                     gate still land here — they cannot be un-published, and the
+                     shoot is still genuinely outstanding on them. --}}
+                @if($request->isWaitingOnPhotoshoot())
                     <div class="mt-4 bg-amber-50 border border-amber-200 text-amber-900 rounded-lg px-4 py-2.5 text-sm">
-                        <span class="font-medium">Waiting on the photoshoot.</span>
-                        Everything else is finished, but the studio has not delivered the images yet
-                        ({{ \App\Models\ProductRequest::SHOOT_STATUSES[$request->photoshoot_status] ?? 'not started' }}).
-                        It is tracked in the
-                        <a href="{{ route('product-requests.photoshoot-room') }}" class="underline font-medium">Photoshoot Room</a>.
+                        <span class="font-medium">Waiting on the photoshoot
+                            ({{ strtolower(\App\Models\ProductRequest::SHOOT_STATUSES[$request->photoshoot_status] ?? 'not started') }}).</span>
+                        @if($request->isClosed())
+                            This request was published before the images were delivered.
+                        @else
+                            It cannot be published until the shoot is marked completed.
+                        @endif
+                        The shoot is tracked in the
+                        <a href="{{ route('product-requests.photoshoot-room') }}" class="underline font-medium">Photoshoot Room</a>,
+                        and this request follows whatever the coordinator sets there.
                     </div>
                 @endif
 
