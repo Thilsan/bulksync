@@ -6,11 +6,12 @@
 {{--
     The step between finding the photos and paying for them.
 
-    A run routinely mixes product types that want opposite treatment — a watch
-    face wants no padding, a dress wants plenty — and the previous flow spent
-    the whole folder on one answer chosen before anybody had seen a photo.
-    Every SKU folder is configured here instead, and nothing is sent to
-    Photoroom until this form is submitted.
+    The settings themselves were already chosen on the previous screen and
+    arrive here filled in — this screen is the last look at them against the
+    actual photos, plus the two things that could not be asked before the
+    folder was read: which SKUs want something different from the rest, and
+    what the run is about to cost. Nothing is sent to Photoroom until this
+    form is submitted.
 --}}
 <div class="space-y-5" x-data="configureRun()">
 
@@ -18,7 +19,8 @@
         <p class="text-xs text-gray-500">Media &rsaquo; Photo Editor</p>
         <h1 class="text-2xl font-semibold text-gray-900">{{ $session->name }}</h1>
         <p class="mt-1 text-sm text-gray-500">
-            Set what each SKU should get. Nothing is sent to Photoroom until you start the run.
+            Your settings are already in. Change anything that should differ for one SKU, then start —
+            nothing is sent to Photoroom until you do.
         </p>
     </div>
 
@@ -83,14 +85,17 @@
             </button>
         </div>
 
-        {{-- Chosen once. A run of thirty SKUs that all want the same treatment
-             should be one decision, not thirty identical ones — the cards below
-             only carry settings when a product genuinely differs. --}}
+        {{-- Carried over from the previous screen, where it was chosen once for
+             the whole folder. Collapsed, because it has already been answered —
+             the cards below only carry settings when a product genuinely
+             differs from it. --}}
         <div class="mb-4 overflow-hidden rounded-xl border border-gray-200 bg-white">
             <div class="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 px-5 py-4">
                 <div>
                     <h2 class="text-sm font-semibold text-gray-900">Settings for this run</h2>
-                    <p class="text-xs text-gray-500">Applied to every SKU below unless one is set to differ.</p>
+                    <p class="text-xs text-gray-500">
+                        As you picked them on the previous screen. Applied to every SKU below unless one is set to differ.
+                    </p>
                 </div>
                 <button type="button" @click="runOpen = !runOpen" class="text-xs font-medium text-brand-600 hover:underline">
                     <span x-text="runOpen ? 'Hide' : 'Change'"></span>

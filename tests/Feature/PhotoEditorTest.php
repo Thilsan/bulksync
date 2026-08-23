@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Jobs\PushEditedPhotoJob;
 use App\Jobs\ScanPhotoEditFolderJob;
+use App\Models\PhotoEditGroup;
 use App\Models\PhotoEditItem;
 use App\Models\PhotoEditSession;
 use App\Models\User;
@@ -86,6 +87,22 @@ class PhotoEditorTest extends TestCase
             ->assertSee('Where are the photos?');
     }
 
+    /**
+     * The settings live on this screen, not only on the configure screen, and
+     * they post under the same names both places so one partial can serve both.
+     */
+    public function test_the_form_asks_what_photoroom_should_do_before_the_folder_is_read(): void
+    {
+        $this->actingAs($this->editor())
+            ->get(route('photo-editor.index'))
+            ->assertOk()
+            ->assertSee('What should Photoroom do to them?')
+            ->assertSee('name="edits[background_mode]"', false)
+            ->assertSee('name="edits[shadow]"', false)
+            ->assertSee('name="edits[padding]"', false)
+            ->assertSee('name="edits[segmentation_prompt]"', false);
+    }
+
     /** Hiding the sidebar link is not access control — the URL must refuse too. */
     public function test_someone_without_the_feature_is_refused_even_at_the_url(): void
     {
@@ -111,11 +128,12 @@ class PhotoEditorTest extends TestCase
     // ── Starting a run ─────────────────────────────────────────────────────
 
     /**
-     * The first screen decides where the photos are, not what to do with them.
-     * Every edit setting now belongs to a SKU group, chosen once the photos can
-     * actually be seen — so all this records is the run and the scan.
+     * A request that names no settings keeps every default. The distinction
+     * that matters is absent versus empty: merging an empty array over the
+     * defaults would read each unticked box as a deliberate "no" and switch
+     * the cutout itself off.
      */
-    public function test_starting_a_run_queues_the_scan_and_decides_no_edits(): void
+    public function test_a_run_posted_without_settings_keeps_the_defaults(): void
     {
         Queue::fake();
 
@@ -125,13 +143,78 @@ class PhotoEditorTest extends TestCase
 
         $session = PhotoEditSession::sole();
 
-        // The safe starting point each group is created with, not a choice.
         $this->assertSame(PhotoroomService::defaultEdits()['background_mode'], $session->edits['background_mode']);
         $this->assertTrue($session->edits['remove_background']);
         $this->assertFalse($session->edits['ghost_mannequin']);
         $this->assertSame('configuring', $session->fresh()->status === 'processing' ? 'configuring' : $session->status);
 
         Queue::assertPushed(ScanPhotoEditFolderJob::class);
+    }
+
+    /**
+     * The settings are chosen on the first screen now, for the folder as a
+     * whole, and every SKU group follows them unless one is set to differ.
+     */
+    public function test_the_settings_chosen_on_the_first_screen_are_saved_to_the_run(): void
+    {
+        Queue::fake();
+
+        $this->actingAs($this->editor())
+            ->post(route('photo-editor.store'), $this->validPayload([
+                'edits' => [
+                    'remove_background'   => '1',
+                    'background_mode'     => 'transparent',
+                    'segmentation_prompt' => 'the dress',
+                    'shadow'              => 'ai.soft',
+                    'width'               => '2048',
+                    'height'              => '2048',
+                    'padding'             => '0.08',
+                    'padding_top'         => '40',
+                    'upscale'             => '1',
+                ],
+            ]))->assertRedirect();
+
+        $edits = PhotoEditSession::sole()->edits;
+
+        $this->assertSame('transparent', $edits['background_mode']);
+        $this->assertSame('the dress', $edits['segmentation_prompt']);
+        $this->assertSame('ai.soft', $edits['shadow']);
+        $this->assertSame(2048, $edits['width']);
+        $this->assertSame(0.08, $edits['padding']);
+        $this->assertSame('40px', $edits['padding_top']);
+        $this->assertTrue($edits['upscale']);
+
+        // Left off the form, so it stays off rather than picking up a default.
+        $this->assertFalse($edits['expand']);
+
+        // Not on that form at all — kept from the defaults rather than reset.
+        $this->assertSame(PhotoroomService::defaultEdits()['color_space'], $edits['color_space']);
+    }
+
+    /**
+     * A run's settings are the starting point the configure screen shows back;
+     * it is one form posting the same field names, so what was picked first
+     * has to survive the round trip untouched when nobody changes it.
+     */
+    public function test_the_configure_screen_shows_back_what_the_first_screen_chose(): void
+    {
+        Queue::fake();
+
+        $this->actingAs($this->editor())
+            ->post(route('photo-editor.store'), $this->validPayload([
+                'edits' => ['remove_background' => '1', 'background_mode' => 'transparent', 'padding' => '0.12'],
+            ]))->assertRedirect();
+
+        $session = PhotoEditSession::sole();
+        $session->update(['scan_status' => 'scanned', 'status' => 'configuring']);
+
+        PhotoEditGroup::create(['photo_edit_session_id' => $session->id, 'sku' => 'AB-1']);
+
+        $this->actingAs(User::find($session->user_id))
+            ->get(route('photo-editor.configure', $session))
+            ->assertOk()
+            ->assertSee('name="edits[background_mode]" value="transparent" checked', false)
+            ->assertSee('name="edits[padding]"', false);
     }
 
     /** A transparent cutout is a PNG wherever the setting was chosen. */

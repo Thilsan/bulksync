@@ -151,6 +151,36 @@
                     </div>
 
                 </div>
+            </div>
+
+            {{-- ── 2 · Edits ─────────────────────────────────────────────────
+                 One answer for the whole folder, chosen before it is read. The
+                 operator knows what they shot without having to see it back,
+                 and a run of thirty SKUs that all want the same treatment is
+                 one decision here rather than thirty identical ones on the
+                 next screen — which is still where a SKU that genuinely wants
+                 something else gets set to differ.
+
+                 The same partial the configure screen uses, so the two screens
+                 cannot offer different settings.
+            --}}
+            <div class="overflow-hidden rounded-xl border border-gray-200 bg-white">
+                <div class="border-b border-gray-100 px-6 py-4">
+                    <h2 class="text-sm font-semibold text-gray-800">2 &middot; What should Photoroom do to them?</h2>
+                    <p class="mt-0.5 text-xs text-gray-500">
+                        Applied to every photo in the folder. Nothing is sent to Photoroom yet — the next screen
+                        shows these back to you, and lets a single SKU differ, before anything is spent.
+                    </p>
+                </div>
+
+                <div class="space-y-6 px-6 py-5">
+                    @include('photo-editor.partials.group-settings', [
+                        'prefix'        => 'edits',
+                        'uid'           => 'run',
+                        'edits'         => old('edits', $defaultEdits),
+                        'beautifyModes' => $beautifyModes,
+                    ])
+                </div>
 
                 <div class="flex items-center justify-between gap-3 border-t border-gray-100 bg-gray-50 px-6 py-4">
                     <a href="{{ route('photo-editor.history') }}" x-show="!loading" class="text-sm text-gray-500 hover:text-gray-700">Cancel</a>
@@ -241,8 +271,7 @@
 <script>
 function photoEditForm() {
     return {
-        loading:      false,
-        showAdvanced: false,
+        loading: false,
 
         matchingMode: '{{ old('matching_mode', 'sku_barcode') }}',
 
@@ -254,55 +283,6 @@ function photoEditForm() {
              "never submitted"; $errors->any() is what says this is a redisplay
              and the absence is therefore a real choice. --}}
         rotateWideOnly: {{ $errors->any() ? (old('rotate_wide_only') ? 'true' : 'false') : 'true' }},
-
-        // Background
-        backgroundMode:       '{{ old('background_mode', 'white') }}',
-        backgroundColor:      '{{ old('background_color', '#FFFFFF') }}',
-        backgroundPrompt:     @json(old('background_prompt', '')),
-        backgroundImageUrl:   @json(old('background_image_url', '')),
-        backgroundSeed:       '{{ old('background_seed', '') }}',
-        backgroundBlurMode:   '{{ old('background_blur_mode', 'gaussian') }}',
-        backgroundBlurRadius: {{ old('background_blur_radius', '0.02') ?: '0.02' }},
-
-        // Clothing
-        apparelMode: '{{ old('apparel_mode', 'none') }}',
-        ironing:     {{ old('ironing') ? 'true' : 'false' }},
-
-        // Shadow
-        shadow:          '{{ old('shadow', '') }}',
-        shadowSoftness:  {{ old('shadow_softness', '0.5') ?: '0.5' }},
-        shadowIntensity: {{ old('shadow_intensity', '0.5') ?: '0.5' }},
-        shadowSpread:    '{{ old('shadow_spread', '') }}',
-        shadowDirection: '{{ old('shadow_direction', '') }}',
-        shadowPose:      '{{ old('shadow_pose', '') }}',
-
-        // Finishing
-        beautify:     '{{ old('beautify', '') }}',
-        lighting:     '{{ old('lighting', '') }}',
-        upscale:      {{ old('upscale') ? 'true' : 'false' }},
-        expand:       {{ old('expand') ? 'true' : 'false' }},
-
-        // Output
-        width:        {{ old('image_width', 'null') ?: 'null' }},
-        height:       {{ old('image_height', 'null') ?: 'null' }},
-        customMode:   false,
-        padding:      {{ old('padding', '0') ?: '0' }},
-        referenceBox: '{{ old('reference_box', 'subjectBox') }}',
-        outputSizeMode: '{{ old('output_size_mode', 'auto') }}',
-        exportFormat: '{{ old('export_format', 'auto') }}',
-        showAdvanced: false,
-
-        setDimensions(w, h) {
-            this.width = w;
-            this.height = h;
-            this.customMode = false;
-        },
-
-        clearDimensions() {
-            this.width = null;
-            this.height = null;
-            this.customMode = false;
-        },
     };
 }
 </script>

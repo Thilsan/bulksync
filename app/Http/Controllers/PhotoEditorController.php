@@ -64,6 +64,10 @@ class PhotoEditorController extends Controller implements HasMiddleware
             'photoroomConfigured'  => $this->photoroom->isConfigured(),
             'isSandbox'            => $this->photoroom->isSandbox(),
             'maxImages'            => (int) config('services.photoroom.max_images', 120),
+
+            // What the settings block on the form starts filled in with. Same
+            // array the session is created with, so the two cannot drift.
+            'defaultEdits'         => PhotoroomService::defaultEdits(),
             'retentionDays'        => (int) config('services.photoroom.retention_days', 7),
             'recent'               => $this->scope()->with('store')->latest()->limit(5)->get(),
 
@@ -113,14 +117,15 @@ class PhotoEditorController extends Controller implements HasMiddleware
     // ── Actions ────────────────────────────────────────────────────────────
 
     /**
-     * Start a run: find the photos, decide nothing about them yet.
+     * Start a run: where the photos are, and what should be done to them.
      *
-     * This screen used to collect every Photoroom setting and apply the lot to
-     * whatever the folder turned out to hold — which meant committing a run of
-     * dresses, watches and caps to one answer before anybody had seen a single
-     * photo. All of that moved to the configure screen, where the settings are
-     * chosen per SKU against the actual images. What is left here is only what
-     * has to be known before the folder can be read at all.
+     * The settings are chosen here for the folder as a whole. A run of thirty
+     * SKUs that all want the same treatment is one decision, not thirty
+     * identical ones — and the operator usually knows what they shot before
+     * they paste the link. The configure screen still opens afterwards
+     * carrying these forward, so a SKU that genuinely wants something else can
+     * still be set to differ against the actual photos, and nothing reaches
+     * Photoroom until it is started from there.
      */
     public function store(Request $request): RedirectResponse
     {
@@ -129,16 +134,41 @@ class PhotoEditorController extends Controller implements HasMiddleware
             'name'             => ['nullable', 'string', 'max:120'],
             'matching_mode'    => ['required', 'in:sku_barcode,style_code'],
 
-            // Orientation is the one edit that belongs to the shoot rather than
-            // the product: a camera that wrote every frame sideways wrote them
-            // all sideways, whatever was in front of it.
             'input_rotation'   => ['nullable', Rule::in(array_keys(ImageProcessingService::INPUT_ROTATIONS))],
             'rotate_wide_only' => ['nullable', 'boolean'],
+
+            // Shape-checked here and field-checked in editsFromRequest, which
+            // is the same path the configure screen's settings take.
+            'edits'            => ['nullable', 'array'],
         ], [
             'onedrive_link.required' => 'Paste the OneDrive or SharePoint folder link.',
         ]);
 
         $rotation = (string) ($validated['input_rotation'] ?? '');
+
+        /*
+         * Absent rather than empty is the case that matters: a request that
+         * posts no settings at all keeps every default, where merging an empty
+         * array over them would read each unticked box as a deliberate "no"
+         * and switch the cutout itself off.
+         */
+        $edits = PhotoroomService::defaultEdits();
+
+        if (!empty($validated['edits'])) {
+            $edits = $this->editsFromRequest($validated['edits'], $edits);
+        }
+
+        // Orientation is the one edit that belongs to the shoot rather than
+        // the product: a camera that wrote every frame sideways wrote them all
+        // sideways, whatever was in front of it. Applied after the merge, since
+        // it is asked for outside that block of settings.
+        $edits['input_rotation'] = $rotation ?: null;
+
+        // "Only the ones that came out wide" is a quarter-turn idea. A 180°
+        // flip leaves a photo the same shape it started, so the limit would
+        // silently match everything or nothing.
+        $edits['rotate_wide_only'] = in_array($rotation, ['right', 'left'], true)
+            && !empty($validated['rotate_wide_only']);
 
         $session = PhotoEditSession::create([
             'user_id'       => auth()->id(),
@@ -147,18 +177,8 @@ class PhotoEditorController extends Controller implements HasMiddleware
             'onedrive_link' => $validated['onedrive_link'],
             'matching_mode' => $validated['matching_mode'],
 
-            // The starting point every SKU group is created with. Not a
-            // decision anybody has made — the configure screen is where those
-            // happen.
-            'edits'         => array_merge(PhotoroomService::defaultEdits(), [
-                'input_rotation'   => $rotation ?: null,
-
-                // "Only the ones that came out wide" is a quarter-turn idea.
-                // A 180° flip leaves a photo the same shape it started, so the
-                // limit would silently match everything or nothing.
-                'rotate_wide_only' => in_array($rotation, ['right', 'left'], true)
-                    && !empty($validated['rotate_wide_only']),
-            ]),
+            // Followed by every SKU group unless one is set to differ.
+            'edits'         => $edits,
 
             'status'      => 'processing',
             'scan_status' => 'pending',
@@ -167,7 +187,7 @@ class PhotoEditorController extends Controller implements HasMiddleware
         ScanPhotoEditFolderJob::dispatch($session->id)->onQueue('bulkupload');
 
         return redirect()->route('photo-editor.configure', $session)
-            ->with('info', 'Reading the folder. Nothing is sent to Photoroom until you say what each SKU should get.');
+            ->with('info', 'Reading the folder. Your settings are carried over — nothing is sent to Photoroom until you start the run.');
     }
 
     /**
@@ -176,10 +196,11 @@ class PhotoEditorController extends Controller implements HasMiddleware
     /**
      * The screen between finding the photos and spending anything on them.
      *
-     * Each SKU folder gets its own settings because a run routinely mixes
-     * product types that want opposite treatment, and the old flow committed
-     * every one of them to a single answer chosen before anybody had seen a
-     * photo.
+     * The run's settings arrive here already answered on the first screen and
+     * are shown back for a last look. What this screen adds is what could not
+     * be asked before the folder was read: the SKUs that want something other
+     * than the run's answer — a watch face wants no padding where a dress
+     * wants plenty — the on-model images, and the credit total.
      */
     public function configure(PhotoEditSession $session)
     {
@@ -360,9 +381,10 @@ class PhotoEditorController extends Controller implements HasMiddleware
     /**
      * Merge a group's submitted settings over the ones it already had.
      *
-     * The configure form posts only the fields it shows. Anything it does not
-     * show — options trimmed from the UI but still stored on older runs — is
-     * kept rather than silently reset to a default nobody chose.
+     * Both forms that post these — the first screen and the configure screen —
+     * send only the fields they show. Anything they do not show, such as an
+     * option trimmed from the UI but still stored on older runs, is kept
+     * rather than silently reset to a default nobody chose.
      */
     private function editsFromRequest(array $input, array $existing): array
     {
