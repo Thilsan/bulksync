@@ -30,7 +30,7 @@ class ShowProductRequestSheetColumns extends Command
         $master = config('product_request_sync.master_worksheet');
         $tabs   = $this->option('tab') ?: array_values(array_unique(array_merge(
             [$master],
-            array_column(config('product_request_sync.departments'), 'sheet'),
+            array_column(config('product_request_sync.department_map', []), 'sheet'),
         )));
 
         $find = strtolower(trim((string) $this->option('find')));
