@@ -177,17 +177,63 @@ class OneDriveService
 
     private function usedRange(string $driveId, string $itemId, string $worksheetName): array
     {
-        $token = $this->getAccessToken();
-        $name  = rawurlencode($worksheetName);
+        $name = rawurlencode($worksheetName);
 
-        $response = $this->http->get(
-            "https://graph.microsoft.com/v1.0/drives/{$driveId}/items/{$itemId}/workbook/worksheets('{$name}')/usedRange(valuesOnly=true)",
-            ['headers' => ['Authorization' => "Bearer {$token}"]],
+        $response = $this->retrying(
+            fn () => $this->http->get(
+                "https://graph.microsoft.com/v1.0/drives/{$driveId}/items/{$itemId}/workbook/worksheets('{$name}')/usedRange(valuesOnly=true)",
+                ['headers' => ['Authorization' => "Bearer {$this->getAccessToken()}"]],
+            ),
+            "usedRange({$worksheetName})",
         );
 
         $data = json_decode((string) $response->getBody(), true);
 
         return $data['values'] ?? [];
+    }
+
+    /**
+     * Retry a Graph call that failed for a reason that is not our fault.
+     *
+     * Reading a large worksheet sometimes takes longer than Graph is willing to
+     * wait and it answers 504 MaxRequestDurationExceeded — nothing is wrong with
+     * the request, it simply has to be asked again. Throttling (429) and the odd
+     * 503 are the same. Left unhandled, one of these aborted an entire sheet sync
+     * partway through, which is a far worse outcome than waiting a few seconds.
+     *
+     * A 404 or a 401 is not retried: asking again cannot change the answer.
+     */
+    private function retrying(callable $call, string $what, int $attempts = 3)
+    {
+        $transient = [429, 500, 502, 503, 504, 509];
+
+        for ($attempt = 1; ; $attempt++) {
+            try {
+                return $call();
+            } catch (\GuzzleHttp\Exception\BadResponseException $e) {
+                $status = $e->getResponse()?->getStatusCode();
+
+                if ($attempt >= $attempts || !in_array($status, $transient, true)) {
+                    throw $e;
+                }
+
+                // Graph says how long to wait when it is throttling; otherwise
+                // back off, because an immediate retry usually times out again.
+                $wait = (int) ($e->getResponse()?->getHeaderLine('Retry-After') ?: 0) ?: (5 * $attempt);
+
+                Log::warning("OneDriveService: {$what} failed with {$status} — retrying in {$wait}s (attempt {$attempt} of {$attempts}).");
+
+                sleep($wait);
+            } catch (\GuzzleHttp\Exception\ConnectException $e) {
+                if ($attempt >= $attempts) {
+                    throw $e;
+                }
+
+                Log::warning("OneDriveService: {$what} could not connect — retrying (attempt {$attempt} of {$attempts}).");
+
+                sleep(5 * $attempt);
+            }
+        }
     }
 
     /** The workbook's own spelling of a tab, ignoring case and spacing. */
