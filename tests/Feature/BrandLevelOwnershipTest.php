@@ -229,6 +229,52 @@ class BrandLevelOwnershipTest extends TestCase
             ->assertSee('COLE HAAN');
     }
 
+    /**
+     * The role decides which settings are on screen: a brand manager has no
+     * categories to be assigned work in, and an e-commerce owner is not the brand
+     * side. Showing both sets invited people to fill in the wrong one.
+     */
+    public function test_only_the_settings_the_role_needs_are_drawn(): void
+    {
+        $admin = $this->user('Root', ['is_super_admin' => true]);
+        $this->user('Somebody', ['pcr_role' => 'brand_manager']);
+        $this->request('COLE HAAN');
+
+        $page = $this->actingAs($admin)->get(route('super-admin.index'))->assertOk();
+
+        // Rendered inside x-if, so the browser keeps only the half that applies.
+        $page->assertSee("x-if=\"role !== 'brand_manager'\"", false);
+        $page->assertSee("x-if=\"role === 'brand_manager'\"", false);
+    }
+
+    /**
+     * x-if removes the fields rather than hiding them, so switching somebody to
+     * the brand side clears the owner settings instead of leaving them assigning
+     * work with nothing on screen to explain it.
+     */
+    public function test_switching_to_the_brand_side_clears_the_owner_settings(): void
+    {
+        $admin = $this->user('Root', ['is_super_admin' => true]);
+        $them  = $this->user('Was An Owner', [
+            'pcr_role' => 'ecommerce', 'pcr_categories' => ['Leather Goods'], 'pcr_owned_brands' => ['COLE HAAN'],
+        ]);
+
+        $this->request('COLE HAAN');
+
+        // What the browser posts once the role is the brand side: no categories.
+        $this->actingAs($admin)->post(route('super-admin.users.permissions', $them), [
+            'perm_product_request'  => 1,
+            'pcr_role'              => 'brand_manager',
+            'pcr_brand_categories'  => ['Leather Goods'],
+        ])->assertRedirect();
+
+        $them->refresh();
+
+        $this->assertNull($them->pcr_categories);
+        $this->assertNull($them->pcr_owned_brands);
+        $this->assertSame(['Leather Goods'], $them->pcr_brand_categories);
+    }
+
     /** Nothing changes for anybody until a brand is actually named. */
     public function test_categories_still_decide_when_no_brand_is_named(): void
     {

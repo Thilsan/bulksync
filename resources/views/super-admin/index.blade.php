@@ -140,7 +140,12 @@
                     {{-- Feature Permissions --}}
                     <div>
                         <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Feature Access</p>
-                        <form method="POST" action="{{ route('super-admin.users.permissions', $user) }}" class="space-y-2">
+                        {{-- Which settings matter depends on the role: a brand
+                             manager has no categories to be assigned work in, and
+                             an e-commerce owner is not the brand side. Showing both
+                             sets to everyone invited people to fill in the wrong one. --}}
+                        <form method="POST" action="{{ route('super-admin.users.permissions', $user) }}" class="space-y-2"
+                              x-data="{ role: @js($user->pcr_role) }">
                             @csrf
                             @php
                                 $features = [
@@ -166,7 +171,7 @@
                             {{-- Decides which product-request stages notify this user. --}}
                             <div class="pt-3">
                                 <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Product Request Role</label>
-                                <select name="pcr_role"
+                                <select name="pcr_role" x-model="role"
                                     class="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
                                     <option value="">No workflow role</option>
                                     @foreach(\App\Models\User::PCR_ROLES as $roleKey => $roleLabel)
@@ -190,6 +195,11 @@
                                 }
                             @endphp
 
+                            {{-- x-if, not x-show: a hidden field still submits, and a
+                                 brand manager quietly keeping the categories they had
+                                 as an owner would keep being given owner work with
+                                 nothing on screen to explain it. --}}
+                            <template x-if="role !== 'brand_manager'">
                             @include('super-admin.partials.category-picker', [
                                 'name'     => 'pcr_categories',
                                 'label'    => 'Categories Handled',
@@ -198,6 +208,7 @@
                                 'help'     => 'New requests in these categories are assigned to this user automatically — '
                                             . 'every role except the photoshoot. Choosing one here takes it off whoever holds it now.',
                             ])
+                            </template>
 
                             {{-- Several people can hold one category. The first is given
                                  the Brand Manager task on its requests and the rest are
@@ -222,6 +233,7 @@
                                 }
                             @endphp
 
+                            <template x-if="role === 'brand_manager'">
                             @include('super-admin.partials.category-picker', [
                                 'name'     => 'pcr_brand_categories',
                                 'label'    => 'Brand Manager / Brand Coordinator',
@@ -232,6 +244,7 @@
                                             . 'approving the content. Anyone else is copied on everything with no task of '
                                             . 'their own. Where nobody is chosen, the task falls to whoever handles the category.',
                             ])
+                            </template>
 
                             {{-- A category is usually the right unit, but not always:
                                  Cole Haan sits in Leather Goods and is somebody
@@ -250,6 +263,7 @@
                                     }
                                 @endphp
 
+                                <template x-if="role !== 'brand_manager'">
                                 @include('super-admin.partials.category-picker', [
                                     'name'     => 'pcr_owned_brands',
                                     'label'    => 'Handles these brands only',
@@ -260,6 +274,7 @@
                                                 . 'person while the rest of Leather Goods stays with another. Leave empty '
                                                 . 'unless a brand really is handled apart from its category.',
                                 ])
+                                </template>
 
                                 @php
                                     $managedBrandOptions = [];
@@ -276,6 +291,7 @@
                                     }
                                 @endphp
 
+                                <template x-if="role === 'brand_manager'">
                                 @include('super-admin.partials.category-picker', [
                                     'name'     => 'pcr_managed_brands',
                                     'label'    => 'Brand manager for these brands only',
@@ -286,6 +302,7 @@
                                                 . 'here goes to this user instead of the category\'s people, who are not copied '
                                                 . 'on it — naming a brand means it is handled apart from the rest.',
                                 ])
+                                </template>
                             @endif
 
                             {{-- For a shared inbox that watches the whole process
