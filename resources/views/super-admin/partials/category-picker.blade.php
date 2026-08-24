@@ -11,7 +11,9 @@
     @param array  $options  value => ['note' => ?string, 'strong' => bool, 'extra' => ?string]
     @param array  $selected currently chosen values
     @param string $help
+    @param string $noun     what the options are, for the search box and the count
 --}}
+@php $noun = $noun ?? 'categories'; @endphp
 <div class="pt-3"
      x-data="{
         open: false,
@@ -57,8 +59,8 @@
                 <template x-if="selected.length > 4">
                     <span class="text-sm text-gray-700"
                           x-text="selected.length === all.length
-                                    ? `All ${all.length} categories`
-                                    : `${selected.length} categories`"></span>
+                                    ? `All ${all.length} {{ $noun }}`
+                                    : `${selected.length} {{ $noun }}`"></span>
                 </template>
             </span>
 
@@ -71,7 +73,7 @@
              class="absolute z-30 mt-1 w-full rounded-lg border border-gray-200 bg-white shadow-lg">
 
             <div class="p-2 border-b border-gray-100 flex items-center gap-2">
-                <input type="text" x-model="search" placeholder="Search categories"
+                <input type="text" x-model="search" placeholder="Search {{ $noun }}"
                        class="flex-1 rounded-lg border border-gray-300 px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
                 <button type="button" @click="selected = [...all]"
                         class="text-xs font-medium text-brand-600 hover:text-brand-700 shrink-0">All</button>

@@ -10,7 +10,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 
-#[Fillable(['name', 'email', 'password', 'is_super_admin', 'is_active', 'active_store_id', 'perm_bulk_upload', 'perm_sku_checker', 'perm_image_audit', 'perm_store_sync', 'perm_ai_content', 'perm_metafield_update', 'perm_product_request', 'perm_photo_editor', 'pcr_role', 'pcr_categories', 'pcr_brand_categories', 'pcr_notify_all', 'onedrive_access_token', 'onedrive_refresh_token', 'onedrive_token_expiry'])]
+#[Fillable(['name', 'email', 'password', 'is_super_admin', 'is_active', 'active_store_id', 'perm_bulk_upload', 'perm_sku_checker', 'perm_image_audit', 'perm_store_sync', 'perm_ai_content', 'perm_metafield_update', 'perm_product_request', 'perm_photo_editor', 'pcr_role', 'pcr_categories', 'pcr_brand_categories', 'pcr_owned_brands', 'pcr_managed_brands', 'pcr_notify_all', 'onedrive_access_token', 'onedrive_refresh_token', 'onedrive_token_expiry'])]
 #[Hidden(['password', 'remember_token', 'onedrive_access_token', 'onedrive_refresh_token', 'onedrive_token_expiry'])]
 class User extends Authenticatable
 {
@@ -34,6 +34,8 @@ class User extends Authenticatable
             'perm_photo_editor'      => 'boolean',
             'pcr_categories'         => 'array',
             'pcr_brand_categories'   => 'array',
+            'pcr_owned_brands'       => 'array',
+            'pcr_managed_brands'     => 'array',
             'pcr_notify_all'         => 'boolean',
         ];
     }
@@ -82,8 +84,60 @@ class User extends Authenticatable
      * claim it, the lower id wins so the answer is at least stable — the Users
      * screen is where that clash gets sorted out.
      */
-    public static function ownerForCategory(?string $category): ?self
+    /**
+     * One spelling for a brand.
+     *
+     * The tracking sheet writes "COLE HAAN ", "Cole Haan" and "RAGO " for the
+     * same brands, so a setting matched literally would miss most of them.
+     */
+    public static function normalizeBrand(?string $brand): ?string
     {
+        $brand = strtoupper(trim((string) $brand));
+
+        return $brand === '' ? null : $brand;
+    }
+
+    /** Brands this user handles end to end, overriding their categories. */
+    public function ownedBrands(): array
+    {
+        return array_values(array_filter($this->pcr_owned_brands ?? []));
+    }
+
+    /** Brands this user is brand manager for, overriding their categories. */
+    public function managedBrands(): array
+    {
+        return array_values(array_filter($this->pcr_managed_brands ?? []));
+    }
+
+    /**
+     * Whoever a named brand belongs to, ignoring category entirely.
+     *
+     * @param  string  $column  pcr_owned_brands or pcr_managed_brands
+     */
+    private static function forBrand(string $column, ?string $brand): \Illuminate\Support\Collection
+    {
+        $brand = self::normalizeBrand($brand);
+
+        if ($brand === null) {
+            return collect();
+        }
+
+        return self::query()
+            ->where('is_active', true)
+            ->whereJsonContains($column, $brand)
+            ->orderBy('id')
+            ->get();
+    }
+
+    public static function ownerForCategory(?string $category, ?string $brand = null): ?self
+    {
+        // A brand named explicitly wins: it is the more specific answer, and the
+        // only reason to name one is that the category's owner is not who should
+        // get it.
+        if ($named = self::forBrand('pcr_owned_brands', $brand)->first()) {
+            return $named;
+        }
+
         if (blank($category)) {
             return null;
         }
@@ -162,9 +216,9 @@ class User extends Authenticatable
      * screen shows a name the staffing does not use. Oldest account wins, and the
      * screen prints it.
      */
-    public static function brandManagerForCategory(?string $category): ?self
+    public static function brandManagerForCategory(?string $category, ?string $brand = null): ?self
     {
-        return self::brandManagersForCategory($category)->first();
+        return self::brandManagersForCategory($category, $brand)->first();
     }
 
     /** category => the brand manager it falls to, for the Users screen. */
@@ -181,8 +235,45 @@ class User extends Authenticatable
         return $map;
     }
 
-    public static function brandManagersForCategory(?string $category): \Illuminate\Support\Collection
+    /**
+     * brand => whoever handles it, for the Users screen.
+     *
+     * @return array<string, self>
+     */
+    public static function brandOwnerMap(): array
     {
+        return self::mapByBrand('pcr_owned_brands');
+    }
+
+    /** brand => whoever is its brand manager. */
+    public static function brandManagerByBrandMap(): array
+    {
+        return self::mapByBrand('pcr_managed_brands');
+    }
+
+    /** @return array<string, self> */
+    private static function mapByBrand(string $column): array
+    {
+        $map = [];
+
+        foreach (self::query()->where('is_active', true)->whereNotNull($column)->orderBy('id')->get() as $user) {
+            foreach ($user->{$column} ?? [] as $brand) {
+                $map[$brand] ??= $user;   // first by id, the same rule staffing uses
+            }
+        }
+
+        return $map;
+    }
+
+    public static function brandManagersForCategory(?string $category, ?string $brand = null): \Illuminate\Support\Collection
+    {
+        // Named for this brand specifically: they are the answer, and the
+        // category's people are not copied — the point of naming a brand is that
+        // it is handled apart from the rest.
+        if (($named = self::forBrand('pcr_managed_brands', $brand))->isNotEmpty()) {
+            return $named;
+        }
+
         if (blank($category)) {
             return collect();
         }

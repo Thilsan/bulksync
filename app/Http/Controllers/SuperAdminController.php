@@ -27,6 +27,11 @@ class SuperAdminController extends Controller
             // Which of them actually gets the Brand Manager task, so the screen
             // stops implying nobody does.
             'brandManagerAssignees' => User::brandManagerMap(),
+            // Brands worth naming individually are the ones we actually have
+            // requests for; there is no brand list to pick from otherwise.
+            'knownBrands'           => ProductRequest::knownBrands(),
+            'brandOwners'           => User::brandOwnerMap(),
+            'brandManagersByBrand'  => User::brandManagerByBrandMap(),
         ]);
     }
 
@@ -111,6 +116,17 @@ class SuperAdminController extends Controller
             (array) $request->input('pcr_brand_categories', []),
         ));
 
+        // Brands are stored uppercased and trimmed: the sheet writes
+        // "COLE HAAN ", "Cole Haan" and "RAGO " for the same brands, and a
+        // setting matched literally would miss most of them.
+        $known        = ProductRequest::knownBrands();
+        $ownedBrands  = array_values(array_intersect($known, array_map(
+            fn ($b) => User::normalizeBrand($b), (array) $request->input('pcr_owned_brands', []),
+        )));
+        $managedBrands = array_values(array_intersect($known, array_map(
+            fn ($b) => User::normalizeBrand($b), (array) $request->input('pcr_managed_brands', []),
+        )));
+
         $user->update([
             'perm_bulk_upload' => $request->boolean('perm_bulk_upload'),
             'perm_sku_checker' => $request->boolean('perm_sku_checker'),
@@ -123,6 +139,8 @@ class SuperAdminController extends Controller
             'pcr_role'              => $request->input('pcr_role') ?: null,
             'pcr_categories'        => $categories ?: null,
             'pcr_brand_categories'  => $brandCategories ?: null,
+            'pcr_owned_brands'      => $ownedBrands ?: null,
+            'pcr_managed_brands'    => $managedBrands ?: null,
             'pcr_notify_all'        => $request->boolean('pcr_notify_all'),
         ]);
 
@@ -142,8 +160,19 @@ class SuperAdminController extends Controller
             }
         }
 
+        if ($ownedBrands) {
+            foreach (User::where('id', '!=', $user->id)->whereNotNull('pcr_owned_brands')->get() as $other) {
+                $keep = array_values(array_diff($other->pcr_owned_brands ?? [], $ownedBrands));
+
+                if (count($keep) !== count($other->pcr_owned_brands ?? [])) {
+                    $other->update(['pcr_owned_brands' => $keep ?: null]);
+                    $takenOver[] = $other->name;
+                }
+            }
+        }
+
         return back()->with('success', "Permissions updated for \"{$user->name}\"."
-            . ($takenOver ? ' Categories were taken off ' . implode(', ', array_unique($takenOver)) . '.' : ''));
+            . ($takenOver ? ' Categories and brands were taken off ' . implode(', ', array_unique($takenOver)) . '.' : ''));
     }
 
     public function updateStores(User $user, Request $request): RedirectResponse

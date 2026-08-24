@@ -287,7 +287,7 @@ class ProductRequestWorkflow
                 if ($assignee) {
                     $told = array_filter([$assignee->id, $previousUser?->id, $actor?->id]);
 
-                    $followers = User::brandManagersForCategory($request->category)
+                    $followers = User::brandManagersForCategory($request->category, $request->brand)
                         ->merge(User::requestWatchers())
                         ->unique('id')
                         ->reject(fn (User $u) => in_array($u->id, $told, true));
@@ -330,7 +330,7 @@ class ProductRequestWorkflow
         // The category's brand manager holds the brand-side task — supplying the
         // information and approving the copy — rather than only being copied on
         // the emails. Where a category has none, the owner keeps it.
-        $brandManager = User::brandManagerForCategory($request->category) ?? $owner;
+        $brandManager = User::brandManagerForCategory($request->category, $request->brand) ?? $owner;
 
 
         $staffed  = [];
@@ -397,7 +397,7 @@ class ProductRequestWorkflow
 
         $owner        = $request->categoryOwner();
         $coordinator  = $request->needsPhotoshoot() ? User::photoshootCoordinator() : null;
-        $brandManager = User::brandManagerForCategory($request->category) ?? $owner;
+        $brandManager = User::brandManagerForCategory($request->category, $request->brand) ?? $owner;
 
         $moved = [];
 
@@ -584,7 +584,7 @@ class ProductRequestWorkflow
     private function mappingOwnerFor(ProductRequest $request): ?User
     {
         return $request->ownerFor('brand_manager_id')
-            ?? User::brandManagersForCategory($request->category)->first()
+            ?? User::brandManagersForCategory($request->category, $request->brand)->first()
             ?? $request->user;
     }
 
@@ -695,7 +695,7 @@ class ProductRequestWorkflow
         // and the accounts copied on everything.
         $named = collect([$request->user])
             ->merge($request->currentAssignments()->with('user')->get()->pluck('user'))
-            ->merge(User::brandManagersForCategory($request->category))
+            ->merge(User::brandManagersForCategory($request->category, $request->brand))
             ->merge(User::requestWatchers())
             ->filter();
 

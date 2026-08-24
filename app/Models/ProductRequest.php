@@ -225,7 +225,7 @@ class ProductRequest extends Model
      */
     public function categoryOwner(): ?User
     {
-        return User::ownerForCategory($this->category);
+        return User::ownerForCategory($this->category, $this->brand);
     }
 
     /** The list, plus whatever this request was raised with before the list existed. */
@@ -1695,19 +1695,10 @@ class ProductRequest extends Model
      */
     public function scopeNeedingBrandManager($query, User $user)
     {
-        $managed = $user->brandManagedCategories();
-
         return $query
             ->whereNotIn('status', self::CLOSED_STATUSES)
             ->where('on_hold', false)
-            ->where(function ($q) use ($user, $managed) {
-                $q->whereHas('currentAssignments', fn ($a) => $a
-                    ->where('role', 'brand_manager_id')->where('user_id', $user->id));
-
-                if ($managed) {
-                    $q->orWhereIn('category', $managed);
-                }
-            })
+            ->where(fn ($q) => $q->brandManagerReach($user))
             ->where(fn ($q) => $q
                 ->where('status', self::WAITING_MAPPING)
                 ->orWhere(fn ($balance) => $balance
@@ -1718,19 +1709,63 @@ class ProductRequest extends Model
                     ->where('image_request_decision', 'yes')));
     }
 
-    /** Requests a brand manager is following: everything in their categories. */
+    /** Requests a brand manager is following: their categories and their brands. */
     public function scopeInBrandCategories($query, User $user)
     {
-        $managed = $user->brandManagedCategories();
+        return $query->where(fn ($q) => $q->brandManagerReach($user));
+    }
 
-        return $query->where(function ($q) use ($user, $managed) {
+    /**
+     * Everything a brand manager can see: the slot on a request, their whole
+     * categories, and any single brand named to them inside somebody else's
+     * category — Cole Haan in Leather Goods.
+     */
+    public function scopeBrandManagerReach($query, User $user)
+    {
+        $categories = $user->brandManagedCategories();
+        $brands     = $user->managedBrands();
+
+        return $query->where(function ($q) use ($user, $categories, $brands) {
             $q->whereHas('currentAssignments', fn ($a) => $a
                 ->where('role', 'brand_manager_id')->where('user_id', $user->id));
 
-            if ($managed) {
-                $q->orWhereIn('category', $managed);
+            if ($categories) {
+                $q->orWhereIn('category', $categories);
+            }
+
+            // Compared normalised, because the sheet writes "COLE HAAN " and
+            // "Cole Haan" for the same brand.
+            if ($brands) {
+                $q->orWhereIn(DB::raw('UPPER(TRIM(brand))'), $brands);
             }
         });
+    }
+
+    /**
+     * Every brand we have a request for, uppercased and de-duplicated.
+     *
+     * There is no brand table — brands arrive on the requests themselves, from
+     * the tracking sheet. This is the list somebody picks from when a single
+     * brand needs handling apart from its category.
+     *
+     * @return array<int, string>
+     */
+    public static function knownBrands(): array
+    {
+        $brands = static::query()
+            ->whereNotNull('brand')
+            ->distinct()
+            ->orderBy('brand')
+            ->pluck('brand')
+            ->map(fn ($brand) => User::normalizeBrand($brand))
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+
+        sort($brands);
+
+        return $brands;
     }
 
     /** Requests this user currently holds a role on. */

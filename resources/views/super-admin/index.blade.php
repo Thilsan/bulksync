@@ -233,6 +233,61 @@
                                             . 'their own. Where nobody is chosen, the task falls to whoever handles the category.',
                             ])
 
+                            {{-- A category is usually the right unit, but not always:
+                                 Cole Haan sits in Leather Goods and is somebody
+                                 else's brand. Naming it here overrides the category
+                                 for that brand alone. --}}
+                            @if($knownBrands)
+                                @php
+                                    $ownedBrandOptions = [];
+
+                                    foreach ($knownBrands as $brand) {
+                                        $heldBy = $brandOwners[$brand] ?? null;
+
+                                        $ownedBrandOptions[$brand] = [
+                                            'note' => $heldBy && $heldBy->id !== $user->id ? $heldBy->name : null,
+                                        ];
+                                    }
+                                @endphp
+
+                                @include('super-admin.partials.category-picker', [
+                                    'name'     => 'pcr_owned_brands',
+                                    'label'    => 'Handles these brands only',
+                                    'noun'     => 'brands',
+                                    'options'  => $ownedBrandOptions,
+                                    'selected' => $user->pcr_owned_brands ?? [],
+                                    'help'     => 'Overrides Categories Handled for these brands. Cole Haan can go to one '
+                                                . 'person while the rest of Leather Goods stays with another. Leave empty '
+                                                . 'unless a brand really is handled apart from its category.',
+                                ])
+
+                                @php
+                                    $managedBrandOptions = [];
+
+                                    foreach ($knownBrands as $brand) {
+                                        $heldBy = $brandManagersByBrand[$brand] ?? null;
+
+                                        $managedBrandOptions[$brand] = [
+                                            'note'   => $heldBy
+                                                ? 'task: ' . ($heldBy->id === $user->id ? 'this user' : $heldBy->name)
+                                                : null,
+                                            'strong' => $heldBy?->id === $user->id,
+                                        ];
+                                    }
+                                @endphp
+
+                                @include('super-admin.partials.category-picker', [
+                                    'name'     => 'pcr_managed_brands',
+                                    'label'    => 'Brand manager for these brands only',
+                                    'noun'     => 'brands',
+                                    'options'  => $managedBrandOptions,
+                                    'selected' => $user->pcr_managed_brands ?? [],
+                                    'help'     => 'Overrides Brand Manager / Brand Coordinator for these brands. A brand named '
+                                                . 'here goes to this user instead of the category\'s people, who are not copied '
+                                                . 'on it — naming a brand means it is handled apart from the rest.',
+                                ])
+                            @endif
+
                             {{-- For a shared inbox that watches the whole process
                                  without holding a role on any one request. --}}
                             <div class="pt-3">
