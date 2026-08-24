@@ -1301,6 +1301,98 @@ class ProductRequestSheetSyncTest extends TestCase
         $this->assertSame(0, $result['count_mismatch']);
     }
 
+    // ── Auditing what actually arrived ───────────────────────────────────────
+
+    /**
+     * The sync reports exceptions; the audit reports every row. A request that
+     * imported with half its SKUs is not an exception to anything — it is just
+     * quietly short, and nothing else would ever say so.
+     */
+    public function test_the_audit_accounts_for_an_imported_row(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+        $this->fakeSheet();
+
+        app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->fakeSheet();
+        $result = app(ProductRequestSheetSyncService::class)->audit();
+
+        $this->assertSame(1, $result['totals']['rows']);
+        $this->assertSame(1, $result['totals']['imported']);
+
+        $row = $result['rows'][0];
+        $this->assertSame(17, $row['request_no']);
+        $this->assertSame('BS', $row['website']);
+        $this->assertSame(2, $row['in_system']);
+        $this->assertStringStartsWith('OK', $row['verdict']);
+        $this->assertNotNull($row['reference']);
+    }
+
+    /** A row that never became a request has to say why, not just be absent. */
+    public function test_the_audit_says_why_a_row_never_arrived(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+
+        // Dated a day the category tab knows nothing about.
+        $this->fakeSheet(['Request Date' => '01-Jan-26']);
+
+        app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->fakeSheet(['Request Date' => '01-Jan-26']);
+        $result = app(ProductRequestSheetSyncService::class)->audit();
+
+        $this->assertSame(0, $result['totals']['imported']);
+        $this->assertSame(1, $result['totals']['not_imported']);
+        $this->assertStringContainsString('no rows on the category tab', $result['rows'][0]['verdict']);
+    }
+
+    /** The master row claiming more than the tab holds is the common case. */
+    public function test_the_audit_reports_a_master_count_ahead_of_the_tab(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+        $this->fakeSheet(['SKU Count' => '50']);
+
+        app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->fakeSheet(['SKU Count' => '50']);
+        $result = app(ProductRequestSheetSyncService::class)->audit();
+
+        $this->assertSame(1, $result['totals']['missing']);
+        $this->assertStringContainsString('counts 48 more than the tab has', $result['rows'][0]['verdict']);
+    }
+
+    /** It reads; it never writes. */
+    public function test_the_audit_changes_nothing(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+        $this->fakeSheet();
+
+        app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $snapshot = fn () => [
+            'status'     => ProductRequest::sole()->status,
+            'total_skus' => ProductRequest::sole()->total_skus,
+            'updated_at' => ProductRequest::sole()->updated_at->toDateTimeString(),
+        ];
+
+        $before = $snapshot();
+
+        $this->fakeSheet();
+        app(ProductRequestSheetSyncService::class)->audit();
+
+        $this->assertSame($before, $snapshot());
+        $this->assertSame(1, ProductRequest::count());
+    }
+
     public function test_a_dry_run_creates_nothing(): void
     {
         Queue::fake();

@@ -287,6 +287,151 @@ class ProductRequestSheetSyncService
      * The sheet is hand-typed and inconsistently cased row to row
      * (e.g. "LEATHER GOODS" vs "Leather Goods") — matched on letters only.
      */
+    /**
+     * Every master row against what is actually in the system.
+     *
+     * The sync reports exceptions — what it skipped, what disagreed. That answers
+     * "did anything go wrong", not "is all of it here", and those are different
+     * questions: a row that imported with half its SKUs is not an exception to
+     * anything, it is just quietly short.
+     *
+     * Read-only. It creates and changes nothing.
+     *
+     * @return array{rows: array<int, array<string, mixed>>, totals: array<string, int>}
+     */
+    public function audit(): array
+    {
+        $this->drive->asServiceAccount();
+
+        $item         = $this->drive->resolveShareItem(config('product_request_sync.master_sheet_url'));
+        $masterValues = $this->drive->worksheetValues($item['driveId'], $item['itemId'], config('product_request_sync.master_worksheet'));
+        $header       = array_map('trim', $masterValues[0] ?? []);
+
+        $sheetCache = [];
+        $rows       = [];
+
+        foreach (array_slice($masterValues, 1) as $row) {
+            $data      = array_combine($header, array_pad($row, count($header), null));
+            $requestNo = (int) ($data['Request No'] ?? 0);
+
+            if (!$requestNo) {
+                continue;
+            }
+
+            $department = trim((string) ($data['Department'] ?? ''));
+            $deptConfig = $this->departmentConfigFor($department);
+            $brand      = trim((string) ($data['Brand'] ?? ''));
+            $expected   = (int) preg_replace('/[^0-9]/', '', (string) ($data['SKU Count'] ?? ''));
+            $listed     = filled($data['Listed By'] ?? null) || filled($data['Listed Date'] ?? null);
+
+            foreach ($this->splitWebsiteTokens((string) ($data['Website'] ?? '')) as $token) {
+                $ledger  = ProductRequestSheetSync::where('request_no', $requestNo)->where('website_token', $token)->first();
+                $request = $ledger?->productRequest;
+
+                $onTab = ['rows' => 0, 'distinct' => 0];
+                $note  = null;
+
+                if ($deptConfig) {
+                    $sheetName = $deptConfig['sheet'];
+
+                    if (!array_key_exists($sheetName, $sheetCache)) {
+                        try {
+                            $sheetCache[$sheetName] = $this->drive->worksheetValues($item['driveId'], $item['itemId'], $sheetName);
+                        } catch (\Throwable $e) {
+                            $sheetCache[$sheetName] = [];
+                            $note = "tab \"{$sheetName}\" could not be read";
+                        }
+                    }
+
+                    $onTab = $this->rowsOnDateFor($sheetCache[$sheetName], $data['Request Date'] ?? null, $brand);
+                }
+
+                $inSystem = $request?->skus()->count() ?? 0;
+
+                $rows[] = [
+                    'request_no'  => $requestNo,
+                    'website'     => $token,
+                    'brand'       => $brand,
+                    'department'  => $department,
+                    'category'    => $deptConfig['category'] ?? null,
+                    'reference'   => $request?->reference,
+                    'status'      => $request?->statusLabel(),
+                    'sheet_count' => $expected,
+                    'tab_rows'    => $onTab['rows'],
+                    'tab_distinct'=> $onTab['distinct'],
+                    'in_system'   => $inSystem,
+                    'verdict'     => $this->auditVerdict($request, $ledger, $token, $deptConfig, $listed, $expected, $onTab, $inSystem, $note),
+                ];
+            }
+        }
+
+        $totals = [
+            'rows'         => count($rows),
+            'imported'     => 0,
+            'short'        => 0,
+            'missing'      => 0,
+            'not_imported' => 0,
+            'ignored'      => 0,
+        ];
+
+        foreach ($rows as $entry) {
+            $totals[match (true) {
+                str_starts_with($entry['verdict'], 'OK')           => 'imported',
+                str_starts_with($entry['verdict'], 'SHORT')        => 'short',
+                str_starts_with($entry['verdict'], 'MISSING SKUS') => 'missing',
+                str_starts_with($entry['verdict'], 'NOT IMPORTED') => 'not_imported',
+                default                                            => 'ignored',
+            }]++;
+        }
+
+        return ['rows' => $rows, 'totals' => $totals];
+    }
+
+    /**
+     * One line saying where this sheet row stands, prefixed so it can be counted.
+     *
+     * @param  array{rows: int, distinct: int}  $onTab
+     */
+    private function auditVerdict(
+        ?ProductRequest $request,
+        ?ProductRequestSheetSync $ledger,
+        string $token,
+        ?array $deptConfig,
+        bool $listed,
+        int $expected,
+        array $onTab,
+        int $inSystem,
+        ?string $note,
+    ): string {
+        if ($note) {
+            return "NOT IMPORTED — {$note}";
+        }
+
+        if (!$request) {
+            return match (true) {
+                $this->isIgnoredToken($token) => "IGNORED — \"{$token}\" is not synced by choice",
+                !$deptConfig                  => 'NOT IMPORTED — department not mapped to a category tab',
+                !$this->storeForToken($token) => "NOT IMPORTED — no website matches \"{$token}\"",
+                $onTab['rows'] === 0          => 'NOT IMPORTED — no rows on the category tab for that date and brand',
+                $listed                       => 'IGNORED — already listed by hand, and not marked Completed',
+                (bool) $ledger                => 'NOT IMPORTED — ' . ($ledger->note ?: $ledger->status),
+                default                       => 'NOT IMPORTED — no reason recorded',
+            };
+        }
+
+        // The master row counts rows; a request holds distinct SKUs. Where the
+        // whole difference is repeats, nothing is missing.
+        if ($expected > 0 && $inSystem < $onTab['distinct']) {
+            return 'SHORT — ' . ($onTab['distinct'] - $inSystem) . ' SKU(s) on the tab are not on the request';
+        }
+
+        if ($expected > $onTab['rows'] && $onTab['rows'] > 0) {
+            return 'MISSING SKUS — the master row counts ' . ($expected - $onTab['rows']) . ' more than the tab has';
+        }
+
+        return "OK — {$inSystem} SKU(s)";
+    }
+
     private function departmentConfigFor(string $department): ?array
     {
         $map = config('product_request_sync.department_map', []);

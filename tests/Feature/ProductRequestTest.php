@@ -703,10 +703,10 @@ class ProductRequestTest extends TestCase
         $this->actingAs($admin)->post(route('super-admin.users.permissions', $manager), [
             'perm_product_request'  => 1,
             'pcr_role'              => 'brand_manager',
-            'pcr_brand_categories'  => ['Beauty', 'Lingerie', 'Watches'],
+            'pcr_brand_categories'  => ['Beauty', 'Lingerie', 'Watches & Jewellery'],
         ])->assertRedirect();
 
-        $this->assertSame(['Beauty', 'Lingerie', 'Watches'], $manager->fresh()->pcr_brand_categories);
+        $this->assertSame(['Beauty', 'Lingerie', 'Watches & Jewellery'], $manager->fresh()->pcr_brand_categories);
     }
 
     /**

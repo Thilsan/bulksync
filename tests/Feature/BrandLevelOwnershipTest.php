@@ -164,7 +164,7 @@ class BrandLevelOwnershipTest extends TestCase
 
     /**
      * Watches on Blue Salon and Watches on PG are two jobs done by two people,
-     * which a plain category list could not say — whoever was given "Watches"
+     * which a plain category list could not say — whoever was given "Watches & Jewellery"
      * took both.
      */
     public function test_a_category_can_be_handled_by_website(): void
@@ -173,16 +173,16 @@ class BrandLevelOwnershipTest extends TestCase
             'name' => 'PG Website', 'shopify_domain' => 'paris-gallery-qatar.myshopify.com', 'is_active' => true,
         ]);
 
-        $everywhere = $this->user('Ahmad', ['pcr_role' => 'ecommerce', 'pcr_categories' => ['Watches']]);
+        $everywhere = $this->user('Ahmad', ['pcr_role' => 'ecommerce', 'pcr_categories' => ['Watches & Jewellery']]);
         $onPg       = $this->user('Ghassen', [
             'pcr_role' => 'ecommerce',
-            'pcr_store_categories' => [User::storeCategoryKey($pg->id, 'Watches')],
+            'pcr_store_categories' => [User::storeCategoryKey($pg->id, 'Watches & Jewellery')],
         ]);
 
-        $this->assertSame($onPg->id, User::ownerForCategory('Watches', null, $pg->id)?->id);
+        $this->assertSame($onPg->id, User::ownerForCategory('Watches & Jewellery', null, $pg->id)?->id);
 
         // Every other website falls to the plain category list.
-        $this->assertSame($everywhere->id, User::ownerForCategory('Watches', null, $this->store->id)?->id);
+        $this->assertSame($everywhere->id, User::ownerForCategory('Watches & Jewellery', null, $this->store->id)?->id);
     }
 
     /** A brand named to somebody is more specific still. */
@@ -194,22 +194,22 @@ class BrandLevelOwnershipTest extends TestCase
 
         $this->user('Ghassen', [
             'pcr_role' => 'ecommerce',
-            'pcr_store_categories' => [User::storeCategoryKey($pg->id, 'Watches')],
+            'pcr_store_categories' => [User::storeCategoryKey($pg->id, 'Watches & Jewellery')],
         ]);
         $forBrand = $this->user('Cerruti Owner', ['pcr_role' => 'ecommerce', 'pcr_owned_brands' => ['CERRUTI']]);
 
-        $this->assertSame($forBrand->id, User::ownerForCategory('Watches', 'Cerruti', $pg->id)?->id);
+        $this->assertSame($forBrand->id, User::ownerForCategory('Watches & Jewellery', 'Cerruti', $pg->id)?->id);
     }
 
     public function test_a_request_is_staffed_from_its_website_pairing(): void
     {
-        $this->user('Ahmad', ['pcr_role' => 'ecommerce', 'pcr_categories' => ['Watches']]);
+        $this->user('Ahmad', ['pcr_role' => 'ecommerce', 'pcr_categories' => ['Watches & Jewellery']]);
         $onBlueSalon = $this->user('Ghassen', [
             'pcr_role' => 'ecommerce',
-            'pcr_store_categories' => [User::storeCategoryKey($this->store->id, 'Watches')],
+            'pcr_store_categories' => [User::storeCategoryKey($this->store->id, 'Watches & Jewellery')],
         ]);
 
-        $request = $this->request('CERRUTI', 'Watches');
+        $request = $this->request('CERRUTI', 'Watches & Jewellery');
 
         app(ProductRequestWorkflow::class)->staffFromCategory($request, null, notify: false);
 
@@ -220,7 +220,7 @@ class BrandLevelOwnershipTest extends TestCase
     public function test_giving_a_pairing_to_someone_takes_it_off_whoever_held_it(): void
     {
         $admin   = $this->user('Root', ['is_super_admin' => true]);
-        $pairing = User::storeCategoryKey($this->store->id, 'Watches');
+        $pairing = User::storeCategoryKey($this->store->id, 'Watches & Jewellery');
 
         $first  = $this->user('First', ['pcr_role' => 'ecommerce', 'pcr_store_categories' => [$pairing]]);
         $second = $this->user('Second', ['pcr_role' => 'ecommerce']);
@@ -258,7 +258,7 @@ class BrandLevelOwnershipTest extends TestCase
         $this->actingAs($admin)->get(route('super-admin.index'))
             ->assertOk()
             ->assertSee('Categories handled on one website only')
-            ->assertSee('Watches · Bluesalon Website');
+            ->assertSee('Watches & Jewellery · Bluesalon Website');
     }
 
     // ── The Users screen ────────────────────────────────────────────────────

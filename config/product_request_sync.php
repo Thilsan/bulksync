@@ -89,7 +89,7 @@ return [
         'LEATHER GOODS'        => ['category' => 'Leather Goods',       'sheet' => 'Leather Goods'],
         // The same department, typed short on some rows.
         'LEATHER'              => ['category' => 'Leather Goods',       'sheet' => 'Leather Goods'],
-        'WATCHES & JEWELLERY'  => ['category' => 'Watches',             'sheet' => 'Watches & Jewellery'],
+        'WATCHES & JEWELLERY'  => ['category' => 'Watches & Jewellery', 'sheet' => 'Watches & Jewellery'],
         'FASHION ACCESSORIES'  => ['category' => 'Fashion Accessories', 'sheet' => 'Fashion Accessories'],
         'Home'                 => ['category' => 'Home',                'sheet' => 'Home'],
         'Linen'                => ['category' => 'Linen',               'sheet' => 'Linen'],

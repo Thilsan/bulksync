@@ -214,7 +214,7 @@ class ProductRequest extends Model
         "Men's Fashion",
         "Women's Fashion",
         'Kids',
-        'Watches',
+        'Watches & Jewellery',
         'PG Operations',
     ];
 
