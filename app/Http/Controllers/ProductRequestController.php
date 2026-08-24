@@ -95,6 +95,13 @@ class ProductRequestController extends Controller implements HasMiddleware
 
     public function index(#[CurrentUser] User $user): View
     {
+        // A brand manager's question is not "how is my work going" but "are my
+        // brands live yet" — they hand over the SKUs and the pictures, and the
+        // rest of the pipeline is somebody else's to run.
+        if ($user->isBrandManagerOnly()) {
+            return $this->brandManagerDashboard($user);
+        }
+
         // The dashboard answers "how is MY work going", so it counts what is on
         // this person's desk — not every request they are allowed to open.
         $base = fn () => ProductRequest::query()->onMyDesk($user);
@@ -328,13 +335,50 @@ class ProductRequestController extends Controller implements HasMiddleware
     }
 
     /** Everything currently sitting with this user, in any of the four roles. */
+    /**
+     * The brand manager's dashboard: their brands, and whether each is live.
+     *
+     * No stage counters and no queues. Waiting for Mapping, Photoshoot Scheduled
+     * and the rest describe work they neither do nor can influence — the useful
+     * split is published against not, and which ones are waiting on them.
+     */
+    private function brandManagerDashboard(User $user): View
+    {
+        $base = fn () => ProductRequest::query()->inBrandCategories($user);
+
+        $requests = $base()
+            ->with(['store', 'user'])
+            ->orderByRaw('online_launch_date IS NULL, online_launch_date')
+            ->orderByDesc('sheet_request_no')
+            ->get();
+
+        $waiting = ProductRequest::query()->needingBrandManager($user)->pluck('id')->all();
+
+        return view('product-requests.brand-dashboard', [
+            'requests'  => $requests,
+            'waiting'   => array_flip($waiting),
+            'published' => $requests->whereIn('status', [ProductRequest::PUBLISHED, ProductRequest::COMPLETED])->count(),
+            'live'      => $requests->filter(fn ($r) => $r->status === ProductRequest::PUBLISHED
+                                                        && !$r->isWaitingOnPhotoshoot())->count(),
+            'openCount' => $requests->reject->isClosed()->count(),
+        ]);
+    }
+
     public function myTasks(Request $request, #[CurrentUser] User $user): View
     {
+        // A brand manager holds the Brand Manager slot from the moment a request
+        // is raised until it is published, so "everything I hold a role on" is
+        // their entire category — hundreds of rows, none of them a task. Narrow
+        // it to what is actually being asked of them.
+        $brandManager = $user->isBrandManagerOnly();
+
         // The photoshoot is run from the Photoshoot Schedule, which has the calendar
         // and the studio detail this list cannot show — so it is not repeated
         // here. A request where this person also holds another role still counts.
         $query = ProductRequest::query()
-            ->assignedTo($user, ProductRequest::ROLES_ELSEWHERE)
+            ->when($brandManager,
+                fn ($q) => $q->needingBrandManager($user),
+                fn ($q) => $q->assignedTo($user, ProductRequest::ROLES_ELSEWHERE))
             ->with(['user', 'store', 'assignments.user', 'currentAssignments.user']);
 
         // Closed work is hidden by default — this is a to-do list, not history.
@@ -348,11 +392,14 @@ class ProductRequestController extends Controller implements HasMiddleware
             ->get();
 
         return view('product-requests.my-tasks', [
-            'requests'    => $requests,
-            'teamTasks'   => $this->unclaimedForRole($user),
-            'overdue'     => $requests->filter->isOverdue()->count(),
-            'closedCount' => ProductRequest::query()->assignedTo($user, ProductRequest::ROLES_ELSEWHERE)
-                ->whereIn('status', ProductRequest::CLOSED_STATUSES)->count(),
+            'requests'     => $requests,
+            'brandManager' => $brandManager,
+            'teamTasks'    => $brandManager ? collect() : $this->unclaimedForRole($user),
+            'overdue'      => $requests->filter->isOverdue()->count(),
+            'closedCount'  => $brandManager
+                ? 0
+                : ProductRequest::query()->assignedTo($user, ProductRequest::ROLES_ELSEWHERE)
+                    ->whereIn('status', ProductRequest::CLOSED_STATUSES)->count(),
         ]);
     }
 

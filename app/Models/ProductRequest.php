@@ -1655,6 +1655,84 @@ class ProductRequest extends Model
         });
     }
 
+    /**
+     * What this request is waiting on the brand manager for, or null.
+     *
+     * Their job is narrow: map the SKUs in Cegid, and send the pictures when the
+     * team has asked for them. Everything else on a request belongs to somebody
+     * else, so listing it on their desk only buries the two things that do not.
+     */
+    public function brandManagerTask(): ?string
+    {
+        if ($this->isClosed() || $this->on_hold) {
+            return null;
+        }
+
+        if ($this->status === self::WAITING_MAPPING) {
+            return "Map {$this->balanceSkus()} SKU(s) in Cegid";
+        }
+
+        // Carried on with the mapped half: the rest is still theirs to finish,
+        // even though the request has moved past Waiting for Mapping.
+        if ($this->requiresMapping() && $this->hasSkuBalance()) {
+            return "Map the remaining {$this->balanceSkus()} SKU(s) in Cegid";
+        }
+
+        if ($this->image_request_decision === 'yes' && $this->status === self::WAITING_IMAGES) {
+            return 'Send the product images';
+        }
+
+        return null;
+    }
+
+    /**
+     * Requests actually waiting on this brand manager.
+     *
+     * Deliberately not "every request I hold a role on": a brand manager holds
+     * the Brand Manager slot from the moment a request is raised until it is
+     * published, so that list is their whole category and tells them nothing
+     * about what to do next.
+     */
+    public function scopeNeedingBrandManager($query, User $user)
+    {
+        $managed = $user->brandManagedCategories();
+
+        return $query
+            ->whereNotIn('status', self::CLOSED_STATUSES)
+            ->where('on_hold', false)
+            ->where(function ($q) use ($user, $managed) {
+                $q->whereHas('currentAssignments', fn ($a) => $a
+                    ->where('role', 'brand_manager_id')->where('user_id', $user->id));
+
+                if ($managed) {
+                    $q->orWhereIn('category', $managed);
+                }
+            })
+            ->where(fn ($q) => $q
+                ->where('status', self::WAITING_MAPPING)
+                ->orWhere(fn ($balance) => $balance
+                    ->whereIn('status', [self::SKU_VERIFIED, self::AI_CONTENT])
+                    ->whereColumn('mapped_skus', '<', 'total_skus'))
+                ->orWhere(fn ($images) => $images
+                    ->where('status', self::WAITING_IMAGES)
+                    ->where('image_request_decision', 'yes')));
+    }
+
+    /** Requests a brand manager is following: everything in their categories. */
+    public function scopeInBrandCategories($query, User $user)
+    {
+        $managed = $user->brandManagedCategories();
+
+        return $query->where(function ($q) use ($user, $managed) {
+            $q->whereHas('currentAssignments', fn ($a) => $a
+                ->where('role', 'brand_manager_id')->where('user_id', $user->id));
+
+            if ($managed) {
+                $q->orWhereIn('category', $managed);
+            }
+        });
+    }
+
     /** Requests this user currently holds a role on. */
     /**
      * Requests this person currently holds a role on.

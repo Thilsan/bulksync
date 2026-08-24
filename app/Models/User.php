@@ -127,6 +127,20 @@ class User extends Authenticatable
         ));
     }
 
+    /**
+     * Someone whose whole job on a request is the brand side.
+     *
+     * Their screens are narrowed to it: the two things asked of them, and whether
+     * their brands are live yet. A super admin is excluded — they need the whole
+     * picture even if they also hold the role.
+     */
+    public function isBrandManagerOnly(): bool
+    {
+        return $this->pcr_role === 'brand_manager'
+            && !$this->is_super_admin
+            && !$this->pcr_notify_all;
+    }
+
     public function managesBrandCategory(string $category): bool
     {
         return in_array($category, $this->pcr_brand_categories ?? [], true);

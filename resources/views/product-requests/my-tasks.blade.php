@@ -16,7 +16,15 @@
                 <span class="text-gray-600">Assigned to Me</span>
             </nav>
             <h2 class="text-lg font-semibold text-gray-800">Assigned to Me</h2>
-            <p class="text-sm text-gray-500">Requests where a role has been given to you — Brand Manager or E-Commerce.</p>
+            @if($brandManager ?? false)
+                <p class="text-sm text-gray-500">
+                    What is waiting on you — SKUs to map in Cegid, and images the team has asked for.
+                    Everything in your brands is on the
+                    <a href="{{ route('product-requests.index') }}" class="text-brand-600 hover:text-brand-700 font-medium">dashboard</a>.
+                </p>
+            @else
+                <p class="text-sm text-gray-500">Requests where a role has been given to you — Brand Manager or E-Commerce.</p>
+            @endif
         </div>
         <a href="{{ route('product-requests.index') }}"
            class="inline-flex items-center gap-2 border border-gray-300 text-gray-700 text-sm font-medium px-4 py-2 rounded-lg hover:bg-gray-50 transition-colors shrink-0">
@@ -30,7 +38,7 @@
     {{-- Summary --}}
     <div class="bg-white rounded-xl border border-gray-200 shadow-sm px-5 py-4 flex flex-wrap items-center gap-x-8 gap-y-3">
         <div>
-            <p class="text-xs text-gray-500">Open tasks</p>
+            <p class="text-xs text-gray-500">{{ ($brandManager ?? false) ? 'Waiting on you' : 'Open tasks' }}</p>
             <p class="text-2xl font-semibold text-gray-900 leading-tight">{{ $requests->count() }}</p>
         </div>
         <div>
@@ -142,7 +150,7 @@
                         <th class="px-3 py-2.5 font-medium">Launch</th>
                         <th class="px-3 py-2.5 font-medium">Status</th>
                         <th class="px-3 py-2.5 font-medium">Priority</th>
-                        <th class="px-5 py-2.5 font-medium">My Role</th>
+                        <th class="px-5 py-2.5 font-medium">{{ ($brandManager ?? false) ? 'What is needed' : 'My Role' }}</th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-gray-50">
@@ -202,6 +210,13 @@
                                 $withDates = $mine->filter->due_date;
                             @endphp
                             <td class="px-5 py-3">
+                                {{-- Every row would read "Brand Manager", which is not
+                                     news. What the request is waiting on them for is. --}}
+                                @if(($brandManager ?? false) && $task = $item->brandManagerTask())
+                                    <span class="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-amber-50 text-amber-800 border border-amber-200">
+                                        {{ $task }}
+                                    </span>
+                                @else
                                 @forelse($mine as $brief)
                                     <span class="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-brand-50 text-brand-700 border border-brand-100 whitespace-nowrap">
                                         {{ $brief->roleLabel() }}
@@ -213,6 +228,8 @@
                                         </span>
                                     @endforeach
                                 @endforelse
+
+                                @endif
 
                                 @foreach($withDates as $brief)
                                     <p class="mt-0.5">

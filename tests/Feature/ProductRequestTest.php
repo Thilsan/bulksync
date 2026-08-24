@@ -41,6 +41,25 @@ class ProductRequestTest extends TestCase
         ]);
     }
 
+    /**
+     * Somebody who sees the ordinary screens.
+     *
+     * The brand manager's dashboard and task list are deliberately narrowed to
+     * the two things asked of them, so a test about the shared screens has to be
+     * somebody else — otherwise it is testing the wrong page.
+     */
+    private function ecommerceUser(string $email = 'ecom-user@example.test'): User
+    {
+        return User::create([
+            'name'                 => 'E-Commerce User',
+            'email'                => $email,
+            'password'             => 'password',
+            'is_active'            => true,
+            'perm_product_request' => true,
+            'pcr_role'             => 'ecommerce',
+        ]);
+    }
+
     /** Blue Salon — the one website whose SKUs go through Cegid mapping. */
     private function mappingSite(): Store
     {
@@ -771,11 +790,8 @@ class ProductRequestTest extends TestCase
         $store = $this->plainSite();
 
         // Two brand people, one request each.
-        $mine   = $this->brandManager();
-        $theirs = User::create([
-            'name' => 'Other Brand', 'email' => 'otherbrand@example.test', 'password' => 'password',
-            'is_active' => true, 'perm_product_request' => true, 'pcr_role' => 'brand_manager',
-        ]);
+        $mine   = $this->ecommerceUser('mine@example.test');
+        $theirs = $this->ecommerceUser('theirs@example.test');
 
         $myRequest    = $this->submitFor($mine, $store, 'MINE-1');
         $theirRequest = $this->submitFor($theirs, $store, 'THEIRS-1');
@@ -1941,17 +1957,18 @@ class ProductRequestTest extends TestCase
     {
         Notification::fake();
 
-        $user    = $this->brandManager();
+        $user    = $this->ecommerceUser();
         $store   = $this->mappingSite();
         $mine    = $this->submitFor($user, $store, 'MINE-1');
-        // On a website with no Cegid step, so it does not land at Waiting for
-        // Mapping — a stage this brand manager's role now owns, which would put it
-        // in their unclaimed team work rather than nowhere.
         $notMine = $this->submitFor($user, $this->plainSite(), 'THEIRS-1');
 
         $mine->update(['brand' => 'MY BRAND']);
         $this->assign($mine, 'qa_owner_id', $user);
+
+        // Given to somebody else, so it is neither mine nor unclaimed work my
+        // role would be offered further down the page.
         $notMine->update(['brand' => 'SOMEONE ELSE']);
+        $this->assign($notMine, 'assigned_to', $this->ecommerceUser('other-ecom@example.test'));
 
         $response = $this->actingAs($user)->get(route('product-requests.my-tasks'));
 
@@ -1965,7 +1982,7 @@ class ProductRequestTest extends TestCase
     {
         Notification::fake();
 
-        $user  = $this->brandManager();
+        $user  = $this->ecommerceUser();
         $store = $this->mappingSite();
         $done  = $this->submitFor($user, $store, 'DONE-1');
 
@@ -3459,7 +3476,7 @@ class ProductRequestTest extends TestCase
 
     public function test_the_dashboard_explains_the_process_to_newcomers(): void
     {
-        $user = $this->brandManager();
+        $user = $this->ecommerceUser();
 
         $this->actingAs($user)->get(route('product-requests.index'))
             ->assertOk()
