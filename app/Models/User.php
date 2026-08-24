@@ -10,7 +10,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 
-#[Fillable(['name', 'email', 'password', 'is_super_admin', 'is_active', 'active_store_id', 'perm_bulk_upload', 'perm_sku_checker', 'perm_image_audit', 'perm_store_sync', 'perm_ai_content', 'perm_metafield_update', 'perm_product_request', 'perm_photo_editor', 'pcr_role', 'pcr_categories', 'pcr_brand_categories', 'pcr_owned_brands', 'pcr_managed_brands', 'pcr_notify_all', 'onedrive_access_token', 'onedrive_refresh_token', 'onedrive_token_expiry'])]
+#[Fillable(['name', 'email', 'password', 'is_super_admin', 'is_active', 'active_store_id', 'perm_bulk_upload', 'perm_sku_checker', 'perm_image_audit', 'perm_store_sync', 'perm_ai_content', 'perm_metafield_update', 'perm_product_request', 'perm_photo_editor', 'pcr_role', 'pcr_categories', 'pcr_brand_categories', 'pcr_owned_brands', 'pcr_managed_brands', 'pcr_store_categories', 'pcr_notify_all', 'onedrive_access_token', 'onedrive_refresh_token', 'onedrive_token_expiry'])]
 #[Hidden(['password', 'remember_token', 'onedrive_access_token', 'onedrive_refresh_token', 'onedrive_token_expiry'])]
 class User extends Authenticatable
 {
@@ -35,6 +35,7 @@ class User extends Authenticatable
             'pcr_categories'         => 'array',
             'pcr_brand_categories'   => 'array',
             'pcr_owned_brands'       => 'array',
+            'pcr_store_categories'   => 'array',
             'pcr_managed_brands'     => 'array',
             'pcr_notify_all'         => 'boolean',
         ];
@@ -129,13 +130,39 @@ class User extends Authenticatable
             ->get();
     }
 
-    public static function ownerForCategory(?string $category, ?string $brand = null): ?self
+    /**
+     * How a category on one website is stored: "3|Watches".
+     *
+     * Watches on Blue Salon and Watches on PG are two jobs done by two people,
+     * and a plain category list cannot say that.
+     */
+    public static function storeCategoryKey(?int $storeId, ?string $category): ?string
     {
-        // A brand named explicitly wins: it is the more specific answer, and the
-        // only reason to name one is that the category's owner is not who should
-        // get it.
+        return $storeId && filled($category) ? "{$storeId}|{$category}" : null;
+    }
+
+    /**
+     * Whoever handles a request, most specific answer first.
+     *
+     * A named brand beats a website, and a website beats the plain category —
+     * each is only ever set because the broader answer is not the right one.
+     */
+    public static function ownerForCategory(?string $category, ?string $brand = null, ?int $storeId = null): ?self
+    {
         if ($named = self::forBrand('pcr_owned_brands', $brand)->first()) {
             return $named;
+        }
+
+        if ($key = self::storeCategoryKey($storeId, $category)) {
+            $onThisWebsite = self::query()
+                ->where('is_active', true)
+                ->whereJsonContains('pcr_store_categories', $key)
+                ->orderBy('id')
+                ->first();
+
+            if ($onThisWebsite) {
+                return $onThisWebsite;
+            }
         }
 
         if (blank($category)) {
@@ -147,6 +174,36 @@ class User extends Authenticatable
             ->whereJsonContains('pcr_categories', $category)
             ->orderBy('id')
             ->first();
+    }
+
+    /** store id => [category, ...] this user handles on that website alone. */
+    public function storeCategories(): array
+    {
+        $out = [];
+
+        foreach ($this->pcr_store_categories ?? [] as $key) {
+            [$storeId, $category] = array_pad(explode('|', (string) $key, 2), 2, null);
+
+            if ($storeId && $category) {
+                $out[(int) $storeId][] = $category;
+            }
+        }
+
+        return $out;
+    }
+
+    /** "3|Watches" => the person who holds it, for the Users screen. */
+    public static function storeCategoryOwners(): array
+    {
+        $map = [];
+
+        foreach (self::query()->where('is_active', true)->whereNotNull('pcr_store_categories')->orderBy('id')->get() as $user) {
+            foreach ($user->pcr_store_categories ?? [] as $key) {
+                $map[$key] ??= $user;   // first by id, the same rule staffing uses
+            }
+        }
+
+        return $map;
     }
 
     /**

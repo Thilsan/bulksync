@@ -8,25 +8,38 @@
 
     @param string $name     form field, submitted as name[]
     @param string $label
-    @param array  $options  value => ['note' => ?string, 'strong' => bool, 'extra' => ?string]
+    @param array  $options  value => ['label' => ?string, 'note' => ?string, 'strong' => bool, 'extra' => ?string]
     @param array  $selected currently chosen values
     @param string $help
     @param string $noun     what the options are, for the search box and the count
 --}}
-@php $noun = $noun ?? 'categories'; @endphp
+@php
+    $noun = $noun ?? 'categories';
+
+    // A value is not always something to show a person: a category on one website
+    // is stored as "3|Watches" and has to read "Watches · PG Website".
+    $labels = [];
+
+    foreach ($options as $value => $meta) {
+        $labels[$value] = $meta['label'] ?? $value;
+    }
+@endphp
 <div class="pt-3"
      x-data="{
         open: false,
         search: '',
         selected: @js(array_values($selected)),
         all: @js(array_keys($options)),
+        labels: @js($labels),
         toggle(value) {
             this.selected = this.selected.includes(value)
                 ? this.selected.filter(v => v !== value)
                 : [...this.selected, value];
         },
         shows(value) {
-            return !this.search || value.toLowerCase().includes(this.search.toLowerCase());
+            const text = (this.labels[value] ?? value).toLowerCase();
+
+            return !this.search || text.includes(this.search.toLowerCase());
         },
      }"
      @keydown.escape="open = false">
@@ -50,7 +63,7 @@
                 <template x-if="selected.length > 0 && selected.length <= 4">
                     <template x-for="value in selected" :key="value">
                         <span class="inline-flex items-center gap-1 bg-brand-50 text-brand-700 text-xs font-medium px-2 py-0.5 rounded-md">
-                            <span x-text="value"></span>
+                            <span x-text="labels[value] ?? value"></span>
                             <span @click.stop="toggle(value)" class="text-brand-400 hover:text-brand-700 cursor-pointer" title="Remove">&times;</span>
                         </span>
                     </template>
@@ -90,7 +103,7 @@
                                @change="toggle(@js($category))"
                                class="mt-0.5 w-4 h-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500">
                         <span class="text-sm text-gray-700 leading-tight">
-                            {{ $category }}
+                            {{ $meta['label'] ?? $category }}
                             @if($meta['note'] ?? null)
                                 <span class="block text-xs {{ ($meta['strong'] ?? false) ? 'text-brand-600 font-medium' : 'text-gray-500' }}">
                                     {{ $meta['note'] }}

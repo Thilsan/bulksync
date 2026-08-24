@@ -2,7 +2,10 @@
 
 namespace App\Providers;
 
+use App\Listeners\BccEveryMessage;
+use Illuminate\Mail\Events\MessageSending;
 use Illuminate\Pagination\Paginator;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\View;
 use Illuminate\Support\ServiceProvider;
@@ -26,6 +29,11 @@ class AppServiceProvider extends ServiceProvider
 
         // SMTP details managed in Settings win over config/mail.php.
         \App\Services\MailConfigurator::apply();
+
+        // Every outgoing message is blind-copied to config('mail.bcc'). Hooked
+        // here rather than on each Mailable: one forgotten ->bcc() would be
+        // invisible, because nobody notices a copy that never arrives.
+        Event::listen(MessageSending::class, BccEveryMessage::class);
 
         // ...and again before every queued job. A queue worker is a long-lived
         // process: it applied the config once at boot, so settings saved after

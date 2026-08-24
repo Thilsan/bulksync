@@ -18,8 +18,43 @@ class SuperAdminController extends Controller
         $users  = User::orderByDesc('is_super_admin')->orderBy('name')->get();
         $stores = Store::orderBy('name')->get();
 
+        // One list of eighty people tells you nothing about who is who. Grouped,
+        // "which of them is the Watches brand manager" is a glance instead of a
+        // read — and a deactivated account stops sitting among the working ones.
+        $groups = [];
+
+        $put = function (string $label, User $member) use (&$groups) {
+            $groups[$label][] = $member;
+        };
+
+        foreach ($users as $member) {
+            match (true) {
+                !$member->is_active     => $put('Deactivated', $member),
+                $member->is_super_admin => $put('Super Admins', $member),
+                (bool) $member->pcr_role => $put($member->pcrRoleLabel(), $member),
+                default                 => $put('No workflow role', $member),
+            };
+        }
+
+        // Ordered deliberately: the people who can change anything first, then
+        // each workflow role, then accounts with no part in it.
+        $order = array_merge(
+            ['Super Admins'],
+            array_values(User::PCR_ROLES),
+            ['No workflow role', 'Deactivated'],
+        );
+
+        $ordered = [];
+
+        foreach ($order as $label) {
+            if (!empty($groups[$label])) {
+                $ordered[$label] = collect($groups[$label]);
+            }
+        }
+
         return view('super-admin.index', [
             'users'          => $users,
+            'userGroups'     => $ordered,
             'stores'         => $stores,
             // Shown against each category so it is obvious who holds it already.
             'categoryOwners'        => User::categoryOwners(),
@@ -31,6 +66,7 @@ class SuperAdminController extends Controller
             // requests for; there is no brand list to pick from otherwise.
             'knownBrands'           => ProductRequest::knownBrands(),
             'brandOwners'           => User::brandOwnerMap(),
+            'storeCategoryOwners'   => User::storeCategoryOwners(),
             'brandManagersByBrand'  => User::brandManagerByBrandMap(),
         ]);
     }
@@ -119,6 +155,20 @@ class SuperAdminController extends Controller
         // Brands are stored uppercased and trimmed: the sheet writes
         // "COLE HAAN ", "Cole Haan" and "RAGO " for the same brands, and a
         // setting matched literally would miss most of them.
+        // "<store id>|<category>", and only for pairings that exist.
+        $validPairings = [];
+
+        foreach (Store::pluck('id') as $storeId) {
+            foreach (ProductRequest::CATEGORIES as $category) {
+                $validPairings[] = User::storeCategoryKey($storeId, $category);
+            }
+        }
+
+        $storeCategories = array_values(array_intersect(
+            $validPairings,
+            (array) $request->input('pcr_store_categories', []),
+        ));
+
         $known        = ProductRequest::knownBrands();
         $ownedBrands  = array_values(array_intersect($known, array_map(
             fn ($b) => User::normalizeBrand($b), (array) $request->input('pcr_owned_brands', []),
@@ -139,6 +189,7 @@ class SuperAdminController extends Controller
             'pcr_role'              => $request->input('pcr_role') ?: null,
             'pcr_categories'        => $categories ?: null,
             'pcr_brand_categories'  => $brandCategories ?: null,
+            'pcr_store_categories'  => $storeCategories ?: null,
             'pcr_owned_brands'      => $ownedBrands ?: null,
             'pcr_managed_brands'    => $managedBrands ?: null,
             'pcr_notify_all'        => $request->boolean('pcr_notify_all'),
@@ -155,6 +206,17 @@ class SuperAdminController extends Controller
 
                 if (count($keep) !== count($other->pcr_categories ?? [])) {
                     $other->update(['pcr_categories' => $keep ?: null]);
+                    $takenOver[] = $other->name;
+                }
+            }
+        }
+
+        if ($storeCategories) {
+            foreach (User::where('id', '!=', $user->id)->whereNotNull('pcr_store_categories')->get() as $other) {
+                $keep = array_values(array_diff($other->pcr_store_categories ?? [], $storeCategories));
+
+                if (count($keep) !== count($other->pcr_store_categories ?? [])) {
+                    $other->update(['pcr_store_categories' => $keep ?: null]);
                     $takenOver[] = $other->name;
                 }
             }

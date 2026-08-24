@@ -69,9 +69,21 @@
             </form>
         </div>
 
-        {{-- Users table --}}
-        <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
-            @foreach($users as $user)
+        {{-- Users, grouped by what they are.
+             One list of eighty names tells you nothing about who is who; the
+             question people actually arrive with is "which of them is the Watches
+             brand manager", and a deactivated account has no business sitting
+             among the working ones. --}}
+        @foreach($userGroups as $groupLabel => $groupUsers)
+        <div class="mb-4">
+            <div class="flex items-center gap-2 px-1 mb-1.5">
+                <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wide">{{ $groupLabel }}</h3>
+                <span class="text-xs text-gray-400">{{ $groupUsers->count() }}</span>
+            </div>
+
+        <div class="bg-white rounded-xl border border-gray-200 overflow-hidden
+                    {{ $groupLabel === 'Deactivated' ? 'opacity-70' : '' }}">
+            @foreach($groupUsers as $user)
             <div x-data="{ open: false }" class="border-b border-gray-100 last:border-0">
 
                 {{-- User row --}}
@@ -246,6 +258,39 @@
                             ])
                             </template>
 
+                            {{-- Watches on Blue Salon and Watches on PG are two jobs
+                                 done by two people, which a plain category list
+                                 cannot say. Named here, the website wins for that
+                                 one pairing and the category list covers the rest. --}}
+                            <template x-if="role !== 'brand_manager'">
+                            @php
+                                $storeCategoryOptions = [];
+
+                                foreach ($stores as $store) {
+                                    foreach (\App\Models\ProductRequest::CATEGORIES as $category) {
+                                        $key    = \App\Models\User::storeCategoryKey($store->id, $category);
+                                        $heldBy = $storeCategoryOwners[$key] ?? null;
+
+                                        $storeCategoryOptions[$key] = [
+                                            'label' => "{$category} · {$store->name}",
+                                            'note'  => $heldBy && $heldBy->id !== $user->id ? $heldBy->name : null,
+                                        ];
+                                    }
+                                }
+                            @endphp
+
+                            @include('super-admin.partials.category-picker', [
+                                'name'     => 'pcr_store_categories',
+                                'label'    => 'Categories handled on one website only',
+                                'noun'     => 'pairings',
+                                'options'  => $storeCategoryOptions,
+                                'selected' => $user->pcr_store_categories ?? [],
+                                'help'     => 'For a category split across websites — Watches on Blue Salon to one person, '
+                                            . 'Watches on PG to another. Named here, this beats Categories Handled for that '
+                                            . 'website alone. Leave empty when the same person handles a category everywhere.',
+                            ])
+                            </template>
+
                             {{-- A category is usually the right unit, but not always:
                                  Cole Haan sits in Leather Goods and is somebody
                                  else's brand. Naming it here overrides the category
@@ -366,6 +411,8 @@
             </div>
             @endforeach
         </div>
+        </div>
+        @endforeach
     </div>
 
 </div>

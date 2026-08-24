@@ -225,7 +225,7 @@ class ProductRequest extends Model
      */
     public function categoryOwner(): ?User
     {
-        return User::ownerForCategory($this->category, $this->brand);
+        return User::ownerForCategory($this->category, $this->brand, $this->store_id);
     }
 
     /** The list, plus whatever this request was raised with before the list existed. */

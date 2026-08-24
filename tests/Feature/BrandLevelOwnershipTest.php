@@ -160,6 +160,107 @@ class BrandLevelOwnershipTest extends TestCase
         $page->assertDontSee('POURCHET');
     }
 
+    // ── A category split across websites ─────────────────────────────────────
+
+    /**
+     * Watches on Blue Salon and Watches on PG are two jobs done by two people,
+     * which a plain category list could not say — whoever was given "Watches"
+     * took both.
+     */
+    public function test_a_category_can_be_handled_by_website(): void
+    {
+        $pg = Store::create([
+            'name' => 'PG Website', 'shopify_domain' => 'paris-gallery-qatar.myshopify.com', 'is_active' => true,
+        ]);
+
+        $everywhere = $this->user('Ahmad', ['pcr_role' => 'ecommerce', 'pcr_categories' => ['Watches']]);
+        $onPg       = $this->user('Ghassen', [
+            'pcr_role' => 'ecommerce',
+            'pcr_store_categories' => [User::storeCategoryKey($pg->id, 'Watches')],
+        ]);
+
+        $this->assertSame($onPg->id, User::ownerForCategory('Watches', null, $pg->id)?->id);
+
+        // Every other website falls to the plain category list.
+        $this->assertSame($everywhere->id, User::ownerForCategory('Watches', null, $this->store->id)?->id);
+    }
+
+    /** A brand named to somebody is more specific still. */
+    public function test_a_named_brand_beats_a_website(): void
+    {
+        $pg = Store::create([
+            'name' => 'PG Website', 'shopify_domain' => 'paris-gallery-qatar.myshopify.com', 'is_active' => true,
+        ]);
+
+        $this->user('Ghassen', [
+            'pcr_role' => 'ecommerce',
+            'pcr_store_categories' => [User::storeCategoryKey($pg->id, 'Watches')],
+        ]);
+        $forBrand = $this->user('Cerruti Owner', ['pcr_role' => 'ecommerce', 'pcr_owned_brands' => ['CERRUTI']]);
+
+        $this->assertSame($forBrand->id, User::ownerForCategory('Watches', 'Cerruti', $pg->id)?->id);
+    }
+
+    public function test_a_request_is_staffed_from_its_website_pairing(): void
+    {
+        $this->user('Ahmad', ['pcr_role' => 'ecommerce', 'pcr_categories' => ['Watches']]);
+        $onBlueSalon = $this->user('Ghassen', [
+            'pcr_role' => 'ecommerce',
+            'pcr_store_categories' => [User::storeCategoryKey($this->store->id, 'Watches')],
+        ]);
+
+        $request = $this->request('CERRUTI', 'Watches');
+
+        app(ProductRequestWorkflow::class)->staffFromCategory($request, null, notify: false);
+
+        $this->assertSame($onBlueSalon->id, $request->refresh()->ownerFor('assigned_to')?->id);
+    }
+
+    /** One pairing, one person — the same rule categories and brands follow. */
+    public function test_giving_a_pairing_to_someone_takes_it_off_whoever_held_it(): void
+    {
+        $admin   = $this->user('Root', ['is_super_admin' => true]);
+        $pairing = User::storeCategoryKey($this->store->id, 'Watches');
+
+        $first  = $this->user('First', ['pcr_role' => 'ecommerce', 'pcr_store_categories' => [$pairing]]);
+        $second = $this->user('Second', ['pcr_role' => 'ecommerce']);
+
+        $this->actingAs($admin)->post(route('super-admin.users.permissions', $second), [
+            'perm_product_request'  => 1,
+            'pcr_role'              => 'ecommerce',
+            'pcr_store_categories'  => [$pairing],
+        ])->assertRedirect();
+
+        $this->assertNull($first->fresh()->pcr_store_categories);
+        $this->assertSame([$pairing], $second->fresh()->pcr_store_categories);
+    }
+
+    /** A website that does not exist is not a pairing. */
+    public function test_an_invalid_pairing_is_dropped(): void
+    {
+        $admin = $this->user('Root', ['is_super_admin' => true]);
+        $them  = $this->user('Somebody', ['pcr_role' => 'ecommerce']);
+
+        $this->actingAs($admin)->post(route('super-admin.users.permissions', $them), [
+            'perm_product_request' => 1,
+            'pcr_role'             => 'ecommerce',
+            'pcr_store_categories' => ['9999|Watches', $this->store->id . '|Not A Category'],
+        ])->assertRedirect();
+
+        $this->assertNull($them->fresh()->pcr_store_categories);
+    }
+
+    public function test_the_pairing_picker_reads_as_category_and_website(): void
+    {
+        $admin = $this->user('Root', ['is_super_admin' => true]);
+        $this->user('Somebody', ['pcr_role' => 'ecommerce']);
+
+        $this->actingAs($admin)->get(route('super-admin.index'))
+            ->assertOk()
+            ->assertSee('Categories handled on one website only')
+            ->assertSee('Watches · Bluesalon Website');
+    }
+
     // ── The Users screen ────────────────────────────────────────────────────
 
     public function test_the_picker_saves_brands_uppercased(): void
