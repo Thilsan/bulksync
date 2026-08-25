@@ -15,6 +15,25 @@
     $name = fn ($field) => $prefix . '[' . $field . ']';
     $val  = fn ($field, $default = null) => data_get($edits, $field, $default);
     $bg   = $val('background_mode', 'white');
+
+    /*
+     * Per-edge spacing is stored with its unit ("40px") so nothing downstream
+     * has to guess; the boxes show just the number beside a px label.
+     */
+    $edgePx = function (string $side) use ($val) {
+        $stored = (string) $val('padding_' . $side);
+
+        return str_ends_with($stored, 'px') ? (int) rtrim($stored, 'px') : null;
+    };
+
+    // Handed to the browser whole, so clicking a category sets the same values
+    // the server will write when the form comes back.
+    $framingPresets = collect(\App\Services\PhotoroomService::FRAMING_PRESETS)
+        ->map(fn (array $preset) => [
+            'label' => $preset['label'],
+            'note'  => $preset['note'],
+            'edits' => array_merge(\App\Services\PhotoroomService::FRAMING_FIELDS, $preset['edits']),
+        ]);
 @endphp
 
 <div>
@@ -90,124 +109,189 @@
 </div>
 
 <div x-data="{
+        preset:  @js($val('framing_preset')),
+        presets: @js($framingPresets),
+
         width:   {{ $val('width') ?: 'null' }},
         height:  {{ $val('height') ?: 'null' }},
         padding: {{ $val('padding') ?: 0 }},
+        padTop:    @js($edgePx('top')),
+        padBottom: @js($edgePx('bottom')),
+        padLeft:   @js($edgePx('left')),
+        padRight:  @js($edgePx('right')),
+        hAlign:  @js($val('h_align', 'center')),
+        vAlign:  @js($val('v_align', 'center')),
+        scaling: @js($val('scaling', 'fit')),
+        refBox:  @js($val('reference_box', 'subjectBox')),
         custom:  false,
+
+        /* A category standard is only a standard while nobody edits round it. */
+        get locked() { return !! this.preset },
+
         pick(w, h) { this.width = w; this.height = h; this.custom = false },
         clear()    { this.width = null; this.height = null; this.custom = false },
+
+        usePreset(key) {
+            this.preset = key || null;
+
+            if (! key) return;
+
+            const e = this.presets[key].edits;
+
+            this.width  = e.width;
+            this.height = e.height;
+            this.padding = e.padding ?? 0;
+            this.padTop = e.padding_top; this.padBottom = e.padding_bottom;
+            this.padLeft = e.padding_left; this.padRight = e.padding_right;
+            this.hAlign = e.h_align; this.vAlign = e.v_align;
+            this.scaling = e.scaling; this.refBox = e.reference_box;
+            this.custom = false;
+        },
      }">
     <span class="mb-2 block text-xs font-semibold uppercase tracking-wide text-gray-500">Size &amp; framing</span>
 
-    {{-- Presets before the raw boxes. A number field with "original" in it
-         gives no hint that 2048 is the answer Shopify wants, and this screen is
-         now the only place the size is set. --}}
-    <div class="flex flex-wrap gap-2">
-        <button type="button" @click="clear()"
-                :class="!width && !height && !custom ? 'border-gray-800 bg-gray-800 text-white' : 'border-gray-300 bg-white text-gray-600 hover:border-gray-400'"
-                class="rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors">Keep original</button>
-        @foreach ([[2048, 'Shopify'], [2000, null], [1200, null], [1000, null], [800, null], [600, null]] as [$px, $note])
-            <button type="button" @click="pick({{ $px }}, {{ $px }})"
-                    :class="width === {{ $px }} && height === {{ $px }} ? 'border-brand-600 bg-brand-600 text-white' : 'border-gray-300 bg-white text-gray-700 hover:border-brand-400'"
-                    class="rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors">
-                {{ $px }} &times; {{ $px }}@if ($note)<span class="ml-1 opacity-70">({{ $note }})</span>@endif
-            </button>
-        @endforeach
-        <button type="button" @click="custom = true"
-                :class="custom ? 'border-gray-800 bg-gray-800 text-white' : 'border-gray-300 bg-white text-gray-600 hover:border-gray-400'"
-                class="rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors">Custom&hellip;</button>
-    </div>
-
-    <div x-show="custom || (width && height)" x-cloak class="mt-3 grid gap-3 sm:grid-cols-2">
-        <div>
-            <label for="w-{{ $uid }}" class="mb-1 block text-xs text-gray-600">Width (px)</label>
-            <input id="w-{{ $uid }}" type="number" name="{{ $name('width') }}" min="100" max="5000"
-                   x-model.number="width" @input="custom = true" placeholder="original"
-                   class="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none">
-        </div>
-        <div>
-            <label for="h-{{ $uid }}" class="mb-1 block text-xs text-gray-600">Height (px)</label>
-            <input id="h-{{ $uid }}" type="number" name="{{ $name('height') }}" min="100" max="5000"
-                   x-model.number="height" @input="custom = true" placeholder="original"
-                   class="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none">
-        </div>
-    </div>
-
-    {{-- A percentage, not a decimal. "0.08" reads as a setting; "8%" reads as
-         an amount of space, which is what the operator is actually choosing. --}}
-    <div class="mt-4">
-        <div class="mb-1 flex items-baseline justify-between">
-            <label for="pad-{{ $uid }}" class="text-xs text-gray-600">Breathing room around the product</label>
-            <span class="text-xs font-semibold tabular-nums text-brand-700" x-text="Math.round(padding * 100) + '%'"></span>
-        </div>
-        <input id="pad-{{ $uid }}" type="range" name="{{ $name('padding') }}"
-               x-model.number="padding" min="0" max="0.4" step="0.01" class="w-full accent-brand-600">
-    </div>
-
-    {{-- Per-edge spacing. The slider above is even on all four sides, which is
-         right for a garment and wrong for a shoe: a shoe photographed on its
-         sole wants headroom above and almost none below, or it floats. --}}
-    <details class="mt-3 rounded-lg border border-gray-200 px-3 py-2">
-        <summary class="cursor-pointer text-xs font-medium text-gray-600">Different space on each side</summary>
-        <p class="mt-2 text-xs text-gray-500">
-            Pixels on the finished canvas. Overrides the slider on that side only —
-            leave blank to keep the even spacing.
-        </p>
-        <div class="mt-2 grid gap-3 sm:grid-cols-4">
-            @foreach (['top' => 'Top', 'bottom' => 'Bottom', 'left' => 'Left', 'right' => 'Right'] as $edge => $label)
-                @php
-                    // Stored with its unit ("40px") so nothing downstream has to
-                    // guess; the box shows just the number beside a px label.
-                    $edgeValue = (string) $val('padding_' . $edge);
-                    $edgeShown = str_ends_with($edgeValue, 'px') ? rtrim($edgeValue, 'px') : null;
-                @endphp
-                <div>
-                    <label for="pad-{{ $edge }}-{{ $uid }}" class="mb-1 block text-xs text-gray-600">{{ $label }}</label>
-                    <div class="relative">
-                        <input id="pad-{{ $edge }}-{{ $uid }}" type="number" min="0" max="2000" step="1"
-                               name="{{ $name('padding_' . $edge) }}" value="{{ $edgeShown }}" placeholder="—"
-                               class="w-full rounded-lg border border-gray-300 py-1.5 pl-3 pr-9 text-sm focus:border-brand-500 focus:outline-none">
-                        <span class="pointer-events-none absolute inset-y-0 right-2.5 flex items-center text-xs text-gray-400">px</span>
-                    </div>
-                </div>
+    {{-- The whole point of the screen for a catalogue: pick the category once
+         and every photo under it is framed to the same numbers, so the product
+         lands on the same spot on the canvas whatever the shoot did. Nothing
+         below is a per-photo decision after that, which is why picking a
+         category locks the boxes rather than merely filling them in. --}}
+    <div class="rounded-lg border border-gray-200 bg-gray-50 p-3">
+        <span class="mb-2 block text-xs font-medium text-gray-700">Category</span>
+        <div class="flex flex-wrap gap-2">
+            @foreach ($framingPresets as $key => $framingPreset)
+                <button type="button" @click="usePreset('{{ $key }}')"
+                        :class="preset === '{{ $key }}' ? 'border-brand-600 bg-brand-600 text-white' : 'border-gray-300 bg-white text-gray-700 hover:border-brand-400'"
+                        class="rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors">{{ $framingPreset['label'] }}</button>
             @endforeach
+            <button type="button" @click="usePreset('')"
+                    :class="! preset ? 'border-gray-800 bg-gray-800 text-white' : 'border-gray-300 bg-white text-gray-600 hover:border-gray-400'"
+                    class="rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors">Frame by hand</button>
         </div>
-    </details>
 
-    <div class="mt-4 grid gap-3 sm:grid-cols-4">
-        <div>
-            <label for="halign-{{ $uid }}" class="mb-1 block text-xs text-gray-600">Horizontal</label>
-            <select id="halign-{{ $uid }}" name="{{ $name('h_align') }}"
-                    class="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none">
-                @foreach (['left' => 'Left', 'center' => 'Centred', 'right' => 'Right'] as $value => $label)
-                    <option value="{{ $value }}" @selected($val('h_align', 'center') === $value)>{{ $label }}</option>
+        <p x-show="preset" x-cloak class="mt-2 text-xs text-gray-600">
+            <span x-text="presets[preset]?.note"></span>
+            Every photo under this category is framed to these numbers, so they line up with each other and with
+            what is already on the website.
+        </p>
+        <p x-show="! preset" x-cloak class="mt-2 text-xs text-gray-500">
+            Framing set by hand below. Fine for a one-off, but two SKUs framed by hand on different days will not
+            match each other.
+        </p>
+
+        {{-- The name of the standard, kept beside the values it produced. The
+             server expands it again on the way in: the boxes below are disabled
+             while a category is picked, so a browser posts back only some of
+             them, and the category is the thing that decides them all. --}}
+        <input type="hidden" name="{{ $name('framing_preset') }}"
+               value="{{ $val('framing_preset') }}" :value="preset ?? ''">
+    </div>
+
+    <div class="mt-4" :class="locked ? 'pointer-events-none opacity-50' : ''">
+        {{-- Presets before the raw boxes. A number field with "original" in it
+             gives no hint that 2048 is the answer Shopify wants, and this screen is
+             now the only place the size is set. --}}
+        <div class="flex flex-wrap gap-2">
+            <button type="button" @click="clear()" :disabled="locked"
+                    :class="!width && !height && !custom ? 'border-gray-800 bg-gray-800 text-white' : 'border-gray-300 bg-white text-gray-600 hover:border-gray-400'"
+                    class="rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors">Keep original</button>
+            @foreach ([[2048, 'Shopify'], [2000, null], [1200, null], [1000, null], [800, null], [600, null]] as [$px, $note])
+                <button type="button" @click="pick({{ $px }}, {{ $px }})" :disabled="locked"
+                        :class="width === {{ $px }} && height === {{ $px }} ? 'border-brand-600 bg-brand-600 text-white' : 'border-gray-300 bg-white text-gray-700 hover:border-brand-400'"
+                        class="rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors">
+                    {{ $px }} &times; {{ $px }}@if ($note)<span class="ml-1 opacity-70">({{ $note }})</span>@endif
+                </button>
+            @endforeach
+            <button type="button" @click="custom = true" :disabled="locked"
+                    :class="custom ? 'border-gray-800 bg-gray-800 text-white' : 'border-gray-300 bg-white text-gray-600 hover:border-gray-400'"
+                    class="rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors">Custom&hellip;</button>
+        </div>
+
+        <div x-show="custom || (width && height)" x-cloak class="mt-3 grid gap-3 sm:grid-cols-2">
+            <div>
+                <label for="w-{{ $uid }}" class="mb-1 block text-xs text-gray-600">Width (px)</label>
+                <input id="w-{{ $uid }}" type="number" name="{{ $name('width') }}" min="100" max="5000"
+                       x-model.number="width" @input="custom = true" :disabled="locked" placeholder="original"
+                       class="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none">
+            </div>
+            <div>
+                <label for="h-{{ $uid }}" class="mb-1 block text-xs text-gray-600">Height (px)</label>
+                <input id="h-{{ $uid }}" type="number" name="{{ $name('height') }}" min="100" max="5000"
+                       x-model.number="height" @input="custom = true" :disabled="locked" placeholder="original"
+                       class="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none">
+            </div>
+        </div>
+
+        {{-- A percentage, not a decimal. "0.08" reads as a setting; "8%" reads as
+             an amount of space, which is what the operator is actually choosing. --}}
+        <div class="mt-4">
+            <div class="mb-1 flex items-baseline justify-between">
+                <label for="pad-{{ $uid }}" class="text-xs text-gray-600">Breathing room around the product</label>
+                <span class="text-xs font-semibold tabular-nums text-brand-700" x-text="Math.round(padding * 100) + '%'"></span>
+            </div>
+            <input id="pad-{{ $uid }}" type="range" name="{{ $name('padding') }}" :disabled="locked"
+                   x-model.number="padding" min="0" max="0.4" step="0.01" class="w-full accent-brand-600">
+        </div>
+
+        {{-- Per-edge spacing. The slider above is even on all four sides, which is
+             right for a garment and wrong for a shoe: a shoe photographed on its
+             sole wants headroom above and almost none below, or it floats. --}}
+        <details class="mt-3 rounded-lg border border-gray-200 px-3 py-2">
+            <summary class="cursor-pointer text-xs font-medium text-gray-600">Different space on each side</summary>
+            <p class="mt-2 text-xs text-gray-500">
+                Pixels on the finished canvas. Overrides the slider on that side only —
+                leave blank to keep the even spacing.
+            </p>
+            <div class="mt-2 grid gap-3 sm:grid-cols-4">
+                @foreach (['top' => 'Top', 'bottom' => 'Bottom', 'left' => 'Left', 'right' => 'Right'] as $edge => $label)
+                    <div>
+                        <label for="pad-{{ $edge }}-{{ $uid }}" class="mb-1 block text-xs text-gray-600">{{ $label }}</label>
+                        <div class="relative">
+                            <input id="pad-{{ $edge }}-{{ $uid }}" type="number" min="0" max="2000" step="1"
+                                   name="{{ $name('padding_' . $edge) }}" :disabled="locked" placeholder="&mdash;"
+                                   x-model.number="pad{{ ucfirst($edge) }}"
+                                   class="w-full rounded-lg border border-gray-300 py-1.5 pl-3 pr-9 text-sm focus:border-brand-500 focus:outline-none">
+                            <span class="pointer-events-none absolute inset-y-0 right-2.5 flex items-center text-xs text-gray-400">px</span>
+                        </div>
+                    </div>
                 @endforeach
-            </select>
-        </div>
-        <div>
-            <label for="valign-{{ $uid }}" class="mb-1 block text-xs text-gray-600">Vertical</label>
-            <select id="valign-{{ $uid }}" name="{{ $name('v_align') }}"
-                    class="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none">
-                @foreach (['top' => 'Top', 'center' => 'Centred', 'bottom' => 'Bottom'] as $value => $label)
-                    <option value="{{ $value }}" @selected($val('v_align', 'center') === $value)>{{ $label }}</option>
-                @endforeach
-            </select>
-        </div>
-        <div>
-            <label for="scale-{{ $uid }}" class="mb-1 block text-xs text-gray-600">Scaling</label>
-            <select id="scale-{{ $uid }}" name="{{ $name('scaling') }}"
-                    class="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none">
-                <option value="fit"  @selected($val('scaling', 'fit') === 'fit')>Fit — show it all</option>
-                <option value="fill" @selected($val('scaling') === 'fill')>Fill the canvas</option>
-            </select>
-        </div>
-        <div>
-            <label for="refbox-{{ $uid }}" class="mb-1 block text-xs text-gray-600">Measured from</label>
-            <select id="refbox-{{ $uid }}" name="{{ $name('reference_box') }}"
-                    class="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none">
-                <option value="subjectBox"    @selected($val('reference_box', 'subjectBox') === 'subjectBox')>The product itself</option>
-                <option value="originalImage" @selected($val('reference_box') === 'originalImage')>The original frame</option>
-            </select>
+            </div>
+        </details>
+
+        <div class="mt-4 grid gap-3 sm:grid-cols-4">
+            <div>
+                <label for="halign-{{ $uid }}" class="mb-1 block text-xs text-gray-600">Horizontal</label>
+                <select id="halign-{{ $uid }}" name="{{ $name('h_align') }}" x-model="hAlign" :disabled="locked"
+                        class="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none">
+                    @foreach (['left' => 'Left', 'center' => 'Centred', 'right' => 'Right'] as $value => $label)
+                        <option value="{{ $value }}">{{ $label }}</option>
+                    @endforeach
+                </select>
+            </div>
+            <div>
+                <label for="valign-{{ $uid }}" class="mb-1 block text-xs text-gray-600">Vertical</label>
+                <select id="valign-{{ $uid }}" name="{{ $name('v_align') }}" x-model="vAlign" :disabled="locked"
+                        class="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none">
+                    @foreach (['top' => 'Top', 'center' => 'Centred', 'bottom' => 'Bottom'] as $value => $label)
+                        <option value="{{ $value }}">{{ $label }}</option>
+                    @endforeach
+                </select>
+            </div>
+            <div>
+                <label for="scale-{{ $uid }}" class="mb-1 block text-xs text-gray-600">Scaling</label>
+                <select id="scale-{{ $uid }}" name="{{ $name('scaling') }}" x-model="scaling" :disabled="locked"
+                        class="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none">
+                    <option value="fit">Fit — show it all</option>
+                    <option value="fill">Fill the canvas</option>
+                </select>
+            </div>
+            <div>
+                <label for="refbox-{{ $uid }}" class="mb-1 block text-xs text-gray-600">Measured from</label>
+                <select id="refbox-{{ $uid }}" name="{{ $name('reference_box') }}" x-model="refBox" :disabled="locked"
+                        class="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none">
+                    <option value="subjectBox">The product itself</option>
+                    <option value="originalImage">The original frame</option>
+                </select>
+            </div>
         </div>
     </div>
 </div>

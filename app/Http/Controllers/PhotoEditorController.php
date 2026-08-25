@@ -420,7 +420,21 @@ class PhotoEditorController extends Controller implements HasMiddleware
             }
         }
 
-        return array_merge($existing, $input);
+        $merged = array_merge($existing, $input);
+
+        /*
+         * The category framing is expanded here rather than taken from the
+         * form. The screen fills those boxes in as a preview and then locks
+         * them, so what a browser posts back for them is incomplete by design
+         * — and a request that never ran the JS at all would otherwise store a
+         * category name beside framing that does not match it.
+         */
+        return PhotoroomService::applyFramingPreset(
+            $merged,
+            array_key_exists('framing_preset', $input)
+                ? $input['framing_preset']
+                : ($existing['framing_preset'] ?? null),
+        );
     }
 
     public function status(Request $request, PhotoEditSession $session): JsonResponse

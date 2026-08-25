@@ -140,6 +140,88 @@ class PhotoroomService
         'custom'         => 'Exact pixel size',
     ];
 
+    /*
+     * ── Category framing ───────────────────────────────────────────────────
+     *
+     * A category's photos come from different shoots, cropped differently, and
+     * a collection page shows them side by side — so what makes a page read as
+     * one brand is the product landing in the same place on every canvas.
+     *
+     * Photoroom measures padding and alignment from the subject's own bounding
+     * box, so pinning the canvas, the padding, the alignment and the scaling
+     * pins the position: the garment is scaled to the same height and set down
+     * on the same spot whatever the photograph around it was doing.
+     */
+
+    /**
+     * Every field a framing preset governs, and what that field means when the
+     * preset does not name it.
+     *
+     * Applying a preset writes all of them rather than only the ones it names.
+     * A padding_top left behind by a previous choice is exactly the kind of
+     * leftover that puts one photo of the twelve half a centimetre off.
+     */
+    public const FRAMING_FIELDS = [
+        'width'              => null,
+        'height'             => null,
+        'max_width'          => null,
+        'max_height'         => null,
+        'padding'            => null,
+        'padding_top'        => null,
+        'padding_bottom'     => null,
+        'padding_left'       => null,
+        'padding_right'      => null,
+        'margin'             => null,
+        'margin_top'         => null,
+        'margin_bottom'      => null,
+        'margin_left'        => null,
+        'margin_right'       => null,
+        'h_align'            => 'center',
+        'v_align'            => 'center',
+        'scaling'            => 'fit',
+        'reference_box'      => 'subjectBox',
+        'snap_cropped_sides' => false,
+    ];
+
+    /**
+     * The framing each category is photographed to.
+     *
+     * Layout only. Background, mannequin removal and finishing stay separate
+     * decisions — a preset that quietly changed them would be a preset nobody
+     * trusted, and they are not what makes a collection page look uneven.
+     *
+     * 2048 is Shopify's own longest useful edge, and a square is what its grid
+     * crops to; the padding is the only figure that really differs, because it
+     * is what decides how big the product reads at.
+     */
+    public const FRAMING_PRESETS = [
+        'women_dresses' => [
+            'label' => "Women's dresses",
+            'note'  => 'Full length, centred on a 2048 square with 6% around it. Shoulders and hem land on the same two lines on every shot.',
+            'edits' => ['width' => 2048, 'height' => 2048, 'padding' => 0.06],
+        ],
+        'women_tops' => [
+            'label' => "Women's tops",
+            'note'  => 'The same square with more room around it, so a shirt beside a gown does not read as the same size garment.',
+            'edits' => ['width' => 2048, 'height' => 2048, 'padding' => 0.14],
+        ],
+        'bags' => [
+            'label' => 'Bags',
+            'note'  => 'Centred on a 2048 square with 12% around it, handles and straps included in what is measured.',
+            'edits' => ['width' => 2048, 'height' => 2048, 'padding' => 0.12],
+        ],
+        'shoes' => [
+            'label' => 'Shoes',
+            'note'  => 'Stood on the lower part of a 2048 square rather than centred, so a heel sits on a line instead of floating.',
+            'edits' => ['width' => 2048, 'height' => 2048, 'padding' => 0.12, 'v_align' => 'bottom'],
+        ],
+        'watches_jewellery' => [
+            'label' => 'Watches & jewellery',
+            'note'  => 'Small products, so the canvas is filled harder: 2048 square, 8% around.',
+            'edits' => ['width' => 2048, 'height' => 2048, 'padding' => 0.08],
+        ],
+    ];
+
     public const COLOR_SPACES = ['sRGB', 'original'];
 
     public const METADATA_MODES = [
@@ -342,6 +424,13 @@ class PhotoroomService
             'upscale'  => false,
             'expand'   => false,
 
+            /*
+             * Which category framing was followed, kept beside the values it
+             * produced so a run can say what standard it was held to — and so
+             * the screen can show the choice again rather than a bare 6%.
+             */
+            'framing_preset' => null,
+
             'width'    => null,
             'height'   => null,
             'padding'  => null,
@@ -355,6 +444,39 @@ class PhotoroomService
             'export_format' => 'auto',
             'color_space'   => 'sRGB',
         ];
+    }
+
+    /** One category's framing, or null when the key is not one we know. */
+    public static function framingPreset(?string $key): ?array
+    {
+        return filled($key) ? (self::FRAMING_PRESETS[$key] ?? null) : null;
+    }
+
+    public static function framingPresetLabel(?string $key): ?string
+    {
+        return self::framingPreset($key)['label'] ?? null;
+    }
+
+    /**
+     * Write a category's framing over whatever framing $edits had.
+     *
+     * A blank or unknown key means this one is being framed by hand: the
+     * framing is left exactly as it is and the category name is dropped,
+     * rather than a run claiming a standard it is not actually following.
+     */
+    public static function applyFramingPreset(array $edits, ?string $key): array
+    {
+        $preset = self::framingPreset($key);
+
+        if (!$preset) {
+            $edits['framing_preset'] = null;
+
+            return $edits;
+        }
+
+        return array_merge($edits, self::FRAMING_FIELDS, $preset['edits'], [
+            'framing_preset' => $key,
+        ]);
     }
 
     /**

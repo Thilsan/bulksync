@@ -184,6 +184,13 @@ class PhotoEditSession extends Model
         if (!empty($edits['text_removal']))    $parts[] = 'Text removed';
         if (!empty($edits['outline_color']))   $parts[] = 'Outlined';
 
+        // Named rather than described. "Women's dresses" says the run was held
+        // to a standard, where "2048 x 2048 - 6%" reads as somebody's guess on
+        // the day, which is the thing this is meant to replace.
+        if ($framing = \App\Services\PhotoroomService::framingPresetLabel($edits['framing_preset'] ?? null)) {
+            $parts[] = $framing . ' framing';
+        }
+
         // A generated canvas sets its own dimensions, so quoting a pixel size
         // next to it would describe something that never happened.
         if (!empty($edits['apparel_size'])) {
