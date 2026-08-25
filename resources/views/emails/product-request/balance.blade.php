@@ -8,7 +8,7 @@
 
     @if($complete)
         <p style="margin:0;">
-            Every SKU on <strong>{{ $requestName }}</strong> is now mapped in Cegid —
+            Every SKU on <strong>{{ $requestName }}</strong> is now mapped in Shopify —
             <strong style="color:#047857;">{{ $mapped }} of {{ $total }}</strong>.
         </p>
 

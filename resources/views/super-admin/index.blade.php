@@ -258,6 +258,46 @@
                             ])
                             </template>
 
+                            {{-- Leather Goods on Blue Salon and Leather Goods on
+                                 Samsonite are two brand sides followed by two
+                                 people. Named here, the website wins for that
+                                 one pairing and the category list covers the
+                                 rest — leaving the plain category set as well
+                                 keeps the emails coming from every website. --}}
+                            <template x-if="role === 'brand_manager'">
+                            @php
+                                $brandStoreOptions = [];
+
+                                foreach ($stores as $store) {
+                                    foreach (\App\Models\ProductRequest::CATEGORIES as $category) {
+                                        $key      = \App\Models\User::storeCategoryKey($store->id, $category);
+                                        $assignee = $storeCategoryBrandManagers[$key] ?? null;
+
+                                        $brandStoreOptions[$key] = [
+                                            'label'  => "{$category} · {$store->name}",
+                                            'note'   => $assignee
+                                                ? 'task: ' . ($assignee->id === $user->id ? 'this user' : $assignee->name)
+                                                : null,
+                                            'strong' => $assignee?->id === $user->id,
+                                        ];
+                                    }
+                                }
+                            @endphp
+
+                            @include('super-admin.partials.category-picker', [
+                                'name'     => 'pcr_brand_store_categories',
+                                'label'    => 'Brand manager for a category on one website only',
+                                'noun'     => 'pairings',
+                                'options'  => $brandStoreOptions,
+                                'selected' => $user->pcr_brand_store_categories ?? [],
+                                'help'     => 'For a category followed on one website but not the others — Leather Goods on '
+                                            . 'Blue Salon without the Samsonite requests. Named here, this beats Brand '
+                                            . 'Manager / Brand Coordinator for that website alone, and the category\'s '
+                                            . 'people are not copied on it. Clear the plain category above, or its emails '
+                                            . 'keep arriving from every website.',
+                            ])
+                            </template>
+
                             {{-- Watches on Blue Salon and Watches on PG are two jobs
                                  done by two people, which a plain category list
                                  cannot say. Named here, the website wins for that

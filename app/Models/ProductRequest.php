@@ -1117,6 +1117,23 @@ class ProductRequest extends Model
         return max(0, $this->total_skus - $this->mapped_skus);
     }
 
+    /**
+     * SKUs not in Shopify yet — mapping step or no mapping step.
+     *
+     * Deliberately not balanceSkus(), which answers a different question: how
+     * many SKUs are holding up the Cegid gate, and so is nought on a website
+     * that has no gate. That was read as "nothing is outstanding" and told a
+     * brand manager to finish a request with 21 of its 40 SKUs still missing.
+     *
+     * A SKU counts as mapped once it is found in Shopify, and the SKU check
+     * works that out the same way for every website — so this is a real number
+     * everywhere, which is what a progress figure has to be.
+     */
+    public function unmappedSkus(): int
+    {
+        return max(0, $this->total_skus - $this->mapped_skus);
+    }
+
     // ── Copy: which SKUs already have a description ──────────────────────────
 
     /**
@@ -1618,10 +1635,13 @@ class ProductRequest extends Model
               ->orWhereHas('assignments', fn ($a) => $a->current()->where('user_id', $user->id));
 
             // A brand manager gets emailed about their categories, so they have
-            // to be able to open what those emails link to.
+            // to be able to open what those emails link to — including the ones
+            // they follow on one website only.
             if ($followed) {
                 $q->orWhereIn('category', $followed);
             }
+
+            $q->orInBrandStoreCategories($user);
         });
     }
 
@@ -1652,6 +1672,8 @@ class ProductRequest extends Model
             if ($managed) {
                 $q->orWhereIn('category', $managed);
             }
+
+            $q->orInBrandStoreCategories($user);
         });
     }
 
@@ -1733,12 +1755,32 @@ class ProductRequest extends Model
                 $q->orWhereIn('category', $categories);
             }
 
+            $q->orInBrandStoreCategories($user);
+
             // Compared normalised, because the sheet writes "COLE HAAN " and
             // "Cole Haan" for the same brand.
             if ($brands) {
                 $q->orWhereIn(DB::raw('UPPER(TRIM(brand))'), $brands);
             }
         });
+    }
+
+    /**
+     * The categories a brand manager follows on one website only.
+     *
+     * Widens whatever it is given: it is only ever called inside an existing
+     * where(), because on its own an OR over nothing would match everything for
+     * the people who have no pairings at all.
+     */
+    public function scopeOrInBrandStoreCategories($query, User $user)
+    {
+        foreach ($user->brandStoreCategories() as $storeId => $categories) {
+            $query->orWhere(fn ($q) => $q
+                ->where('store_id', $storeId)
+                ->whereIn('category', $categories));
+        }
+
+        return $query;
     }
 
     /**

@@ -62,6 +62,7 @@ class SuperAdminController extends Controller
             // Which of them actually gets the Brand Manager task, so the screen
             // stops implying nobody does.
             'brandManagerAssignees' => User::brandManagerMap(),
+            'storeCategoryBrandManagers' => User::storeCategoryBrandManagers(),
             // Brands worth naming individually are the ones we actually have
             // requests for; there is no brand list to pick from otherwise.
             'knownBrands'           => ProductRequest::knownBrands(),
@@ -169,6 +170,11 @@ class SuperAdminController extends Controller
             (array) $request->input('pcr_store_categories', []),
         ));
 
+        $brandStoreCategories = array_values(array_intersect(
+            $validPairings,
+            (array) $request->input('pcr_brand_store_categories', []),
+        ));
+
         $known        = ProductRequest::knownBrands();
         $ownedBrands  = array_values(array_intersect($known, array_map(
             fn ($b) => User::normalizeBrand($b), (array) $request->input('pcr_owned_brands', []),
@@ -190,6 +196,7 @@ class SuperAdminController extends Controller
             'pcr_categories'        => $categories ?: null,
             'pcr_brand_categories'  => $brandCategories ?: null,
             'pcr_store_categories'  => $storeCategories ?: null,
+            'pcr_brand_store_categories' => $brandStoreCategories ?: null,
             'pcr_owned_brands'      => $ownedBrands ?: null,
             'pcr_managed_brands'    => $managedBrands ?: null,
             'pcr_notify_all'        => $request->boolean('pcr_notify_all'),

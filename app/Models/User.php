@@ -10,7 +10,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 
-#[Fillable(['name', 'email', 'password', 'is_super_admin', 'is_active', 'active_store_id', 'perm_bulk_upload', 'perm_sku_checker', 'perm_image_audit', 'perm_store_sync', 'perm_ai_content', 'perm_metafield_update', 'perm_product_request', 'perm_photo_editor', 'pcr_role', 'pcr_categories', 'pcr_brand_categories', 'pcr_owned_brands', 'pcr_managed_brands', 'pcr_store_categories', 'pcr_notify_all', 'onedrive_access_token', 'onedrive_refresh_token', 'onedrive_token_expiry'])]
+#[Fillable(['name', 'email', 'password', 'is_super_admin', 'is_active', 'active_store_id', 'perm_bulk_upload', 'perm_sku_checker', 'perm_image_audit', 'perm_store_sync', 'perm_ai_content', 'perm_metafield_update', 'perm_product_request', 'perm_photo_editor', 'pcr_role', 'pcr_categories', 'pcr_brand_categories', 'pcr_owned_brands', 'pcr_managed_brands', 'pcr_store_categories', 'pcr_brand_store_categories', 'pcr_notify_all', 'onedrive_access_token', 'onedrive_refresh_token', 'onedrive_token_expiry'])]
 #[Hidden(['password', 'remember_token', 'onedrive_access_token', 'onedrive_refresh_token', 'onedrive_token_expiry'])]
 class User extends Authenticatable
 {
@@ -36,6 +36,7 @@ class User extends Authenticatable
             'pcr_brand_categories'   => 'array',
             'pcr_owned_brands'       => 'array',
             'pcr_store_categories'   => 'array',
+            'pcr_brand_store_categories' => 'array',
             'pcr_managed_brands'     => 'array',
             'pcr_notify_all'         => 'boolean',
         ];
@@ -273,9 +274,9 @@ class User extends Authenticatable
      * screen shows a name the staffing does not use. Oldest account wins, and the
      * screen prints it.
      */
-    public static function brandManagerForCategory(?string $category, ?string $brand = null): ?self
+    public static function brandManagerForCategory(?string $category, ?string $brand = null, ?int $storeId = null): ?self
     {
-        return self::brandManagersForCategory($category, $brand)->first();
+        return self::brandManagersForCategory($category, $brand, $storeId)->first();
     }
 
     /** category => the brand manager it falls to, for the Users screen. */
@@ -322,13 +323,29 @@ class User extends Authenticatable
         return $map;
     }
 
-    public static function brandManagersForCategory(?string $category, ?string $brand = null): \Illuminate\Support\Collection
+    public static function brandManagersForCategory(?string $category, ?string $brand = null, ?int $storeId = null): \Illuminate\Support\Collection
     {
         // Named for this brand specifically: they are the answer, and the
         // category's people are not copied — the point of naming a brand is that
         // it is handled apart from the rest.
         if (($named = self::forBrand('pcr_managed_brands', $brand))->isNotEmpty()) {
             return $named;
+        }
+
+        // Leather Goods on Blue Salon and Leather Goods on Samsonite are two
+        // brand sides followed by two people, and a plain category list cannot
+        // say that. Named for this pairing, they are the answer for this website
+        // alone and the category's people are not copied on it.
+        if ($key = self::storeCategoryKey($storeId, $category)) {
+            $onThisWebsite = self::query()
+                ->where('is_active', true)
+                ->whereJsonContains('pcr_brand_store_categories', $key)
+                ->orderBy('id')
+                ->get();
+
+            if ($onThisWebsite->isNotEmpty()) {
+                return $onThisWebsite;
+            }
         }
 
         if (blank($category)) {
@@ -340,6 +357,41 @@ class User extends Authenticatable
             ->whereJsonContains('pcr_brand_categories', $category)
             ->orderBy('id')
             ->get();
+    }
+
+    /**
+     * store id => [category, ...] this person follows on that website alone.
+     *
+     * The mirror of storeCategories() for the brand side: same "3|Watches" keys,
+     * a different column, because following a category is not doing its work.
+     */
+    public function brandStoreCategories(): array
+    {
+        $out = [];
+
+        foreach ($this->pcr_brand_store_categories ?? [] as $key) {
+            [$storeId, $category] = array_pad(explode('|', (string) $key, 2), 2, null);
+
+            if ($storeId && $category) {
+                $out[(int) $storeId][] = $category;
+            }
+        }
+
+        return $out;
+    }
+
+    /** "3|Watches" => the brand manager it falls to, for the Users screen. */
+    public static function storeCategoryBrandManagers(): array
+    {
+        $map = [];
+
+        foreach (self::query()->where('is_active', true)->whereNotNull('pcr_brand_store_categories')->orderBy('id')->get() as $user) {
+            foreach ($user->pcr_brand_store_categories ?? [] as $key) {
+                $map[$key] ??= $user;   // first by id, the same rule staffing uses
+            }
+        }
+
+        return $map;
     }
 
     /**

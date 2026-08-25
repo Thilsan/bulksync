@@ -42,7 +42,7 @@ class ProductRequestBalanceMapped extends Notification implements ShouldQueue
             justMapped: $justMapped,
             mapped:     (int) $request->mapped_skus,
             total:      (int) $request->total_skus,
-            remaining:  $request->balanceSkus(),
+            remaining:  $request->unmappedSkus(),
             stageLabel: $request->statusLabel(),
         );
     }

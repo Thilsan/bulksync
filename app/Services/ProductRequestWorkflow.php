@@ -287,7 +287,7 @@ class ProductRequestWorkflow
                 if ($assignee) {
                     $told = array_filter([$assignee->id, $previousUser?->id, $actor?->id]);
 
-                    $followers = User::brandManagersForCategory($request->category, $request->brand)
+                    $followers = User::brandManagersForCategory($request->category, $request->brand, $request->store_id)
                         ->merge(User::requestWatchers())
                         ->unique('id')
                         ->reject(fn (User $u) => in_array($u->id, $told, true));
@@ -330,7 +330,7 @@ class ProductRequestWorkflow
         // The category's brand manager holds the brand-side task — supplying the
         // information and approving the copy — rather than only being copied on
         // the emails. Where a category has none, the owner keeps it.
-        $brandManager = User::brandManagerForCategory($request->category, $request->brand) ?? $owner;
+        $brandManager = User::brandManagerForCategory($request->category, $request->brand, $request->store_id) ?? $owner;
 
 
         $staffed  = [];
@@ -397,7 +397,7 @@ class ProductRequestWorkflow
 
         $owner        = $request->categoryOwner();
         $coordinator  = $request->needsPhotoshoot() ? User::photoshootCoordinator() : null;
-        $brandManager = User::brandManagerForCategory($request->category, $request->brand) ?? $owner;
+        $brandManager = User::brandManagerForCategory($request->category, $request->brand, $request->store_id) ?? $owner;
 
         $moved = [];
 
@@ -584,7 +584,7 @@ class ProductRequestWorkflow
     private function mappingOwnerFor(ProductRequest $request): ?User
     {
         return $request->ownerFor('brand_manager_id')
-            ?? User::brandManagersForCategory($request->category, $request->brand)->first()
+            ?? User::brandManagersForCategory($request->category, $request->brand, $request->store_id)->first()
             ?? $request->user;
     }
 
@@ -601,14 +601,19 @@ class ProductRequestWorkflow
             return;
         }
 
+        // The honest count, not balanceSkus(): the audit trail has to say the
+        // same thing the email does, and on a website with no mapping gate
+        // balanceSkus() reads nought however many SKUs are actually missing.
+        $outstanding = $request->unmappedSkus();
+
         $this->log(
             request:     $request,
             action:      'sku_mapping',
-            description: $request->hasSkuBalance()
+            description: $outstanding > 0
                 ? "{$justMapped} more SKU(s) mapped — {$request->mapped_skus} of {$request->total_skus}"
                 : "The balance is mapped — all {$request->total_skus} SKUs are ready",
-            remarks:     $request->hasSkuBalance()
-                ? "{$request->balanceSkus()} still to map"
+            remarks:     $outstanding > 0
+                ? "{$outstanding} still to map"
                 : 'Nothing outstanding — the request can be finished',
         );
 
@@ -690,12 +695,26 @@ class ProductRequestWorkflow
             ? User::where('is_active', true)->whereIn('pcr_role', $roles)->get()
             : collect();
 
+        // The people who follow this request's brand side: whoever is named for
+        // its brand, else for its category on its website, else for the category
+        // everywhere.
+        $brandSide = User::brandManagersForCategory($request->category, $request->brand, $request->store_id);
+
+        // A stage that tells the brand side means the brand side of THIS request.
+        // Holding the role was reach enough on its own, so one brand manager was
+        // mailed about every request in the company — their categories, brands
+        // and websites all counting for nothing. Anyone who holds a slot here is
+        // added back below, and the oversight accounts are exempt by definition.
+        $byRole = $byRole->reject(
+            fn ($u) => $u->isBrandManagerOnly() && !$brandSide->contains('id', $u->id),
+        );
+
         // Everyone currently holding a role, plus whoever raised it — and the
-        // people who follow without holding one: the category's brand managers
-        // and the accounts copied on everything.
+        // people who follow without holding one: the brand side and the accounts
+        // copied on everything.
         $named = collect([$request->user])
             ->merge($request->currentAssignments()->with('user')->get()->pluck('user'))
-            ->merge(User::brandManagersForCategory($request->category, $request->brand))
+            ->merge($brandSide)
             ->merge(User::requestWatchers())
             ->filter();
 
