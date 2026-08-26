@@ -28,8 +28,16 @@ class EditPhotoItemJob implements ShouldQueue
     public int $tries   = 2;
     public int $backoff = 30;
 
-    /** Shopify refuses images past 20 MB; stay clear of it without gutting quality. */
-    private const MAX_OUTPUT_BYTES = 4_000_000;
+    /**
+     * The ceiling a finished product image has to come in under.
+     *
+     * Photoroom does the compressing: it exports JPEG at quality 80, and a
+     * 2000 square of a product on white lands well inside this. The local pass
+     * below is a net for the exceptional file, not the mechanism — Photoroom's
+     * API has no quality or file-size parameter to ask for a target with, so
+     * there has to be something behind it.
+     */
+    private const MAX_OUTPUT_BYTES = 1_000_000;
 
     public function __construct(
         public readonly int $itemId,
@@ -189,13 +197,21 @@ class EditPhotoItemJob implements ShouldQueue
             $format = $photoroom->outputFormat($itemEdits);
             $isJpeg = $format === 'jpg';
 
-            // Only JPEG output goes through the compressor: it re-encodes as
-            // JPEG, which would flatten a transparent cutout onto black.
-            // It also enforces Shopify's megapixel ceiling on the way past —
-            // which the other formats still need, so they get the alpha-safe
-            // version of the same cap rather than skipping it.
+            /*
+             * Only JPEG output goes through the compressor: it re-encodes as
+             * JPEG, which would flatten a transparent cutout onto black.
+             * It also enforces Shopify's megapixel ceiling on the way past —
+             * which the other formats still need, so they get the alpha-safe
+             * version of the same cap rather than skipping it.
+             *
+             * Already under the ceiling, which is the normal case, and it
+             * returns Photoroom's own bytes untouched. Never allowed to shrink:
+             * the canvas is what a category preset promises, and a photo that
+             * came back 1900 wide because it was a busy print would sit out of
+             * line with every other photo in its category.
+             */
             $edited = $isJpeg
-                ? $imageService->compressOnly($edited, self::MAX_OUTPUT_BYTES)
+                ? $imageService->compressOnly($edited, self::MAX_OUTPUT_BYTES, allowShrink: false)
                 : $imageService->capPixelCountPreservingAlpha($edited, $format);
 
             $ext          = $format;

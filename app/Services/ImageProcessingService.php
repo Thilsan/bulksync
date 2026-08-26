@@ -245,7 +245,17 @@ class ImageProcessingService
             : $img->encode(new JpegEncoder(quality: 82))->toString();
     }
 
-    public function compressOnly(string $imageContent, int $maxBytes = 1_000_000): string
+    /**
+     * Squeeze a file under $maxBytes without changing what it shows.
+     *
+     * $allowShrink is the escape hatch for the one case quality cannot solve:
+     * a detailed shot still over the limit at the lowest quality allowed. Pass
+     * false where the pixel dimensions are part of the specification — the
+     * photo editor asks Photoroom for an exact canvas, and silently returning
+     * something smaller would break the alignment every category preset
+     * exists to hold.
+     */
+    public function compressOnly(string $imageContent, int $maxBytes = 1_000_000, bool $allowShrink = true): string
     {
         // "Keep original size" still means keeping it inside Shopify's pixel
         // ceiling — compression alone never lowers the pixel count, so a huge
@@ -288,9 +298,11 @@ class ImageProcessingService
         // over the limit at the lowest quality we allow. Quality is spent by
         // this point, so start giving up pixels instead, the same way
         // process() does rather than shipping an oversized file.
-        return strlen($result) <= $maxBytes
-            ? $result
-            : $this->shrinkUntilUnderLimit($imageContent, $result, $maxBytes);
+        if (strlen($result) <= $maxBytes || !$allowShrink) {
+            return $result;
+        }
+
+        return $this->shrinkUntilUnderLimit($imageContent, $result, $maxBytes);
     }
 
     /**

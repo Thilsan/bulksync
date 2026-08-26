@@ -184,41 +184,151 @@ class PhotoroomService
     ];
 
     /**
-     * The framing each category is photographed to.
+     * The framing each category is photographed to, as the website is
+     * organised: a main category holding subcategories.
+     *
+     * Two levels because that is how the catalogue is navigated and how the
+     * people using this screen think — nobody goes looking for "dresses" in
+     * the abstract, they go to Women and then to Dresses. The stored value is
+     * still one string, "women/dresses", so nothing downstream has to know
+     * the shape of this table.
      *
      * Layout only. Background, mannequin removal and finishing stay separate
      * decisions — a preset that quietly changed them would be a preset nobody
      * trusted, and they are not what makes a collection page look uneven.
      *
-     * 2048 is Shopify's own longest useful edge, and a square is what its grid
-     * crops to; the padding is the only figure that really differs, because it
-     * is what decides how big the product reads at.
+     * ── Where the numbers come from ────────────────────────────────────────
+     *
+     * The padding on each womenswear entry below is what that subcategory's
+     * own sample measured, not a figure applied across the board. Photoroom
+     * fits the product inside the canvas, so the padding lands on whichever
+     * pair of edges is tighter: a dress or a pair of jeans is held by top and
+     * bottom, a belt or a shoe by left and right. Each note records the
+     * reading it came from.
+     *
+     * Five of the twelve — tops, t-shirts, blazers, jeans and skirts — came
+     * back at 10.0% independently, with the product filling exactly 80% of the
+     * height, 80% being what is left of 100 after two 10s. Five unrelated
+     * shoots do not land on one figure by accident, so 10% is a real house
+     * rule and that is why the value repeats. The ones that differ differ
+     * because their own photograph did: dresses tighter at 6%, footwear at 7%
+     * and standing on the bottom edge, bras looser at 17%.
+     *
+     * One photograph per subcategory. That is enough to read what a category
+     * does and not enough to prove it meant to, so the notes say which figures
+     * rest on a reading that agreed with the house rule and which rest on a
+     * reading that stood alone. The lonely ones — bras and bags especially —
+     * are the first to revisit when more photographs turn up.
+     *
+     * The canvas is 2000 square where the sampled files were saved at 1200.
+     * The grid never sees a master — Shopify's CDN serves it a ~370px
+     * rendition — so the size costs nothing on a collection page and buys the
+     * product page room to zoom, which on beaded eveningwear is the thing
+     * being sold. Mixing the two is safe precisely because padding is held as
+     * a fraction: 10% of 2000 lands in the same place in a tile as 10% of 1200.
+     *
+     * Men, Kids and Watches have not been sampled at all. They carry the house
+     * rule on the grounds that it held everywhere it was checked, and each of
+     * their notes says so.
      */
     public const FRAMING_PRESETS = [
-        'women_dresses' => [
-            'label' => "Women's dresses",
-            'note'  => 'Full length, centred on a 2048 square with 6% around it. Shoulders and hem land on the same two lines on every shot.',
-            'edits' => ['width' => 2048, 'height' => 2048, 'padding' => 0.06],
+        'women' => [
+            'label'         => 'Women',
+            'subcategories' => [
+                'dresses' => [
+                    'label' => 'Dresses',
+                    'note'  => 'Measured: 7.7% top, 5.0% bottom — tighter than the rest of the catalogue, which is what a full-length dress on a square canvas comes to. Rounded to 6% and evened up; the sample was 2.7% lower at the hem than the shoulder.',
+                    'edits' => ['width' => 2000, 'height' => 2000, 'padding' => 0.06],
+                ],
+                'gown' => [
+                    'label' => 'Gowns',
+                    'note'  => 'Measured: 9.1% top, 7.8% bottom, product filling 83% of the height. Rounded to 8%.',
+                    'edits' => ['width' => 2000, 'height' => 2000, 'padding' => 0.08],
+                ],
+                'top' => [
+                    'label' => 'Tops',
+                    'note'  => 'Measured: 10.2% top, 9.6% bottom, product filling 80% of the height.',
+                    'edits' => ['width' => 2000, 'height' => 2000, 'padding' => 0.10],
+                ],
+                't-shirt' => [
+                    'label' => 'T-shirts',
+                    'note'  => 'Measured: 10.1% top, 9.8% bottom, product filling 80% of the height.',
+                    'edits' => ['width' => 2000, 'height' => 2000, 'padding' => 0.10],
+                ],
+                'blazer' => [
+                    'label' => 'Blazers',
+                    'note'  => 'Measured: 10.1% top, 10.0% bottom, product filling 80% of the height.',
+                    'edits' => ['width' => 2000, 'height' => 2000, 'padding' => 0.10],
+                ],
+                'jeans' => [
+                    'label' => 'Jeans',
+                    'note'  => 'Measured: 10.0% top, 9.9% bottom, product filling 80% of the height.',
+                    'edits' => ['width' => 2000, 'height' => 2000, 'padding' => 0.10],
+                ],
+                'skirts' => [
+                    'label' => 'Skirts',
+                    'note'  => 'Measured: 10.0% top, 9.9% bottom, product filling 80% of the height.',
+                    'edits' => ['width' => 2000, 'height' => 2000, 'padding' => 0.10],
+                ],
+                'swim-wear' => [
+                    'label' => 'Swimwear',
+                    'note'  => 'Measured: 11.7% and 8.7% left and right, the width being what holds a swimsuit rather than the height. Rounded to 10% and evened up — the sample sat 3% off centre.',
+                    'edits' => ['width' => 2000, 'height' => 2000, 'padding' => 0.10],
+                ],
+                'bras' => [
+                    'label' => 'Bras',
+                    'note'  => 'Measured: 16.6% and 16.7% left and right, well looser than anything else in the catalogue. Taken at face value from one sample; if bras are not meant to sit this small, this is the entry to correct.',
+                    'edits' => ['width' => 2000, 'height' => 2000, 'padding' => 0.17],
+                ],
+                'bags' => [
+                    'label' => 'Bags',
+                    'note'  => 'Measured: 10.2% above, 19.9% below — a bag hung from the top of the frame rather than centred in it. One sample, and nothing else in the catalogue does this, so it is the first entry to revisit.',
+                    'edits' => ['width' => 2000, 'height' => 2000, 'padding' => 0.10, 'v_align' => 'top'],
+                ],
+                'belts' => [
+                    'label' => 'Belts',
+                    'note'  => 'Measured: 11.0% and 10.8% left and right. A belt is wider than it is tall, so the width is what holds it.',
+                    'edits' => ['width' => 2000, 'height' => 2000, 'padding' => 0.11],
+                ],
+                'footwear' => [
+                    'label' => 'Footwear',
+                    'note'  => 'Measured: 7.3% and 7.7% left and right, sitting 47% low rather than centred. Bottom-aligned on purpose — a shoe on a line reads as standing, a centred one reads as floating.',
+                    'edits' => ['width' => 2000, 'height' => 2000, 'padding' => 0.07, 'v_align' => 'bottom'],
+                ],
+            ],
         ],
-        'women_tops' => [
-            'label' => "Women's tops",
-            'note'  => 'The same square with more room around it, so a shirt beside a gown does not read as the same size garment.',
-            'edits' => ['width' => 2048, 'height' => 2048, 'padding' => 0.14],
+
+        /*
+         * Men, Kids and Watches carry the house rule on the grounds that it is
+         * a house rule — one theme, one tile, one grid. None of them has been
+         * sampled yet, so the moment any of them is, these are the entries to
+         * correct.
+         */
+        'men' => [
+            'label'         => 'Men',
+            'subcategories' => [
+                'shirts'   => ['label' => 'Shirts',   'note' => 'House rule, unmeasured: 10% around a 2000 square, centred.', 'edits' => ['width' => 2000, 'height' => 2000, 'padding' => 0.10]],
+                'trousers' => ['label' => 'Trousers', 'note' => 'House rule, unmeasured: 10% around a 2000 square, centred.', 'edits' => ['width' => 2000, 'height' => 2000, 'padding' => 0.10]],
+                'bags'     => ['label' => 'Bags',     'note' => 'House rule, unmeasured: 10% around a 2000 square, centred.', 'edits' => ['width' => 2000, 'height' => 2000, 'padding' => 0.10]],
+                'footwear' => ['label' => 'Footwear', 'note' => 'House rule, unmeasured, bottom-aligned as womenswear footwear measured.', 'edits' => ['width' => 2000, 'height' => 2000, 'padding' => 0.10, 'v_align' => 'bottom']],
+            ],
         ],
-        'bags' => [
-            'label' => 'Bags',
-            'note'  => 'Centred on a 2048 square with 12% around it, handles and straps included in what is measured.',
-            'edits' => ['width' => 2048, 'height' => 2048, 'padding' => 0.12],
+
+        'kids' => [
+            'label'         => 'Kids & Baby',
+            'subcategories' => [
+                'dresses'  => ['label' => 'Dresses',  'note' => 'House rule, unmeasured: 10% around a 2000 square. Framed like a dress, not like a small dress — the tile is the same size whoever the garment is for.', 'edits' => ['width' => 2000, 'height' => 2000, 'padding' => 0.10]],
+                'tops'     => ['label' => 'Tops',     'note' => 'House rule, unmeasured: 10% around a 2000 square, centred.', 'edits' => ['width' => 2000, 'height' => 2000, 'padding' => 0.10]],
+                'footwear' => ['label' => 'Footwear', 'note' => 'House rule, unmeasured, bottom-aligned as womenswear footwear measured.', 'edits' => ['width' => 2000, 'height' => 2000, 'padding' => 0.10, 'v_align' => 'bottom']],
+            ],
         ],
-        'shoes' => [
-            'label' => 'Shoes',
-            'note'  => 'Stood on the lower part of a 2048 square rather than centred, so a heel sits on a line instead of floating.',
-            'edits' => ['width' => 2048, 'height' => 2048, 'padding' => 0.12, 'v_align' => 'bottom'],
-        ],
+
         'watches_jewellery' => [
-            'label' => 'Watches & jewellery',
-            'note'  => 'Small products, so the canvas is filled harder: 2048 square, 8% around.',
-            'edits' => ['width' => 2048, 'height' => 2048, 'padding' => 0.08],
+            'label'         => 'Watches & Jewellery',
+            'subcategories' => [
+                'watches'   => ['label' => 'Watches',   'note' => 'House rule, unmeasured: 10% around a 2000 square. A small product may want the canvas filled harder — worth sampling before it is trusted.', 'edits' => ['width' => 2000, 'height' => 2000, 'padding' => 0.10]],
+                'jewellery' => ['label' => 'Jewellery', 'note' => 'House rule, unmeasured: 10% around a 2000 square. A small product may want the canvas filled harder — worth sampling before it is trusted.', 'edits' => ['width' => 2000, 'height' => 2000, 'padding' => 0.10]],
+            ],
         ],
     ];
 
@@ -446,15 +556,41 @@ class PhotoroomService
         ];
     }
 
-    /** One category's framing, or null when the key is not one we know. */
-    public static function framingPreset(?string $key): ?array
+    /**
+     * Every subcategory flattened to the key that is actually stored,
+     * "women/dresses" => its framing, label and note.
+     *
+     * The tree is how the screen is laid out; this is how everything else
+     * addresses it, so a stored run holds one string and does not care that
+     * the table above ever gained or lost a level.
+     */
+    public static function framingPresetsFlat(): array
     {
-        return filled($key) ? (self::FRAMING_PRESETS[$key] ?? null) : null;
+        $flat = [];
+
+        foreach (self::FRAMING_PRESETS as $mainKey => $main) {
+            foreach ($main['subcategories'] as $subKey => $sub) {
+                $flat[$mainKey . '/' . $subKey] = $sub + [
+                    'main'      => $main['label'],
+                    'full'      => $main['label'] . ' → ' . $sub['label'],
+                    'main_key'  => $mainKey,
+                ];
+            }
+        }
+
+        return $flat;
     }
 
+    /** One subcategory's framing, or null when the key is not one we know. */
+    public static function framingPreset(?string $key): ?array
+    {
+        return filled($key) ? (self::framingPresetsFlat()[$key] ?? null) : null;
+    }
+
+    /** "Women → Dresses", for anywhere a run has to say what it was held to. */
     public static function framingPresetLabel(?string $key): ?string
     {
-        return self::framingPreset($key)['label'] ?? null;
+        return self::framingPreset($key)['full'] ?? null;
     }
 
     /**

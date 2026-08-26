@@ -57,6 +57,32 @@ class ImageProcessingServiceTest extends TestCase
         $this->assertLessThanOrEqual(500_000, strlen($result));
     }
 
+    /**
+     * The photo editor's canvas is a promise, so pixels are never the currency.
+     *
+     * A category preset asks Photoroom for an exact 2000 square, and every
+     * photo in that category lines up because they all got one. A busy print
+     * that will not compress far enough must therefore come back oversized
+     * rather than come back smaller — the alignment is worth more than the
+     * kilobytes, and an image quietly 10% short would look right on its own
+     * and wrong beside the eleven that were not.
+     */
+    public function test_compress_only_keeps_every_pixel_when_shrinking_is_refused(): void
+    {
+        $source = $this->noisyJpeg(3000, 3000);
+
+        $result = $this->service->compressOnly($source, 500_000, allowShrink: false);
+
+        [$width, $height] = getimagesizefromstring($result);
+
+        $this->assertSame(3000, $width, 'the canvas was narrowed to save bytes');
+        $this->assertSame(3000, $height, 'the canvas was shortened to save bytes');
+
+        // Quality was still spent trying, so it is smaller than it arrived —
+        // just not smaller than the limit, which is the honest outcome.
+        $this->assertLessThan(strlen($source), strlen($result));
+    }
+
     private function jpeg(int $width, int $height, int $quality): string
     {
         $img = imagecreatetruecolor($width, $height);

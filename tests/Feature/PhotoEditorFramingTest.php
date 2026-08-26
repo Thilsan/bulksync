@@ -84,7 +84,7 @@ class PhotoEditorFramingTest extends TestCase
             // A stale slider and a stale alignment, exactly what a browser
             // posts when it fills the boxes in and then locks them.
             'edits'  => [
-                'framing_preset' => 'women_dresses',
+                'framing_preset' => 'women/dresses',
                 'padding'        => '0.3',
                 'h_align'        => 'left',
                 'padding_top'    => '400',
@@ -94,9 +94,9 @@ class PhotoEditorFramingTest extends TestCase
 
         $edits = $session->fresh()->edits;
 
-        $this->assertSame('women_dresses', $edits['framing_preset']);
-        $this->assertEquals(2048, $edits['width']);
-        $this->assertEquals(2048, $edits['height']);
+        $this->assertSame('women/dresses', $edits['framing_preset']);
+        $this->assertEquals(2000, $edits['width']);
+        $this->assertEquals(2000, $edits['height']);
         $this->assertEquals(0.06, $edits['padding']);
         $this->assertSame('center', $edits['h_align']);
         $this->assertSame('center', $edits['v_align']);
@@ -122,8 +122,8 @@ class PhotoEditorFramingTest extends TestCase
 
         $this->actingAs($session->user)->post(route('photo-editor.start', $session), [
             'groups' => [
-                $tight->id => ['differs' => '1', 'edits' => ['framing_preset' => 'women_dresses']],
-                $loose->id => ['differs' => '1', 'edits' => ['framing_preset' => 'women_dresses']],
+                $tight->id => ['differs' => '1', 'edits' => ['framing_preset' => 'women/dresses']],
+                $loose->id => ['differs' => '1', 'edits' => ['framing_preset' => 'women/dresses']],
             ],
         ])->assertRedirect(route('photo-editor.show', $session));
 
@@ -135,7 +135,7 @@ class PhotoEditorFramingTest extends TestCase
 
         // And the framing is the standard's, not either SKU's old one.
         $this->assertSame([
-            'outputSize'          => '2048x2048',
+            'outputSize'          => '2000x2000',
             'padding'             => '0.06',
             'horizontalAlignment' => 'center',
             'verticalAlignment'   => 'center',
@@ -143,11 +143,21 @@ class PhotoEditorFramingTest extends TestCase
         ], $this->layoutFields($tight->fresh()->edits));
     }
 
-    /** Shoes stand on a line; dresses hang in the middle. */
+    /** A run says which category it was held to, both levels of it. */
+    public function test_a_run_reports_the_category_it_was_held_to(): void
+    {
+        $session = $this->makeSession(
+            PhotoroomService::applyFramingPreset(PhotoroomService::defaultEdits(), 'women/dresses'),
+        );
+
+        $this->assertStringContainsString('Women → Dresses framing', $session->editSummary());
+    }
+
+    /** Footwear stands on a line; a dress hangs in the middle. */
     public function test_categories_frame_their_own_shape(): void
     {
-        $dress = PhotoroomService::applyFramingPreset([], 'women_dresses');
-        $shoes = PhotoroomService::applyFramingPreset([], 'shoes');
+        $dress = PhotoroomService::applyFramingPreset([], 'women/dresses');
+        $shoes = PhotoroomService::applyFramingPreset([], 'women/footwear');
 
         $this->assertSame('center', $this->layoutFields($dress)['verticalAlignment']);
         $this->assertSame('bottom', $this->layoutFields($shoes)['verticalAlignment']);
@@ -158,7 +168,7 @@ class PhotoEditorFramingTest extends TestCase
     {
         Queue::fake();
 
-        $session = $this->makeSession(['framing_preset' => 'women_dresses', 'padding' => 0.06]);
+        $session = $this->makeSession(['framing_preset' => 'women/dresses', 'padding' => 0.06]);
         $group   = $this->group($session, 'DRESS-1');
 
         $this->actingAs($session->user)->post(route('photo-editor.start', $session), [
@@ -173,9 +183,83 @@ class PhotoEditorFramingTest extends TestCase
         $this->assertSame('top', $edits['v_align']);
     }
 
-    /** A key we do not know is not a standard, so it is not stored as one. */
+    /**
+     * Every category's framing, pinned to what its sample measured.
+     *
+     * The readings are the whole value of this table, and nothing on the screen
+     * would show if one drifted — a dress quietly moving from 6% to 10% looks
+     * like a dress either way until it is sitting next to the twelve that
+     * did not move. So the numbers are asserted rather than trusted, and
+     * changing one means changing it here too, deliberately.
+     */
+    public function test_each_category_keeps_the_padding_its_sample_measured(): void
+    {
+        $measured = [
+            'women/dresses'   => ['0.06', 'center'],
+            'women/gown'      => ['0.08', 'center'],
+            'women/top'       => ['0.1',  'center'],
+            'women/t-shirt'   => ['0.1',  'center'],
+            'women/blazer'    => ['0.1',  'center'],
+            'women/jeans'     => ['0.1',  'center'],
+            'women/skirts'    => ['0.1',  'center'],
+            'women/swim-wear' => ['0.1',  'center'],
+            'women/bras'      => ['0.17', 'center'],
+            'women/bags'      => ['0.1',  'top'],
+            'women/belts'     => ['0.11', 'center'],
+            'women/footwear'  => ['0.07', 'bottom'],
+        ];
+
+        foreach ($measured as $key => [$padding, $valign]) {
+            $fields = $this->layoutFields(PhotoroomService::applyFramingPreset([], $key));
+
+            $this->assertSame($padding, $fields['padding'], "{$key} has drifted off its measurement");
+            $this->assertSame($valign, $fields['verticalAlignment'], "{$key} no longer sits where it was measured");
+        }
+
+        // Every womenswear subcategory is accounted for, so a new one cannot be
+        // added without a reading to go with it.
+        $women = array_filter(array_keys(PhotoroomService::framingPresetsFlat()),
+            fn ($key) => str_starts_with($key, 'women/'));
+
+        $this->assertSame([], array_diff($women, array_keys($measured)),
+            'a womenswear category exists with no measurement behind it');
+    }
+
+    /**
+     * One canvas for the whole website, whatever the category.
+     *
+     * Padding is what differs between categories; the canvas is what stops
+     * them differing. Two masters at different sizes render the same in a grid
+     * tile, so a stray canvas would not show there — it would show later, in
+     * whatever reads the file itself.
+     */
+    public function test_every_category_shares_one_canvas_and_fits_the_product(): void
+    {
+        foreach (array_keys(PhotoroomService::framingPresetsFlat()) as $key) {
+            $fields = $this->layoutFields(PhotoroomService::applyFramingPreset([], $key));
+
+            $this->assertSame('2000x2000', $fields['outputSize'], "{$key} is not on the standard canvas");
+            $this->assertSame('fit', $fields['scaling'], "{$key} does not fit the product to the canvas");
+            $this->assertSame('center', $fields['horizontalAlignment'], "{$key} is not centred horizontally");
+        }
+    }
+
+    /**
+     * A key we do not know is not a standard, so it is not stored as one.
+     *
+     * "women_dresses" is deliberate: it is the flat key this table used before
+     * it grew a main-category level, and a run holding one has to fall back to
+     * its own framing rather than resolve to something near it.
+     */
     public function test_an_unknown_category_is_dropped_rather_than_trusted(): void
     {
+        foreach (['mens_hats', 'women_dresses', 'women/', 'women'] as $key) {
+            $edits = PhotoroomService::applyFramingPreset(['padding' => 0.2], $key);
+
+            $this->assertNull($edits['framing_preset'], "{$key} resolved to a standard it should not have");
+            $this->assertEquals(0.2, $edits['padding']);
+        }
+
         $edits = PhotoroomService::applyFramingPreset(['padding' => 0.2], 'mens_hats');
 
         $this->assertNull($edits['framing_preset']);
@@ -191,7 +275,9 @@ class PhotoEditorFramingTest extends TestCase
         $this->actingAs($session->user)
             ->get(route('photo-editor.configure', $session))
             ->assertOk()
-            ->assertSee("Women's dresses")
+            ->assertSee('Women')
+            ->assertSee('Dresses')
+            ->assertSee('Kids &amp; Baby', false)
             ->assertSee('Frame by hand');
     }
 }

@@ -26,14 +26,23 @@
         return str_ends_with($stored, 'px') ? (int) rtrim($stored, 'px') : null;
     };
 
-    // Handed to the browser whole, so clicking a category sets the same values
-    // the server will write when the form comes back.
-    $framingPresets = collect(\App\Services\PhotoroomService::FRAMING_PRESETS)
+    // The tree lays the buttons out; the flat map, handed to the browser whole,
+    // is what a click reads — so it sets the same values the server will write
+    // when the form comes back.
+    $framingTree = \App\Services\PhotoroomService::FRAMING_PRESETS;
+
+    $framingPresets = collect(\App\Services\PhotoroomService::framingPresetsFlat())
         ->map(fn (array $preset) => [
-            'label' => $preset['label'],
+            'label' => $preset['full'],
             'note'  => $preset['note'],
             'edits' => array_merge(\App\Services\PhotoroomService::FRAMING_FIELDS, $preset['edits']),
         ]);
+
+    // Which main category opens on arrival: the one already chosen, or the
+    // first, so the second row is never empty and waiting to be understood.
+    $framingMain = str_contains((string) $val('framing_preset'), '/')
+        ? explode('/', (string) $val('framing_preset'))[0]
+        : array_key_first($framingTree);
 @endphp
 
 <div>
@@ -111,6 +120,7 @@
 <div x-data="{
         preset:  @js($val('framing_preset')),
         presets: @js($framingPresets),
+        main:    @js($framingMain),
 
         width:   {{ $val('width') ?: 'null' }},
         height:  {{ $val('height') ?: 'null' }},
@@ -131,10 +141,16 @@
         pick(w, h) { this.width = w; this.height = h; this.custom = false },
         clear()    { this.width = null; this.height = null; this.custom = false },
 
+        openMain(key) {
+            this.main = key;
+        },
+
         usePreset(key) {
             this.preset = key || null;
 
             if (! key) return;
+
+            this.main = key.split('/')[0];
 
             const e = this.presets[key].edits;
 
@@ -157,12 +173,37 @@
          category locks the boxes rather than merely filling them in. --}}
     <div class="rounded-lg border border-gray-200 bg-gray-50 p-3">
         <span class="mb-2 block text-xs font-medium text-gray-700">Category</span>
+
+        {{-- Main category, then what sits under it. Two rows rather than one
+             long list of "Women's dresses, Men's shirts, Kids' tops": the
+             catalogue is navigated this way, so the picker is too. --}}
         <div class="flex flex-wrap gap-2">
-            @foreach ($framingPresets as $key => $framingPreset)
-                <button type="button" @click="usePreset('{{ $key }}')"
-                        :class="preset === '{{ $key }}' ? 'border-brand-600 bg-brand-600 text-white' : 'border-gray-300 bg-white text-gray-700 hover:border-brand-400'"
-                        class="rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors">{{ $framingPreset['label'] }}</button>
+            @foreach ($framingTree as $mainKey => $main)
+                <button type="button" @click="openMain('{{ $mainKey }}')"
+                        :class="main === '{{ $mainKey }}'
+                            ? 'border-gray-800 bg-white text-gray-900 shadow-sm'
+                            : 'border-transparent bg-transparent text-gray-500 hover:text-gray-800'"
+                        class="rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors">
+                    {{ $main['label'] }}
+                    {{-- So it is obvious which main category holds the choice
+                         when the open one is not the chosen one. --}}
+                    <span x-show="preset && preset.split('/')[0] === '{{ $mainKey }}'" x-cloak
+                          class="ml-1 text-brand-600">&bull;</span>
+                </button>
             @endforeach
+        </div>
+
+        <div class="mt-2 flex flex-wrap gap-2 border-t border-gray-200 pt-2">
+            @foreach ($framingTree as $mainKey => $main)
+                @foreach ($main['subcategories'] as $subKey => $sub)
+                    @php $presetKey = $mainKey . '/' . $subKey; @endphp
+                    <button type="button" x-show="main === '{{ $mainKey }}'" x-cloak
+                            @click="usePreset('{{ $presetKey }}')"
+                            :class="preset === '{{ $presetKey }}' ? 'border-brand-600 bg-brand-600 text-white' : 'border-gray-300 bg-white text-gray-700 hover:border-brand-400'"
+                            class="rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors">{{ $sub['label'] }}</button>
+                @endforeach
+            @endforeach
+
             <button type="button" @click="usePreset('')"
                     :class="! preset ? 'border-gray-800 bg-gray-800 text-white' : 'border-gray-300 bg-white text-gray-600 hover:border-gray-400'"
                     class="rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors">Frame by hand</button>
