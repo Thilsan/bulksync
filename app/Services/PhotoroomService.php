@@ -551,7 +551,23 @@ class PhotoroomService
             'trim_top'    => null,
             'trim_bottom' => null,
 
-            'export_format' => 'auto',
+            /*
+             * PNG, not JPEG, and deliberately so.
+             *
+             * Photoroom's JPEG export is fixed at quality 80 and their API has
+             * no quality parameter to raise it with, so every edit came back
+             * having been through a lossy pass nobody chose. PNG is lossless:
+             * what comes back differs from the photograph that went in only by
+             * the edit itself — background replaced, canvas resized — and not
+             * by a generation of compression on top.
+             *
+             * It costs file size. A plain product on white lands around 500 KB
+             * where the JPEG was 180; a busy print can reach 2 MB. That is the
+             * trade, made on purpose: the grid never sees a master, so a bigger
+             * file costs a shopper nothing, and detail thrown away at export
+             * cannot be got back.
+             */
+            'export_format' => 'png',
             'color_space'   => 'sRGB',
         ];
     }
