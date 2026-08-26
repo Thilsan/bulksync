@@ -204,7 +204,7 @@ class PhotoEditorFramingTest extends TestCase
             'women/skirts'    => ['0.1',  'center'],
             'women/swim-wear' => ['0.1',  'center'],
             'women/bras'      => ['0.17', 'center'],
-            'women/bags'      => ['0.1',  'bottom'],
+            'women/bags'      => ['0.25', 'bottom'],
             'women/belts'     => ['0.11', 'center'],
             'women/footwear'  => ['0.07', 'bottom'],
         ];
@@ -223,6 +223,34 @@ class PhotoEditorFramingTest extends TestCase
 
         $this->assertSame([], array_diff($women, array_keys($measured)),
             'a womenswear category exists with no measurement behind it');
+    }
+
+    /**
+     * Bags stand on a measured line, not on the even padding.
+     *
+     * Two bags of different shapes were measured 19.9% up from the bottom, so
+     * the bottom edge is an override and not whatever the scale happened to
+     * leave. Lose the override and a clutch and a top-handle bag stop sharing
+     * a baseline, which is the one thing a row of bags has to get right.
+     */
+    public function test_bags_keep_their_baseline_override(): void
+    {
+        $fields = $this->layoutFields(PhotoroomService::applyFramingPreset([], 'women/bags'));
+
+        $this->assertSame('0.2', $fields['paddingBottom'], 'bags lost the measured baseline');
+        $this->assertSame('bottom', $fields['verticalAlignment']);
+
+        // Every other category leaves the bottom edge to the even padding —
+        // an override elsewhere would be an accident, not a decision.
+        foreach (array_keys(PhotoroomService::framingPresetsFlat()) as $key) {
+            if ($key === 'women/bags') {
+                continue;
+            }
+
+            $this->assertArrayNotHasKey('paddingBottom',
+                $this->layoutFields(PhotoroomService::applyFramingPreset([], $key)),
+                "{$key} has a per-edge override nobody asked for");
+        }
     }
 
     /**

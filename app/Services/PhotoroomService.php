@@ -282,8 +282,32 @@ class PhotoroomService
                 ],
                 'bags' => [
                     'label' => 'Bags',
-                    'note'  => 'Bottom-aligned, 10% around a 2000 square, so every bag stands on the same line. A clutch is wide and flat and a top-handle bag is tall, so fitting each to the canvas leaves them different heights — only a shared bottom edge makes them read as a row.',
-                    'edits' => ['width' => 2000, 'height' => 2000, 'padding' => 0.10, 'v_align' => 'bottom'],
+                    'note'  => 'Measured across three bags: base 19.8%, 19.9% and 18.6% up from the bottom — one line, agreed on. Filling 49%, 70% and 53% of the height — no agreement at all. So the base is pinned and the scale is left near where the catalogue already sits, rather than a bag being enlarged to fill a frame it was never shot for.',
+                    'edits' => [
+                        'width'   => 2000,
+                        'height'  => 2000,
+                        /*
+                         * Two numbers, not one, because a bag category asks two
+                         * separate questions, and the samples answered only one
+                         * of them.
+                         *
+                         * Where a bag stands: agreed, 20% up. A clutch is wide
+                         * and a top-handle bag is tall, so fitting each to the
+                         * canvas leaves them different heights whatever the
+                         * padding — a shared bottom edge is the only thing that
+                         * makes a row of them read as a row.
+                         *
+                         * How big it reads: not agreed, so 25% keeps it near
+                         * the ~50% of frame two of the three samples sit at.
+                         * Tighter padding does not crop or lose anything, it
+                         * enlarges — a bag shot small in a tall frame gets
+                         * blown up to fill a square, and next to the catalogue
+                         * it reads as zoomed.
+                         */
+                        'padding'        => 0.25,
+                        'padding_bottom' => 0.20,
+                        'v_align'        => 'bottom',
+                    ],
                 ],
                 'belts' => [
                     'label' => 'Belts',
