@@ -282,8 +282,8 @@ class PhotoroomService
                 ],
                 'bags' => [
                     'label' => 'Bags',
-                    'note'  => 'Measured: 10.2% above, 19.9% below — a bag hung from the top of the frame rather than centred in it. One sample, and nothing else in the catalogue does this, so it is the first entry to revisit.',
-                    'edits' => ['width' => 2000, 'height' => 2000, 'padding' => 0.10, 'v_align' => 'top'],
+                    'note'  => 'Bottom-aligned, 10% around a 2000 square, so every bag stands on the same line. A clutch is wide and flat and a top-handle bag is tall, so fitting each to the canvas leaves them different heights — only a shared bottom edge makes them read as a row.',
+                    'edits' => ['width' => 2000, 'height' => 2000, 'padding' => 0.10, 'v_align' => 'bottom'],
                 ],
                 'belts' => [
                     'label' => 'Belts',
