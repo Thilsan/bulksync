@@ -99,8 +99,7 @@ class GenerateAiContentJob implements ShouldQueue
     /**
      * Process the raw SKU list, deduping by Shopify product so a product
      * with multiple variant SKUs only gets ONE description/meta title/meta
-     * description, while every image in its gallery shares that product's alt
-     * text.
+     * description, while every image in its gallery gets its own alt text.
      */
     private function processSkus(AiContentSession $session, ShopifyService $shopify, GeminiService $gemini, string $storeName, array $availableCollections): void
     {
@@ -233,25 +232,30 @@ class GenerateAiContentJob implements ShouldQueue
             'status'           => 'done',
         ]);
 
-        // Gallery images take the hero's alt text instead of each buying their
-        // own Gemini call. A six-image product used to spend six requests to
-        // describe six photographs of one product, and image count — not product
-        // count — was what actually decided the bill.
-        //
-        // The cost is real but small: alt text describes the product, which is
-        // the same item in every shot. Where it shows is colour — the hero's
-        // alt text names the colour it can see, so a gallery shot of a different
-        // colourway inherits the wrong one. Worth revisiting if this store's
-        // products put multiple colourways in a single product's gallery.
         foreach (array_slice($images, 1) as $index => $image) {
-            AiContentImage::create([
-                'item_id'          => $item->id,
-                'shopify_image_id' => $image['id'] ?? null,
-                'image_url'        => $image['src'],
-                'position'         => $index + 1,
-                'ai_alt_text'      => $content['alt_text'],
-                'status'           => 'done',
-            ]);
+            try {
+                $altText = $this->sanitizeText($gemini->generateAltTextFromUrl($image['src'], $productTitle) ?? '') ?: null;
+
+                AiContentImage::create([
+                    'item_id'          => $item->id,
+                    'shopify_image_id' => $image['id'] ?? null,
+                    'image_url'        => $image['src'],
+                    'position'         => $index + 1,
+                    'ai_alt_text'      => $altText,
+                    'status'           => $altText ? 'done' : 'failed',
+                    'error_message'    => $altText ? null : 'Gemini API failed to generate alt text',
+                ]);
+            } catch (\Throwable $e) {
+                Log::warning('AiContent image alt text failed', ['item' => $item->id, 'image' => $image['id'] ?? null, 'error' => $e->getMessage()]);
+                AiContentImage::create([
+                    'item_id'          => $item->id,
+                    'shopify_image_id' => $image['id'] ?? null,
+                    'image_url'        => $image['src'],
+                    'position'         => $index + 1,
+                    'status'           => 'failed',
+                    'error_message'    => $e->getMessage(),
+                ]);
+            }
         }
 
         return $item;
