@@ -59,6 +59,17 @@
         <p class="text-sm text-red-500 mt-1">{{ $aiContentSession->error_message }}</p>
     </div>
 
+    {{-- Stopped early but with usable results: the failure screen above is
+         hidden in this case, so the reason would otherwise go unsaid. --}}
+    @if ($aiContentSession->error_message)
+        <div x-show="status === 'ready' || status === 'done'" x-cloak
+             class="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-4">
+            <p class="text-amber-800 font-medium text-sm">Generation stopped before finishing</p>
+            <p class="text-sm text-amber-700 mt-1">{{ $aiContentSession->error_message }}</p>
+            <p class="text-xs text-amber-600 mt-2">The items below generated successfully and can still be pushed.</p>
+        </div>
+    @endif
+
     {{-- Ready — Items table --}}
     <div x-show="status === 'ready' || status === 'done'" x-cloak>
         <form method="POST" action="{{ route('ai-content.push', $aiContentSession) }}" id="pushForm">

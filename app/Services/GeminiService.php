@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Exceptions\GeminiQuotaException;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -34,6 +35,9 @@ class GeminiService
             if (!$imageContent) return null;
 
             return $this->generateFromImageBytes($imageContent, $productTitle, $vendor, $productType, $tags, $collections, $sku, $storeName, $existingDescription, $existingMaterial, $existingFeatures, $availableCollections);
+        } catch (GeminiQuotaException $e) {
+            // Not this image's problem — the account is out. Let it stop the run.
+            throw $e;
         } catch (\Throwable $e) {
             Log::error('GeminiService::generateFromImageUrl failed', ['url' => $imageUrl, 'error' => $e->getMessage()]);
             return null;
@@ -264,6 +268,8 @@ Return only valid JSON. No markdown, no code blocks, no extra text.";
             if (!$imageContent) return null;
 
             return $this->generateAltTextFromBytes($imageContent, $productTitle);
+        } catch (GeminiQuotaException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             Log::error('GeminiService::generateAltTextFromUrl failed', ['url' => $imageUrl, 'error' => $e->getMessage()]);
             return null;
@@ -438,6 +444,14 @@ Return only valid JSON. No markdown, no code blocks, no extra text.";
 
                 Log::warning('Gemini API error', ['attempt' => $attempt, 'status' => $response->status(), 'body' => self::scrub($response->body())]);
 
+                // A 429 carries two very different meanings. "Slow down" is
+                // worth waiting out; "your balance is empty" is not, and
+                // retrying it only spends the session's time to be told the
+                // same thing again.
+                if ($response->status() === 429 && GeminiQuotaException::matches($response->body())) {
+                    throw GeminiQuotaException::fromResponseBody($response->body());
+                }
+
                 // Over the rate limit. Google says how long to wait; if it does
                 // not, back off further each time. Worth more attempts than a
                 // normal error — the request was fine, we were just early.
@@ -447,6 +461,8 @@ Return only valid JSON. No markdown, no code blocks, no extra text.";
                     $retries = max($retries, 3);
                     continue;
                 }
+            } catch (GeminiQuotaException $e) {
+                throw $e;
             } catch (\Throwable $e) {
                 Log::warning('Gemini API exception', ['attempt' => $attempt, 'error' => self::scrub($e->getMessage())]);
             }
