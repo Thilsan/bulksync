@@ -128,10 +128,15 @@ Route::middleware('auth')->group(function () {
         // Queues
         Route::get('/queues',                        [QueueController::class, 'index'])->name('queues.index');
         Route::get('/queues/status',                 [QueueController::class, 'status'])->name('queues.status');
+        Route::get('/queues/history',                [QueueController::class, 'history'])->name('queues.history');
+        Route::get('/queues/logs',                   [QueueController::class, 'logs'])->name('queues.logs');
+        Route::get('/queues/failed/{uuid}',          [QueueController::class, 'failedDetail'])->name('queues.failed.detail');
         Route::post('/queues/restart',               [QueueController::class, 'restartWorkers'])->name('queues.restart');
+        Route::get('/queues/failed',                 [QueueController::class, 'failedPage'])->name('queues.failed.page');
         Route::post('/queues/failed/retry',          [QueueController::class, 'retryFailed'])->name('queues.failed.retry');
         Route::post('/queues/failed/forget',         [QueueController::class, 'forgetFailed'])->name('queues.failed.forget');
-        Route::post('/queues/sessions/{aiContentSession}/resume', [QueueController::class, 'resumeSession'])->name('queues.sessions.resume');
+        Route::post('/queues/purge',                 [QueueController::class, 'purge'])->name('queues.purge');
+        Route::post('/queues/sessions/{type}/{id}/resume', [QueueController::class, 'resumeSession'])->name('queues.sessions.resume');
     });
 
     // Metafield Update

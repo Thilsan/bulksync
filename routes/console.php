@@ -258,3 +258,35 @@ Schedule::command('product-requests:remind')
     ->at('08:30')
     ->name('product-request-reminders')
     ->withoutOverlapping();
+
+/*
+ * Queue history is written by every worker for every job, and a single bulk
+ * upload dispatches one job per image — twenty thousand rows from one action.
+ * Two ceilings rather than one: an age cap so the table reflects recent
+ * operations, and a row cap so a burst cannot outrun the daily sweep in between
+ * runs. Hourly, because the disk has filled twice before.
+ */
+$pruneJobRuns = function () {
+    $keepDays = 7;
+    $keepRows = 50000;
+
+    DB::table('job_runs')->where('started_at', '<', now()->subDays($keepDays))->delete();
+
+    // Anything still "running" long after a worker could plausibly hold it was
+    // killed outright — a timeout, an OOM, a restarted container. Left alone it
+    // is counted as live work for ever and the dashboard reads as busy.
+    DB::table('job_runs')
+        ->where('status', 'running')
+        ->where('started_at', '<', now()->subHours(\App\Models\JobRun::LOST_AFTER_HOURS))
+        ->update(['status' => 'lost', 'updated_at' => now()]);
+
+    // Trim to the newest $keepRows by finding the id at that depth and deleting
+    // below it — one indexed comparison rather than counting the whole table.
+    $cutoffId = DB::table('job_runs')->orderByDesc('id')->offset($keepRows)->limit(1)->value('id');
+
+    if ($cutoffId) {
+        DB::table('job_runs')->where('id', '<=', $cutoffId)->delete();
+    }
+};
+
+Schedule::call($pruneJobRuns)->hourly()->name('prune-job-runs')->withoutOverlapping();

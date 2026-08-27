@@ -42,6 +42,14 @@ class AppServiceProvider extends ServiceProvider
         // in-app only — silently, with nothing failed to look at.
         Queue::before(fn () => \App\Services\MailConfigurator::apply());
 
+        // Queue history. Laravel remembers what failed and what is still waiting,
+        // but nothing about what ran and finished — so "what happened overnight,
+        // and how long did it take" had no answer, and a job in progress was
+        // invisible. The recorder never throws; see the class for why that matters.
+        Queue::before([\App\Support\JobRunRecorder::class, 'starting']);
+        Queue::after([\App\Support\JobRunRecorder::class, 'finished']);
+        Queue::failing([\App\Support\JobRunRecorder::class, 'failed']);
+
         View::composer('layouts.app', function ($view) {
             try {
                 $user = auth()->user();

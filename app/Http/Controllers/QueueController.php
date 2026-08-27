@@ -2,8 +2,8 @@
 
 namespace App\Http\Controllers;
 
-use App\Jobs\GenerateAiContentJob;
-use App\Models\AiContentSession;
+use App\Models\JobRun;
+use App\Support\SessionResumer;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -50,10 +50,170 @@ class QueueController extends Controller
         return [
             'queues'   => $this->queueDepths(),
             'workers'  => $this->workers(),
-            'failed'   => $this->failedJobs(),
+            'failed'      => $this->failedJobs(),
+            'failedTotal' => DB::table('failed_jobs')->count(),
             'sessions' => $this->resumableSessions(),
+            'running'  => $this->runningJobs(),
+            'today'    => $this->todaysTally(),
             'driver'   => config('queue.default'),
         ];
+    }
+
+    /**
+     * Jobs a worker is holding right now.
+     *
+     * Queue depth counts what is waiting, which says nothing about whether
+     * anything is actually moving — the question behind every "is it stuck?".
+     * A row is only trusted while it is young: a killed worker never writes its
+     * own ending, so an old "running" row is a ghost, not live work.
+     */
+    private function runningJobs(): array
+    {
+        return JobRun::running()
+            ->where('started_at', '>=', now()->subHours(JobRun::LOST_AFTER_HOURS))
+            ->orderBy('started_at')
+            ->limit(50)
+            ->get()
+            ->map(fn (JobRun $r) => [
+                'id'      => $r->id,
+                'name'    => $r->name,
+                'queue'   => $r->queue,
+                'attempt' => $r->attempt,
+                'for'     => $r->started_at?->diffForHumans(null, true),
+                'seconds' => (int) ($r->started_at?->diffInSeconds(now()) ?? 0),
+            ])
+            ->all();
+    }
+
+    /** Headline counts for the last 24 hours, so the page opens on an answer. */
+    private function todaysTally(): array
+    {
+        $since = now()->subDay();
+
+        $rows = JobRun::where('started_at', '>=', $since)
+            ->selectRaw('status, count(*) as total')
+            ->groupBy('status')
+            ->pluck('total', 'status');
+
+        return [
+            'completed' => (int) ($rows['completed'] ?? 0),
+            'failed'    => (int) ($rows['failed'] ?? 0),
+            'lost'      => (int) ($rows['lost'] ?? 0),
+        ];
+    }
+
+    /**
+     * Everything the workers have run, newest first, filterable by queue, status
+     * and job name.
+     */
+    public function history(Request $request): JsonResponse
+    {
+        $runs = JobRun::query()
+            ->when($request->filled('queue'), fn ($q) => $q->where('queue', $request->input('queue')))
+            ->when($request->filled('status'), fn ($q) => $q->where('status', $request->input('status')))
+            ->when($request->filled('name'), fn ($q) => $q->where('name', 'like', '%' . $request->input('name') . '%'))
+            ->orderByDesc('started_at')
+            ->paginate(50)
+            ->withQueryString();
+
+        return response()->json([
+            'rows'  => collect($runs->items())->map(fn (JobRun $r) => [
+                'id'        => $r->id,
+                'name'      => $r->name,
+                'queue'     => $r->queue,
+                'status'    => $r->status,
+                'attempt'   => $r->attempt,
+                'started'   => $r->started_at?->format('d M H:i:s'),
+                'duration'  => $r->humanDuration(),
+                'exception' => $r->exception,
+            ])->all(),
+            'page'  => $runs->currentPage(),
+            'pages' => $runs->lastPage(),
+            'total' => $runs->total(),
+        ]);
+    }
+
+    /**
+     * The tail of the application log, filtered to queue and job activity.
+     *
+     * Reading this off the server meant grepping an 18 MB file through a shell
+     * that mangles pasted commands — and Laravel pretty-prints JSON bodies across
+     * many physical lines, so a line-based grep splits every error in half.
+     * Entries are reassembled here on the timestamp that starts each one.
+     */
+    public function logs(Request $request): JsonResponse
+    {
+        // Asked of the logging config rather than hardcoded, so this follows the
+        // app's own log location — and so a test can point it somewhere harmless
+        // instead of writing over the real one.
+        $path = config('logging.channels.single.path') ?: storage_path('logs/laravel.log');
+
+        if (!is_readable($path)) {
+            return response()->json(['entries' => [], 'error' => 'No readable log at ' . $path]);
+        }
+
+        // Only the tail: the file runs to tens of megabytes and the whole point
+        // is recent activity.
+        $bytes  = 512 * 1024;
+        $size   = filesize($path);
+        $handle = fopen($path, 'rb');
+        fseek($handle, max(0, $size - $bytes));
+        $chunk = (string) fread($handle, $bytes);
+        fclose($handle);
+
+        $needle  = trim((string) $request->input('q', ''));
+        $entries = [];
+        $current = null;
+
+        foreach (explode("\n", $chunk) as $line) {
+            // A new entry starts with its timestamp; anything else is a
+            // continuation of the one before it.
+            if (preg_match('/^\[(\d{4}-\d{2}-\d{2} [\d:]+)\] (\w+)\.(\w+): (.*)$/', $line, $m)) {
+                if ($current) {
+                    $entries[] = $current;
+                }
+
+                $current = ['time' => $m[1], 'level' => strtolower($m[3]), 'message' => $m[4]];
+            } elseif ($current !== null) {
+                $current['message'] .= ' ' . trim($line);
+            }
+        }
+
+        if ($current) {
+            $entries[] = $current;
+        }
+
+        // The first entry is usually a fragment, since the read starts mid-file.
+        array_shift($entries);
+
+        $entries = array_filter($entries, function ($e) use ($needle) {
+            if ($needle !== '') {
+                return stripos($e['message'], $needle) !== false;
+            }
+
+            // Default view: queue and job activity, plus anything that went wrong.
+            return in_array($e['level'], ['error', 'warning'], true)
+                || preg_match('/job|queue|session|gemini|shopify/i', $e['message']);
+        });
+
+        $entries = array_map(
+            fn ($e) => [...$e, 'message' => Str::limit($e['message'], 400)],
+            array_slice(array_values($entries), -200),
+        );
+
+        return response()->json(['entries' => array_reverse($entries), 'error' => null]);
+    }
+
+    /** The whole stack trace for one failure — the page shows only its first line. */
+    public function failedDetail(string $uuid): JsonResponse
+    {
+        $row = DB::table('failed_jobs')->where('uuid', $uuid)->first();
+
+        if (!$row) {
+            return response()->json(['exception' => 'That failed job is no longer on the list.']);
+        }
+
+        return response()->json(['exception' => $row->exception, 'payload' => $row->payload]);
     }
 
     /**
@@ -130,11 +290,32 @@ class QueueController extends Controller
      * Failed jobs, newest first, with the exception's first line pulled out —
      * the full stack trace is what makes `queue:failed` unreadable in a terminal.
      */
-    private function failedJobs(): array
+    /**
+     * One page of failures for the live poll, plus the true total — the count is
+     * a headline in its own right, and capping the list at fifty used to hide
+     * how bad a bad night had been.
+     */
+    public function failedPage(Request $request): JsonResponse
+    {
+        $page = max(1, (int) $request->input('page', 1));
+        $per  = 25;
+
+        $total = DB::table('failed_jobs')->count();
+
+        return response()->json([
+            'rows'  => $this->failedJobs($per, ($page - 1) * $per),
+            'page'  => $page,
+            'pages' => max(1, (int) ceil($total / $per)),
+            'total' => $total,
+        ]);
+    }
+
+    private function failedJobs(int $limit = 25, int $offset = 0): array
     {
         return DB::table('failed_jobs')
             ->orderByDesc('failed_at')
-            ->limit(50)
+            ->offset($offset)
+            ->limit($limit)
             ->get()
             ->map(function ($row) {
                 $payload = json_decode($row->payload, true) ?: [];
@@ -152,26 +333,15 @@ class QueueController extends Controller
     }
 
     /**
-     * AI content sessions that stopped short and can be picked up again.
+     * Every kind of session that stopped short, not just AI content.
      *
-     * Re-dispatching skips whatever already generated, so resuming costs only the
-     * SKUs that never finished rather than paying Gemini for the whole list twice.
+     * Six things in this app run as a session over a queue and any of them can
+     * strand; see SessionResumer for how each one is picked up, and for the one
+     * that genuinely cannot be.
      */
     private function resumableSessions(): array
     {
-        return AiContentSession::whereIn('status', ['failed', 'processing', 'pending'])
-            ->latest()
-            ->limit(20)
-            ->get()
-            ->map(fn ($s) => [
-                'id'        => $s->id,
-                'status'    => $s->status,
-                'processed' => $s->processed_items,
-                'total'     => $s->total_items,
-                'error'     => Str::limit((string) $s->error_message, 160),
-                'updated'   => optional($s->updated_at)->diffForHumans(),
-            ])
-            ->all();
+        return SessionResumer::stalled();
     }
 
     /**
@@ -218,15 +388,56 @@ class QueueController extends Controller
      * stuck is a worker that died, but a slow product looks identical from here,
      * and two jobs on one session would generate everything twice.
      */
-    public function resumeSession(AiContentSession $aiContentSession): RedirectResponse
+    public function resumeSession(Request $request, string $type, int $id): RedirectResponse
     {
-        if ($aiContentSession->status === 'processing' && $aiContentSession->updated_at?->gt(now()->subMinutes(5))) {
+        $types = SessionResumer::types();
+
+        if (!isset($types[$type])) {
+            return back()->with('error', 'Unknown session type.');
+        }
+
+        $session = $types[$type]['model']::find($id);
+
+        if ($session && ($session->status ?? '') === 'processing' && $session->updated_at?->gt(now()->subMinutes(5))) {
             return back()->with('error', 'That session moved in the last five minutes, so it is still running. Resume it only once it has genuinely stopped.');
         }
 
-        GenerateAiContentJob::dispatch($aiContentSession->id)->onQueue('bulkupload');
-        Log::info('Queue dashboard: AI content session resumed', ['session' => $aiContentSession->id, 'by' => auth()->id()]);
+        try {
+            $message = SessionResumer::resume($type, $id);
+        } catch (\RuntimeException $e) {
+            return back()->with('error', $e->getMessage());
+        }
 
-        return back()->with('success', "Session #{$aiContentSession->id} queued. Finished SKUs are skipped, so it picks up where it stopped.");
+        Log::info('Queue dashboard: session resumed', ['type' => $type, 'session' => $id, 'by' => auth()->id()]);
+
+        return back()->with('success', $message);
+    }
+
+    /**
+     * Throw away everything waiting on one queue.
+     *
+     * Nothing here is recoverable, so it asks for the queue's name to be typed
+     * rather than trusting a click: the whole point of reaching for this is that
+     * the queue is full of work you no longer want, and the neighbouring queue
+     * usually is not.
+     */
+    public function purge(Request $request): RedirectResponse
+    {
+        $queue = (string) $request->input('queue');
+
+        if (!in_array($queue, self::QUEUES, true)) {
+            return back()->with('error', 'Unknown queue.');
+        }
+
+        if ($request->input('confirm') !== $queue) {
+            return back()->with('error', "Type the queue name exactly to purge it. Nothing was deleted.");
+        }
+
+        $size = Queue::size($queue);
+
+        Artisan::call('queue:clear', ['connection' => config('queue.default'), '--queue' => $queue, '--force' => true]);
+        Log::warning('Queue dashboard: queue purged', ['queue' => $queue, 'discarded' => $size, 'by' => auth()->id()]);
+
+        return back()->with('success', "Purged {$queue} — {$size} waiting job(s) discarded.");
     }
 }
