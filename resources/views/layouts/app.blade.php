@@ -262,6 +262,7 @@
                 'items' => [
                     ['label' => 'Admin Panel',  'url' => route('super-admin.index'),    'icon' => 'shield', 'on' => request()->routeIs('super-admin.index'),    'show' => (bool) $u?->is_super_admin],
                     ['label' => 'Activity Log', 'url' => route('super-admin.activity'), 'icon' => 'clock',  'on' => request()->routeIs('super-admin.activity'), 'show' => (bool) $u?->is_super_admin],
+                    ['label' => 'Queues',       'url' => route('super-admin.queues.index'), 'icon' => 'swap', 'on' => request()->routeIs('super-admin.queues.*'), 'show' => (bool) $u?->is_super_admin],
                 ],
             ],
         ];

@@ -18,6 +18,7 @@ use App\Http\Controllers\AiContentController;
 use App\Http\Controllers\PhotoEditorController;
 use App\Http\Controllers\PhotoshootRoomController;
 use App\Http\Controllers\ProductRequestController;
+use App\Http\Controllers\QueueController;
 use Illuminate\Support\Facades\Route;
 
 // Auth
@@ -123,6 +124,14 @@ Route::middleware('auth')->group(function () {
         Route::post('/users/{user}/toggle-admin',    [SuperAdminController::class, 'toggleSuperAdmin'])->name('users.toggle-admin');
         Route::post('/users/{user}/permissions',     [SuperAdminController::class, 'updatePermissions'])->name('users.permissions');
         Route::post('/users/{user}/stores',          [SuperAdminController::class, 'updateStores'])->name('users.stores');
+
+        // Queues
+        Route::get('/queues',                        [QueueController::class, 'index'])->name('queues.index');
+        Route::get('/queues/status',                 [QueueController::class, 'status'])->name('queues.status');
+        Route::post('/queues/restart',               [QueueController::class, 'restartWorkers'])->name('queues.restart');
+        Route::post('/queues/failed/retry',          [QueueController::class, 'retryFailed'])->name('queues.failed.retry');
+        Route::post('/queues/failed/forget',         [QueueController::class, 'forgetFailed'])->name('queues.failed.forget');
+        Route::post('/queues/sessions/{aiContentSession}/resume', [QueueController::class, 'resumeSession'])->name('queues.sessions.resume');
     });
 
     // Metafield Update
