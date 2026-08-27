@@ -20,7 +20,24 @@ class GenerateAiContentJob implements ShouldQueue
     public int $timeout = 3600;
     public int $tries   = 1;
 
-    public function __construct(public readonly int $sessionId) {}
+    /**
+     * How long one job may spend generating before it hands the rest of the list
+     * to a fresh job.
+     *
+     * A session's runtime is set by how many images its products have, not by how
+     * many SKUs were typed in, so no SKU count is safely under the timeout: a
+     * 220-SKU session finished in 19 minutes while a 116-SKU one was still going
+     * at the hour mark and was killed, losing the session even though 68 SKUs had
+     * already generated. Working to a time budget instead means the list length
+     * stops mattering — each job stops well short of $timeout and the next one
+     * picks up where it left off.
+     */
+    private const CHUNK_SECONDS = 2400;
+
+    public function __construct(
+        public readonly int $sessionId,
+        public readonly int $offset = 0,
+    ) {}
 
     public function handle(GeminiService $gemini, ShopifyService $shopify): void
     {
@@ -40,8 +57,10 @@ class GenerateAiContentJob implements ShouldQueue
         // Every call to Gemini costs a 30-second timeout when the server cannot
         // reach Google, so a session of twenty SKUs spends twenty minutes dying
         // and the worker kills it before it can report anything. One cheap check
-        // first turns that into an immediate, readable failure.
-        $reachable = $gemini->ping();
+        // first turns that into an immediate, readable failure. Only worth doing
+        // on the first chunk — later chunks have already proved the account works,
+        // and if it stops working mid-run the quota exception handles it.
+        $reachable = $this->offset === 0 ? $gemini->ping() : ['ok' => true, 'message' => ''];
 
         if (!$reachable['ok']) {
             Log::error('GenerateAiContentJob: Gemini unreachable', ['session' => $this->sessionId, 'error' => $reachable['message']]);
@@ -51,7 +70,17 @@ class GenerateAiContentJob implements ShouldQueue
         }
 
         try {
-            $this->processSkus($session, $shopify, $gemini, $storeName, $availableCollections);
+            $nextOffset = $this->processSkus($session, $shopify, $gemini, $storeName, $availableCollections);
+
+            // Still SKUs left when the time budget ran out. Hand the remainder to
+            // a fresh job rather than pushing this one towards $timeout — the
+            // session stays "processing" and the progress bar keeps moving.
+            if ($nextOffset !== null) {
+                Log::info('GenerateAiContentJob: chunk done, continuing', ['session' => $this->sessionId, 'next_offset' => $nextOffset]);
+                self::dispatch($this->sessionId, $nextOffset)->onQueue('bulkupload');
+
+                return;
+            }
 
             $session->update(['status' => 'ready']);
         } catch (GeminiQuotaException $e) {
@@ -100,15 +129,60 @@ class GenerateAiContentJob implements ShouldQueue
      * Process the raw SKU list, deduping by Shopify product so a product
      * with multiple variant SKUs only gets ONE description/meta title/meta
      * description, while every image in its gallery gets its own alt text.
+     *
+     * Walks the list from $this->offset and stops once CHUNK_SECONDS is up.
+     *
+     * @return int|null Offset for the next job, or null when the list is finished.
      */
-    private function processSkus(AiContentSession $session, ShopifyService $shopify, GeminiService $gemini, string $storeName, array $availableCollections): void
+    private function processSkus(AiContentSession $session, ShopifyService $shopify, GeminiService $gemini, string $storeName, array $availableCollections): ?int
     {
-        $skus = json_decode($session->skus_json ?? '[]', true) ?: [];
+        $skus      = json_decode($session->skus_json ?? '[]', true) ?: [];
+        $startedAt = microtime(true);
 
+        // Re-running a session that stopped short should not pay for the SKUs it
+        // already generated — those cost real money the first time. Anything with
+        // a finished item is walked past for the price of an array lookup.
+        $alreadyDone = $this->skusAlreadyGenerated($session);
+
+        if ($this->offset === 0) {
+            // A retry has to actually retry, so anything that did not finish is
+            // cleared and will be generated again. Image rows cascade with the
+            // item. Finished items are left alone — they are the whole point of
+            // resuming rather than starting over.
+            AiContentItem::where('session_id', $session->id)->where('status', '!=', 'done')->delete();
+
+            // Counting restarts with the walk so a resume cannot inherit a stale
+            // total; skipped SKUs still count, so the bar stays honest.
+            $session->update(['processed_items' => 0]);
+        }
+
+        // Dedup has to survive a chunk boundary, so the map is seeded from what is
+        // already in the database rather than built fresh per job. Without this a
+        // product whose SKUs straddle two chunks would be generated twice — paying
+        // Gemini twice for one description.
         /** @var array<string, AiContentItem> $itemsByProductId */
-        $itemsByProductId = [];
+        $itemsByProductId = AiContentItem::where('session_id', $session->id)
+            ->whereNotNull('shopify_product_id')
+            ->get()
+            ->keyBy('shopify_product_id')
+            ->all();
 
-        foreach ($skus as $sku) {
+        foreach ($skus as $index => $sku) {
+            if ($index < $this->offset) {
+                continue;
+            }
+
+            // Check before starting a SKU, never mid-product: an item is only
+            // consistent once its images are written.
+            if (microtime(true) - $startedAt >= self::CHUNK_SECONDS) {
+                return $index;
+            }
+
+            if (isset($alreadyDone[$sku])) {
+                $session->increment('processed_items');
+                continue;
+            }
+
             try {
                 $variants = $shopify->findVariantsBySku($sku);
 
@@ -155,6 +229,30 @@ class GenerateAiContentJob implements ShouldQueue
 
             $session->increment('processed_items');
         }
+
+        return null;
+    }
+
+    /**
+     * Every SKU in this session that already has finished content, including the
+     * sibling SKUs folded into an item's all_skus list.
+     *
+     * @return array<string, true>
+     */
+    private function skusAlreadyGenerated(AiContentSession $session): array
+    {
+        $done = [];
+
+        foreach (AiContentItem::where('session_id', $session->id)->where('status', 'done')->get(['sku', 'all_skus']) as $item) {
+            foreach (explode(',', (string) ($item->all_skus ?: $item->sku)) as $sku) {
+                $sku = trim($sku);
+                if ($sku !== '') {
+                    $done[$sku] = true;
+                }
+            }
+        }
+
+        return $done;
     }
 
     private function generateForProduct(
@@ -245,6 +343,13 @@ class GenerateAiContentJob implements ShouldQueue
                     'status'           => $altText ? 'done' : 'failed',
                     'error_message'    => $altText ? null : 'Gemini API failed to generate alt text',
                 ]);
+            } catch (GeminiQuotaException $e) {
+                // An empty balance is not this image's problem and will not clear
+                // by moving to the next one. Caught by the \Throwable arm below it
+                // would be filed as "alt text failed" and the run would carry on
+                // asking — which is exactly the grind this exception exists to
+                // stop, and most calls in a session are alt text.
+                throw $e;
             } catch (\Throwable $e) {
                 Log::warning('AiContent image alt text failed', ['item' => $item->id, 'image' => $image['id'] ?? null, 'error' => $e->getMessage()]);
                 AiContentImage::create([

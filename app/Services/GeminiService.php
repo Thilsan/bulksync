@@ -509,12 +509,20 @@ Return only valid JSON. No markdown, no code blocks, no extra text.";
     }
 
     /**
-     * Can this server reach Gemini at all?
+     * Can this server actually generate with Gemini right now?
      *
-     * When outbound access to Google is blocked every call dies on a 30-second
-     * timeout, and a whole session of them takes long enough for the queue worker
-     * to kill the job — leaving the UI on 0% with nothing to explain it. This is
-     * the cheap up-front check that turns that into one sentence.
+     * Two different things can stop a session before it starts, and this has to
+     * catch both. Outbound access to Google being blocked makes every call die on
+     * a 30-second timeout, so a whole session grinds to the worker's kill. An
+     * empty prepaid balance is worse: the request goes through fine and comes
+     * back 429 RESOURCE_EXHAUSTED, which the retry ladder then spends ~38 seconds
+     * per SKU rediscovering.
+     *
+     * This deliberately calls generateContent rather than listing models. Listing
+     * models works perfectly well with a depleted balance, so it reported "the key
+     * works" while every real call was being refused — a false all-clear that let
+     * a doomed session burn an hour. Only a call that actually spends can prove
+     * the account can spend.
      *
      * @return array{ok: bool, message: string}
      */
@@ -525,12 +533,23 @@ Return only valid JSON. No markdown, no code blocks, no extra text.";
         }
 
         try {
-            $response = Http::timeout(10)
+            // The smallest generation that still bills: a one-token reply. Cheap
+            // enough to run before every session, real enough to prove spend.
+            $response = Http::timeout(15)
                 ->withHeaders(['x-goog-api-key' => $this->apiKey])
-                ->get('https://generativelanguage.googleapis.com/v1beta/models');
+                ->post($this->endpoint, [
+                    'contents'         => [['parts' => [['text' => 'hi']]]],
+                    'generationConfig' => ['maxOutputTokens' => 1],
+                ]);
 
             if ($response->successful()) {
-                return ['ok' => true, 'message' => 'Gemini is reachable and the key works.'];
+                return ['ok' => true, 'message' => 'Gemini is reachable and the account can generate.'];
+            }
+
+            // An exhausted balance or daily cap will not clear by waiting, so say
+            // so in the words the operator needs rather than a raw status code.
+            if ($response->status() === 429 && GeminiQuotaException::matches($response->body())) {
+                return ['ok' => false, 'message' => GeminiQuotaException::fromResponseBody($response->body())->getMessage()];
             }
 
             return [

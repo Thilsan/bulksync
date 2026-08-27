@@ -94,4 +94,36 @@ class GeminiQuotaTest extends TestCase
 
         Http::assertSentCount(1);
     }
+
+    /**
+     * The false all-clear that cost an hour: listing models keeps working with an
+     * empty balance, so a ping built on it reported "the key works" while every
+     * real call was being refused, and the session ran until the worker killed it.
+     * Only a call that actually spends can prove the account can spend.
+     */
+    public function test_ping_catches_a_depleted_balance_that_model_listing_hides(): void
+    {
+        config(['services.gemini.api_key' => 'test-key', 'services.gemini.rpm' => 6000]);
+
+        Http::fake([
+            '*generateContent*' => Http::response(self::DEPLETED, 429),
+            '*/v1beta/models'   => Http::response('{"models":[]}', 200),
+        ]);
+
+        $result = app(GeminiService::class)->ping();
+
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString('ai.studio', $result['message']);
+    }
+
+    public function test_ping_passes_when_the_account_can_generate(): void
+    {
+        config(['services.gemini.api_key' => 'test-key', 'services.gemini.rpm' => 6000]);
+
+        Http::fake([
+            '*' => Http::response(['candidates' => [['content' => ['parts' => [['text' => 'hi']]]]]], 200),
+        ]);
+
+        $this->assertTrue(app(GeminiService::class)->ping()['ok']);
+    }
 }

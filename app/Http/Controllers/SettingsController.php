@@ -223,8 +223,10 @@ class SettingsController extends Controller
     }
 
     /**
-     * Can the server reach Gemini? Answers the question that a session stuck on
-     * 0% cannot: is this the key, or is it outbound network access.
+     * Can the server actually generate with Gemini? Answers the question that a
+     * session stuck on 0% cannot: is this the key, outbound network access, or an
+     * empty prepaid balance. Costs a one-token generation, which is what makes the
+     * last of those three answerable at all.
      */
     public function testGemini(): \Illuminate\Http\JsonResponse
     {
