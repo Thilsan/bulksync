@@ -31,11 +31,12 @@ class EditPhotoItemJob implements ShouldQueue
     /**
      * The ceiling a finished product image has to come in under.
      *
-     * Photoroom does the compressing: it exports JPEG at quality 80, and a
-     * 2000 square of a product on white lands well inside this. The local pass
-     * below is a net for the exceptional file, not the mechanism — Photoroom's
-     * API has no quality or file-size parameter to ask for a target with, so
-     * there has to be something behind it.
+     * Not a compression target — a limit that is rarely reached. Photoroom
+     * hands back a lossless PNG and the JPEG is written here at the highest
+     * quality that fits, which for a 2000 square of a product on white means
+     * quality 100 at roughly 770 KB. The measured difference from the PNG at
+     * that setting is an average of 0.02 of 255 shades per pixel, so the
+     * megabyte buys a file a third of the size and nothing visible lost.
      */
     private const MAX_OUTPUT_BYTES = 1_000_000;
 
@@ -198,20 +199,18 @@ class EditPhotoItemJob implements ShouldQueue
             $isJpeg = $format === 'jpg';
 
             /*
-             * Only JPEG output goes through the compressor: it re-encodes as
-             * JPEG, which would flatten a transparent cutout onto black.
-             * It also enforces Shopify's megapixel ceiling on the way past —
-             * which the other formats still need, so they get the alpha-safe
-             * version of the same cap rather than skipping it.
+             * What arrived is lossless — Photoroom was asked for PNG precisely
+             * so its own fixed quality-80 JPEG never touched the picture. The
+             * JPEG is made here instead, at the highest quality that fits the
+             * ceiling, which on a product against a plain background is usually
+             * the top of the scale.
              *
-             * Already under the ceiling, which is the normal case, and it
-             * returns Photoroom's own bytes untouched. Never allowed to shrink:
-             * the canvas is what a category preset promises, and a photo that
-             * came back 1900 wide because it was a busy print would sit out of
-             * line with every other photo in its category.
+             * A transparent cutout is kept as it came: JPEG cannot hold an
+             * alpha channel, so it only needs Shopify's megapixel ceiling
+             * enforced in the alpha-safe way.
              */
             $edited = $isJpeg
-                ? $imageService->compressOnly($edited, self::MAX_OUTPUT_BYTES, allowShrink: false)
+                ? $imageService->toJpegUnderLimit($edited, self::MAX_OUTPUT_BYTES)
                 : $imageService->capPixelCountPreservingAlpha($edited, $format);
 
             $ext          = $format;

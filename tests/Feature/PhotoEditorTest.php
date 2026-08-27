@@ -253,7 +253,41 @@ class PhotoEditorTest extends TestCase
         $this->assertSame('1200x1200', $fields['outputSize']);
         $this->assertSame('0.15',      $fields['padding']);
         $this->assertSame('ai.soft',   $fields['shadow.mode']);
-        $this->assertSame('jpg',       $fields['export.format']);
+
+        /*
+         * PNG, though the file is kept as a JPEG. Photoroom's JPEG export is
+         * fixed at quality 80 and their API has no parameter to raise it, so
+         * the edit is fetched losslessly and the JPEG written here instead, at
+         * a quality and a size we choose. transportFormat() is what decides
+         * this; outputFormat() still says jpg, and the test above proves it.
+         */
+        $this->assertSame('png',       $fields['export.format']);
+    }
+
+    /**
+     * What Photoroom is asked for and what is kept are two questions.
+     *
+     * They only diverge on the answer JPEG: an opaque background is kept as a
+     * JPEG but fetched as a PNG, so Photoroom's own lossy pass never happens.
+     * A transparent cutout is already lossless in both directions and has
+     * nothing to gain, so it asks for exactly what it will keep.
+     */
+    public function test_a_jpeg_is_fetched_losslessly_and_encoded_here(): void
+    {
+        $service = app(PhotoroomService::class);
+
+        $opaque = ['remove_background' => true, 'background_mode' => 'white'];
+        $this->assertSame('jpg', $service->outputFormat($opaque));
+        $this->assertSame('png', $service->transportFormat($opaque), 'a JPEG must be fetched losslessly');
+
+        $cutout = ['remove_background' => true, 'background_mode' => 'transparent'];
+        $this->assertSame('png', $service->outputFormat($cutout));
+        $this->assertSame('png', $service->transportFormat($cutout), 'nothing to gain re-asking for PNG');
+
+        // WebP holds alpha and is asked for as itself rather than upgraded.
+        $webp = $cutout + ['export_format' => 'webp'];
+        $this->assertSame('webp', $service->outputFormat($webp));
+        $this->assertSame('webp', $service->transportFormat($webp));
     }
 
     // ── Pushing ────────────────────────────────────────────────────────────

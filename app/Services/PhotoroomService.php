@@ -576,22 +576,14 @@ class PhotoroomService
             'trim_bottom' => null,
 
             /*
-             * PNG, not JPEG, and deliberately so.
+             * The format the finished file is kept in. 'auto' means JPEG for a
+             * product on an opaque background and PNG for a transparent cutout,
+             * which JPEG cannot hold.
              *
-             * Photoroom's JPEG export is fixed at quality 80 and their API has
-             * no quality parameter to raise it with, so every edit came back
-             * having been through a lossy pass nobody chose. PNG is lossless:
-             * what comes back differs from the photograph that went in only by
-             * the edit itself — background replaced, canvas resized — and not
-             * by a generation of compression on top.
-             *
-             * It costs file size. A plain product on white lands around 500 KB
-             * where the JPEG was 180; a busy print can reach 2 MB. That is the
-             * trade, made on purpose: the grid never sees a master, so a bigger
-             * file costs a shopper nothing, and detail thrown away at export
-             * cannot be got back.
+             * What Photoroom is asked to send back is a separate question, and
+             * a different answer — see transportFormat().
              */
-            'export_format' => 'png',
+            'export_format' => 'auto',
             'color_space'   => 'sRGB',
         ];
     }
@@ -704,7 +696,7 @@ class PhotoroomService
             unset($fields['outputSize']);
         }
 
-        $fields['export.format'] = $this->outputFormat($edits);
+        $fields['export.format'] = $this->transportFormat($edits);
 
         if (!empty($edits['dpi'])) {
             $fields['export.dpi'] = (string) max(72, min(1200, (int) $edits['dpi']));
@@ -1132,6 +1124,25 @@ class PhotoroomService
      * silently ruins the image — JPEG has no alpha channel, so the background
      * Photoroom just removed comes back as black.
      */
+    /**
+     * The format Photoroom is asked to export, as opposed to the one the file
+     * is kept in.
+     *
+     * These differ on purpose whenever the answer is JPEG. Photoroom's JPEG
+     * export is fixed at quality 80 with chroma subsampling and their API has
+     * no parameter to raise it, so accepting a JPEG from them means accepting a
+     * lossy pass nobody chose, at a quality nobody can change. Asking for PNG
+     * instead costs a larger download and gets the edit back intact; the JPEG
+     * is then made here, at a quality we pick, under a size we pick.
+     *
+     * Where the kept format already holds an alpha channel there is nothing to
+     * gain — PNG in, PNG out — so it asks for exactly what it will keep.
+     */
+    public function transportFormat(array $edits): string
+    {
+        return $this->outputFormat($edits) === 'jpg' ? 'png' : $this->outputFormat($edits);
+    }
+
     public function outputFormat(array $edits): string
     {
         $isTransparent = !empty($edits['remove_background'])

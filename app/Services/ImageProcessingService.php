@@ -246,6 +246,65 @@ class ImageProcessingService
     }
 
     /**
+     * Turn any image into the best JPEG that fits inside $maxBytes.
+     *
+     * The difference from compressOnly() is that this always re-encodes.
+     * compressOnly leaves a file alone when it is already small enough, which
+     * is right for a JPEG that arrived and wrong for a lossless PNG that has
+     * to become one — a 500 KB PNG is under any sensible ceiling and still not
+     * the JPEG the catalogue wants.
+     *
+     * Quality starts at the top and only comes down as far as the ceiling
+     * forces. On a product against a plain background that is usually not at
+     * all: quality 100 of a 2000 square lands near 770 KB, where the ceiling is
+     * a megabyte. Pixels are never traded for bytes — the canvas is what a
+     * category preset promises, and a photo quietly returned narrower would
+     * sit out of line with every other photo in its category. A file that
+     * cannot fit even at the lowest quality comes back oversized instead,
+     * which is a problem someone can see rather than one they cannot.
+     */
+    public function toJpegUnderLimit(string $imageContent, int $maxBytes = 1_000_000): string
+    {
+        $imageContent = $this->capPixelCount($imageContent);
+
+        $encode = fn (int $quality) => $this->manager->decode($imageContent)
+            ->encode(new JpegEncoder(quality: $quality))
+            ->toString();
+
+        $best = $encode(self::START_QUALITY);
+
+        if (strlen($best) <= $maxBytes) {
+            return $best;
+        }
+
+        // Highest quality that fits. Binary search rather than stepping down,
+        // because each attempt is a full re-encode of a 4-megapixel image.
+        $lo = self::MIN_QUALITY;
+        $hi = self::START_QUALITY - 1;
+
+        while ($lo < $hi) {
+            $mid = (int) ceil(($lo + $hi) / 2);
+
+            if (strlen($encode($mid)) <= $maxBytes) {
+                $lo = $mid;
+            } else {
+                $hi = $mid - 1;
+            }
+        }
+
+        $result = $encode($lo);
+
+        if (strlen($result) > $maxBytes) {
+            Log::warning(sprintf(
+                'toJpegUnderLimit could not reach %d bytes; kept %d bytes at quality %d rather than lose pixels.',
+                $maxBytes, strlen($result), $lo,
+            ));
+        }
+
+        return $result;
+    }
+
+    /**
      * Squeeze a file under $maxBytes without changing what it shows.
      *
      * $allowShrink is the escape hatch for the one case quality cannot solve:

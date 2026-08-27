@@ -17,6 +17,45 @@ class PhotoEditorLayoutTest extends TestCase
 {
     use RefreshDatabase;
 
+    /**
+     * The push button asks before it writes to a live storefront.
+     *
+     * Everything else in this feature is reversible by re-running; pushing is
+     * not — it puts images on a website customers are looking at, and decides
+     * which one they see first. A stray click on a button labelled with a live
+     * shop's name is not something to leave to a steady hand, so the dialog is
+     * asserted rather than assumed still wired up.
+     */
+    public function test_pushing_to_shopify_asks_first(): void
+    {
+        $user = User::factory()->create(['is_active' => true, 'perm_photo_editor' => true]);
+
+        $session = \App\Models\PhotoEditSession::create([
+            'user_id'       => $user->id,
+            'name'          => 'Run',
+            'onedrive_link' => 'https://example.com',
+            'status'        => 'completed',
+            'scan_status'   => 'scanned',
+            'edits'         => [],
+        ]);
+
+        $html = $this->actingAs($user)
+            ->get(route('photo-editor.show', $session))
+            ->assertOk()
+            ->getContent();
+
+        // The button opens the dialog; it must not push on its own.
+        $this->assertStringContainsString('@click="confirmOpen = true"', $html);
+        $this->assertStringNotContainsString('@click="push()"', $html,
+            'the push button still fires without asking');
+
+        // And the dialog has to say what it is about to do, including the part
+        // that changes products already on the shop.
+        $this->assertStringContainsString('role="dialog"', $html);
+        $this->assertStringContainsString('main', $html);
+        $this->assertStringContainsString('Cancel', $html);
+    }
+
     public function test_the_helper_column_sits_beside_the_form(): void
     {
         config(['services.photoroom.api_key' => 'sandbox_test_key']);

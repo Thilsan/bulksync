@@ -108,6 +108,7 @@ class PushEditedPhotoJob implements ShouldQueue
                 $filename,
                 $item->sku_detected,
                 $variantId,
+                $this->galleryPosition($item),
             );
 
             unset($content);
@@ -169,6 +170,35 @@ class PushEditedPhotoJob implements ShouldQueue
         ]);
 
         $this->syncPushedCount($item->photo_edit_session_id);
+    }
+
+    /**
+     * Where this photo belongs in its product's gallery.
+     *
+     * Counted rather than carried: each photo is pushed by its own job, several
+     * run at once, and any of them may be retried minutes later. Asking "how
+     * many of my SKU's chosen photos come before me" gives the same answer
+     * whenever it is asked, so the gallery ends up in the order the operator
+     * arranged no matter which upload finishes first.
+     */
+    private function galleryPosition(PhotoEditItem $item): int
+    {
+        $ahead = PhotoEditItem::where('photo_edit_session_id', $item->photo_edit_session_id)
+            ->where('sku_detected', $item->sku_detected)
+            ->where('selected', true)
+            ->whereKeyNot($item->getKey())
+            ->where(function ($q) use ($item) {
+                $q->where('position', '<', $item->position)
+                    ->orWhere(function ($q) use ($item) {
+                        // Same position, so the filename breaks the tie — the
+                        // same tiebreak the screens sort by.
+                        $q->where('position', $item->position)
+                            ->where('filename', '<', $item->filename);
+                    });
+            })
+            ->count();
+
+        return $ahead + 1;
     }
 
     private function syncPushedCount(int $sessionId): void

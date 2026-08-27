@@ -35,7 +35,14 @@ class GenerateLifestyleImageJob implements ShouldQueue
     public int $tries   = 2;
     public int $backoff = 30;
 
-    private const MAX_OUTPUT_BYTES = 4_000_000;
+    private const MAX_OUTPUT_BYTES = 1_000_000;
+
+    /**
+     * The square every finished image in the catalogue is built on, on-model
+     * shots included — an on-model image that arrived smaller than the
+     * photographs beside it would be the one tile in the row that looked wrong.
+     */
+    private const CANVAS_EDGE = 2000;
 
     public function __construct(
         public readonly int $itemId,
@@ -103,9 +110,15 @@ class GenerateLifestyleImageJob implements ShouldQueue
             $edited = $photoroom->edit($input, $this->onModelEdits($edits), $item->filename);
             unset($input);
 
-            // A generated scene is always opaque, so it is always a JPEG and
-            // always safe to compress.
-            $edited = $imageService->compressOnly($edited, self::MAX_OUTPUT_BYTES);
+            /*
+             * A generated scene is always opaque, so it is always kept as a
+             * JPEG — but Photoroom is asked for PNG so its fixed quality-80
+             * export never touches it, which means the bytes that arrive are
+             * not a JPEG yet. Encoding here is what makes the .jpg on disk
+             * true, at the best quality that fits and without ever trading
+             * pixels for bytes.
+             */
+            $edited = $imageService->toJpegUnderLimit($edited, self::MAX_OUTPUT_BYTES);
 
             $editedRel = $session->storageDir() . "/{$item->id}-after.jpg";
             $thumbRel  = $session->storageDir() . "/{$item->id}-after-thumb.jpg";
@@ -182,6 +195,22 @@ class GenerateLifestyleImageJob implements ShouldQueue
 
             'apparel_size'   => $edits['apparel_size'] ?? null,
             'apparel_prompt' => $edits['apparel_prompt'] ?? null,
+
+            /*
+             * Generation decides its own dimensions from the size preset, and
+             * they come out below the 2000 square the catalogue is built on.
+             * outputSize cannot fix that — asking for the picture at one shape
+             * and then forcing it into another is what makes a soft, stretched
+             * result, which is why applyLayout refuses to send it here.
+             *
+             * Photoroom's own upscaler can, and it redraws rather than
+             * stretches. Inventing detail would be indefensible on a photograph
+             * of a real bag; on a model who does not exist, in a room that does
+             * not exist, there is no real detail to be unfaithful to. The whole
+             * frame is generated either way.
+             */
+            'upscale'            => true,
+            'upscale_resolution' => self::CANVAS_EDGE,
 
             'lighting'    => $edits['lighting'] ?? null,
             'export_format' => 'jpg',

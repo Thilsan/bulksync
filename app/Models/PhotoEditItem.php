@@ -13,6 +13,7 @@ class PhotoEditItem extends Model
         'kind',
         'source_item_id',
         'sku_detected',
+        'position',
         'onedrive_drive_id',
         'onedrive_item_id',
         'onedrive_download_url',
@@ -38,10 +39,24 @@ class PhotoEditItem extends Model
     protected function casts(): array
     {
         return [
+            'position'          => 'integer',
             'selected'          => 'boolean',
             'mannequin_visible' => 'boolean',
             'uncertainty_score' => 'float',
         ];
+    }
+
+    /**
+     * The order the operator put these photos in.
+     *
+     * Filename is the tiebreak rather than id, so a run that has never been
+     * reordered comes out exactly as it did before this column existed — and
+     * two photos left on the same position stay in a stable, guessable order
+     * instead of whichever the database felt like.
+     */
+    public function scopeInDisplayOrder($query)
+    {
+        return $query->orderBy('position')->orderBy('filename');
     }
 
     /**

@@ -294,6 +294,38 @@ class PhotoEditorFramingTest extends TestCase
         $this->assertEquals(0.2, $edits['padding']);
     }
 
+    /**
+     * An on-model shot lands on the same canvas as the photographs.
+     *
+     * Generation sizes itself from its own preset, below the catalogue's 2000
+     * square, and outputSize cannot correct it — applyLayout deliberately
+     * withholds outputSize from a generated canvas because forcing one shape
+     * into another is what produces a stretched result. Photoroom's upscaler is
+     * the route, and it has to be asked for explicitly, so this pins that it is.
+     */
+    public function test_an_on_model_shot_is_brought_up_to_the_catalogue_canvas(): void
+    {
+        $method = new \ReflectionMethod(\App\Jobs\GenerateLifestyleImageJob::class, 'onModelEdits');
+        $method->setAccessible(true);
+
+        $edits = $method->invoke(
+            new \App\Jobs\GenerateLifestyleImageJob(1, 0),
+            ['apparel_size' => 'SQUARE_HD'],
+        );
+
+        $fields = app(PhotoroomService::class)->buildFields($edits);
+
+        $this->assertSame('ai.auto', $fields['upscale.mode'] ?? null,
+            'an on-model shot is left at whatever size generation chose');
+        $this->assertSame('2000', $fields['upscale.targetResolution'] ?? null);
+
+        // Still withheld: it is the upscaler's job, not the canvas's.
+        $this->assertArrayNotHasKey('outputSize', $fields);
+
+        // And fetched losslessly, like every other image.
+        $this->assertSame('png', $fields['export.format']);
+    }
+
     /** The picker has to be on the screen the framing is chosen on. */
     public function test_the_categories_are_offered_on_the_configure_screen(): void
     {

@@ -58,6 +58,48 @@ class ImageProcessingServiceTest extends TestCase
     }
 
     /**
+     * A lossless PNG becomes the best JPEG that fits, not the smallest one.
+     *
+     * The old path left a file alone once it was under the ceiling, which is
+     * right for a JPEG that arrived and wrong for a PNG that has to become one:
+     * a 500 KB PNG is under any sensible limit and still not a JPEG. What this
+     * pins is that the result is a JPEG, that it fits, and that quality was
+     * spent generously rather than saved — a product on a plain background has
+     * no business coming back at quality 40 when the ceiling is a megabyte.
+     */
+    public function test_a_lossless_png_becomes_the_best_jpeg_that_fits(): void
+    {
+        $png = $this->service->toJpegUnderLimit($this->png(2000, 2000), 1_000_000);
+
+        $this->assertLessThanOrEqual(1_000_000, strlen($png));
+        $this->assertSame('image/jpeg', (new \finfo(FILEINFO_MIME_TYPE))->buffer($png));
+
+        [$width, $height] = getimagesizefromstring($png);
+        $this->assertSame([2000, 2000], [$width, $height], 'the canvas was not preserved');
+    }
+
+    /**
+     * A ceiling is met by lowering quality, never by dropping resolution.
+     *
+     * Detail this fine is 17 MB at full quality, so the ceiling genuinely binds
+     * and the binary search has to come down off 100 to meet it. What must not
+     * happen on the way is the canvas shrinking: every photo in a category is
+     * promised the same one.
+     */
+    public function test_a_binding_ceiling_lowers_quality_rather_than_resolution(): void
+    {
+        $source = $this->noisyJpeg(3000, 3000);
+        $this->assertGreaterThan(3_000_000, strlen($source), 'fixture is not detailed enough to bind');
+
+        $result = $this->service->toJpegUnderLimit($source, 3_000_000);
+
+        $this->assertLessThanOrEqual(3_000_000, strlen($result));
+
+        [$width, $height] = getimagesizefromstring($result);
+        $this->assertSame([3000, 3000], [$width, $height], 'resolution was traded for bytes');
+    }
+
+    /**
      * The photo editor's canvas is a promise, so pixels are never the currency.
      *
      * A category preset asks Photoroom for an exact 2000 square, and every
@@ -81,6 +123,22 @@ class ImageProcessingServiceTest extends TestCase
         // Quality was still spent trying, so it is smaller than it arrived —
         // just not smaller than the limit, which is the honest outcome.
         $this->assertLessThan(strlen($source), strlen($result));
+    }
+
+    /** A product-shaped image: a solid subject on white, saved losslessly. */
+    private function png(int $width, int $height): string
+    {
+        $img = imagecreatetruecolor($width, $height);
+        imagefill($img, 0, 0, imagecolorallocate($img, 255, 255, 255));
+        imagefilledellipse($img, (int) ($width / 2), (int) ($height / 2),
+            (int) ($width * 0.6), (int) ($height * 0.7),
+            imagecolorallocate($img, 120, 80, 40));
+
+        ob_start();
+        imagepng($img);
+        imagedestroy($img);
+
+        return (string) ob_get_clean();
     }
 
     private function jpeg(int $width, int $height, int $quality): string

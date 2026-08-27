@@ -562,6 +562,7 @@ class ShopifyService
         string $filename,
         string $altText = '',
         ?string $variantId = null,
+        ?int $position = null,
     ): ?string {
         $this->throttle();
 
@@ -570,6 +571,17 @@ class ShopifyService
             'filename'   => $filename,
             'alt'        => $altText ?: pathinfo($filename, PATHINFO_FILENAME),
         ];
+
+        /*
+         * Where the image lands in the product's gallery. Left out, Shopify
+         * appends, and the order becomes whichever upload happened to finish
+         * first — which with several workers running is not an order at all.
+         * Naming the position is the only way a chosen sequence survives being
+         * uploaded in parallel.
+         */
+        if ($position !== null) {
+            $imageData['position'] = max(1, $position);
+        }
 
         // Including variant_ids in the payload is the first attempt to link the image.
         if ($variantId) {

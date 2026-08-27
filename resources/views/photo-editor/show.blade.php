@@ -126,7 +126,7 @@
                       :class="pushResult.error ? 'text-red-600' : 'text-emerald-700'"
                       x-text="pushResult.error ? pushResult.error : pushResult.queued + ' queued for Shopify'"></span>
             </template>
-            <button type="button" @click="push()" :disabled="selectedCount === 0 || pushing"
+            <button type="button" @click="confirmOpen = true" :disabled="selectedCount === 0 || pushing"
                 class="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-5 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50">
                 <svg x-show="pushing" x-cloak class="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
@@ -134,6 +134,65 @@
                 </svg>
                 <span x-text="pushing ? 'Sending…' : `Push ${selectedCount} to Shopify`"></span>
             </button>
+        </div>
+    </div>
+
+    {{-- ── Confirm before writing to the shop ──────────────────────────────
+
+         Pushing is the one action here that leaves the app and cannot be taken
+         back: it writes to a live storefront, and with the ordering in place it
+         also decides which photo customers see first in every collection grid.
+         Everything before this point is reversible by re-running.
+    --}}
+    <div x-show="confirmOpen" x-cloak
+         class="fixed inset-0 z-50 flex items-center justify-center p-4"
+         @keydown.escape.window="confirmOpen = false"
+         role="dialog" aria-modal="true" aria-labelledby="push-confirm-title">
+
+        <div class="absolute inset-0 bg-gray-900/50" @click="confirmOpen = false"></div>
+
+        <div class="relative w-full max-w-md overflow-hidden rounded-xl bg-white shadow-xl">
+            <div class="px-5 py-4">
+                <h2 id="push-confirm-title" class="text-sm font-semibold text-gray-900">
+                    Send <span x-text="selectedCount"></span>
+                    <span x-text="selectedCount === 1 ? 'image' : 'images'"></span> to
+                    {{ $session->store?->name ?? 'the active website' }}?
+                </h2>
+
+                <ul class="mt-3 space-y-2 text-xs text-gray-600">
+                    <li class="flex gap-2">
+                        <span class="text-gray-400">&bull;</span>
+                        <span>
+                            They go to
+                            <strong class="font-semibold text-gray-800" x-text="skuCount"></strong>
+                            <span x-text="skuCount === 1 ? 'product' : 'products'"></span>,
+                            matched by SKU.
+                        </span>
+                    </li>
+                    <li class="flex gap-2">
+                        <span class="text-gray-400">&bull;</span>
+                        <span>
+                            The first photo of each product becomes its <strong class="font-semibold text-gray-800">main
+                            image</strong>. Photos already on that product move down.
+                        </span>
+                    </li>
+                    <li class="flex gap-2">
+                        <span class="text-gray-400">&bull;</span>
+                        <span>This appears on the live website. Removing an image afterwards is done in Shopify, not here.</span>
+                    </li>
+                </ul>
+            </div>
+
+            <div class="flex justify-end gap-2 border-t border-gray-100 bg-gray-50 px-5 py-3">
+                <button type="button" @click="confirmOpen = false"
+                        class="rounded-lg border border-gray-300 bg-white px-4 py-1.5 text-xs font-medium text-gray-700 transition-colors hover:border-gray-400">
+                    Cancel
+                </button>
+                <button type="button" @click="confirmOpen = false; push()"
+                        class="rounded-lg bg-brand-600 px-4 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-brand-700">
+                    Send <span x-text="selectedCount"></span> to Shopify
+                </button>
+            </div>
         </div>
     </div>
 
@@ -337,6 +396,10 @@ function photoReview(sessionId) {
 
         pushing:    false,
         pushResult: null,
+
+        // Pushing is the one action that leaves the app, so it is asked about
+        // rather than done on the first click.
+        confirmOpen: false,
         lightbox:   null,
         timer:      null,
 
@@ -353,6 +416,19 @@ function photoReview(sessionId) {
 
         get selectedCount() {
             return this.items.filter(i => i.pushable && this.selectedIds[i.id]).length;
+        },
+
+        /*
+         * Products, not photos. Five images across two products is a smaller
+         * thing than five images across five, and it is the products that get
+         * their main image rearranged.
+         */
+        get skuCount() {
+            return new Set(
+                this.items
+                    .filter(i => i.pushable && this.selectedIds[i.id])
+                    .map(i => i.sku)
+            ).size;
         },
 
         isSelected(item) {

@@ -115,7 +115,25 @@
             @foreach ($groups as $group)
                 @php
                     $groupPhotos = $photos[$group->sku] ?? collect();
+
+                    /*
+                     * Keyed by id because the grid is rendered by Alpine from an
+                     * array of ids now, and the thumbnail URL has to be built
+                     * here where the route helper lives. Assembled in PHP rather
+                     * than inside @json(), which cannot be trusted with a
+                     * nested array spread over several lines.
+                     */
+                    $photoMeta = $groupPhotos->mapWithKeys(fn ($p) => [
+                        $p->id => [
+                            'filename' => $p->filename,
+                            'thumb'    => route('photo-editor.onedrive-thumb', [$session, $p]),
+                        ],
+                    ])->all();
                 @endphp
+
+                <script>
+                    window.photoEditorPhotos = Object.assign(window.photoEditorPhotos || {}, @json($photoMeta));
+                </script>
 
                 <div class="overflow-hidden rounded-xl border border-gray-200 bg-white"
                      x-data="{
@@ -141,24 +159,54 @@
                     {{-- Thumbnails come from OneDrive's own preview renderer.
                          The originals are ~9 MB each and none of them has been
                          edited yet, so pulling the real files to show a grid
-                         nobody has decided anything on would cost minutes. --}}
-                    <div class="grid grid-cols-3 gap-3 px-5 py-4 sm:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10">
-                        @foreach ($groupPhotos as $photo)
-                            <label class="group relative cursor-pointer">
-                                <input type="radio" class="peer sr-only"
-                                       name="groups[{{ $group->id }}][lifestyle_source_item_id]"
-                                       value="{{ $photo->id }}"
-                                       @checked($group->lifestyle_source_item_id === $photo->id)>
-                                <img src="{{ route('photo-editor.onedrive-thumb', [$session, $photo]) }}"
-                                     alt="{{ $photo->filename }}" loading="lazy"
-                                     class="aspect-square w-full rounded-lg border-2 border-transparent bg-gray-100 object-cover peer-checked:border-brand-500">
-                                <span class="mt-1 block truncate text-[11px] text-gray-500">{{ $photo->filename }}</span>
-                                <span x-show="lifestyle > 0" x-cloak
-                                      class="pointer-events-none absolute left-1 top-1 rounded bg-white/90 px-1.5 py-0.5 text-[10px] font-semibold text-gray-700 peer-checked:bg-brand-600 peer-checked:text-white">
-                                    Model wears this
-                                </span>
-                            </label>
-                        @endforeach
+                         nobody has decided anything on would cost minutes.
+
+                         Drag to reorder. The order here is the order the photos
+                         are given to Shopify, so the first one becomes the
+                         product's main image. --}}
+                    <div class="px-5 py-4"
+                         x-data="photoOrder(@js($groupPhotos->pluck('id')->all()))">
+                        <p class="mb-2 text-xs text-gray-500">
+                            Drag to reorder — the first photo becomes the product's main image on Shopify.
+                        </p>
+
+                        <div class="grid grid-cols-3 gap-3 sm:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10">
+                            <template x-for="(id, index) in order" :key="id">
+                                <label class="group relative cursor-grab active:cursor-grabbing"
+                                       draggable="true"
+                                       @dragstart="from = index"
+                                       @dragover.prevent
+                                       @drop.prevent="moveTo(index)"
+                                       :class="from === index ? 'opacity-40' : ''">
+                                    <input type="hidden" :name="`groups[{{ $group->id }}][order][]`" :value="id">
+
+                                    <input type="radio" class="peer sr-only"
+                                           name="groups[{{ $group->id }}][lifestyle_source_item_id]"
+                                           :value="id" :checked="id === {{ (int) $group->lifestyle_source_item_id }}">
+
+                                    <img :src="photos[id].thumb" :alt="photos[id].filename" loading="lazy"
+                                         class="aspect-square w-full rounded-lg border-2 border-transparent bg-gray-100 object-cover peer-checked:border-brand-500">
+
+                                    <span class="mt-1 block truncate text-[11px] text-gray-500" x-text="photos[id].filename"></span>
+
+                                    {{-- Its place in the gallery, so the order is
+                                         readable without counting tiles. --}}
+                                    <span class="pointer-events-none absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold text-white"
+                                          :class="index === 0 ? 'bg-brand-600' : 'bg-gray-800/70'"
+                                          x-text="index + 1"></span>
+
+                                    <button type="button" x-show="index !== 0" @click.prevent="makeFirst(index)"
+                                            class="absolute inset-x-1 bottom-6 hidden rounded bg-gray-900/80 py-0.5 text-[10px] font-medium text-white group-hover:block">
+                                        Make first
+                                    </button>
+
+                                    <span x-show="lifestyle > 0" x-cloak
+                                          class="pointer-events-none absolute left-1 top-1 rounded bg-white/90 px-1.5 py-0.5 text-[10px] font-semibold text-gray-700 peer-checked:bg-brand-600 peer-checked:text-white">
+                                        Model wears this
+                                    </span>
+                                </label>
+                            </template>
+                        </div>
                     </div>
 
                     <div class="flex flex-wrap items-center gap-3 border-t border-gray-100 bg-gray-50 px-5 py-3">
@@ -195,6 +243,37 @@
 </div>
 
 <script>
+    /*
+     * The order of one SKU's photos, held as a list of ids.
+     *
+     * Rendering the grid from the list rather than moving DOM nodes around is
+     * what keeps the hidden inputs, the position badges and the pictures from
+     * ever disagreeing — there is one array, and everything on screen is a
+     * reading of it.
+     */
+    function photoOrder(ids) {
+        return {
+            order: ids,
+            photos: window.photoEditorPhotos || {},
+            from: null,
+
+            moveTo(to) {
+                if (this.from === null || this.from === to) {
+                    this.from = null;
+                    return;
+                }
+
+                const moved = this.order.splice(this.from, 1)[0];
+                this.order.splice(to, 0, moved);
+                this.from = null;
+            },
+
+            makeFirst(index) {
+                this.order.unshift(this.order.splice(index, 1)[0]);
+            },
+        };
+    }
+
     function configureRun() {
         return {
             starting: false,

@@ -212,8 +212,8 @@ class PhotoEditorController extends Controller implements HasMiddleware
 
         $photos = PhotoEditItem::where('photo_edit_session_id', $session->id)
             ->where('kind', 'cutout')
-            ->orderBy('filename')
-            ->get(['id', 'sku_detected', 'filename', 'original_size_kb'])
+            ->inDisplayOrder()
+            ->get(['id', 'sku_detected', 'filename', 'original_size_kb', 'position'])
             ->groupBy('sku_detected');
 
         return view('photo-editor.configure', [
@@ -252,6 +252,8 @@ class PhotoEditorController extends Controller implements HasMiddleware
             'groups.*.lifestyle_source_item_id' => ['nullable', 'integer'],
             'groups.*.differs'         => ['nullable', 'boolean'],
             'groups.*.edits'           => ['nullable', 'array'],
+            'groups.*.order'           => ['nullable', 'array'],
+            'groups.*.order.*'         => ['integer'],
         ]);
 
         // The run's own settings, which every group follows unless it opted out.
@@ -284,6 +286,8 @@ class PhotoEditorController extends Controller implements HasMiddleware
             $group->edits = !empty($input['differs'])
                 ? $this->editsFromRequest($input['edits'] ?? [], $group->edits ?: ($session->edits ?? []))
                 : null;
+
+            $this->saveOrder($session, (array) ($input['order'] ?? []));
 
             // A count without a photo to build from would queue work that can
             // only fail, so it is refused here rather than at the API.
@@ -437,6 +441,28 @@ class PhotoEditorController extends Controller implements HasMiddleware
         );
     }
 
+    /**
+     * Store the order the thumbnails were dragged into.
+     *
+     * Positions start at 1 so that 0 keeps meaning "never ordered", which is
+     * what lets an older run fall back to filename order untouched.
+     *
+     * Scoped to the session on purpose: the ids arrive from a form and a
+     * doctored one would otherwise renumber photos in somebody else's run.
+     */
+    private function saveOrder(PhotoEditSession $session, array $itemIds): void
+    {
+        if (!$itemIds) {
+            return;
+        }
+
+        foreach (array_values($itemIds) as $index => $itemId) {
+            PhotoEditItem::where('photo_edit_session_id', $session->id)
+                ->whereKey($itemId)
+                ->update(['position' => $index + 1]);
+        }
+    }
+
     public function status(Request $request, PhotoEditSession $session): JsonResponse
     {
         $this->authorizeSession($session);
@@ -457,8 +483,11 @@ class PhotoEditorController extends Controller implements HasMiddleware
         $done  = (int) ($counts->edited ?? 0) + (int) ($counts->pushed ?? 0)
                + (int) ($counts->failed ?? 0) + (int) ($counts->skipped ?? 0);
 
+        // Grouped by SKU and then in the order the thumbnails were arranged, so
+        // the review grid reads the same way the product page will.
         $paginator = PhotoEditItem::where('photo_edit_session_id', $session->id)
-            ->orderBy('id')
+            ->orderBy('sku_detected')
+            ->inDisplayOrder()
             ->paginate(60, ['*'], 'page', max(1, (int) $request->get('page', 1)));
 
         $items = $paginator->getCollection()->map(fn (PhotoEditItem $i) => [
