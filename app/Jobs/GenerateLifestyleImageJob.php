@@ -107,7 +107,7 @@ class GenerateLifestyleImageJob implements ShouldQueue
             $beforeRel = $session->storageDir() . "/{$item->id}-before.jpg";
             file_put_contents(storage_path('app/' . $beforeRel), $imageService->thumbnail($input, 420));
 
-            $edited = $photoroom->edit($input, $this->onModelEdits($edits), $item->filename);
+            $edited = $this->generate($photoroom, $input, $edits, $item->filename);
             unset($input);
 
             /*
@@ -216,6 +216,42 @@ class GenerateLifestyleImageJob implements ShouldQueue
             'export_format' => 'jpg',
             'color_space' => $edits['color_space'] ?? 'sRGB',
         ];
+    }
+
+    /**
+     * Generate the scene, upscaled to the catalogue's canvas if Photoroom will.
+     *
+     * Whether the upscaler can be combined with generation in one request is
+     * not something Photoroom documents, and the answer has been no — a 400
+     * naming upscale/mode. So it is asked for and then given up on rather than
+     * assumed either way: an on-model shot at the size generation chose is
+     * worth having, and losing the whole image over an optional enhancement is
+     * the wrong way round.
+     *
+     * Deliberately narrow. Only a rejection that names upscale is retried, and
+     * only once — a 429 or a credit problem is not something a second identical
+     * request improves, and it would cost another credit to find that out.
+     */
+    private function generate(PhotoroomService $photoroom, string $input, array $edits, string $filename): string
+    {
+        $wanted = $this->onModelEdits($edits);
+
+        try {
+            return $photoroom->edit($input, $wanted, $filename);
+        } catch (\Throwable $e) {
+            if (!str_contains(strtolower($e->getMessage()), 'upscale')) {
+                throw $e;
+            }
+
+            Log::info('Photoroom refused the upscale alongside generation; retrying at the size it chooses.', [
+                'item'  => $this->itemId,
+                'error' => $e->getMessage(),
+            ]);
+
+            unset($wanted['upscale'], $wanted['upscale_resolution']);
+
+            return $photoroom->edit($input, $wanted, $filename);
+        }
     }
 
     /**

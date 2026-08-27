@@ -858,10 +858,18 @@ class PhotoroomService
         if (!empty($edits['upscale'])) {
             $fields['upscale.mode'] = 'ai.auto';
 
-            // Without a target, upscale picks its own factor. Naming the
-            // resolution is what makes a mixed catalogue come out uniform.
+            /*
+             * Without a target, upscale picks its own factor. Naming the
+             * resolution is what makes a mixed catalogue come out uniform.
+             *
+             * The field wants "widthxheight", not a bare number — a plain
+             * "2000" is rejected. Callers pass one edge because every canvas
+             * here is square, so it is squared on the way out.
+             */
             if (!empty($edits['upscale_resolution'])) {
-                $fields['upscale.targetResolution'] = (string) (int) $edits['upscale_resolution'];
+                $edge = (int) $edits['upscale_resolution'];
+
+                $fields['upscale.targetResolution'] = $edge . 'x' . $edge;
             }
         }
 

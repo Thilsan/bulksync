@@ -317,13 +317,64 @@ class PhotoEditorFramingTest extends TestCase
 
         $this->assertSame('ai.auto', $fields['upscale.mode'] ?? null,
             'an on-model shot is left at whatever size generation chose');
-        $this->assertSame('2000', $fields['upscale.targetResolution'] ?? null);
+
+        // "widthxheight", not a bare number — Photoroom rejects "2000".
+        $this->assertSame('2000x2000', $fields['upscale.targetResolution'] ?? null);
 
         // Still withheld: it is the upscaler's job, not the canvas's.
         $this->assertArrayNotHasKey('outputSize', $fields);
 
         // And fetched losslessly, like every other image.
         $this->assertSame('png', $fields['export.format']);
+    }
+
+    /**
+     * A refused upscale costs the size, not the image.
+     *
+     * Photoroom does not document whether its upscaler can be combined with
+     * generation, and it has answered no. So the job asks, and on a rejection
+     * that names upscale it asks again without it — an on-model shot at the
+     * size generation chose is worth having. Anything else must still fail
+     * loudly: a quota problem is not fixed by a second identical request, and
+     * finding that out would cost another credit.
+     */
+    public function test_a_refused_upscale_still_returns_an_on_model_shot(): void
+    {
+        $method = new \ReflectionMethod(\App\Jobs\GenerateLifestyleImageJob::class, 'generate');
+        $method->setAccessible(true);
+
+        $job = new \App\Jobs\GenerateLifestyleImageJob(1, 0);
+
+        // Refuses anything carrying an upscale, accepts what is left.
+        $fussy = new class extends PhotoroomService {
+            public array $attempts = [];
+
+            public function edit(string $imageContent, array $edits, string $filename = 'image.jpg'): string
+            {
+                $this->attempts[] = array_key_exists('upscale', $edits);
+
+                if (!empty($edits['upscale'])) {
+                    throw new \RuntimeException('Photoroom returned 400: upscale/mode must be equal to one of the allowed values');
+                }
+
+                return 'generated-bytes';
+            }
+        };
+
+        $this->assertSame('generated-bytes', $method->invoke($job, $fussy, 'in', [], 'a.jpg'));
+        $this->assertSame([true, false], $fussy->attempts,
+            'the upscale was not asked for first, or not given up on second');
+
+        // A failure that has nothing to do with upscale is not swallowed.
+        $broken = new class extends PhotoroomService {
+            public function edit(string $imageContent, array $edits, string $filename = 'image.jpg'): string
+            {
+                throw new \RuntimeException('Photoroom quota is exhausted — available again in 4 hours.');
+            }
+        };
+
+        $this->expectException(\RuntimeException::class);
+        $method->invoke($job, $broken, 'in', [], 'a.jpg');
     }
 
     /** The picker has to be on the screen the framing is chosen on. */
