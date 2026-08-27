@@ -45,7 +45,7 @@
         : array_key_first($framingTree);
 @endphp
 
-<div>
+<div x-data="{ bg: @js($bg) }">
     <span class="mb-2 block text-xs font-semibold uppercase tracking-wide text-gray-500">Background</span>
     <div class="grid gap-3 sm:grid-cols-4">
         @foreach ([
@@ -56,31 +56,33 @@
         ] as $mode => $label)
             <label class="flex cursor-pointer items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm hover:border-gray-300 has-[:checked]:border-brand-500 has-[:checked]:bg-brand-50/60">
                 <input type="radio" name="{{ $name('background_mode') }}" value="{{ $mode }}" @checked($bg === $mode)
+                       x-model="bg"
                        class="h-3.5 w-3.5 border-gray-300 text-brand-600 focus:ring-brand-500">
                 <span class="text-gray-800">{{ $label }}</span>
             </label>
         @endforeach
     </div>
 
-    <div class="mt-3 flex items-center gap-3">
-        <label for="colour-{{ $uid }}" class="text-xs text-gray-600">Brand colour</label>
+    <div class="mt-3 flex items-center gap-3" x-show="bg === 'custom'" x-cloak>
+        <label for="colour-{{ $uid }}" class="text-xs text-gray-600">Hex colour</label>
         <input id="colour-{{ $uid }}" type="text" name="{{ $name('background_color') }}"
                value="{{ $val('background_color') }}" placeholder="F5F5F5" maxlength="7"
                class="w-32 rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none">
-        <span class="text-xs text-gray-400">Used only when “Brand colour” is picked.</span>
     </div>
 
     {{-- remove_background is derived, not asked: blur is the one mode that
-         keeps the original scene, so it is the one mode that does not remove it. --}}
-    <input type="hidden" name="{{ $name('remove_background') }}" value="{{ $bg === 'blur' ? '' : '1' }}">
+         keeps the original scene, so it is the one mode that does not remove it.
+         Bound to the live choice rather than the stored one, or switching to
+         blur would not take effect until the form had been saved once. --}}
+    <input type="hidden" name="{{ $name('remove_background') }}" :value="bg === 'blur' ? '' : '1'">
 </div>
 
 <div>
     <span class="mb-2 block text-xs font-semibold uppercase tracking-wide text-gray-500">Treatment</span>
     <div class="grid gap-3 sm:grid-cols-2">
         @foreach ([
-            'none'            => ['Keep the photo', 'Real-pixel cutout. Colours and shape exactly as shot. Use the Keep/Remove boxes below to lose a mannequin.'],
-            'ghost_mannequin' => ['Keep the photo + AI cleanup', 'Fallback for shots where Keep/Remove cannot separate the garment from the stand. Redraws the garment, so it can shift or reshape — check every result. Costs an extra credit.'],
+            'none'            => ['Keep the photo', 'Real pixels, exactly as shot.'],
+            'ghost_mannequin' => ['Keep the photo + AI cleanup', 'Redraws the garment — check every result. Costs an extra credit.'],
         ] as $mode => [$label, $help])
             @php $isGhost = $mode === 'ghost_mannequin'; @endphp
             <label class="flex cursor-pointer items-start gap-2 rounded-lg border border-gray-200 p-3 hover:border-gray-300 has-[:checked]:border-brand-500 has-[:checked]:bg-brand-50/60">
@@ -110,10 +112,10 @@
         </div>
     </div>
     <p class="mt-1 text-xs text-gray-500">
-        <strong class="font-semibold text-gray-700">The preferred way to lose a mannequin.</strong>
-        Naming the product cuts the stand out of the real photograph — nothing is redrawn, so the garment cannot
-        shift or change shape — and it happens inside the single cutout request, at half the cost of the AI
-        cleanup pass. Filling in <em>Keep</em> is what switches it on; leave it blank and the AI pass runs instead.
+        Filling in <em>Keep</em> is what removes a mannequin from the real photograph — nothing is redrawn, and it
+        costs half what the AI cleanup does.
+        <span class="cursor-help border-b border-dotted border-gray-400"
+              title="Naming the product cuts the stand out of the photograph itself, inside the single cutout request, so the garment cannot shift or change shape. Leave Keep blank and the AI cleanup pass runs instead.">Why?</span>
     </p>
 </div>
 
@@ -134,9 +136,6 @@
         scaling: @js($val('scaling', 'fit')),
         refBox:  @js($val('reference_box', 'subjectBox')),
         custom:  false,
-
-        /* A category standard is only a standard while nobody edits round it. */
-        get locked() { return !! this.preset },
 
         pick(w, h) { this.width = w; this.height = h; this.custom = false },
         clear()    { this.width = null; this.height = null; this.custom = false },
@@ -227,22 +226,39 @@
                value="{{ $val('framing_preset') }}" :value="preset ?? ''">
     </div>
 
-    <div class="mt-4" :class="locked ? 'pointer-events-none opacity-50' : ''">
+    {{-- What the category settled, said plainly. Ten disabled inputs describe
+         the same thing and are far harder to read — and reading is all anyone
+         does with them once a category is picked. --}}
+    <p x-show="preset" x-cloak class="mt-3 text-xs text-gray-600">
+        <span class="font-medium text-gray-800">Framing:</span>
+        <span x-text="width && height ? `${width} × ${height}` : 'original size'"></span>
+        &middot; <span x-text="Math.round(padding * 100) + '% around'"></span>
+        <template x-if="padBottom">
+            <span>&middot; base <span x-text="Math.round(padBottom * 100) + '%'"></span> up</span>
+        </template>
+        &middot; <span x-text="{ top: 'top-aligned', bottom: 'standing on the base line', center: 'centred' }[vAlign]"></span>
+        &middot; whole product shown
+    </p>
+
+    {{-- The manual controls, and only when they are live. Disabling them and
+         leaving them visible was the single biggest thing making this screen
+         look busy: a wall of grey boxes nobody can use and nobody needs. --}}
+    <div class="mt-4" x-show="!preset" x-cloak>
         {{-- Presets before the raw boxes. A number field with "original" in it
              gives no hint that 2048 is the answer Shopify wants, and this screen is
              now the only place the size is set. --}}
         <div class="flex flex-wrap gap-2">
-            <button type="button" @click="clear()" :disabled="locked"
+            <button type="button" @click="clear()"
                     :class="!width && !height && !custom ? 'border-gray-800 bg-gray-800 text-white' : 'border-gray-300 bg-white text-gray-600 hover:border-gray-400'"
                     class="rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors">Keep original</button>
             @foreach ([[2048, 'Shopify'], [2000, null], [1200, null], [1000, null], [800, null], [600, null]] as [$px, $note])
-                <button type="button" @click="pick({{ $px }}, {{ $px }})" :disabled="locked"
+                <button type="button" @click="pick({{ $px }}, {{ $px }})"
                         :class="width === {{ $px }} && height === {{ $px }} ? 'border-brand-600 bg-brand-600 text-white' : 'border-gray-300 bg-white text-gray-700 hover:border-brand-400'"
                         class="rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors">
                     {{ $px }} &times; {{ $px }}@if ($note)<span class="ml-1 opacity-70">({{ $note }})</span>@endif
                 </button>
             @endforeach
-            <button type="button" @click="custom = true" :disabled="locked"
+            <button type="button" @click="custom = true"
                     :class="custom ? 'border-gray-800 bg-gray-800 text-white' : 'border-gray-300 bg-white text-gray-600 hover:border-gray-400'"
                     class="rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors">Custom&hellip;</button>
         </div>
@@ -251,13 +267,13 @@
             <div>
                 <label for="w-{{ $uid }}" class="mb-1 block text-xs text-gray-600">Width (px)</label>
                 <input id="w-{{ $uid }}" type="number" name="{{ $name('width') }}" min="100" max="5000"
-                       x-model.number="width" @input="custom = true" :disabled="locked" placeholder="original"
+                       x-model.number="width" @input="custom = true" placeholder="original"
                        class="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none">
             </div>
             <div>
                 <label for="h-{{ $uid }}" class="mb-1 block text-xs text-gray-600">Height (px)</label>
                 <input id="h-{{ $uid }}" type="number" name="{{ $name('height') }}" min="100" max="5000"
-                       x-model.number="height" @input="custom = true" :disabled="locked" placeholder="original"
+                       x-model.number="height" @input="custom = true" placeholder="original"
                        class="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none">
             </div>
         </div>
@@ -269,7 +285,7 @@
                 <label for="pad-{{ $uid }}" class="text-xs text-gray-600">Breathing room around the product</label>
                 <span class="text-xs font-semibold tabular-nums text-brand-700" x-text="Math.round(padding * 100) + '%'"></span>
             </div>
-            <input id="pad-{{ $uid }}" type="range" name="{{ $name('padding') }}" :disabled="locked"
+            <input id="pad-{{ $uid }}" type="range" name="{{ $name('padding') }}"
                    x-model.number="padding" min="0" max="0.4" step="0.01" class="w-full accent-brand-600">
         </div>
 
@@ -288,7 +304,7 @@
                         <label for="pad-{{ $edge }}-{{ $uid }}" class="mb-1 block text-xs text-gray-600">{{ $label }}</label>
                         <div class="relative">
                             <input id="pad-{{ $edge }}-{{ $uid }}" type="number" min="0" max="2000" step="1"
-                                   name="{{ $name('padding_' . $edge) }}" :disabled="locked" placeholder="&mdash;"
+                                   name="{{ $name('padding_' . $edge) }}" placeholder="&mdash;"
                                    x-model.number="pad{{ ucfirst($edge) }}"
                                    class="w-full rounded-lg border border-gray-300 py-1.5 pl-3 pr-9 text-sm focus:border-brand-500 focus:outline-none">
                             <span class="pointer-events-none absolute inset-y-0 right-2.5 flex items-center text-xs text-gray-400">px</span>
@@ -301,7 +317,7 @@
         <div class="mt-4 grid gap-3 sm:grid-cols-4">
             <div>
                 <label for="halign-{{ $uid }}" class="mb-1 block text-xs text-gray-600">Horizontal</label>
-                <select id="halign-{{ $uid }}" name="{{ $name('h_align') }}" x-model="hAlign" :disabled="locked"
+                <select id="halign-{{ $uid }}" name="{{ $name('h_align') }}" x-model="hAlign"
                         class="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none">
                     @foreach (['left' => 'Left', 'center' => 'Centred', 'right' => 'Right'] as $value => $label)
                         <option value="{{ $value }}">{{ $label }}</option>
@@ -310,7 +326,7 @@
             </div>
             <div>
                 <label for="valign-{{ $uid }}" class="mb-1 block text-xs text-gray-600">Vertical</label>
-                <select id="valign-{{ $uid }}" name="{{ $name('v_align') }}" x-model="vAlign" :disabled="locked"
+                <select id="valign-{{ $uid }}" name="{{ $name('v_align') }}" x-model="vAlign"
                         class="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none">
                     @foreach (['top' => 'Top', 'center' => 'Centred', 'bottom' => 'Bottom'] as $value => $label)
                         <option value="{{ $value }}">{{ $label }}</option>
@@ -319,7 +335,7 @@
             </div>
             <div>
                 <label for="scale-{{ $uid }}" class="mb-1 block text-xs text-gray-600">Scaling</label>
-                <select id="scale-{{ $uid }}" name="{{ $name('scaling') }}" x-model="scaling" :disabled="locked"
+                <select id="scale-{{ $uid }}" name="{{ $name('scaling') }}" x-model="scaling"
                         class="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none">
                     <option value="fit">Fit — show it all</option>
                     <option value="fill">Fill the canvas</option>
@@ -327,7 +343,7 @@
             </div>
             <div>
                 <label for="refbox-{{ $uid }}" class="mb-1 block text-xs text-gray-600">Measured from</label>
-                <select id="refbox-{{ $uid }}" name="{{ $name('reference_box') }}" x-model="refBox" :disabled="locked"
+                <select id="refbox-{{ $uid }}" name="{{ $name('reference_box') }}" x-model="refBox"
                         class="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none">
                     <option value="subjectBox">The product itself</option>
                     <option value="originalImage">The original frame</option>
@@ -337,9 +353,12 @@
     </div>
 </div>
 
-<div>
-    <span class="mb-2 block text-xs font-semibold uppercase tracking-wide text-gray-500">Finishing</span>
-    <div class="grid gap-3 sm:grid-cols-3">
+<details class="rounded-lg border border-gray-200 px-3 py-2">
+    <summary class="cursor-pointer text-xs font-semibold uppercase tracking-wide text-gray-500">
+        Finishing
+        <span class="ml-1 font-normal normal-case tracking-normal text-gray-400">lighting, shadow, upscaling</span>
+    </summary>
+    <div class="mt-3 grid gap-3 sm:grid-cols-3">
         <div>
             <label for="light-{{ $uid }}" class="mb-1 block text-xs text-gray-600">Lighting</label>
             <select id="light-{{ $uid }}" name="{{ $name('lighting') }}"
@@ -378,11 +397,14 @@
             </label>
         @endforeach
     </div>
-</div>
+</details>
 
-<div>
-    <span class="mb-2 block text-xs font-semibold uppercase tracking-wide text-gray-500">Trim before editing</span>
-    <div class="grid gap-3 sm:grid-cols-2">
+<details class="rounded-lg border border-gray-200 px-3 py-2">
+    <summary class="cursor-pointer text-xs font-semibold uppercase tracking-wide text-gray-500">
+        Trim before editing
+        <span class="ml-1 font-normal normal-case tracking-normal text-gray-400">crop a stand out of shot</span>
+    </summary>
+    <div class="mt-3 grid gap-3 sm:grid-cols-2">
         @foreach (['trim_top' => 'Off the top', 'trim_bottom' => 'Off the bottom'] as $field => $label)
             <div>
                 <label for="{{ $field }}-{{ $uid }}" class="mb-1 block text-xs text-gray-600">{{ $label }}</label>
@@ -393,4 +415,4 @@
         @endforeach
     </div>
     <p class="mt-1 text-xs text-gray-500">A fraction of the photo, e.g. 0.1 for 10%. Crops a stand out of shot before the cutout runs.</p>
-</div>
+</details>
