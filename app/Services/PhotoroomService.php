@@ -282,7 +282,7 @@ class PhotoroomService
                 ],
                 'bags' => [
                     'label' => 'Bags',
-                    'note'  => 'Measured across three bags: base 19.8%, 19.9% and 18.6% up from the bottom — one line, agreed on. Filling 49%, 70% and 53% of the height — no agreement at all. So the base is pinned and the scale is left near where the catalogue already sits, rather than a bag being enlarged to fill a frame it was never shot for.',
+                    'note'  => 'Base 20% up from the bottom, measured across three bags that agreed on it — 19.8%, 19.9% and 18.6%. 18% on the other three sides, which is scale rather than measurement: those same bags filled 49%, 70% and 53% of the height and agreed on nothing, so this one is a judgement and the entry to change if bags read too small or too large.',
                     'edits' => [
                         'width'   => 2000,
                         'height'  => 2000,
@@ -297,14 +297,18 @@ class PhotoroomService
                          * padding — a shared bottom edge is the only thing that
                          * makes a row of them read as a row.
                          *
-                         * How big it reads: not agreed, so 25% keeps it near
-                         * the ~50% of frame two of the three samples sit at.
+                         * How big it reads: not agreed by the samples, which
+                         * ranged from 49% to 70% of the frame. 18% sits a
+                         * little above the two that agreed on ~50%, which is
+                         * where it was asked to be. Note it is the only number
+                         * of the two that may move: the bottom edge is
+                         * measured, this one is taste.
                          * Tighter padding does not crop or lose anything, it
                          * enlarges — a bag shot small in a tall frame gets
                          * blown up to fill a square, and next to the catalogue
                          * it reads as zoomed.
                          */
-                        'padding'        => 0.25,
+                        'padding'        => 0.18,
                         'padding_bottom' => 0.20,
                         'v_align'        => 'bottom',
                     ],

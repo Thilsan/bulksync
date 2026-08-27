@@ -204,7 +204,7 @@ class PhotoEditorFramingTest extends TestCase
             'women/skirts'    => ['0.1',  'center'],
             'women/swim-wear' => ['0.1',  'center'],
             'women/bras'      => ['0.17', 'center'],
-            'women/bags'      => ['0.25', 'bottom'],
+            'women/bags'      => ['0.18', 'bottom'],
             'women/belts'     => ['0.11', 'center'],
             'women/footwear'  => ['0.07', 'bottom'],
         ];
