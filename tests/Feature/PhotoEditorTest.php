@@ -217,6 +217,32 @@ class PhotoEditorTest extends TestCase
             ->assertSee('name="edits[padding]"', false);
     }
 
+    /**
+     * The erase instruction forbids the things it was caught doing.
+     *
+     * This is a generative model redrawing the whole picture, so anything the
+     * wording leaves open it may take. An earlier version asked for the garment
+     * "floating in its place" and shirts came back tilted, as if set down at an
+     * angle — nothing had forbidden rotation, and "floating" invited it.
+     *
+     * Asserted rather than trusted because the failure is silent: a tilted
+     * shirt is still a plausible photograph, and nothing in the pipeline can
+     * tell that it was not the one that went in.
+     */
+    public function test_the_erase_instruction_forbids_moving_the_garment(): void
+    {
+        $prompt = strtolower((new \ReflectionClass(PhotoroomService::class))
+            ->getConstant('MANNEQUIN_REMOVAL_PROMPT'));
+
+        foreach (['do not rotate', 'do not tilt', 'lay it flat', 'same angle', 'same position'] as $rule) {
+            $this->assertStringContainsString($rule, $prompt, "the erase instruction stopped forbidding: {$rule}");
+        }
+
+        // The word that caused it. A garment described as floating is a garment
+        // the model is free to set down wherever it likes.
+        $this->assertStringNotContainsString('floating', $prompt);
+    }
+
     /** A transparent cutout is a PNG wherever the setting was chosen. */
     public function test_a_transparent_background_is_saved_as_png(): void
     {

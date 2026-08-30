@@ -396,10 +396,27 @@ class PhotoroomService
      * or side shot where the stand is left visible. This is the closest
      * Photoroom gets to "erase that object" for such a photo.
      */
-    private const MANNEQUIN_REMOVAL_PROMPT = 'Remove whatever is holding this item up — mannequin, dress form, headless body, '
-        . 'clothes rail, garment rack, hanger, hook or stand. '
-        . 'Keep the garment exactly as it is, in the same position and shape, floating in its place. '
-        . 'Do not add a person or any other object.';
+    /**
+     * What the generative pass is told to do, and mostly what not to do.
+     *
+     * This is an image model regenerating the whole picture, so every freedom
+     * left in the wording is one it may take. The earlier version asked for the
+     * garment "floating in its place" and got exactly that: shirts came back
+     * tilted, as though set down at an angle. Nothing had forbidden rotation,
+     * and "floating" invited it.
+     *
+     * So the instruction is now almost entirely negative. The one thing to
+     * change is named once; everything else is a list of things that must stay
+     * as they were. Verbose on purpose — brevity here is freedom for the model.
+     */
+    private const MANNEQUIN_REMOVAL_PROMPT = 'Remove only the hanger, hook, clothes rail, garment rack, mannequin, '
+        . 'dress form, headless body or stand that this garment is displayed on. '
+        . 'Change nothing else whatsoever. '
+        . 'The garment must stay in exactly the same position, at exactly the same angle, at the same size and in '
+        . 'the same shape, with the same folds, creases and shadows. '
+        . 'Keep it upright and square to the frame: do not rotate it, do not tilt or lean it, do not lay it flat, '
+        . 'do not drape or crumple it, do not move it up, down or sideways, do not enlarge or shrink it. '
+        . 'Do not redraw the garment. Do not add a person, a hanger, a surface or any other object.';
 
     private string $apiKey;
 
