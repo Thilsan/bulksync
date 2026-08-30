@@ -29,7 +29,8 @@
     // The tree lays the buttons out; the flat map, handed to the browser whole,
     // is what a click reads — so it sets the same values the server will write
     // when the form comes back.
-    $framingTree = \App\Services\PhotoroomService::FRAMING_PRESETS;
+    $framingTree  = \App\Services\PhotoroomService::FRAMING_PRESETS;
+    $productNouns = \App\Services\PhotoroomService::PRODUCT_NOUNS;
 
     $framingPresets = collect(\App\Services\PhotoroomService::framingPresetsFlat())
         ->map(fn (array $preset) => [
@@ -100,8 +101,13 @@
     <div class="mt-3 grid gap-3 sm:grid-cols-2">
         <div>
             <label for="seg-keep-{{ $uid }}" class="mb-1 block text-xs text-gray-600">Keep (describe the product)</label>
+            {{-- data-auto marks a value the category put here rather than a
+                 person. Only those get overwritten when the category changes;
+                 anything typed by hand is left alone. --}}
             <input id="seg-keep-{{ $uid }}" type="text" name="{{ $name('segmentation_prompt') }}"
                    value="{{ $val('segmentation_prompt') }}" placeholder="the dress" maxlength="500"
+                   data-auto="{{ filled($val('segmentation_prompt')) ? '0' : '1' }}"
+                   @input="$el.dataset.auto = '0'"
                    class="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none">
         </div>
         <div>
@@ -122,6 +128,7 @@
 <div x-data="{
         preset:  @js($val('framing_preset')),
         presets: @js($framingPresets),
+        nouns:   @js($productNouns),
         main:    @js($framingMain),
 
         width:   {{ $val('width') ?: 'null' }},
@@ -161,6 +168,26 @@
             this.hAlign = e.h_align; this.vAlign = e.v_align;
             this.scaling = e.scaling; this.refBox = e.reference_box;
             this.custom = false;
+
+            this.nameTheProduct(key);
+        },
+
+        /*
+         * Fill in what the product is called, so the cheap cutout is what runs
+         * when a hanger or a dress form is in shot. Left blank, a garment on a
+         * hanger goes down the generative route instead — an extra credit, and
+         * the garment comes back redrawn.
+         *
+         * A hand-typed value is never overwritten: the category is a sensible
+         * default, not a better answer than the person looking at the photo.
+         */
+        nameTheProduct(key) {
+            const box = document.getElementById('seg-keep-{{ $uid }}');
+
+            if (! box || box.dataset.auto !== '1') return;
+
+            box.value = this.nouns[key] || '';
+            box.dispatchEvent(new Event('change'));
         },
      }">
     <span class="mb-2 block text-xs font-semibold uppercase tracking-wide text-gray-500">Size &amp; framing</span>

@@ -377,6 +377,53 @@ class PhotoEditorFramingTest extends TestCase
         $method->invoke($job, $broken, 'in', [], 'a.jpg');
     }
 
+    /**
+     * Every category can say what its product is called.
+     *
+     * A garment on a hanger has two routes through Photoroom: name the product
+     * and the stand is cut out of the real photograph in one request, or leave
+     * it blank and a generative pass erases the stand and redraws the garment —
+     * an extra credit, and it has come back reshaped. The category already
+     * knows the answer, so a missing noun here is a photo that quietly takes
+     * the expensive, destructive route.
+     */
+    public function test_every_category_can_name_its_product(): void
+    {
+        $categories = array_keys(PhotoroomService::framingPresetsFlat());
+
+        $this->assertSame([], array_diff($categories, array_keys(PhotoroomService::PRODUCT_NOUNS)),
+            'a category exists that cannot say what its product is called');
+
+        $this->assertSame('the t-shirt', PhotoroomService::productNoun('women/t-shirt'));
+        $this->assertNull(PhotoroomService::productNoun('mens_hats'));
+        $this->assertNull(PhotoroomService::productNoun(null));
+    }
+
+    /**
+     * Naming the product is what keeps the cutout out of the generative pass.
+     *
+     * The segmentation fields have to reach Photoroom on their own, without
+     * the AI-cleanup treatment being switched on — that treatment is the thing
+     * that redraws, and the whole point of naming the product is to avoid it.
+     */
+    public function test_naming_the_product_segments_without_the_generative_pass(): void
+    {
+        $fields = app(PhotoroomService::class)->buildFields([
+            'remove_background'            => true,
+            'background_mode'              => 'white',
+            'ghost_mannequin'              => false,
+            'segmentation_prompt'          => 'the t-shirt',
+            'segmentation_negative_prompt' => 'the hanger',
+        ]);
+
+        $this->assertSame('the t-shirt', $fields['segmentation.prompt'] ?? null,
+            'the product name never reached Photoroom');
+        $this->assertSame('the hanger', $fields['segmentation.negativePrompt'] ?? null);
+
+        // Nothing here asks for a garment to be redrawn.
+        $this->assertArrayNotHasKey('apparel.mode', $fields);
+    }
+
     /** The picker has to be on the screen the framing is chosen on. */
     public function test_the_categories_are_offered_on_the_configure_screen(): void
     {

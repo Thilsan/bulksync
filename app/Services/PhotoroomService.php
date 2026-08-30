@@ -593,6 +593,52 @@ class PhotoroomService
     }
 
     /**
+     * What to call the product, per category, when something is holding it up.
+     *
+     * Deliberately not part of FRAMING_PRESETS, which is layout and only
+     * layout. This answers a different question — "what is the subject?" — and
+     * it is asked whenever a hanger, rail or dress form is in shot.
+     *
+     * Naming the product cuts the stand out of the real photograph inside the
+     * one cutout request. The alternative is a generative pass that erases the
+     * stand and redraws the garment, which costs an extra credit and can come
+     * back with the garment reshaped or turned. A category has already been
+     * told what the product is, so there is no reason to make anyone type it.
+     */
+    public const PRODUCT_NOUNS = [
+        'women/dresses'   => 'the dress',
+        'women/gown'      => 'the gown',
+        'women/top'       => 'the top',
+        'women/t-shirt'   => 'the t-shirt',
+        'women/blazer'    => 'the blazer',
+        'women/jeans'     => 'the jeans',
+        'women/skirts'    => 'the skirt',
+        'women/swim-wear' => 'the swimsuit',
+        'women/bras'      => 'the bra',
+        'women/bags'      => 'the bag',
+        'women/belts'     => 'the belt',
+        'women/footwear'  => 'the shoes',
+
+        'men/shirts'      => 'the shirt',
+        'men/trousers'    => 'the trousers',
+        'men/bags'        => 'the bag',
+        'men/footwear'    => 'the shoes',
+
+        'kids/dresses'    => 'the dress',
+        'kids/tops'       => 'the top',
+        'kids/footwear'   => 'the shoes',
+
+        'watches_jewellery/watches'   => 'the watch',
+        'watches_jewellery/jewellery' => 'the jewellery',
+    ];
+
+    /** What a category calls its product, or null if it has no name for it. */
+    public static function productNoun(?string $key): ?string
+    {
+        return filled($key) ? (self::PRODUCT_NOUNS[$key] ?? null) : null;
+    }
+
+    /**
      * Every subcategory flattened to the key that is actually stored,
      * "women/dresses" => its framing, label and note.
      *
