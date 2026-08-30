@@ -173,21 +173,21 @@
         },
 
         /*
-         * Fill in what the product is called, so the cheap cutout is what runs
-         * when a hanger or a dress form is in shot. Left blank, a garment on a
-         * hanger goes down the generative route instead — an extra credit, and
-         * the garment comes back redrawn.
+         * Suggest what the product is called, without filling it in.
          *
-         * A hand-typed value is never overwritten: the category is a sensible
-         * default, not a better answer than the person looking at the photo.
+         * Filling it in was worse than leaving it blank. Naming the product
+         * switches Photoroom from the generative erase to text-guided
+         * segmentation, and on a garment hanging up the segmentation keeps the
+         * hanger — so auto-filling this quietly turned a route that removed the
+         * stand into one that did not. The suggestion is worth having; making
+         * the choice on somebody's behalf was not.
          */
         nameTheProduct(key) {
             const box = document.getElementById('seg-keep-{{ $uid }}');
 
-            if (! box || box.dataset.auto !== '1') return;
-
-            box.value = this.nouns[key] || '';
-            box.dispatchEvent(new Event('change'));
+            if (box) {
+                box.placeholder = this.nouns[key] || 'the dress';
+            }
         },
      }">
     <span class="mb-2 block text-xs font-semibold uppercase tracking-wide text-gray-500">Size &amp; framing</span>
