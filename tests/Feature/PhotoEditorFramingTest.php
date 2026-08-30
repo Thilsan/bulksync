@@ -422,6 +422,39 @@ class PhotoEditorFramingTest extends TestCase
 
         // Nothing here asks for a garment to be redrawn.
         $this->assertArrayNotHasKey('apparel.mode', $fields);
+
+        /*
+         * And saliency is stood down. Left to itself the model protects what it
+         * judges to be the main subject, which on a garment hanging up takes in
+         * the hanger — the negative prompt then loses and the stand survives,
+         * which is the one thing naming the product was meant to prevent.
+         */
+        $this->assertSame('ignoreSalientObject', $fields['segmentation.mode'] ?? null,
+            'saliency was left to overrule the description');
+    }
+
+    /** An explicitly chosen mode is still the operator's to choose. */
+    public function test_a_chosen_segmentation_mode_is_not_overridden(): void
+    {
+        $fields = app(PhotoroomService::class)->buildFields([
+            'remove_background'   => true,
+            'segmentation_prompt' => 'the t-shirt',
+            'segmentation_mode'   => 'keepSalientObject',
+        ]);
+
+        $this->assertSame('keepSalientObject', $fields['segmentation.mode']);
+    }
+
+    /** No description means nothing to segment by, so no mode either. */
+    public function test_no_product_name_means_no_segmentation_at_all(): void
+    {
+        $fields = app(PhotoroomService::class)->buildFields([
+            'remove_background' => true,
+            'background_mode'   => 'white',
+        ]);
+
+        $this->assertArrayNotHasKey('segmentation.mode', $fields);
+        $this->assertArrayNotHasKey('segmentation.prompt', $fields);
     }
 
     /**

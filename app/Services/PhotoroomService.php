@@ -374,6 +374,7 @@ class PhotoroomService
     public const SEGMENTATION_MODES = [
         ''                    => 'Whatever the prompt describes',
         'keepSalientObject'   => 'Also keep the main product',
+        'ignoreSalientObject' => 'Go purely on the description',
     ];
 
     /**
@@ -1014,9 +1015,25 @@ class PhotoroomService
             $fields['segmentation.negativePrompt'] = (string) $edits['segmentation_negative_prompt'];
         }
 
-        if (($edits['segmentation_mode'] ?? '') === 'keepSalientObject') {
-            $fields['segmentation.mode'] = 'keepSalientObject';
+        $mode = $edits['segmentation_mode'] ?? '';
+
+        if (in_array($mode, ['keepSalientObject', 'ignoreSalientObject'], true)) {
+            $fields['segmentation.mode'] = $mode;
+
+            return;
         }
+
+        /*
+         * Left to itself, the segmentation model protects whatever it judges to
+         * be the salient object — and on a garment hanging up, that judgement
+         * takes in the hanger. The negative prompt then loses the argument and
+         * the stand survives the cutout, which is the one thing naming the
+         * product was meant to prevent.
+         *
+         * Naming the product is a statement about what the subject is, so once
+         * that has been said there is nothing left for saliency to decide.
+         */
+        $fields['segmentation.mode'] = 'ignoreSalientObject';
     }
 
     /** Seeds are what make a re-edit reproduce the run being re-edited. */
