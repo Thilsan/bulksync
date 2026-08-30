@@ -444,12 +444,26 @@ class PhotoroomService
             throw new \RuntimeException('Image is larger than Photoroom accepts (30 MB) even after downscaling.');
         }
 
-        return $this->postWithRetry(
-            $imageContent,
-            $filename,
-            $this->buildFields($edits),
-            $this->buildHeaders($edits),
-        );
+        $fields  = $this->buildFields($edits);
+        $headers = $this->buildHeaders($edits);
+
+        /*
+         * What was actually asked for, when someone needs to know.
+         *
+         * Off by default and worth having: a result that comes back looking
+         * untouched is indistinguishable from a request that never carried the
+         * settings, and without this the only way to tell them apart is to
+         * guess. The image bytes are not logged, only the instructions.
+         */
+        if (config('services.photoroom.log_requests')) {
+            Log::info('Photoroom request', [
+                'file'    => $filename,
+                'fields'  => $fields,
+                'headers' => array_keys($headers),
+            ]);
+        }
+
+        return $this->postWithRetry($imageContent, $filename, $fields, $headers);
     }
 
     /**

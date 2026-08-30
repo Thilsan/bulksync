@@ -112,6 +112,13 @@ return [
          * swept after this many days. The disk has filled twice before.
          */
         'retention_days' => (int) env('PHOTOROOM_RETENTION_DAYS', 7),
+
+        /*
+         * Log the instructions sent with each edit. Off by default — it is a
+         * few hundred bytes per image and only useful while something is
+         * behaving in a way nobody can explain from the result alone.
+         */
+        'log_requests' => (bool) env('PHOTOROOM_LOG_REQUESTS', false),
     ],
 
 ];
