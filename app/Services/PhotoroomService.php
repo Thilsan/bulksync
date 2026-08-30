@@ -708,8 +708,19 @@ class PhotoroomService
             $headers['pr-ai-shadows-model-version'] = self::SHADOW_MODEL_VERSION;
         }
 
-        // Only meaningful when there is a cutout to sharpen the edges of.
-        if (!empty($edits['remove_background']) || $this->generatesOwnCanvas($edits)) {
+        /*
+         * Only meaningful when there is a cutout to sharpen the edges of — and
+         * refused outright, with a 400, alongside a text-guided segmentation.
+         * Photoroom decides the subject one way or the other: from the prompt,
+         * or from its own HD matting. Asked for both, it does neither.
+         *
+         * The prompt wins, because it is what the operator said the product is
+         * and it is what keeps a hanger out of shot without redrawing the
+         * garment. Losing the HD edge is the cheaper half of that trade.
+         */
+        $segmenting = trim((string) ($edits['segmentation_prompt'] ?? '')) !== '';
+
+        if (!$segmenting && (!empty($edits['remove_background']) || $this->generatesOwnCanvas($edits))) {
             $headers[self::HD_CUTOUT_HEADER] = 'auto';
         }
 

@@ -424,6 +424,35 @@ class PhotoEditorFramingTest extends TestCase
         $this->assertArrayNotHasKey('apparel.mode', $fields);
     }
 
+    /**
+     * The HD cutout header and a named product cannot travel together.
+     *
+     * Photoroom refuses the pair with a 400 — it decides the subject either
+     * from the prompt or from its own HD matting, and asked for both it does
+     * neither. The prompt has to win: it is what keeps a hanger out of shot
+     * without redrawing the garment, where the header only sharpens an edge.
+     */
+    public function test_the_hd_header_gives_way_to_a_named_product(): void
+    {
+        $service = app(PhotoroomService::class);
+        $cutout  = ['remove_background' => true, 'background_mode' => 'white'];
+
+        $this->assertArrayHasKey('pr-hd-background-removal', $service->buildHeaders($cutout),
+            'a plain cutout lost its HD edge for no reason');
+
+        $this->assertArrayNotHasKey(
+            'pr-hd-background-removal',
+            $service->buildHeaders($cutout + ['segmentation_prompt' => 'the t-shirt']),
+            'the HD header rides along with a named product, which Photoroom refuses',
+        );
+
+        // A blank name is not a name, so it must not cost the HD edge.
+        $this->assertArrayHasKey(
+            'pr-hd-background-removal',
+            $service->buildHeaders($cutout + ['segmentation_prompt' => '   ']),
+        );
+    }
+
     /** The picker has to be on the screen the framing is chosen on. */
     public function test_the_categories_are_offered_on_the_configure_screen(): void
     {
