@@ -160,12 +160,32 @@ class EditPhotoItemJob implements ShouldQueue
 
                     if ($needsErase && empty($edits['segmentation_prompt'])) {
                         try {
+                            $before = $this->describeSize($raw);
+
                             $raw         = $photoroom->removeMannequin(
                                 $raw,
                                 $item->filename,
                                 filled($edits['edit_seed'] ?? null) ? (int) $edits['edit_seed'] : null,
                             );
                             $appliedMode = 'mannequin_removed';
+
+                            /*
+                             * The generative pass hands back its own canvas, and
+                             * if that is smaller than what went in, everything
+                             * downstream is working from fewer pixels — the
+                             * finished 2000 square is then an enlargement of it.
+                             * Worth knowing, because a soft result looks the
+                             * same whether it was redrawn softly or upscaled.
+                             */
+                            $after = $this->describeSize($raw);
+
+                            if ($before !== $after) {
+                                Log::warning('Photoroom erase changed the resolution', [
+                                    'item' => $this->itemId,
+                                    'in'   => $before,
+                                    'out'  => $after,
+                                ]);
+                            }
                         } catch (\Throwable $e) {
                             Log::warning("EditPhotoItemJob item {$this->itemId} mannequin removal failed: " . $e->getMessage());
                         }
@@ -275,6 +295,14 @@ class EditPhotoItemJob implements ShouldQueue
      * Bring an image inside Photoroom's input limits. Never upscales, and
      * returns the original bytes untouched when it already fits.
      */
+    /** "1628x2022", or "unreadable" — for log lines, not for decisions. */
+    private function describeSize(string $imageContent): string
+    {
+        $info = @getimagesizefromstring($imageContent);
+
+        return $info ? $info[0] . 'x' . $info[1] : 'unreadable';
+    }
+
     private function fitForPhotoroom(string $content, ImageProcessingService $imageService): string
     {
         $info    = @getimagesizefromstring($content);
