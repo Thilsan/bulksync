@@ -13,7 +13,7 @@
     what the run is about to cost. Nothing is sent to Photoroom until this
     form is submitted.
 --}}
-<div class="space-y-5" x-data="configureRun()">
+<div class="space-y-5" x-data="configureRun()" @photo-credits-changed.window="recount()">
 
     <div>
         <p class="text-xs text-gray-500">Media &rsaquo; Photo Editor</p>
@@ -77,6 +77,9 @@
                 <span x-text="photoCount"></span> photos
                 <span class="text-gray-400">+</span>
                 <span x-text="lifestyleTotal"></span> on-model
+                <template x-if="untouched">
+                    <span class="text-gray-400">&minus; <span x-text="untouched"></span> untouched</span>
+                </template>
                 <span class="ml-2 text-xs text-gray-500">of {{ number_format($monthlyQuota) }} this month</span>
             </div>
             <button type="submit" :disabled="starting"
@@ -127,6 +130,7 @@
                         $p->id => [
                             'filename' => $p->filename,
                             'thumb'    => route('photo-editor.onedrive-thumb', [$session, $p]),
+                            'asIs'     => (bool) $p->skip_edit,
                         ],
                     ])->all();
                 @endphp
@@ -166,9 +170,15 @@
                          product's main image. --}}
                     <div class="px-5 py-4"
                          x-data="photoOrder(@js($groupPhotos->pluck('id')->all()))">
-                        <p class="mb-2 text-xs text-gray-500">
-                            Drag to reorder — the first photo becomes the product's main image on Shopify.
-                        </p>
+                        <div class="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+                            <p class="text-xs text-gray-500">
+                                Drag to reorder — the first photo becomes the product's main image on Shopify.
+                            </p>
+                            <p class="text-xs" :class="asIsCount ? 'text-amber-700' : 'text-gray-400'">
+                                <span x-text="asIsCount"></span> going up untouched
+                                <span x-show="asIsCount" x-cloak>— no credits spent on those</span>
+                            </p>
+                        </div>
 
                         <div class="grid grid-cols-3 gap-3 sm:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10">
                             <template x-for="(id, index) in order" :key="id">
@@ -185,7 +195,8 @@
                                            :value="id" :checked="id === {{ (int) $group->lifestyle_source_item_id }}">
 
                                     <img :src="photos[id].thumb" :alt="photos[id].filename" loading="lazy"
-                                         class="aspect-square w-full rounded-lg border-2 border-transparent bg-gray-100 object-cover peer-checked:border-brand-500">
+                                         :class="asIs[id] ? 'border-amber-400' : 'border-transparent'"
+                                         class="aspect-square w-full rounded-lg border-2 bg-gray-100 object-cover peer-checked:border-brand-500">
 
                                     <span class="mt-1 block truncate text-[11px] text-gray-500" x-text="photos[id].filename"></span>
 
@@ -199,6 +210,24 @@
                                             class="absolute inset-x-1 bottom-6 hidden rounded bg-gray-900/80 py-0.5 text-[10px] font-medium text-white group-hover:block">
                                         Make first
                                     </button>
+
+                                    {{-- Edit this photo, or send it up as it is.
+                                         A shot that is already right costs a
+                                         credit to change nothing, so this is the
+                                         difference between a 10-credit run and a
+                                         6-credit one. --}}
+                                    <button type="button" @click.prevent="toggleAsIs(id)"
+                                            :title="asIs[id] ? 'Going to Shopify untouched — click to edit it instead' : 'Will be edited — click to send it as it is'"
+                                            :class="asIs[id]
+                                                ? 'bg-amber-500 text-white'
+                                                : 'bg-white/90 text-gray-500 opacity-0 group-hover:opacity-100'"
+                                            class="absolute left-1 bottom-6 rounded px-1.5 py-0.5 text-[10px] font-semibold shadow-sm transition-opacity">
+                                        <span x-text="asIs[id] ? 'AS IS' : 'as is?'"></span>
+                                    </button>
+
+                                    <template x-if="asIs[id]">
+                                        <input type="hidden" :name="`groups[{{ $group->id }}][as_is][]`" :value="id">
+                                    </template>
 
                                     <span x-show="lifestyle > 0" x-cloak
                                           class="pointer-events-none absolute left-1 top-1 rounded bg-white/90 px-1.5 py-0.5 text-[10px] font-semibold text-gray-700 peer-checked:bg-brand-600 peer-checked:text-white">
@@ -252,10 +281,25 @@
      * reading of it.
      */
     function photoOrder(ids) {
+        const photos = window.photoEditorPhotos || {};
+
         return {
             order: ids,
-            photos: window.photoEditorPhotos || {},
+            photos,
             from: null,
+
+            // Seeded from what was stored, so reopening the screen shows the
+            // same answer it was left with.
+            asIs: Object.fromEntries(ids.map(id => [id, !! (photos[id] || {}).asIs])),
+
+            get asIsCount() {
+                return Object.values(this.asIs).filter(Boolean).length;
+            },
+
+            toggleAsIs(id) {
+                this.asIs[id] = ! this.asIs[id];
+                window.dispatchEvent(new CustomEvent('photo-credits-changed'));
+            },
 
             moveTo(to) {
                 if (this.from === null || this.from === to) {
@@ -281,17 +325,25 @@
             photoCount: {{ $photos->flatten()->count() }},
             lifestyleTotal: {{ $groups->sum('lifestyle_count') }},
 
+            untouched: {{ $photos->flatten()->where('skip_edit', true)->count() }},
+
             get totalCredits() {
-                return this.photoCount + this.lifestyleTotal;
+                return this.photoCount - this.untouched + this.lifestyleTotal;
             },
 
             recount() {
-                // Read the selects rather than tracking each card's state
-                // separately — one source of truth for the number the operator
-                // is being asked to commit to.
+                /*
+                 * Read the DOM rather than tracking each card's state
+                 * separately — one source of truth for the number the operator
+                 * is being asked to commit to. The "as is" photos are counted
+                 * from their hidden inputs, which exist only while a photo is
+                 * marked, so the count cannot drift from what will be posted.
+                 */
                 this.lifestyleTotal = Array.from(
                     document.querySelectorAll('select[name$="[lifestyle_count]"]')
                 ).reduce((sum, el) => sum + Number(el.value || 0), 0);
+
+                this.untouched = document.querySelectorAll('input[name$="[as_is][]"]').length;
             },
         };
     }

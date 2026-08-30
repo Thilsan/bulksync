@@ -14,6 +14,7 @@ class PhotoEditItem extends Model
         'source_item_id',
         'sku_detected',
         'position',
+        'skip_edit',
         'onedrive_drive_id',
         'onedrive_item_id',
         'onedrive_download_url',
@@ -40,6 +41,7 @@ class PhotoEditItem extends Model
     {
         return [
             'position'          => 'integer',
+            'skip_edit'         => 'boolean',
             'selected'          => 'boolean',
             'mannequin_visible' => 'boolean',
             'uncertainty_score' => 'float',

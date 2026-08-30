@@ -61,7 +61,9 @@ class PhotoEditGroup extends Model
      */
     public function creditCost(): int
     {
-        return $this->sourceItems()->count() + $this->lifestyle_count;
+        // Photos marked "as is" never reach Photoroom, so they never cost a
+        // credit — the whole reason for marking them.
+        return $this->sourceItems()->where('skip_edit', false)->count() + $this->lifestyle_count;
     }
 
     /**

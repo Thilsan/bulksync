@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Jobs\CopyOriginalPhotoJob;
 use App\Jobs\EditPhotoItemJob;
 use App\Jobs\PushEditedPhotoJob;
 use App\Jobs\GenerateLifestyleImageJob;
@@ -254,6 +255,8 @@ class PhotoEditorController extends Controller implements HasMiddleware
             'groups.*.edits'           => ['nullable', 'array'],
             'groups.*.order'           => ['nullable', 'array'],
             'groups.*.order.*'         => ['integer'],
+            'groups.*.as_is'           => ['nullable', 'array'],
+            'groups.*.as_is.*'         => ['integer'],
         ]);
 
         // The run's own settings, which every group follows unless it opted out.
@@ -288,6 +291,7 @@ class PhotoEditorController extends Controller implements HasMiddleware
                 : null;
 
             $this->saveOrder($session, (array) ($input['order'] ?? []));
+            $this->saveUntouched($session, $group->sku, (array) ($input['as_is'] ?? []));
 
             // A count without a photo to build from would queue work that can
             // only fail, so it is refused here rather than at the API.
@@ -345,13 +349,21 @@ class PhotoEditorController extends Controller implements HasMiddleware
     {
         $session->update(['status' => 'processing']);
 
+        /*
+         * Two routes, one queue. A photo marked "as is" is fetched and filed
+         * without ever reaching Photoroom — it ends in the same state as an
+         * edited one, so the review screen and the push cannot tell them apart
+         * and do not need to.
+         */
         PhotoEditItem::where('photo_edit_session_id', $session->id)
             ->where('kind', 'cutout')
             ->where('status', 'pending')
-            ->select('id')
+            ->select('id', 'skip_edit')
             ->chunkById(500, function ($items) {
                 foreach ($items as $item) {
-                    EditPhotoItemJob::dispatch($item->id)->onQueue('bulkupload');
+                    $item->skip_edit
+                        ? CopyOriginalPhotoJob::dispatch($item->id)->onQueue('bulkupload')
+                        : EditPhotoItemJob::dispatch($item->id)->onQueue('bulkupload');
                 }
             });
 
@@ -460,6 +472,30 @@ class PhotoEditorController extends Controller implements HasMiddleware
             PhotoEditItem::where('photo_edit_session_id', $session->id)
                 ->whereKey($itemId)
                 ->update(['position' => $index + 1]);
+        }
+    }
+
+    /**
+     * Mark which of a SKU's photos go to Shopify untouched.
+     *
+     * Written for the whole SKU rather than only the ticked ones, so unticking
+     * a photo puts it back in the edit queue — a list of additions alone could
+     * never take one out again.
+     *
+     * Scoped to the session and the SKU for the same reason saveOrder is: the
+     * ids come from a form, and a doctored one must not be able to reach into
+     * another run and quietly stop its photos being edited.
+     */
+    private function saveUntouched(PhotoEditSession $session, string $sku, array $itemIds): void
+    {
+        $scope = fn () => PhotoEditItem::where('photo_edit_session_id', $session->id)
+            ->where('sku_detected', $sku)
+            ->where('kind', 'cutout');
+
+        $scope()->update(['skip_edit' => false]);
+
+        if ($itemIds) {
+            $scope()->whereIn('id', $itemIds)->update(['skip_edit' => true]);
         }
     }
 
