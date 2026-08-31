@@ -18,6 +18,32 @@ class PhotoEditorLayoutTest extends TestCase
     use RefreshDatabase;
 
     /**
+     * The before/after panel compares like with like.
+     *
+     * It used to show the 420px review thumbnail on the left against the
+     * full-size edit on the right — one image stretched up to fill its panel,
+     * the other shrunk down into it. Every quality judgement made from that
+     * view was measuring the thumbnail, not the edit.
+     *
+     * Asserted because the mistake is invisible: both panels look like
+     * photographs of the same garment, and nothing says one of them is a
+     * sixth of the resolution of the other.
+     */
+    public function test_the_before_and_after_panels_are_the_same_size_copies(): void
+    {
+        $view = file_get_contents(resource_path('views/photo-editor/show.blade.php'));
+
+        // The comparison itself uses the two thumbnails.
+        $this->assertStringContainsString('lightbox?.before_url', $view);
+        $this->assertStringContainsString('lightbox?.after_url', $view);
+
+        // The full file is offered as a link, never as one half of the pair.
+        $this->assertStringNotContainsString(':src="lightbox?.full_url"', $view,
+            'the full-size edit is being compared against a thumbnail again');
+        $this->assertStringContainsString(':href="lightbox?.full_url"', $view);
+    }
+
+    /**
      * The push button asks before it writes to a live storefront.
      *
      * Everything else in this feature is reversible by re-running; pushing is

@@ -357,6 +357,14 @@
                     </svg>
                 </button>
             </div>
+            {{-- Both sides are the 420px review thumbnail, deliberately.
+                 This panel showed the thumbnail on the left against the
+                 full-size edit on the right, which is not a comparison of
+                 anything: one side was a small image stretched to fill the
+                 panel and the other was a large one shrunk into it. Framing,
+                 position and shape are all judgeable at thumbnail size, and
+                 those are what this view is for. Sharpness is not judgeable
+                 here at all, which is why the full file is a link. --}}
             <div class="grid gap-px bg-gray-100 sm:grid-cols-2">
                 <div class="bg-white p-4">
                     <p class="mb-2 text-center text-[10px] font-semibold uppercase tracking-wide text-gray-400">Before</p>
@@ -365,9 +373,20 @@
                 <div class="bg-white p-4">
                     <p class="mb-2 text-center text-[10px] font-semibold uppercase tracking-wide text-gray-400">After</p>
                     <div class="checkerboard">
-                        <img :src="lightbox?.full_url" class="mx-auto max-h-[60vh] object-contain" alt="Edited">
+                        <img :src="lightbox?.after_url" class="mx-auto max-h-[60vh] object-contain" alt="Edited">
                     </div>
                 </div>
+            </div>
+
+            <div class="flex flex-wrap items-center justify-between gap-2 border-t border-gray-100 bg-gray-50 px-4 py-3">
+                <p class="text-[11px] text-gray-500">
+                    Both previews are small copies, so they line up fairly — judge framing and shape here.
+                    <strong class="font-semibold text-gray-700">Sharpness cannot be judged at this size.</strong>
+                </p>
+                <a :href="lightbox?.full_url" target="_blank" rel="noopener"
+                   class="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 transition-colors hover:border-gray-400">
+                    Open the full-size edit &rarr;
+                </a>
             </div>
         </div>
     </div>
