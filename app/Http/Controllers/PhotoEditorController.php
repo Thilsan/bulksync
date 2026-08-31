@@ -404,7 +404,8 @@ class PhotoEditorController extends Controller implements HasMiddleware
      */
     private function editsFromRequest(array $input, array $existing): array
     {
-        $booleans = ['remove_background', 'upscale', 'expand', 'ironing', 'rotate_wide_only', 'snap_cropped_sides'];
+        $booleans = ['remove_background', 'upscale', 'expand', 'ironing', 'rotate_wide_only',
+            'snap_cropped_sides', 'surgical_erase'];
 
         foreach ($booleans as $key) {
             $input[$key] = !empty($input[$key]);
@@ -416,7 +417,7 @@ class PhotoEditorController extends Controller implements HasMiddleware
             }
         }
 
-        foreach (['padding', 'trim_top', 'trim_bottom'] as $key) {
+        foreach (['padding', 'trim_top', 'trim_bottom', 'erase_zone'] as $key) {
             if (array_key_exists($key, $input)) {
                 $input[$key] = filled($input[$key]) ? (float) $input[$key] : null;
             }

@@ -7,6 +7,7 @@ use App\Models\PhotoEditSession;
 use App\Models\User;
 use App\Services\GeminiService;
 use App\Services\ImageProcessingService;
+use App\Services\StandEraseCompositor;
 use App\Services\OneDriveService;
 use App\Services\PhotoroomService;
 use Illuminate\Bus\Queueable;
@@ -49,7 +50,12 @@ class EditPhotoItemJob implements ShouldQueue
         ImageProcessingService $imageService,
         PhotoroomService       $photoroom,
         GeminiService          $gemini,
+        // Appended rather than slotted in: the tests call handle() positionally,
+        // and a new dependency is not a reason to rewrite their arguments.
+        ?StandEraseCompositor  $compositor = null,
     ): void {
+        $compositor ??= new StandEraseCompositor();
+
         $item = PhotoEditItem::find($this->itemId);
 
         // Terminal states only. 'editing' means a previous attempt died partway
@@ -137,6 +143,42 @@ class EditPhotoItemJob implements ShouldQueue
 
             $itemEdits   = $edits;
             $appliedMode = 'none';
+
+            /*
+             * Erase the stand surgically, if that is what was asked for.
+             *
+             * Deliberately outside the block below, which only runs when an AI
+             * treatment is generating the canvas. This is the opposite of that:
+             * nothing generates a canvas, the photograph is kept, and the
+             * generative pass is used on a strip of it and nowhere else.
+             *
+             * No classifier is consulted either. Somebody chose this treatment
+             * looking at the photo; a second opinion could only overrule them.
+             */
+            if (!empty($edits['surgical_erase']) && !$onModel) {
+                try {
+                    $strip = $compositor->topStrip($raw, (float) ($edits['erase_zone'] ?? 0.40));
+
+                    $erased = $photoroom->removeMannequin(
+                        $strip['bytes'],
+                        $item->filename,
+                        filled($edits['edit_seed'] ?? null) ? (int) $edits['edit_seed'] : null,
+                    );
+
+                    $raw         = $compositor->blend($raw, $erased, $strip['height']);
+                    $appliedMode = 'stand_erased';
+
+                    unset($erased, $strip);
+                } catch (\Throwable $e) {
+                    /*
+                     * The photograph is still intact and still worth having, so
+                     * the run continues with the stand in shot rather than
+                     * failing. Logged loudly: a stand nobody removed is easy to
+                     * miss on a review screen of three hundred.
+                     */
+                    Log::error("EditPhotoItemJob item {$this->itemId} surgical erase failed: " . $e->getMessage());
+                }
+            }
 
             if ($photoroom->generatesOwnCanvas($edits)) {
                 if ($onModel) {

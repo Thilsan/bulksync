@@ -80,22 +80,51 @@
 
 <div>
     <span class="mb-2 block text-xs font-semibold uppercase tracking-wide text-gray-500">Treatment</span>
-    <div class="grid gap-3 sm:grid-cols-2">
+    @php
+        // One radio, three answers, two stored flags. Derived here so the form
+        // and the job cannot disagree about what "surgical" means.
+        $treatment = $val('surgical_erase') ? 'surgical' : ($val('ghost_mannequin') ? 'ghost' : 'none');
+    @endphp
+
+    <div class="grid gap-3 sm:grid-cols-3" x-data="{ treatment: @js($treatment) }">
         @foreach ([
-            'none'            => ['Keep the photo', 'Real pixels, exactly as shot.'],
-            'ghost_mannequin' => ['Keep the photo + AI cleanup', 'Redraws the garment — check every result. Costs an extra credit.'],
+            'none'     => ['Keep the photo', 'Real pixels, exactly as shot. Anything holding the garment up stays in shot.'],
+            'surgical' => ['Erase the stand only', 'Cuts the hanger out of a strip of the photo and leaves the rest of your photograph alone. Prints and logos survive.'],
+            'ghost'    => ['Redraw the garment', 'Redraws the whole garment to lose the stand. Reinvents prints and logos — never use on a patterned item.'],
         ] as $mode => [$label, $help])
-            @php $isGhost = $mode === 'ghost_mannequin'; @endphp
             <label class="flex cursor-pointer items-start gap-2 rounded-lg border border-gray-200 p-3 hover:border-gray-300 has-[:checked]:border-brand-500 has-[:checked]:bg-brand-50/60">
-                <input type="radio" name="{{ $name('ghost_mannequin') }}" value="{{ $isGhost ? '1' : '' }}"
-                       @checked((bool) $val('ghost_mannequin') === $isGhost)
+                <input type="radio" x-model="treatment" value="{{ $mode }}" @checked($treatment === $mode)
                        class="mt-0.5 h-3.5 w-3.5 border-gray-300 text-brand-600 focus:ring-brand-500">
                 <span>
                     <span class="block text-sm font-medium text-gray-800">{{ $label }}</span>
-                    <span class="block text-xs text-gray-500">{{ $help }}</span>
+                    <span class="block text-xs {{ $mode === 'ghost' ? 'text-amber-700' : 'text-gray-500' }}">{{ $help }}</span>
                 </span>
             </label>
         @endforeach
+
+        {{-- The two flags the job actually reads, derived from the one choice. --}}
+        <input type="hidden" name="{{ $name('surgical_erase') }}" :value="treatment === 'surgical' ? '1' : ''">
+        <input type="hidden" name="{{ $name('ghost_mannequin') }}" :value="treatment === 'ghost' ? '1' : ''">
+
+        <div x-show="treatment === 'surgical'" x-cloak class="sm:col-span-3">
+            <label for="zone-{{ $uid }}" class="mb-1 block text-xs text-gray-600">
+                How far down the stand reaches
+            </label>
+            <div class="flex items-center gap-3">
+                <input id="zone-{{ $uid }}" type="range" min="0.15" max="0.60" step="0.05"
+                       name="{{ $name('erase_zone') }}" value="{{ $val('erase_zone', 0.40) }}"
+                       x-data="{ z: {{ $val('erase_zone', 0.40) }} }" x-model.number="z"
+                       @input="$refs.zoneLabel.textContent = Math.round(z * 100) + '% from the top'"
+                       class="w-64 accent-brand-600">
+                <span x-ref="zoneLabel" class="text-xs font-semibold tabular-nums text-brand-700">
+                    {{ round($val('erase_zone', 0.40) * 100) }}% from the top
+                </span>
+            </div>
+            <p class="mt-1 text-xs text-gray-500">
+                Only this strip is sent to be erased. Too generous costs nothing — anything that comes back
+                unchanged keeps its original pixels. Too tight leaves a hook in shot.
+            </p>
+        </div>
     </div>
 
     <div class="mt-3 grid gap-3 sm:grid-cols-2">
