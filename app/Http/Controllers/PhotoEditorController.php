@@ -417,7 +417,7 @@ class PhotoEditorController extends Controller implements HasMiddleware
             }
         }
 
-        foreach (['padding', 'trim_top', 'trim_bottom', 'erase_zone'] as $key) {
+        foreach (['padding', 'trim_top', 'trim_bottom'] as $key) {
             if (array_key_exists($key, $input)) {
                 $input[$key] = filled($input[$key]) ? (float) $input[$key] : null;
             }

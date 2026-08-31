@@ -89,7 +89,7 @@
     <div class="grid gap-3 sm:grid-cols-3" x-data="{ treatment: @js($treatment) }">
         @foreach ([
             'none'     => ['Keep the photo', 'Real pixels, exactly as shot. Anything holding the garment up stays in shot.'],
-            'surgical' => ['Erase the stand only', 'Finds the hanger and fills it in. No AI, no extra credit, and every other pixel is your photograph — prints and logos cannot be altered.'],
+            'surgical' => ['Erase the stand only', 'Gemini finds the hanger or stand; the gap is filled here at full resolution. No Photoroom credit, and every pixel outside it is your photograph — prints and logos cannot be altered.'],
             'ghost'    => ['Remove the stand (Ghost Mannequin)', 'Photoroom\'s apparel model. Removes a hanger or dress form and keeps the print. Costs one credit, same as any edit — check the first few results.'],
         ] as $mode => [$label, $help])
             <label class="flex cursor-pointer items-start gap-2 rounded-lg border border-gray-200 p-3 hover:border-gray-300 has-[:checked]:border-brand-500 has-[:checked]:bg-brand-50/60">
@@ -106,25 +106,10 @@
         <input type="hidden" name="{{ $name('surgical_erase') }}" :value="treatment === 'surgical' ? '1' : ''">
         <input type="hidden" name="{{ $name('ghost_mannequin') }}" :value="treatment === 'ghost' ? '1' : ''">
 
-        <div x-show="treatment === 'surgical'" x-cloak class="sm:col-span-3">
-            <label for="zone-{{ $uid }}" class="mb-1 block text-xs text-gray-600">
-                How far down to accept changes
-            </label>
-            <div class="flex items-center gap-3">
-                <input id="zone-{{ $uid }}" type="range" min="0.10" max="0.45" step="0.01"
-                       name="{{ $name('erase_zone') }}" value="{{ $val('erase_zone', 0.40) }}"
-                       x-data="{ z: {{ $val('erase_zone', 0.40) }} }" x-model.number="z"
-                       @input="$refs.zoneLabel.textContent = Math.round(z * 100) + '% from the top'"
-                       class="w-64 accent-brand-600">
-                <span x-ref="zoneLabel" class="text-xs font-semibold tabular-nums text-brand-700">
-                    {{ round($val('erase_zone', 0.40) * 100) }}% from the top
-                </span>
-            </div>
-            <p class="mt-1 text-xs text-amber-700">
-                Only this top band is searched for a hanger. Keep it <strong class="font-semibold">above any print
-                or logo</strong>, or a dark print may be read as part of the stand. Too tight leaves a hook in shot.
-            </p>
-        </div>
+        <p x-show="treatment === 'surgical'" x-cloak class="text-xs text-gray-500 sm:col-span-3">
+            Gemini is asked where the stand is and only what it points at can be changed — so a print or a logo is
+            safe by construction, not by choosing a setting carefully. Nothing is sent to Photoroom for this.
+        </p>
     </div>
 
     <div class="mt-3 grid gap-3 sm:grid-cols-2">

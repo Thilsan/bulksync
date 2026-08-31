@@ -378,6 +378,100 @@ Return only valid JSON. No markdown, no code blocks, no extra text.";
         ];
     }
 
+    /**
+     * Where the thing holding the garment up is, as boxes over the photo.
+     *
+     * Colour cannot answer this reliably. A dark hanger against a pale backdrop
+     * is easy; a white plastic one against a white wall is invisible to a colour
+     * test, and a black rail behind a black dress is worse than invisible —
+     * it looks like the dress. Gemini is asked instead, because it knows what a
+     * hanger is rather than what one happens to be coloured.
+     *
+     * Boxes rather than an outline because that is what the model can be relied
+     * on to give: a rectangle around the stand is enough, since the pixels
+     * inside it are then sorted out locally, where full resolution is free.
+     *
+     * Returns [] when there is nothing holding the garment up, or when the
+     * model cannot say — and [] means "change nothing", which is the safe
+     * reading of both.
+     *
+     * @return array<int, array{x0: float, y0: float, x1: float, y1: float}>
+     *         fractions of the image, 0–1, top-left origin
+     */
+    public function locateStand(string $imageBytes): array
+    {
+        $imageBytes = $this->shrinkForApi($imageBytes);
+        $mimeType   = $this->detectMimeType($imageBytes);
+        $base64     = base64_encode($imageBytes);
+
+        $prompt = "Find everything in this product photo that is holding the garment up or displaying it: a hanger, hook, clothes rail, garment rack, mannequin, dress form, headless body or stand.
+
+Return a JSON object with exactly these fields:
+- \"found\": true if any such object is visible, false if the garment is alone in the frame.
+- \"boxes\": an array of bounding boxes, one per object, each as [ymin, xmin, ymax, xmax] with every value an integer from 0 to 1000 measured from the top-left of the image.
+
+Include the whole object, including a hook or a stand's base, and including any part that passes behind the garment. Do not include the garment itself in a box. Do not include any print, logo or lettering on the garment. Do not include shadows.
+
+If nothing is holding the garment up, return {\"found\": false, \"boxes\": []}.
+
+Return only valid JSON. No markdown, no code blocks, no extra text.";
+
+        $payload = [
+            'contents' => [[
+                'parts' => [
+                    ['text' => $prompt],
+                    ['inline_data' => ['mime_type' => $mimeType, 'data' => $base64]],
+                ],
+            ]],
+            'generationConfig' => [
+                'responseMimeType' => 'application/json',
+                'temperature'      => 0.0,
+            ],
+        ];
+
+        $response = $this->postWithRetry($payload);
+
+        if (!$response) {
+            return [];
+        }
+
+        $data = json_decode((string) $response->json('candidates.0.content.parts.0.text'), true);
+
+        if (!is_array($data) || empty($data['found']) || !is_array($data['boxes'] ?? null)) {
+            return [];
+        }
+
+        $boxes = [];
+
+        foreach ($data['boxes'] as $box) {
+            if (!is_array($box) || count($box) < 4) {
+                continue;
+            }
+
+            // Gemini reports [ymin, xmin, ymax, xmax] on a 0–1000 scale.
+            [$y0, $x0, $y1, $x1] = array_map(static fn ($v) => max(0, min(1000, (float) $v)) / 1000, $box);
+
+            if ($x1 <= $x0 || $y1 <= $y0) {
+                continue;
+            }
+
+            /*
+             * A box covering nearly the whole photo is not a hanger, it is the
+             * model having given up and boxed the picture. Acting on it would
+             * put the entire garment up for erasure.
+             */
+            if (($x1 - $x0) * ($y1 - $y0) > 0.60) {
+                Log::warning('GeminiService: ignoring a stand box covering most of the photo', ['box' => $box]);
+
+                continue;
+            }
+
+            $boxes[] = ['x0' => $x0, 'y0' => $y0, 'x1' => $x1, 'y1' => $y1];
+        }
+
+        return $boxes;
+    }
+
     private function downloadImage(string $url): ?string
     {
         try {

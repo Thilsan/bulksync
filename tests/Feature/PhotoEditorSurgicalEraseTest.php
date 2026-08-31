@@ -20,6 +20,15 @@ use Tests\TestCase;
  */
 class PhotoEditorSurgicalEraseTest extends TestCase
 {
+    /**
+     * Where the fixture's stand is, as Gemini would report it.
+     *
+     * Deliberately loose around the object, the way a model's box is: the
+     * pixels inside are still sorted out by colour, so extra area is extra
+     * backdrop that nothing happens to.
+     */
+    private const STAND_BOX = ['x0' => 0.30, 'y0' => 0.04, 'x1' => 0.70, 'y1' => 0.26];
+
     private StandEraseCompositor $compositor;
 
     protected function setUp(): void
@@ -83,7 +92,7 @@ class PhotoEditorSurgicalEraseTest extends TestCase
     public function test_the_photograph_below_the_band_is_untouched(): void
     {
         $original = $this->photo();
-        $result   = $this->compositor->erase($original, 0.27);
+        $result   = $this->compositor->erase($original, [self::STAND_BOX]);
 
         $a = imagecreatefromstring($original);
         $b = imagecreatefromstring($result);
@@ -111,7 +120,7 @@ class PhotoEditorSurgicalEraseTest extends TestCase
     /** And the stand does actually go. */
     public function test_the_stand_is_removed(): void
     {
-        $result = $this->compositor->erase($this->photo(), 0.27);
+        $result = $this->compositor->erase($this->photo(), [self::STAND_BOX]);
         $b      = imagecreatefromstring($result);
 
         // Centre of where the dark bar was.
@@ -136,7 +145,7 @@ class PhotoEditorSurgicalEraseTest extends TestCase
     public function test_the_filled_area_becomes_exactly_the_backdrop(): void
     {
         $original = $this->photo();
-        $result   = $this->compositor->erase($original, 0.27);
+        $result   = $this->compositor->erase($original, [self::STAND_BOX]);
 
         $b        = imagecreatefromstring($result);
         $backdrop = imagecolorat($b, 5, 5);
@@ -158,7 +167,53 @@ class PhotoEditorSurgicalEraseTest extends TestCase
     {
         $flat = $this->blank(600, 800);
 
-        $this->assertSame($flat, $this->compositor->erase($flat, 0.27));
+        $this->assertSame($flat, $this->compositor->erase($flat, [self::STAND_BOX]));
+    }
+
+    /**
+     * No boxes means nothing to do, and nothing is done.
+     *
+     * A garment shot flat has no stand, and Gemini says so by returning
+     * nothing. Re-encoding the photograph anyway would spend a JPEG generation
+     * to achieve exactly nothing.
+     */
+    public function test_no_boxes_means_the_photograph_is_returned_untouched(): void
+    {
+        $photo = $this->photo();
+
+        $this->assertSame($photo, $this->compositor->erase($photo, []));
+    }
+
+    /**
+     * Only what is inside a box can be erased.
+     *
+     * This is the property that replaced guessing a band across the top of the
+     * photo: a print cannot be reinvented by a process that never looks at it.
+     * A box drawn well away from the stand must therefore change nothing, even
+     * though the stand is still plainly in the picture.
+     */
+    public function test_nothing_outside_a_box_is_touched(): void
+    {
+        $photo = $this->photo();
+
+        // A box over empty backdrop in the bottom corner.
+        $result = $this->compositor->erase($photo, [
+            ['x0' => 0.02, 'y0' => 0.90, 'x1' => 0.12, 'y1' => 0.98],
+        ]);
+
+        $a = imagecreatefromstring($photo);
+        $b = imagecreatefromstring($result);
+
+        // The stand is where it was.
+        $stand = imagecolorat($b, (int) (900 * 0.5), (int) (1200 * 0.15));
+        $this->assertLessThan(100, max(($stand >> 16) & 0xFF, ($stand >> 8) & 0xFF, $stand & 0xFF),
+            'a box nowhere near the stand still erased it');
+
+        $this->assertSame(
+            imagecolorat($a, 450, 700),
+            imagecolorat($b, 450, 700),
+            'the garment changed although no box covered it',
+        );
     }
 
     /** An unreadable image is refused rather than guessed at. */
@@ -166,6 +221,6 @@ class PhotoEditorSurgicalEraseTest extends TestCase
     {
         $this->expectException(\RuntimeException::class);
 
-        $this->compositor->erase('not an image at all', 0.27);
+        $this->compositor->erase('not an image at all', [self::STAND_BOX]);
     }
 }

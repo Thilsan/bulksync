@@ -158,6 +158,23 @@ class EditPhotoItemJob implements ShouldQueue
             if (!empty($edits['surgical_erase']) && !$onModel) {
                 try {
                     /*
+                     * Gemini says where the stand is; the fill happens here.
+                     *
+                     * The two jobs are split because they fail differently.
+                     * Finding a stand by colour works on a dark hanger against
+                     * a pale wall and fails on a white plastic one, or a black
+                     * rail behind a black dress. Gemini knows what a hanger is
+                     * rather than what one is coloured, so it locates; and the
+                     * filling stays local, where full resolution is free and
+                     * nothing outside the boxes is ever written to.
+                     */
+                    $boxes = $gemini->locateStand($raw);
+
+                    if (!$boxes) {
+                        Log::info('No stand found to erase', ['item' => $this->itemId]);
+                    }
+
+                    /*
                      * No Photoroom call at all. Its erase regenerates the whole
                      * picture and moves the garment inside the frame, so its
                      * output cannot be pasted back onto the photograph — three
@@ -166,12 +183,9 @@ class EditPhotoItemJob implements ShouldQueue
                      * surroundings instead: no credit, and the garment cannot
                      * move because nothing outside the hanger is written to.
                      */
-                    $raw = $compositor->erase(
-                        $raw,
-                        (float) ($edits['erase_zone'] ?? StandEraseCompositor::DEFAULT_BAND),
-                    );
+                    $raw = $compositor->erase($raw, $boxes);
 
-                    $appliedMode = 'stand_erased';
+                    $appliedMode = $boxes ? 'stand_erased' : 'none';
                 } catch (\Throwable $e) {
                     /*
                      * The photograph is intact and still worth having, so the
