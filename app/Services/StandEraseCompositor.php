@@ -2,230 +2,343 @@
 
 namespace App\Services;
 
-use Illuminate\Support\Facades\Log;
-
 /**
- * Erase the stand without redrawing the garment.
+ * Remove the hanger from a photograph without redrawing the garment.
  *
- * Photoroom's only object removal regenerates the whole picture, which on a
- * printed garment is destructive rather than merely soft: an Aigner monogram
- * came back as rings and dots, measured at 4% of the original's print detail,
- * to remove a hanger occupying 1.25% of the frame.
+ * Photoroom's only object removal regenerates the whole picture. Measured
+ * against a real pair, that took an Aigner horseshoe monogram down to 4% of its
+ * original detail and reinvented the pattern as rings — in order to remove a
+ * hanger occupying 1.25% of the frame. It also moves the garment inside the
+ * frame, so nothing from its output can be pasted back onto the original.
  *
- * So the generative pass still runs, on the whole photograph, and its answer is
- * accepted in one narrow band only:
+ * Three attempts at using it were made and all three failed for that reason:
+ * a cropped strip came back with a whole small garment drawn into it; a
+ * generous accept-band swallowed the chest print; a tight band still ghosted
+ * the collar because the garment had shifted. The conclusion is that a
+ * generative erase and an untouched photograph cannot be combined.
  *
- *   1. The full photo is sent to be erased — not a crop.
- *   2. Its result is accepted only inside the top band the stand occupies.
- *   3. Within that band, only where it actually differs from the original.
+ * So nothing generative is used here. The hanger is found by colour — it
+ * resembles neither the backdrop nor the garment — and the gap it leaves is
+ * filled from the pixels around it. That has three properties worth more than
+ * cleverness: it costs no credit, it cannot move the garment, and every pixel
+ * outside the hanger is the photograph that went in.
  *
- * Both restrictions were learned the hard way and neither is optional.
- *
- * Sending a crop failed: the model cannot tell a crop from a photograph, saw a
- * partial garment and drew a small complete one to fill the frame, and a ghost
- * t-shirt was composited into the shoulders. It needs the whole picture to know
- * what it is looking at.
- *
- * A generous band failed too. Anything inside the band that the model changes
- * is accepted, and it changes prints — so a band reaching 40% down swallowed a
- * chest print sitting at 28%. The band must stop above the garment's detail,
- * which makes it a real decision rather than a safe over-estimate.
- *
- * What the difference test buys is the seam: the join runs through pixels that
- * did not change, so there is nothing to join.
+ * The fill only has to be good enough for the cutout that follows. Most of a
+ * hanger sits on backdrop, and the backdrop is about to be replaced with white
+ * regardless — so what matters is the small part that overlapped the collar,
+ * where there is real fabric on both sides to fill from.
  */
 class StandEraseCompositor
 {
-    /** Below this, two pixels are the same pixel with compression noise on top. */
-    private const DEFAULT_TOLERANCE = 22;
-
     /**
-     * How far down the photo changes are accepted, when nobody says otherwise.
+     * How far down the photo to look, when nobody says otherwise.
      *
-     * Tight on purpose. A hanger's dark body ended at 25% on the shot this was
-     * built against and the chest print began at 28%, so there is roughly three
-     * percent of clearance between "removes the hanger" and "reinvents the
-     * logo". The operator can move it; the default errs towards keeping the
-     * garment rather than towards catching every last pixel of hook.
+     * A stand hangs from above, and looking further than necessary risks
+     * finding a chest print instead: on the shot this was built against the
+     * hanger ended at 25% and the print began at 28%. Tight by default.
      */
     public const DEFAULT_BAND = 0.27;
 
     /**
-     * The mask is built small and then enlarged. It is a soft, blurred shape,
-     * so full resolution buys nothing and costs a per-pixel pass — and the
-     * blur that feathers the edge also spreads it outward, which is the
-     * dilation needed to catch a hanger's own anti-aliased outline.
+     * How far a colour must sit from both the backdrop and the garment before
+     * it is treated as part of the stand. Low enough to catch a pale hook,
+     * high enough to leave studio lighting variation alone.
      */
-    private const MASK_EDGE = 420;
+    private const DISTANCE = 34;
 
-    /** How far the mask spreads past what changed, as a share of MASK_EDGE. */
-    private const FEATHER = 0.012;
+    /** Pixels the mask grows by, to take the stand's anti-aliased rim with it. */
+    private const GROW = 5;
+
+    /** Smoothing passes over the filled area, to even out the fill's banding. */
+    private const SMOOTH = 6;
 
     /**
-     * Put the erased version back, in the top band only, where it differs.
+     * Erase whatever is holding the garment up, in the top $band of the photo.
      *
-     * @param  string  $original  the whole photograph, untouched
-     * @param  string  $erased    the whole photograph after erasing, any size
-     * @param  float   $band      how far down to accept changes, 0–1
+     * Returns the original bytes untouched when nothing stand-like is found —
+     * a photo shot flat has nothing to erase, and re-encoding it would only
+     * cost it a generation of JPEG for no reason.
      */
-    public function blend(
-        string $original,
-        string $erased,
-        float $band,
-        ?int $tolerance = null,
-    ): string {
-        $tolerance = $tolerance ?? self::DEFAULT_TOLERANCE;
-
-        $full = $this->decode($original);
-        $w    = imagesx($full);
-        $h    = imagesy($full);
-        $strip = max(1, (int) round($h * max(0.05, min(0.9, $band))));
-
-        /*
-         * The erase comes back at its own size — Photoroom returned 2333x3000
-         * for a 2400x3000 input on the shot this was built against — so it is
-         * stretched back onto the original's grid before anything is compared.
-         * A few pixels of misalignment only widens the changed region slightly,
-         * and the band already confines that to above the garment's detail.
-         */
-        $erasedImg = $this->decode($erased);
-
-        /*
-         * The erase must come back framed as it went in. A few percent of drift
-         * is normal — 2400x3000 came back 2333x3000 — and stretching that onto
-         * the original's grid costs nothing. A larger difference means the
-         * picture was recomposed rather than erased, and stretching it would
-         * paste a misaligned collar over the real one: ghost shoulders, a
-         * doubled hanger, a floating label.
-         *
-         * There is no way to recover from that, so it is refused. The caller
-         * keeps the photograph with the stand still in it, which is worth more
-         * than a garbled one.
-         */
-        $wanted = $w / $h;
-        $got    = imagesx($erasedImg) / max(1, imagesy($erasedImg));
-
-        if (abs($got - $wanted) / $wanted > 0.06) {
-            imagedestroy($full);
-            imagedestroy($erasedImg);
-
-            throw new \RuntimeException(sprintf(
-                'The erase came back reframed (%s vs %s), so it cannot be aligned with the original.',
-                round($got, 3), round($wanted, 3),
-            ));
-        }
-
-        if (imagesx($erasedImg) !== $w || imagesy($erasedImg) !== $h) {
-            $scaled = imagecreatetruecolor($w, $h);
-            imagecopyresampled($scaled, $erasedImg, 0, 0, 0, 0, $w, $h, imagesx($erasedImg), imagesy($erasedImg));
-            imagedestroy($erasedImg);
-            $erasedImg = $scaled;
-        }
-
-        $erased = $erasedImg;
-
-        $mask = $this->changeMask($full, $erased, $w, $strip, $tolerance);
-
-        // The one full-resolution pass. Only over the strip — the rest of the
-        // photograph is never read, let alone written.
-        for ($y = 0; $y < $strip; $y++) {
-            for ($x = 0; $x < $w; $x++) {
-                $m = imagecolorat($mask, $x, $y) & 0xFF;
-
-                if ($m === 0) {
-                    continue;               // unchanged: the original stands
-                }
-
-                $o = imagecolorat($full, $x, $y);
-                $e = imagecolorat($erased, $x, $y);
-
-                if ($m === 255) {
-                    imagesetpixel($full, $x, $y, $e);
-                    continue;
-                }
-
-                $a = $m / 255;
-                imagesetpixel($full, $x, $y, (
-                    ((int) ((($o >> 16) & 0xFF) * (1 - $a) + (($e >> 16) & 0xFF) * $a) << 16) |
-                    ((int) ((($o >> 8) & 0xFF) * (1 - $a) + (($e >> 8) & 0xFF) * $a) << 8) |
-                     (int) (($o & 0xFF) * (1 - $a) + ($e & 0xFF) * $a)
-                ));
-            }
-        }
-
-        imagedestroy($erased);
-        imagedestroy($mask);
-
-        ob_start();
-        imagejpeg($full, null, 98);
-        $bytes = (string) ob_get_clean();
-        imagedestroy($full);
-
-        return $bytes;
-    }
-
-    /**
-     * Where the erase actually changed something, as a soft grayscale mask at
-     * the strip's own size.
-     */
-    private function changeMask($full, $erased, int $w, int $strip, int $tolerance)
+    public function erase(string $imageContent, float $band = self::DEFAULT_BAND): string
     {
-        $sw = max(32, (int) round($w * (self::MASK_EDGE / max($w, $strip))));
-        $sh = max(32, (int) round($strip * (self::MASK_EDGE / max($w, $strip))));
-
-        $a = imagecreatetruecolor($sw, $sh);
-        $b = imagecreatetruecolor($sw, $sh);
-        imagecopyresampled($a, $full,   0, 0, 0, 0, $sw, $sh, $w, $strip);
-        imagecopyresampled($b, $erased, 0, 0, 0, 0, $sw, $sh, $w, $strip);
-
-        $small = imagecreatetruecolor($sw, $sh);
-
-        for ($y = 0; $y < $sh; $y++) {
-            for ($x = 0; $x < $sw; $x++) {
-                $p = imagecolorat($a, $x, $y);
-                $q = imagecolorat($b, $x, $y);
-
-                $d = max(
-                    abs((($p >> 16) & 0xFF) - (($q >> 16) & 0xFF)),
-                    abs((($p >> 8) & 0xFF)  - (($q >> 8) & 0xFF)),
-                    abs(($p & 0xFF)         - ($q & 0xFF)),
-                );
-
-                $v = $d > $tolerance ? 255 : 0;
-                imagesetpixel($small, $x, $y, ($v << 16) | ($v << 8) | $v);
-            }
-        }
-
-        imagedestroy($a);
-        imagedestroy($b);
-
-        /*
-         * Blur spreads the mask outwards as well as softening it, which is
-         * exactly what is wanted: a hanger's edge is anti-aliased against the
-         * backdrop, and a mask that stopped at the hard threshold would leave a
-         * faint outline of it behind.
-         */
-        $passes = max(1, (int) round(self::FEATHER * self::MASK_EDGE));
-
-        for ($i = 0; $i < $passes; $i++) {
-            imagefilter($small, IMG_FILTER_GAUSSIAN_BLUR);
-        }
-
-        $mask = imagecreatetruecolor($w, $strip);
-        imagecopyresampled($mask, $small, 0, 0, 0, 0, $w, $strip, $sw, $sh);
-        imagedestroy($small);
-
-        return $mask;
-    }
-
-    private function decode(string $bytes)
-    {
-        $img = @imagecreatefromstring($bytes);
+        $img = @imagecreatefromstring($imageContent);
 
         if (!$img) {
             throw new \RuntimeException('Could not read the image while erasing the stand.');
         }
 
-        return $img;
+        $w    = imagesx($img);
+        $h    = imagesy($img);
+        $rows = max(1, (int) round($h * max(0.05, min(0.9, $band))));
+
+        $backdrop = $this->sample($img, [[5, 5], [$w - 6, 5], [30, 30], [$w - 31, 30]]);
+
+        /*
+         * The garment's own colour, read from a grid across it and taken as a
+         * median rather than a mean. A single reading — or an average — can
+         * land on a chest print and come back dark, and a dark reference makes
+         * the stand look like the garment, so nothing gets erased at all. The
+         * median ignores a print unless the print covers most of the
+         * garment — hence forty-two readings rather than a handful.
+         */
+        $grid = [];
+        foreach ([0.38, 0.46, 0.54, 0.62, 0.70, 0.78, 0.86] as $fy) {
+            foreach ([0.20, 0.32, 0.44, 0.56, 0.68, 0.80] as $fx) {
+                $grid[] = [(int) ($w * $fx), (int) ($h * $fy)];
+            }
+        }
+
+        $garment = $this->median($img, $grid);
+
+        $mask = $this->maskStand($img, $w, $rows, $backdrop, $garment);
+
+        if (!str_contains($mask, "\1")) {
+            imagedestroy($img);
+
+            return $imageContent;
+        }
+
+        $filled = $this->fill($img, $mask, $w, $rows);
+        $this->smooth($img, $filled, $w, $rows);
+
+        ob_start();
+        imagejpeg($img, null, 96);
+        imagedestroy($img);
+
+        return (string) ob_get_clean();
+    }
+
+    /** The average colour at a handful of points, as [r, g, b]. */
+    private function sample($img, array $points): array
+    {
+        $r = $g = $b = 0;
+
+        foreach ($points as [$x, $y]) {
+            $c = imagecolorat($img, max(0, min(imagesx($img) - 1, $x)), max(0, min(imagesy($img) - 1, $y)));
+            $r += ($c >> 16) & 0xFF;
+            $g += ($c >> 8) & 0xFF;
+            $b += $c & 0xFF;
+        }
+
+        $n = max(1, count($points));
+
+        return [intdiv($r, $n), intdiv($g, $n), intdiv($b, $n)];
+    }
+
+    /** The median colour over a set of points, per channel. */
+    private function median($img, array $points): array
+    {
+        $r = $g = $b = [];
+
+        foreach ($points as [$x, $y]) {
+            $c = imagecolorat(
+                $img,
+                max(0, min(imagesx($img) - 1, $x)),
+                max(0, min(imagesy($img) - 1, $y)),
+            );
+
+            $r[] = ($c >> 16) & 0xFF;
+            $g[] = ($c >> 8) & 0xFF;
+            $b[] = $c & 0xFF;
+        }
+
+        return array_map(function (array $channel) {
+            sort($channel);
+
+            return (int) $channel[intdiv(count($channel), 2)];
+        }, [$r, $g, $b]);
+    }
+
+    /**
+     * Which pixels belong to the stand, as a byte per pixel.
+     *
+     * A string rather than a nested array: at 2400 x 810 that is two million
+     * entries, and PHP arrays cost enough per element to exhaust a gigabyte.
+     *
+     * Two reference colours, not one. A hanger is not the backdrop, but neither
+     * is the garment — asking only "is this the backdrop?" masks the shoulders
+     * along with the hanger.
+     */
+    private function maskStand($img, int $w, int $rows, array $backdrop, array $garment): string
+    {
+        [$br, $bg, $bb] = $backdrop;
+        [$gr, $gg, $gb] = $garment;
+
+        $t    = self::DISTANCE ** 2;
+        $mask = str_repeat("\0", $w * $rows);
+
+        for ($y = 0; $y < $rows; $y++) {
+            for ($x = 0; $x < $w; $x++) {
+                $c = imagecolorat($img, $x, $y);
+                $r = ($c >> 16) & 0xFF;
+                $g = ($c >> 8) & 0xFF;
+                $b = $c & 0xFF;
+
+                $fromBackdrop = ($r - $br) ** 2 + ($g - $bg) ** 2 + ($b - $bb) ** 2;
+                $fromGarment  = ($r - $gr) ** 2 + ($g - $gg) ** 2 + ($b - $gb) ** 2;
+
+                if ($fromBackdrop > $t && $fromGarment > $t) {
+                    $mask[$y * $w + $x] = "\1";
+                }
+            }
+        }
+
+        return $this->grow($mask, $w, $rows);
+    }
+
+    private function grow(string $mask, int $w, int $rows): string
+    {
+        for ($pass = 0; $pass < self::GROW; $pass++) {
+            $next = $mask;
+
+            for ($y = 0; $y < $rows; $y++) {
+                for ($x = 0; $x < $w; $x++) {
+                    if ($mask[$y * $w + $x] !== "\1") {
+                        continue;
+                    }
+
+                    if ($x > 0)         $next[$y * $w + $x - 1] = "\1";
+                    if ($x < $w - 1)    $next[$y * $w + $x + 1] = "\1";
+                    if ($y > 0)         $next[($y - 1) * $w + $x] = "\1";
+                    if ($y < $rows - 1) $next[($y + 1) * $w + $x] = "\1";
+                }
+            }
+
+            $mask = $next;
+        }
+
+        return $mask;
+    }
+
+    /**
+     * Fill the masked pixels from the nearest known pixel on each of the four
+     * sides, weighted by inverse square distance.
+     *
+     * Four directions rather than two because a horizontal-only fill smears a
+     * gap that crosses the shoulder into a flat band — the vertical
+     * contributions carry the shoulder line and the backdrop's own gradient
+     * through the gap instead.
+     *
+     * @return array<int, true>  the pixels written, keyed by y * w + x
+     */
+    private function fill($img, string $mask, int $w, int $rows): array
+    {
+        $sumR = $sumG = $sumB = $weight = [];
+
+        $sweep = function (array $line) use ($img, $mask, $w, &$sumR, &$sumG, &$sumB, &$weight) {
+            $r = $g = $b = null;
+            $away = 0;
+
+            foreach ($line as [$x, $y]) {
+                $i = $y * $w + $x;
+
+                if ($mask[$i] !== "\1") {
+                    $c = imagecolorat($img, $x, $y);
+                    $r = ($c >> 16) & 0xFF;
+                    $g = ($c >> 8) & 0xFF;
+                    $b = $c & 0xFF;
+                    $away = 0;
+
+                    continue;
+                }
+
+                $away++;
+
+                if ($r === null) {
+                    continue;       // nothing known behind us yet on this line
+                }
+
+                $wt = 1 / ($away * $away);
+
+                $sumR[$i]   = ($sumR[$i] ?? 0) + $r * $wt;
+                $sumG[$i]   = ($sumG[$i] ?? 0) + $g * $wt;
+                $sumB[$i]   = ($sumB[$i] ?? 0) + $b * $wt;
+                $weight[$i] = ($weight[$i] ?? 0) + $wt;
+            }
+        };
+
+        for ($y = 0; $y < $rows; $y++) {
+            $line = [];
+            for ($x = 0; $x < $w; $x++) {
+                $line[] = [$x, $y];
+            }
+            $sweep($line);
+            $sweep(array_reverse($line));
+        }
+
+        for ($x = 0; $x < $w; $x++) {
+            $line = [];
+            for ($y = 0; $y < $rows; $y++) {
+                $line[] = [$x, $y];
+            }
+            $sweep($line);
+            $sweep(array_reverse($line));
+        }
+
+        $written = [];
+
+        foreach ($weight as $i => $total) {
+            if ($total <= 0) {
+                continue;
+            }
+
+            imagesetpixel($img, $i % $w, intdiv($i, $w), (
+                ((int) ($sumR[$i] / $total) << 16) |
+                ((int) ($sumG[$i] / $total) << 8) |
+                 (int) ($sumB[$i] / $total)
+            ));
+
+            $written[$i] = true;
+        }
+
+        return $written;
+    }
+
+    /**
+     * Even out the fill, writing only where the fill wrote.
+     *
+     * The sweeps leave faint vertical banding, because each column blends its
+     * own pair of distances. Blurring settles it, and confining the blur to the
+     * filled pixels is what makes it safe: the photograph is never a source of
+     * a write, only of a read.
+     */
+    private function smooth($img, array $filled, int $w, int $rows): void
+    {
+        for ($pass = 0; $pass < self::SMOOTH; $pass++) {
+            $before = [];
+
+            foreach ($filled as $i => $_) {
+                $before[$i] = imagecolorat($img, $i % $w, intdiv($i, $w));
+            }
+
+            foreach ($filled as $i => $_) {
+                $x = $i % $w;
+                $y = intdiv($i, $w);
+                $r = $g = $b = $n = 0;
+
+                for ($dy = -2; $dy <= 2; $dy++) {
+                    for ($dx = -2; $dx <= 2; $dx++) {
+                        $nx = $x + $dx;
+                        $ny = $y + $dy;
+
+                        if ($nx < 0 || $nx >= $w || $ny < 0 || $ny >= $rows) {
+                            continue;
+                        }
+
+                        $j = $ny * $w + $nx;
+                        $c = $before[$j] ?? imagecolorat($img, $nx, $ny);
+
+                        $r += ($c >> 16) & 0xFF;
+                        $g += ($c >> 8) & 0xFF;
+                        $b += $c & 0xFF;
+                        $n++;
+                    }
+                }
+
+                if ($n) {
+                    imagesetpixel($img, $x, $y, (intdiv($r, $n) << 16) | (intdiv($g, $n) << 8) | intdiv($b, $n));
+                }
+            }
+        }
     }
 }

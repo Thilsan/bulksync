@@ -28,21 +28,27 @@ class PhotoEditorSurgicalEraseTest extends TestCase
         $this->compositor = new StandEraseCompositor();
     }
 
-    /** A photo with a dark "stand" across the top and detail below it. */
+    /** A photo with a dark "stand" across the top and fine detail below it. */
     private function photo(int $w = 900, int $h = 1200): string
     {
-        $img = imagecreatetruecolor($w, $h);
-        imagefill($img, 0, 0, imagecolorallocate($img, 240, 241, 245));
+        $img = imagecreatefromstring($this->blank($w, $h));
 
-        // Fine detail in the lower two thirds — the thing that must survive.
+        /*
+         * A print on the chest, as a real garment carries one: fine detail over
+         * part of the garment rather than all of it. Covering most of it would
+         * outvote the garment's own colour when the service samples for it,
+         * which is a fixture problem rather than a real one — no product photo
+         * is three quarters logo.
+         */
         $ink = imagecolorallocate($img, 20, 20, 20);
-        for ($y = (int) ($h * 0.45); $y < $h; $y += 4) {
-            imageline($img, (int) ($w * 0.2), $y, (int) ($w * 0.8), $y, $ink);
+        for ($y = (int) ($h * 0.48); $y < (int) ($h * 0.62); $y += 3) {
+            imageline($img, (int) ($w * 0.30), $y, (int) ($w * 0.70), $y, $ink);
         }
 
-        // The stand: a dark bar in the top third.
-        imagefilledrectangle($img, (int) ($w * 0.35), (int) ($h * 0.10),
-                                   (int) ($w * 0.65), (int) ($h * 0.28), $ink);
+        // The stand: dark, in the top quarter, resembling neither backdrop nor
+        // garment — which is exactly how it is found.
+        imagefilledrectangle($img, (int) ($w * 0.35), (int) ($h * 0.08),
+                                   (int) ($w * 0.65), (int) ($h * 0.22), $ink);
 
         ob_start();
         imagejpeg($img, null, 96);
@@ -51,81 +57,42 @@ class PhotoEditorSurgicalEraseTest extends TestCase
         return (string) ob_get_clean();
     }
 
-    /**
-     * The whole photo as a generative erase would return it: the stand gone,
-     * and — as they do — the detail lower down redrawn differently.
-     *
-     * That second part is the point. The redrawn detail must be rejected, and
-     * the only thing rejecting it is the band.
-     */
-    private function erased(string $original): string
+    /** Backdrop and a pale garment below it, with nothing to erase. */
+    private function blank(int $w, int $h): string
     {
-        $img = imagecreatefromstring($original);
-        $w   = imagesx($img);
-        $h   = imagesy($img);
-        $bg  = imagecolorat($img, 5, 5);
-
-        // The stand: gone.
-        imagefilledrectangle($img, (int) ($w * 0.30), 0, (int) ($w * 0.70), (int) ($h * 0.32), $bg);
-
-        // The print: "redrawn" as a solid block, standing in for a reinvented
-        // monogram. If this ends up in the result, the band failed.
-        imagefilledrectangle($img, (int) ($w * 0.20), (int) ($h * 0.50),
-                                   (int) ($w * 0.80), (int) ($h * 0.70),
-                             imagecolorallocate($img, 200, 40, 40));
+        $img = imagecreatetruecolor($w, $h);
+        imagefill($img, 0, 0, imagecolorallocate($img, 239, 240, 244));
+        imagefilledrectangle($img, (int) ($w * 0.15), (int) ($h * 0.30), (int) ($w * 0.85), $h - 1,
+            imagecolorallocate($img, 241, 240, 236));
 
         ob_start();
         imagejpeg($img, null, 96);
         imagedestroy($img);
 
         return (string) ob_get_clean();
-    }
-
-    /**
-     * A redrawn print below the band is rejected.
-     *
-     * This is the failure that shipped: a band reaching 40% down swallowed a
-     * chest print at 28%, so the monogram was replaced by the model's version
-     * of it. The band exists to stop that, and nothing else does.
-     */
-    public function test_detail_below_the_band_is_rejected_however_much_it_changed(): void
-    {
-        $original = $this->photo();
-        $result   = $this->compositor->blend($original, $this->erased($original), 0.30);
-
-        $b = imagecreatefromstring($result);
-
-        // Where the fake redraw painted red, well below the band.
-        $mid = imagecolorat($b, (int) (900 * 0.5), (int) (1200 * 0.60));
-        $red = ($mid >> 16) & 0xFF;
-        $grn = ($mid >> 8) & 0xFF;
-
-        $this->assertLessThan(60, $red - $grn,
-            'the redrawn print was composited in — the band did not hold');
     }
 
     /**
      * The property the whole approach exists for.
      *
-     * Outside the erased area the result must be the original photograph, not
-     * an approximation of it. A few levels of JPEG re-encode noise is the only
-     * difference allowed — anything more means the garment was touched, and a
-     * garment that can be touched can be reshaped and its print reinvented.
+     * Below the band the result must be the photograph, not an approximation of
+     * it. A few levels of JPEG re-encode noise is all that is allowed — a
+     * garment that can be touched can be reshaped and have its print
+     * reinvented, which is what the generative route did.
      */
-    public function test_the_photograph_survives_outside_the_erased_area(): void
+    public function test_the_photograph_below_the_band_is_untouched(): void
     {
         $original = $this->photo();
-        $result   = $this->compositor->blend($original, $this->erased($original), 0.30);
+        $result   = $this->compositor->erase($original, 0.27);
 
         $a = imagecreatefromstring($original);
         $b = imagecreatefromstring($result);
 
         $this->assertSame([imagesx($a), imagesy($a)], [imagesx($b), imagesy($b)],
-            'the composite changed the size of the photograph');
+            'the erase changed the size of the photograph');
 
-        // Sampled well below the strip, where the fine detail lives.
         $worst = 0;
-        for ($y = (int) (imagesy($a) * 0.55); $y < imagesy($a); $y += 3) {
+        for ($y = (int) (imagesy($a) * 0.30); $y < imagesy($a); $y += 3) {
             for ($x = 0; $x < imagesx($a); $x += 3) {
                 $p = imagecolorat($a, $x, $y);
                 $q = imagecolorat($b, $x, $y);
@@ -138,55 +105,41 @@ class PhotoEditorSurgicalEraseTest extends TestCase
         }
 
         $this->assertLessThanOrEqual(12, $worst,
-            "detail below the strip was altered by up to {$worst} levels");
+            "detail below the band moved by up to {$worst} levels");
     }
 
     /** And the stand does actually go. */
-    public function test_the_stand_is_gone_where_the_erase_changed_it(): void
+    public function test_the_stand_is_removed(): void
     {
-        $original = $this->photo();
-        $result   = $this->compositor->blend($original, $this->erased($original), 0.30);
+        $result = $this->compositor->erase($this->photo(), 0.27);
+        $b      = imagecreatefromstring($result);
 
-        $b = imagecreatefromstring($result);
+        // Centre of where the dark bar was.
+        $c = imagecolorat($b, (int) (900 * 0.5), (int) (1200 * 0.15));
+        $brightness = max(($c >> 16) & 0xFF, ($c >> 8) & 0xFF, $c & 0xFF);
 
-        // Centre of where the dark bar was: should now be backdrop, not ink.
-        $mid = imagecolorat($b, (int) (900 * 0.5), (int) (1200 * 0.19));
-        $brightness = max(($mid >> 16) & 0xFF, ($mid >> 8) & 0xFF, $mid & 0xFF);
-
-        $this->assertGreaterThan(180, $brightness,
-            'the stand is still dark, so the erase was not composited in');
+        $this->assertGreaterThan(200, $brightness,
+            'the stand is still dark, so it was not erased');
     }
 
     /**
-     * A reframed erase is refused rather than stretched into place.
+     * A photo with nothing to erase comes back byte-for-byte.
      *
-     * Stretching one produces exactly what a bad composite looks like: a
-     * misaligned collar over the real one, ghost shoulders, a doubled hanger.
-     * There is no recovering from it, and the photograph with its stand still
-     * in shot is worth more than a garbled one.
+     * Re-encoding it would spend a JPEG generation to achieve nothing, and a
+     * flat-lay or a bag on a table has no stand in the first place.
      */
-    public function test_a_reframed_erase_is_refused(): void
+    public function test_a_photo_with_no_stand_is_returned_untouched(): void
     {
-        $original = $this->photo(900, 1200);           // 0.75
+        $flat = $this->blank(600, 800);
 
-        $square = imagecreatetruecolor(1000, 1000);    // 1.00 — recomposed, not erased
-        imagefill($square, 0, 0, imagecolorallocate($square, 250, 250, 250));
-        ob_start();
-        imagejpeg($square, null, 90);
-        imagedestroy($square);
-        $reframed = (string) ob_get_clean();
-
-        $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessageMatches('/reframed/');
-
-        $this->compositor->blend($original, $reframed, 0.30);
+        $this->assertSame($flat, $this->compositor->erase($flat, 0.27));
     }
 
-    /** An unreadable strip must not take the photograph down with it. */
-    public function test_a_broken_erase_is_refused_rather_than_guessed_at(): void
+    /** An unreadable image is refused rather than guessed at. */
+    public function test_an_unreadable_image_is_refused(): void
     {
         $this->expectException(\RuntimeException::class);
 
-        $this->compositor->blend($this->photo(), 'not an image at all', 0.30);
+        $this->compositor->erase('not an image at all', 0.27);
     }
 }

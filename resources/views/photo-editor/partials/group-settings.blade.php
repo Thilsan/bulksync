@@ -89,7 +89,7 @@
     <div class="grid gap-3 sm:grid-cols-3" x-data="{ treatment: @js($treatment) }">
         @foreach ([
             'none'     => ['Keep the photo', 'Real pixels, exactly as shot. Anything holding the garment up stays in shot.'],
-            'surgical' => ['Erase the stand only', 'Cuts the hanger out of a strip of the photo and leaves the rest of your photograph alone. Prints and logos survive.'],
+            'surgical' => ['Erase the stand only', 'Finds the hanger and fills it in. No AI, no extra credit, and every other pixel is your photograph — prints and logos cannot be altered.'],
             'ghost'    => ['Redraw the garment', 'Redraws the whole garment to lose the stand. Reinvents prints and logos — never use on a patterned item.'],
         ] as $mode => [$label, $help])
             <label class="flex cursor-pointer items-start gap-2 rounded-lg border border-gray-200 p-3 hover:border-gray-300 has-[:checked]:border-brand-500 has-[:checked]:bg-brand-50/60">
@@ -121,9 +121,8 @@
                 </span>
             </div>
             <p class="mt-1 text-xs text-amber-700">
-                Set this <strong class="font-semibold">above any print or logo</strong>. The whole photo is sent to be
-                erased, but only this top band of the answer is kept — so a band reaching past a chest print lets the
-                print be redrawn, which is the thing this treatment exists to avoid. Too tight leaves a hook in shot.
+                Only this top band is searched for a hanger. Keep it <strong class="font-semibold">above any print
+                or logo</strong>, or a dark print may be read as part of the stand. Too tight leaves a hook in shot.
             </p>
         </div>
     </div>

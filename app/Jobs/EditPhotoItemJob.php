@@ -158,33 +158,28 @@ class EditPhotoItemJob implements ShouldQueue
             if (!empty($edits['surgical_erase']) && !$onModel) {
                 try {
                     /*
-                     * The whole photograph goes, not a crop of it. A crop was
-                     * tried and the model drew a small complete garment to fill
-                     * it — it cannot tell a crop from a photograph.
+                     * No Photoroom call at all. Its erase regenerates the whole
+                     * picture and moves the garment inside the frame, so its
+                     * output cannot be pasted back onto the photograph — three
+                     * attempts at doing so are described in the compositor.
+                     * The hanger is found by colour and filled from its
+                     * surroundings instead: no credit, and the garment cannot
+                     * move because nothing outside the hanger is written to.
                      */
-                    $erased = $photoroom->removeMannequin(
+                    $raw = $compositor->erase(
                         $raw,
-                        $item->filename,
-                        filled($edits['edit_seed'] ?? null) ? (int) $edits['edit_seed'] : null,
-                    );
-
-                    $raw = $compositor->blend(
-                        $raw,
-                        $erased,
                         (float) ($edits['erase_zone'] ?? StandEraseCompositor::DEFAULT_BAND),
                     );
 
                     $appliedMode = 'stand_erased';
-
-                    unset($erased);
                 } catch (\Throwable $e) {
                     /*
-                     * The photograph is still intact and still worth having, so
-                     * the run continues with the stand in shot rather than
-                     * failing. Logged loudly: a stand nobody removed is easy to
-                     * miss on a review screen of three hundred.
+                     * The photograph is intact and still worth having, so the
+                     * run continues with the stand in shot. Logged loudly: a
+                     * stand nobody removed is easy to miss on a review screen
+                     * of three hundred.
                      */
-                    Log::error("EditPhotoItemJob item {$this->itemId} surgical erase failed: " . $e->getMessage());
+                    Log::error("EditPhotoItemJob item {$this->itemId} stand erase failed: " . $e->getMessage());
                 }
             }
 
