@@ -123,6 +123,32 @@ class PhotoEditorSurgicalEraseTest extends TestCase
     }
 
     /**
+     * The filled area must end up exactly the backdrop, not merely close to it.
+     *
+     * This is where the erase silently failed. The fill blends from its
+     * surroundings, so a hanger against the backdrop came back 14 levels away
+     * from it — looking right, and then read as part of the subject by
+     * Photoroom's background removal, which kept a pale hanger-shaped
+     * silhouette in the finished image.
+     *
+     * Close is not good enough. It has to be equal.
+     */
+    public function test_the_filled_area_becomes_exactly_the_backdrop(): void
+    {
+        $original = $this->photo();
+        $result   = $this->compositor->erase($original, 0.27);
+
+        $b        = imagecreatefromstring($result);
+        $backdrop = imagecolorat($b, 5, 5);
+
+        // Centre of where the stand was.
+        $filled = imagecolorat($b, (int) (900 * 0.5), (int) (1200 * 0.15));
+
+        $this->assertSame($backdrop, $filled,
+            'the filled area is near the backdrop but not equal to it, so the cutout will keep it');
+    }
+
+    /**
      * A photo with nothing to erase comes back byte-for-byte.
      *
      * Re-encoding it would spend a JPEG generation to achieve nothing, and a

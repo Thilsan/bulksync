@@ -53,6 +53,13 @@ class StandEraseCompositor
     private const SMOOTH = 6;
 
     /**
+     * How close to the backdrop a filled pixel has to be before it is snapped
+     * onto it exactly. Generous enough to catch the fill's drift, tight enough
+     * to leave fabric colour where the stand crossed the garment.
+     */
+    private const SETTLE = 26;
+
+    /**
      * Erase whatever is holding the garment up, in the top $band of the photo.
      *
      * Returns the original bytes untouched when nothing stand-like is found —
@@ -100,12 +107,49 @@ class StandEraseCompositor
 
         $filled = $this->fill($img, $mask, $w, $rows);
         $this->smooth($img, $filled, $w, $rows);
+        $this->settleToBackdrop($img, $filled, $w, $backdrop);
 
         ob_start();
         imagejpeg($img, null, 96);
         imagedestroy($img);
 
         return (string) ob_get_clean();
+    }
+
+    /**
+     * Snap filled pixels that are nearly the backdrop onto it exactly.
+     *
+     * Without this the erase looks right and then fails at the next step. The
+     * fill blends from its surroundings, so where a hanger sat against the
+     * backdrop it comes back close to that colour but not equal to it — 14
+     * levels away, on the shot this was built against. Photoroom's background
+     * removal then reads that patch as part of the subject and keeps it, and a
+     * pale hanger-shaped silhouette survives into the finished image.
+     *
+     * Only pixels already close to the backdrop are moved, and only ones the
+     * fill wrote. Where the hanger crossed the collar the fill carries fabric
+     * colour, which is nowhere near the backdrop and is left alone.
+     */
+    private function settleToBackdrop($img, array $filled, int $w, array $backdrop): void
+    {
+        [$br, $bg, $bb] = $backdrop;
+
+        $exact = ($br << 16) | ($bg << 8) | $bb;
+        $near  = self::SETTLE ** 2;
+
+        foreach ($filled as $i => $_) {
+            $x = $i % $w;
+            $y = intdiv($i, $w);
+            $c = imagecolorat($img, $x, $y);
+
+            $d = ((($c >> 16) & 0xFF) - $br) ** 2
+               + ((($c >> 8) & 0xFF) - $bg) ** 2
+               + (($c & 0xFF) - $bb) ** 2;
+
+            if ($d <= $near) {
+                imagesetpixel($img, $x, $y, $exact);
+            }
+        }
     }
 
     /** The average colour at a handful of points, as [r, g, b]. */
