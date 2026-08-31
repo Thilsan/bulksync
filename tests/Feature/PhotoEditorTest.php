@@ -1399,10 +1399,14 @@ class PhotoEditorTest extends TestCase
         $item = $this->runCleanupItem([], ['view_type' => 'front', 'mannequin_visible' => true]);
 
         $this->assertSame('edited', $item->status, $item->error_message ?? '');
-        $this->assertSame('mannequin_removed', $item->apparel_mode_applied);
+        $this->assertSame('ghost_mannequin', $item->apparel_mode_applied);
 
-        // Two requests: the generative erase, then the real-pixel cutout.
-        \Illuminate\Support\Facades\Http::assertSentCount(2);
+        /*
+         * One request, not two. The generic erase needed its own generative
+         * pass before the cutout; Ghost Mannequin does both in one — so this
+         * route is also a credit cheaper per image than the one it replaced.
+         */
+        \Illuminate\Support\Facades\Http::assertSentCount(1);
     }
 
     /** No mannequin in frame means no erase pass and no wasted credit. */
@@ -1444,13 +1448,43 @@ class PhotoEditorTest extends TestCase
         \Illuminate\Support\Facades\Http::assertSentCount(1);
     }
 
-    /** Ghost Mannequin keeps its downgrade — that is the colour-fidelity guard. */
-    public function test_ghost_mannequin_is_still_downgraded_to_a_cutout(): void
+    /**
+     * Ghost Mannequin runs, and is told what to do and what size to be.
+     *
+     * It used to be switched off and replaced with a generic editWithAI pass,
+     * on the grounds that generative reconstruction could not be trusted with a
+     * garment's colour or orientation. The guard was reasonable and aimed at
+     * the wrong feature: measured side by side on one shirt, editWithAI
+     * reinvented an Aigner horseshoe monogram as rings, at 4% of the original's
+     * print detail, where Ghost Mannequin reproduced the horseshoes.
+     *
+     * The prompt and the size are asserted alongside it because neither is
+     * optional. Without the prompt the model is free to reinterpret the pose;
+     * without a size, the resolution tier is Photoroom's to choose, and its
+     * lowest tier is the one that destroys a print.
+     */
+    public function test_ghost_mannequin_runs_and_is_told_what_to_do(): void
     {
         $item = $this->runCleanupItem([], ['view_type' => 'front', 'mannequin_visible' => true]);
 
-        $this->assertNotSame('on_model', $item->apparel_mode_applied);
-        $this->assertSame('mannequin_removed', $item->apparel_mode_applied);
+        $this->assertSame('ghost_mannequin', $item->apparel_mode_applied);
+
+        $sent = [];
+        \Illuminate\Support\Facades\Http::recorded(function ($request) use (&$sent) {
+            foreach ($request->data() as $part) {
+                $sent[$part['name'] ?? ''] = $part['contents'] ?? '';
+            }
+
+            return true;
+        });
+
+        $this->assertSame('ai.auto', $sent['ghostMannequin.mode'] ?? null,
+            'ghost mannequin was chosen and Photoroom was never told');
+        $this->assertSame('SQUARE_HD', $sent['ghostMannequin.size'] ?? null,
+            'no size named, so the resolution tier is left to chance');
+        $this->assertStringContainsString('Remove only the hanger',
+            $sent['ghostMannequin.prompt'] ?? '',
+            'the garment was left to the model to reinterpret');
     }
 
 

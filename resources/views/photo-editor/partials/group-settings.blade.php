@@ -90,14 +90,14 @@
         @foreach ([
             'none'     => ['Keep the photo', 'Real pixels, exactly as shot. Anything holding the garment up stays in shot.'],
             'surgical' => ['Erase the stand only', 'Finds the hanger and fills it in. No AI, no extra credit, and every other pixel is your photograph — prints and logos cannot be altered.'],
-            'ghost'    => ['Redraw the garment', 'Redraws the whole garment to lose the stand. Reinvents prints and logos — never use on a patterned item.'],
+            'ghost'    => ['Remove the stand (Ghost Mannequin)', 'Photoroom\'s apparel model. Removes a hanger or dress form and keeps the print. Costs one credit, same as any edit — check the first few results.'],
         ] as $mode => [$label, $help])
             <label class="flex cursor-pointer items-start gap-2 rounded-lg border border-gray-200 p-3 hover:border-gray-300 has-[:checked]:border-brand-500 has-[:checked]:bg-brand-50/60">
                 <input type="radio" x-model="treatment" value="{{ $mode }}" @checked($treatment === $mode)
                        class="mt-0.5 h-3.5 w-3.5 border-gray-300 text-brand-600 focus:ring-brand-500">
                 <span>
                     <span class="block text-sm font-medium text-gray-800">{{ $label }}</span>
-                    <span class="block text-xs {{ $mode === 'ghost' ? 'text-amber-700' : 'text-gray-500' }}">{{ $help }}</span>
+                    <span class="block text-xs text-gray-500">{{ $help }}</span>
                 </span>
             </label>
         @endforeach

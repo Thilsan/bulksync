@@ -189,53 +189,91 @@ class EditPhotoItemJob implements ShouldQueue
                     // separate erase pass would only be a wasted request.
                     $appliedMode = 'on_model';
                 } else {
-                    $itemEdits['ghost_mannequin']   = false;
-                    $itemEdits['flat_lay']          = false;
-                    $itemEdits['virtual_model']     = false;
-                    $itemEdits['remove_background'] = true;
+                    /*
+                     * Three questions decide the route, so all three are
+                     * settled before any of them is acted on: is a stand
+                     * actually in shot, did anyone name the product, and was a
+                     * redraw asked for.
+                     */
+                    $standVisible = $classification && !empty($classification['mannequin_visible']);
+                    $named        = filled($edits['segmentation_prompt'] ?? null);
+                    $wantsRedraw  = !empty($edits['ghost_mannequin']);
 
-                    // A visible mannequin is erased via a generative pass
-                    // regardless of which side of the garment faces the camera
-                    // — cutting the background alone would otherwise leave the
-                    // stand in frame. Text-guided segmentation can do this
-                    // inside the single cutout request instead; when the
-                    // session supplies a segmentation prompt, that is used and
-                    // this extra request is skipped.
-                    $needsErase = $classification && !empty($classification['mannequin_visible']);
+                    if ($wantsRedraw && $standVisible && !$named) {
+                        /*
+                         * Photoroom's own Ghost Mannequin. This used to be
+                         * switched off here and replaced with a generic
+                         * editWithAI pass, on the grounds that generative
+                         * reconstruction could not be trusted with a garment's
+                         * colour or orientation — a fair call, made against the
+                         * wrong feature.
+                         *
+                         * Side by side on one shirt: editWithAI reinvented an
+                         * Aigner horseshoe monogram as rings, at 4% of the
+                         * original's print detail. Ghost Mannequin reproduced
+                         * the horseshoes. One is apparel-aware; the other is a
+                         * general image editor being asked to understand a
+                         * garment.
+                         *
+                         * The size is named rather than left open, because
+                         * Photoroom's app exposes quality tiers that turn out to
+                         * be resolutions — 1024, 2048, 4096 — and 1024 is the
+                         * tier that destroys a print, at 7% of the original's
+                         * detail.
+                         */
+                        $itemEdits['apparel_size']   ??= 'SQUARE_HD';
+                        $itemEdits['apparel_prompt']   = filled($edits['apparel_prompt'] ?? null)
+                            ? $edits['apparel_prompt']
+                            : PhotoroomService::GHOST_MANNEQUIN_PROMPT;
+                        $itemEdits['remove_background'] = true;
 
-                    if ($needsErase && empty($edits['segmentation_prompt'])) {
-                        try {
-                            $before = $this->describeSize($raw);
+                        $appliedMode = 'ghost_mannequin';
+                    } else {
+                        /*
+                         * Everything else is a plain cutout. Nothing to erase,
+                         * or no redraw was asked for, or the product was named —
+                         * and naming it is the better route anyway: one request
+                         * rather than two, cutting the stand out of the real
+                         * photograph rather than redrawing round it.
+                         */
+                        $itemEdits['ghost_mannequin']   = false;
+                        $itemEdits['flat_lay']          = false;
+                        $itemEdits['virtual_model']     = false;
+                        $itemEdits['remove_background'] = true;
 
-                            $raw         = $photoroom->removeMannequin(
-                                $raw,
-                                $item->filename,
-                                filled($edits['edit_seed'] ?? null) ? (int) $edits['edit_seed'] : null,
-                            );
-                            $appliedMode = 'mannequin_removed';
-
+                        if ($standVisible && $named) {
+                            $appliedMode = 'segmented';
+                        } elseif ($standVisible) {
                             /*
-                             * The generative pass hands back its own canvas, and
-                             * if that is smaller than what went in, everything
-                             * downstream is working from fewer pixels — the
-                             * finished 2000 square is then an enlargement of it.
-                             * Worth knowing, because a soft result looks the
-                             * same whether it was redrawn softly or upscaled.
+                             * A stand is in shot, nobody named the product, and
+                             * no redraw was asked for. The generic erase is all
+                             * that is left — and it is the pass that reinvents
+                             * prints, so it stays the last resort it always was.
                              */
-                            $after = $this->describeSize($raw);
+                            try {
+                                $before = $this->describeSize($raw);
 
-                            if ($before !== $after) {
-                                Log::warning('Photoroom erase changed the resolution', [
-                                    'item' => $this->itemId,
-                                    'in'   => $before,
-                                    'out'  => $after,
-                                ]);
+                                $raw = $photoroom->removeMannequin(
+                                    $raw,
+                                    $item->filename,
+                                    filled($edits['edit_seed'] ?? null) ? (int) $edits['edit_seed'] : null,
+                                );
+
+                                $appliedMode = 'mannequin_removed';
+
+                                $after = $this->describeSize($raw);
+
+                                if ($before !== $after) {
+                                    Log::warning('Photoroom erase changed the resolution', [
+                                        'item' => $this->itemId,
+                                        'in'   => $before,
+                                        'out'  => $after,
+                                    ]);
+                                }
+                            } catch (\Throwable $e) {
+                                Log::warning("EditPhotoItemJob item {$this->itemId} mannequin removal failed: " . $e->getMessage());
                             }
-                        } catch (\Throwable $e) {
-                            Log::warning("EditPhotoItemJob item {$this->itemId} mannequin removal failed: " . $e->getMessage());
                         }
-                    } elseif ($needsErase) {
-                        $appliedMode = 'segmented';
                     }
                 }
             }
@@ -259,6 +297,19 @@ class EditPhotoItemJob implements ShouldQueue
 
             $edited = $photoroom->edit($input, $itemEdits, $item->filename);
             unset($input);
+
+            /*
+             * Which tier Photoroom actually gave us. Its app calls 1024, 2048
+             * and 4096 standard, advanced and premium; the API documents only
+             * "HD" and offers no quality parameter, so the only way to know is
+             * to measure what arrives.
+             */
+            if ($appliedMode === 'ghost_mannequin') {
+                Log::info('Ghost mannequin resolution', [
+                    'item' => $this->itemId,
+                    'size' => $this->describeSize($edited),
+                ]);
+            }
 
             $format = $photoroom->outputFormat($itemEdits);
             $isJpeg = $format === 'jpg';

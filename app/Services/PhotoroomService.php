@@ -409,6 +409,21 @@ class PhotoroomService
      * change is named once; everything else is a list of things that must stay
      * as they were. Verbose on purpose — brevity here is freedom for the model.
      */
+    /**
+     * What Ghost Mannequin is told to do.
+     *
+     * Written from the wording that worked in Photoroom's own app, widened to
+     * cover a dress form as well as a hanger. Almost entirely negative on
+     * purpose: this is a generative model, and every freedom the wording leaves
+     * it is one it may take — an earlier instruction that asked for the garment
+     * "floating in its place" got shirts back tilted.
+     */
+    public const GHOST_MANNEQUIN_PROMPT = 'Remove only the hanger, hook, clothes rail, garment rack, mannequin, '
+        . 'dress form, headless body or stand that this garment is displayed on. '
+        . 'Do not change the image or the direction of the image. Keep the garment exactly as it is: the same '
+        . 'position, the same angle, the same size, the same shape, the same colours, and the same print, logo '
+        . 'and lettering, unchanged and unredrawn. Just remove the stand.';
+
     private const MANNEQUIN_REMOVAL_PROMPT = 'Remove only the hanger, hook, clothes rail, garment rack, mannequin, '
         . 'dress form, headless body or stand that this garment is displayed on. '
         . 'Change nothing else whatsoever. '
