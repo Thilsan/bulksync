@@ -5,31 +5,50 @@ namespace App\Services;
 use Illuminate\Support\Facades\Log;
 
 /**
- * Erase the hanger without redrawing the garment.
+ * Erase the stand without redrawing the garment.
  *
  * Photoroom's only object removal regenerates the whole picture, which on a
  * printed garment is destructive rather than merely soft: an Aigner monogram
- * came back as rings and dots, measured at 4% of the original's print detail.
- * The hanger it was asked to remove was 1.25% of the frame.
+ * came back as rings and dots, measured at 4% of the original's print detail,
+ * to remove a hanger occupying 1.25% of the frame.
  *
- * So the generative pass is still used — nothing else can invent what was
- * behind a hanger — but only its answer to that 1.25% is kept:
+ * So the generative pass still runs, on the whole photograph, and its answer is
+ * accepted in one narrow band only:
  *
- *   1. Cut the strip of the photo the stand occupies.
- *   2. Send only that strip to be erased.
- *   3. Keep the erased pixels only where they actually differ from the
- *      original, feathered at the edges.
+ *   1. The full photo is sent to be erased — not a crop.
+ *   2. Its result is accepted only inside the top band the stand occupies.
+ *   3. Within that band, only where it actually differs from the original.
  *
- * Everywhere the strip came back unchanged — the collar, the shoulders, any
- * print inside the strip — the original pixels are kept. That is also what
- * removes the seam: the join runs through pixels that did not change, so there
- * is nothing to join. And it makes over-cutting safe, which matters because
- * guessing the strip too small would leave part of a hanger behind.
+ * Both restrictions were learned the hard way and neither is optional.
+ *
+ * Sending a crop failed: the model cannot tell a crop from a photograph, saw a
+ * partial garment and drew a small complete one to fill the frame, and a ghost
+ * t-shirt was composited into the shoulders. It needs the whole picture to know
+ * what it is looking at.
+ *
+ * A generous band failed too. Anything inside the band that the model changes
+ * is accepted, and it changes prints — so a band reaching 40% down swallowed a
+ * chest print sitting at 28%. The band must stop above the garment's detail,
+ * which makes it a real decision rather than a safe over-estimate.
+ *
+ * What the difference test buys is the seam: the join runs through pixels that
+ * did not change, so there is nothing to join.
  */
 class StandEraseCompositor
 {
     /** Below this, two pixels are the same pixel with compression noise on top. */
     private const DEFAULT_TOLERANCE = 22;
+
+    /**
+     * How far down the photo changes are accepted, when nobody says otherwise.
+     *
+     * Tight on purpose. A hanger's dark body ended at 25% on the shot this was
+     * built against and the chest print began at 28%, so there is roughly three
+     * percent of clearance between "removes the hanger" and "reinvents the
+     * logo". The operator can move it; the default errs towards keeping the
+     * garment rather than towards catching every last pixel of hook.
+     */
+    public const DEFAULT_BAND = 0.27;
 
     /**
      * The mask is built small and then enlarged. It is a soft, blurred shape,
@@ -43,45 +62,16 @@ class StandEraseCompositor
     private const FEATHER = 0.012;
 
     /**
-     * The top strip of a photo, as JPEG bytes, plus its height.
+     * Put the erased version back, in the top band only, where it differs.
      *
-     * A stand hangs from above, so the strip is measured from the top. Nothing
-     * detects where the hanger ends: a wrong guess that is too generous costs
-     * nothing, and one that is too tight leaves a hook in shot.
-     *
-     * @return array{bytes: string, height: int, width: int}
-     */
-    public function topStrip(string $imageContent, float $fraction): array
-    {
-        $src = $this->decode($imageContent);
-
-        $width  = imagesx($src);
-        $height = imagesy($src);
-        $strip  = max(1, (int) round($height * max(0.05, min(0.9, $fraction))));
-
-        $out = imagecreatetruecolor($width, $strip);
-        imagecopy($out, $src, 0, 0, 0, 0, $width, $strip);
-        imagedestroy($src);
-
-        ob_start();
-        imagejpeg($out, null, 96);
-        $bytes = (string) ob_get_clean();
-        imagedestroy($out);
-
-        return ['bytes' => $bytes, 'height' => $strip, 'width' => $width];
-    }
-
-    /**
-     * Put the erased strip back, keeping the original wherever it agrees.
-     *
-     * @param  string  $original      the whole photo, untouched
-     * @param  string  $erasedStrip   the same strip after erasing, any scale
-     * @param  int     $stripHeight   the strip's height in the original
+     * @param  string  $original  the whole photograph, untouched
+     * @param  string  $erased    the whole photograph after erasing, any size
+     * @param  float   $band      how far down to accept changes, 0–1
      */
     public function blend(
         string $original,
-        string $erasedStrip,
-        int $stripHeight,
+        string $erased,
+        float $band,
         ?int $tolerance = null,
     ): string {
         $tolerance = $tolerance ?? self::DEFAULT_TOLERANCE;
@@ -89,18 +79,50 @@ class StandEraseCompositor
         $full = $this->decode($original);
         $w    = imagesx($full);
         $h    = imagesy($full);
-        $strip = max(1, min($stripHeight, $h));
+        $strip = max(1, (int) round($h * max(0.05, min(0.9, $band))));
 
-        // The erase may come back at a different size; it has to line up with
-        // the strip it replaces before anything is compared.
-        $erased = $this->decode($erasedStrip);
+        /*
+         * The erase comes back at its own size — Photoroom returned 2333x3000
+         * for a 2400x3000 input on the shot this was built against — so it is
+         * stretched back onto the original's grid before anything is compared.
+         * A few pixels of misalignment only widens the changed region slightly,
+         * and the band already confines that to above the garment's detail.
+         */
+        $erasedImg = $this->decode($erased);
 
-        if (imagesx($erased) !== $w || imagesy($erased) !== $strip) {
-            $scaled = imagecreatetruecolor($w, $strip);
-            imagecopyresampled($scaled, $erased, 0, 0, 0, 0, $w, $strip, imagesx($erased), imagesy($erased));
-            imagedestroy($erased);
-            $erased = $scaled;
+        /*
+         * The erase must come back framed as it went in. A few percent of drift
+         * is normal — 2400x3000 came back 2333x3000 — and stretching that onto
+         * the original's grid costs nothing. A larger difference means the
+         * picture was recomposed rather than erased, and stretching it would
+         * paste a misaligned collar over the real one: ghost shoulders, a
+         * doubled hanger, a floating label.
+         *
+         * There is no way to recover from that, so it is refused. The caller
+         * keeps the photograph with the stand still in it, which is worth more
+         * than a garbled one.
+         */
+        $wanted = $w / $h;
+        $got    = imagesx($erasedImg) / max(1, imagesy($erasedImg));
+
+        if (abs($got - $wanted) / $wanted > 0.06) {
+            imagedestroy($full);
+            imagedestroy($erasedImg);
+
+            throw new \RuntimeException(sprintf(
+                'The erase came back reframed (%s vs %s), so it cannot be aligned with the original.',
+                round($got, 3), round($wanted, 3),
+            ));
         }
+
+        if (imagesx($erasedImg) !== $w || imagesy($erasedImg) !== $h) {
+            $scaled = imagecreatetruecolor($w, $h);
+            imagecopyresampled($scaled, $erasedImg, 0, 0, 0, 0, $w, $h, imagesx($erasedImg), imagesy($erasedImg));
+            imagedestroy($erasedImg);
+            $erasedImg = $scaled;
+        }
+
+        $erased = $erasedImg;
 
         $mask = $this->changeMask($full, $erased, $w, $strip, $tolerance);
 

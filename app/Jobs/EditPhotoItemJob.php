@@ -157,18 +157,26 @@ class EditPhotoItemJob implements ShouldQueue
              */
             if (!empty($edits['surgical_erase']) && !$onModel) {
                 try {
-                    $strip = $compositor->topStrip($raw, (float) ($edits['erase_zone'] ?? 0.40));
-
+                    /*
+                     * The whole photograph goes, not a crop of it. A crop was
+                     * tried and the model drew a small complete garment to fill
+                     * it — it cannot tell a crop from a photograph.
+                     */
                     $erased = $photoroom->removeMannequin(
-                        $strip['bytes'],
+                        $raw,
                         $item->filename,
                         filled($edits['edit_seed'] ?? null) ? (int) $edits['edit_seed'] : null,
                     );
 
-                    $raw         = $compositor->blend($raw, $erased, $strip['height']);
+                    $raw = $compositor->blend(
+                        $raw,
+                        $erased,
+                        (float) ($edits['erase_zone'] ?? StandEraseCompositor::DEFAULT_BAND),
+                    );
+
                     $appliedMode = 'stand_erased';
 
-                    unset($erased, $strip);
+                    unset($erased);
                 } catch (\Throwable $e) {
                     /*
                      * The photograph is still intact and still worth having, so

@@ -51,12 +51,28 @@ class PhotoEditorSurgicalEraseTest extends TestCase
         return (string) ob_get_clean();
     }
 
-    /** The same photo with the stand painted out, as an erase would return it. */
-    private function erased(string $strip): string
+    /**
+     * The whole photo as a generative erase would return it: the stand gone,
+     * and — as they do — the detail lower down redrawn differently.
+     *
+     * That second part is the point. The redrawn detail must be rejected, and
+     * the only thing rejecting it is the band.
+     */
+    private function erased(string $original): string
     {
-        $img = imagecreatefromstring($strip);
-        imagefilledrectangle($img, 0, 0, imagesx($img) - 1, (int) (imagesy($img) * 0.9),
-            imagecolorat($img, 5, 5));
+        $img = imagecreatefromstring($original);
+        $w   = imagesx($img);
+        $h   = imagesy($img);
+        $bg  = imagecolorat($img, 5, 5);
+
+        // The stand: gone.
+        imagefilledrectangle($img, (int) ($w * 0.30), 0, (int) ($w * 0.70), (int) ($h * 0.32), $bg);
+
+        // The print: "redrawn" as a solid block, standing in for a reinvented
+        // monogram. If this ends up in the result, the band failed.
+        imagefilledrectangle($img, (int) ($w * 0.20), (int) ($h * 0.50),
+                                   (int) ($w * 0.80), (int) ($h * 0.70),
+                             imagecolorallocate($img, 200, 40, 40));
 
         ob_start();
         imagejpeg($img, null, 96);
@@ -65,15 +81,27 @@ class PhotoEditorSurgicalEraseTest extends TestCase
         return (string) ob_get_clean();
     }
 
-    public function test_the_strip_sent_for_erasing_is_only_the_top_of_the_photo(): void
+    /**
+     * A redrawn print below the band is rejected.
+     *
+     * This is the failure that shipped: a band reaching 40% down swallowed a
+     * chest print at 28%, so the monogram was replaced by the model's version
+     * of it. The band exists to stop that, and nothing else does.
+     */
+    public function test_detail_below_the_band_is_rejected_however_much_it_changed(): void
     {
-        $strip = $this->compositor->topStrip($this->photo(), 0.40);
+        $original = $this->photo();
+        $result   = $this->compositor->blend($original, $this->erased($original), 0.30);
 
-        $this->assertSame(900, $strip['width']);
-        $this->assertSame(480, $strip['height'], '40% of 1200 is 480');
+        $b = imagecreatefromstring($result);
 
-        [$w, $h] = getimagesizefromstring($strip['bytes']);
-        $this->assertSame([900, 480], [$w, $h]);
+        // Where the fake redraw painted red, well below the band.
+        $mid = imagecolorat($b, (int) (900 * 0.5), (int) (1200 * 0.60));
+        $red = ($mid >> 16) & 0xFF;
+        $grn = ($mid >> 8) & 0xFF;
+
+        $this->assertLessThan(60, $red - $grn,
+            'the redrawn print was composited in — the band did not hold');
     }
 
     /**
@@ -87,8 +115,7 @@ class PhotoEditorSurgicalEraseTest extends TestCase
     public function test_the_photograph_survives_outside_the_erased_area(): void
     {
         $original = $this->photo();
-        $strip    = $this->compositor->topStrip($original, 0.40);
-        $result   = $this->compositor->blend($original, $this->erased($strip['bytes']), $strip['height']);
+        $result   = $this->compositor->blend($original, $this->erased($original), 0.30);
 
         $a = imagecreatefromstring($original);
         $b = imagecreatefromstring($result);
@@ -118,8 +145,7 @@ class PhotoEditorSurgicalEraseTest extends TestCase
     public function test_the_stand_is_gone_where_the_erase_changed_it(): void
     {
         $original = $this->photo();
-        $strip    = $this->compositor->topStrip($original, 0.40);
-        $result   = $this->compositor->blend($original, $this->erased($strip['bytes']), $strip['height']);
+        $result   = $this->compositor->blend($original, $this->erased($original), 0.30);
 
         $b = imagecreatefromstring($result);
 
@@ -131,11 +157,36 @@ class PhotoEditorSurgicalEraseTest extends TestCase
             'the stand is still dark, so the erase was not composited in');
     }
 
+    /**
+     * A reframed erase is refused rather than stretched into place.
+     *
+     * Stretching one produces exactly what a bad composite looks like: a
+     * misaligned collar over the real one, ghost shoulders, a doubled hanger.
+     * There is no recovering from it, and the photograph with its stand still
+     * in shot is worth more than a garbled one.
+     */
+    public function test_a_reframed_erase_is_refused(): void
+    {
+        $original = $this->photo(900, 1200);           // 0.75
+
+        $square = imagecreatetruecolor(1000, 1000);    // 1.00 — recomposed, not erased
+        imagefill($square, 0, 0, imagecolorallocate($square, 250, 250, 250));
+        ob_start();
+        imagejpeg($square, null, 90);
+        imagedestroy($square);
+        $reframed = (string) ob_get_clean();
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessageMatches('/reframed/');
+
+        $this->compositor->blend($original, $reframed, 0.30);
+    }
+
     /** An unreadable strip must not take the photograph down with it. */
     public function test_a_broken_erase_is_refused_rather_than_guessed_at(): void
     {
         $this->expectException(\RuntimeException::class);
 
-        $this->compositor->blend($this->photo(), 'not an image at all', 400);
+        $this->compositor->blend($this->photo(), 'not an image at all', 0.30);
     }
 }

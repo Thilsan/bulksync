@@ -108,10 +108,10 @@
 
         <div x-show="treatment === 'surgical'" x-cloak class="sm:col-span-3">
             <label for="zone-{{ $uid }}" class="mb-1 block text-xs text-gray-600">
-                How far down the stand reaches
+                How far down to accept changes
             </label>
             <div class="flex items-center gap-3">
-                <input id="zone-{{ $uid }}" type="range" min="0.15" max="0.60" step="0.05"
+                <input id="zone-{{ $uid }}" type="range" min="0.10" max="0.45" step="0.01"
                        name="{{ $name('erase_zone') }}" value="{{ $val('erase_zone', 0.40) }}"
                        x-data="{ z: {{ $val('erase_zone', 0.40) }} }" x-model.number="z"
                        @input="$refs.zoneLabel.textContent = Math.round(z * 100) + '% from the top'"
@@ -120,9 +120,10 @@
                     {{ round($val('erase_zone', 0.40) * 100) }}% from the top
                 </span>
             </div>
-            <p class="mt-1 text-xs text-gray-500">
-                Only this strip is sent to be erased. Too generous costs nothing — anything that comes back
-                unchanged keeps its original pixels. Too tight leaves a hook in shot.
+            <p class="mt-1 text-xs text-amber-700">
+                Set this <strong class="font-semibold">above any print or logo</strong>. The whole photo is sent to be
+                erased, but only this top band of the answer is kept — so a band reaching past a chest print lets the
+                print be redrawn, which is the thing this treatment exists to avoid. Too tight leaves a hook in shot.
             </p>
         </div>
     </div>

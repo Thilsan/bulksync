@@ -592,7 +592,7 @@ class PhotoroomService
              * the redraw does not soften the print, it reinvents it.
              */
             'surgical_erase' => false,
-            'erase_zone'     => 0.40,
+            'erase_zone'     => \App\Services\StandEraseCompositor::DEFAULT_BAND,
 
             'segmentation_prompt'          => null,
             'segmentation_negative_prompt' => 'the mannequin, dress form, clothes rail, hanger and stand',
