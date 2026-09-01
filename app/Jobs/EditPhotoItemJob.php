@@ -7,7 +7,6 @@ use App\Models\PhotoEditSession;
 use App\Models\User;
 use App\Services\GeminiService;
 use App\Services\ImageProcessingService;
-use App\Services\StandEraseCompositor;
 use App\Services\OneDriveService;
 use App\Services\PhotoroomService;
 use Illuminate\Bus\Queueable;
@@ -50,11 +49,7 @@ class EditPhotoItemJob implements ShouldQueue
         ImageProcessingService $imageService,
         PhotoroomService       $photoroom,
         GeminiService          $gemini,
-        // Appended rather than slotted in: the tests call handle() positionally,
-        // and a new dependency is not a reason to rewrite their arguments.
-        ?StandEraseCompositor  $compositor = null,
     ): void {
-        $compositor ??= new StandEraseCompositor();
 
         $item = PhotoEditItem::find($this->itemId);
 
@@ -143,59 +138,6 @@ class EditPhotoItemJob implements ShouldQueue
 
             $itemEdits   = $edits;
             $appliedMode = 'none';
-
-            /*
-             * Erase the stand surgically, if that is what was asked for.
-             *
-             * Deliberately outside the block below, which only runs when an AI
-             * treatment is generating the canvas. This is the opposite of that:
-             * nothing generates a canvas, the photograph is kept, and the
-             * generative pass is used on a strip of it and nowhere else.
-             *
-             * No classifier is consulted either. Somebody chose this treatment
-             * looking at the photo; a second opinion could only overrule them.
-             */
-            if (!empty($edits['surgical_erase']) && !$onModel) {
-                try {
-                    /*
-                     * Gemini says where the stand is; the fill happens here.
-                     *
-                     * The two jobs are split because they fail differently.
-                     * Finding a stand by colour works on a dark hanger against
-                     * a pale wall and fails on a white plastic one, or a black
-                     * rail behind a black dress. Gemini knows what a hanger is
-                     * rather than what one is coloured, so it locates; and the
-                     * filling stays local, where full resolution is free and
-                     * nothing outside the boxes is ever written to.
-                     */
-                    $boxes = $gemini->locateStand($raw);
-
-                    if (!$boxes) {
-                        Log::info('No stand found to erase', ['item' => $this->itemId]);
-                    }
-
-                    /*
-                     * No Photoroom call at all. Its erase regenerates the whole
-                     * picture and moves the garment inside the frame, so its
-                     * output cannot be pasted back onto the photograph — three
-                     * attempts at doing so are described in the compositor.
-                     * The hanger is found by colour and filled from its
-                     * surroundings instead: no credit, and the garment cannot
-                     * move because nothing outside the hanger is written to.
-                     */
-                    $raw = $compositor->erase($raw, $boxes);
-
-                    $appliedMode = $boxes ? 'stand_erased' : 'none';
-                } catch (\Throwable $e) {
-                    /*
-                     * The photograph is intact and still worth having, so the
-                     * run continues with the stand in shot. Logged loudly: a
-                     * stand nobody removed is easy to miss on a review screen
-                     * of three hundred.
-                     */
-                    Log::error("EditPhotoItemJob item {$this->itemId} stand erase failed: " . $e->getMessage());
-                }
-            }
 
             if ($photoroom->generatesOwnCanvas($edits)) {
                 if ($onModel) {

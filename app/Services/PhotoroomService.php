@@ -600,14 +600,6 @@ class PhotoroomService
              * without it the segmentation does not run at all, which is the
              * safe way round.
              */
-            /*
-             * Erase the stand from a strip of the photo and put only that strip
-             * back, rather than letting the generative pass redraw the whole
-             * garment. See StandEraseCompositor for why: on a printed garment
-             * the redraw does not soften the print, it reinvents it.
-             */
-            'surgical_erase' => false,
-
             'segmentation_prompt'          => null,
             'segmentation_negative_prompt' => 'the mannequin, dress form, clothes rail, hanger and stand',
 

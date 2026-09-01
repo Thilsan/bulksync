@@ -83,13 +83,12 @@
     @php
         // One radio, three answers, two stored flags. Derived here so the form
         // and the job cannot disagree about what "surgical" means.
-        $treatment = $val('surgical_erase') ? 'surgical' : ($val('ghost_mannequin') ? 'ghost' : 'none');
+        $treatment = $val('ghost_mannequin') ? 'ghost' : 'none';
     @endphp
 
-    <div class="grid gap-3 sm:grid-cols-3" x-data="{ treatment: @js($treatment) }">
+    <div class="grid gap-3 sm:grid-cols-2" x-data="{ treatment: @js($treatment) }">
         @foreach ([
             'none'     => ['Keep the photo', 'Real pixels, exactly as shot. Anything holding the garment up stays in shot.'],
-            'surgical' => ['Erase the stand only', 'Gemini finds the hanger or stand; the gap is filled here at full resolution. No Photoroom credit, and every pixel outside it is your photograph — prints and logos cannot be altered.'],
             'ghost'    => ['Remove the stand (Ghost Mannequin)', 'Photoroom\'s apparel model. Removes a hanger or dress form and keeps the print. Costs one credit, same as any edit — check the first few results.'],
         ] as $mode => [$label, $help])
             <label class="flex cursor-pointer items-start gap-2 rounded-lg border border-gray-200 p-3 hover:border-gray-300 has-[:checked]:border-brand-500 has-[:checked]:bg-brand-50/60">
@@ -102,14 +101,8 @@
             </label>
         @endforeach
 
-        {{-- The two flags the job actually reads, derived from the one choice. --}}
-        <input type="hidden" name="{{ $name('surgical_erase') }}" :value="treatment === 'surgical' ? '1' : ''">
+        {{-- The flag the job reads, derived from the choice above. --}}
         <input type="hidden" name="{{ $name('ghost_mannequin') }}" :value="treatment === 'ghost' ? '1' : ''">
-
-        <p x-show="treatment === 'surgical'" x-cloak class="text-xs text-gray-500 sm:col-span-3">
-            Gemini is asked where the stand is and only what it points at can be changed — so a print or a logo is
-            safe by construction, not by choosing a setting carefully. Nothing is sent to Photoroom for this.
-        </p>
     </div>
 
     <div class="mt-3 grid gap-3 sm:grid-cols-2">
