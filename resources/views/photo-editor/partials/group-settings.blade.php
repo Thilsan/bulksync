@@ -41,9 +41,14 @@
 
     // Which main category opens on arrival: the one already chosen, or the
     // first, so the second row is never empty and waiting to be understood.
+    /*
+     * Which main category's second row is open. A leaf has no second row, so
+     * choosing one leaves whichever parent was already open — otherwise the
+     * row below would empty itself the moment Perfume was picked.
+     */
     $framingMain = str_contains((string) $val('framing_preset'), '/')
         ? explode('/', (string) $val('framing_preset'))[0]
-        : array_key_first($framingTree);
+        : array_key_first(array_filter($framingTree, fn ($m) => isset($m['subcategories'])));
 @endphp
 
 <div x-data="{ bg: @js($bg) }">
@@ -212,8 +217,17 @@
              catalogue is navigated this way, so the picker is too. --}}
         <div class="flex flex-wrap gap-2">
             @foreach ($framingTree as $mainKey => $main)
-                <button type="button" @click="openMain('{{ $mainKey }}')"
-                        :class="main === '{{ $mainKey }}'
+                @php $isLeaf = !isset($main['subcategories']); @endphp
+
+                {{-- A main category with nothing under it is the choice itself,
+                     so it is picked rather than opened. Perfume is framed one
+                     way whatever the bottle. --}}
+                {{-- Only the method name and the state to read come from PHP.
+                     Interpolating the whole call would have Blade escape its
+                     quotes into entities. --}}
+                <button type="button"
+                        @click="{{ $isLeaf ? 'usePreset' : 'openMain' }}('{{ $mainKey }}')"
+                        :class="{{ $isLeaf ? 'preset' : 'main' }} === '{{ $mainKey }}'
                             ? 'border-gray-800 bg-white text-gray-900 shadow-sm'
                             : 'border-transparent bg-transparent text-gray-500 hover:text-gray-800'"
                         class="rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors">
@@ -228,7 +242,7 @@
 
         <div class="mt-2 flex flex-wrap gap-2 border-t border-gray-200 pt-2">
             @foreach ($framingTree as $mainKey => $main)
-                @foreach ($main['subcategories'] as $subKey => $sub)
+                @foreach ($main['subcategories'] ?? [] as $subKey => $sub)
                     @php $presetKey = $mainKey . '/' . $subKey; @endphp
                     <button type="button" x-show="main === '{{ $mainKey }}'" x-cloak
                             @click="usePreset('{{ $presetKey }}')"

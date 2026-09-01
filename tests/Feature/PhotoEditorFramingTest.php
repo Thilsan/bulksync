@@ -217,7 +217,9 @@ class PhotoEditorFramingTest extends TestCase
         }
 
         // Every womenswear subcategory is accounted for, so a new one cannot be
-        // added without a reading to go with it.
+        // added without a reading to go with it. Other departments are covered
+        // by the canvas and baseline tests rather than pinned figure by figure,
+        // because only womenswear has been sampled across the board.
         $women = array_filter(array_keys(PhotoroomService::framingPresetsFlat()),
             fn ($key) => str_starts_with($key, 'women/'));
 
@@ -226,30 +228,44 @@ class PhotoEditorFramingTest extends TestCase
     }
 
     /**
-     * Bags stand on a measured line, not on the even padding.
+     * The categories that stand on a line, and only those.
      *
-     * Two bags of different shapes were measured 19.9% up from the bottom, so
-     * the bottom edge is an override and not whatever the scale happened to
-     * leave. Lose the override and a clutch and a top-handle bag stop sharing
-     * a baseline, which is the one thing a row of bags has to get right.
+     * Two kinds of product need one. A bag category holds a flat clutch and a
+     * tall top-handle bag; a perfume category holds a squat bottle and a slim
+     * one. Fit each to the canvas and they come out different heights whatever
+     * the padding, so only a shared bottom edge makes a row of them read as a
+     * row. A garment category has no such problem — every dress is taller than
+     * it is wide, so the padding is the base line.
+     *
+     * Asserted as a closed list because an override is a decision. One
+     * appearing on a category that never asked for it would move that
+     * category's products off the line every other one stands on, and nothing
+     * on the screen would say so.
      */
-    public function test_bags_keep_their_baseline_override(): void
+    public function test_only_the_categories_that_stand_on_a_line_have_a_baseline(): void
     {
-        $fields = $this->layoutFields(PhotoroomService::applyFramingPreset([], 'women/bags'));
+        $baselines = [
+            'women/bags'     => '0.2',    // three bags measured 19.8%, 19.9%, 18.6%
+            'perfume'         => '0.1',   // one bottle measured 10.0%
+        ];
 
-        $this->assertSame('0.2', $fields['paddingBottom'], 'bags lost the measured baseline');
-        $this->assertSame('bottom', $fields['verticalAlignment']);
+        foreach ($baselines as $key => $expected) {
+            $fields = $this->layoutFields(PhotoroomService::applyFramingPreset([], $key));
 
-        // Every other category leaves the bottom edge to the even padding —
-        // an override elsewhere would be an accident, not a decision.
+            $this->assertSame($expected, $fields['paddingBottom'] ?? null,
+                "{$key} lost the base line it was measured on");
+            $this->assertSame('bottom', $fields['verticalAlignment'],
+                "{$key} has a base line but is not standing on it");
+        }
+
         foreach (array_keys(PhotoroomService::framingPresetsFlat()) as $key) {
-            if ($key === 'women/bags') {
+            if (isset($baselines[$key])) {
                 continue;
             }
 
             $this->assertArrayNotHasKey('paddingBottom',
                 $this->layoutFields(PhotoroomService::applyFramingPreset([], $key)),
-                "{$key} has a per-edge override nobody asked for");
+                "{$key} has a per-edge override nobody declared");
         }
     }
 

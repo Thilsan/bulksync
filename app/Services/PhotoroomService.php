@@ -351,6 +351,24 @@ class PhotoroomService
             ],
         ],
 
+        /*
+         * A main category with nothing under it. Everything in it is framed the
+         * same way, so a second level would be a menu with one item on it — and
+         * the tree is meant to match how the catalogue is navigated, not to be
+         * uniformly two deep for its own sake.
+         */
+        'perfume' => [
+            'label' => 'Perfume',
+            'note'  => 'Measured from one bottle: 4.6% above, 10.0% below, filling 85% of the height. Bottom-aligned like bags rather than centred like a garment — bottles vary in height, and a row of them wants to stand on one line rather than float at different ones. One sample, so the 10% base line is a reading rather than an agreement; a second bottle would confirm or move it.',
+            'edits' => [
+                'width'          => 2000,
+                'height'         => 2000,
+                'padding'        => 0.05,
+                'padding_bottom' => 0.10,
+                'v_align'        => 'bottom',
+            ],
+        ],
+
         'watches_jewellery' => [
             'label'         => 'Watches & Jewellery',
             'subcategories' => [
@@ -675,6 +693,8 @@ class PhotoroomService
         'kids/tops'       => 'the top',
         'kids/footwear'   => 'the shoes',
 
+        'perfume'                     => 'the perfume bottle',
+
         'watches_jewellery/watches'   => 'the watch',
         'watches_jewellery/jewellery' => 'the jewellery',
     ];
@@ -698,6 +718,21 @@ class PhotoroomService
         $flat = [];
 
         foreach (self::FRAMING_PRESETS as $mainKey => $main) {
+            /*
+             * A main category can be a leaf. Perfume is framed one way whatever
+             * the bottle, so it has no second level and its stored key is just
+             * "perfume" — no slash, nothing to split.
+             */
+            if (!isset($main['subcategories'])) {
+                $flat[$mainKey] = $main + [
+                    'main'     => $main['label'],
+                    'full'     => $main['label'],
+                    'main_key' => $mainKey,
+                ];
+
+                continue;
+            }
+
             foreach ($main['subcategories'] as $subKey => $sub) {
                 $flat[$mainKey . '/' . $subKey] = $sub + [
                     'main'      => $main['label'],
