@@ -79,6 +79,38 @@ class PhotoEditorRepushTest extends TestCase
         $this->assertFalse($item->isRepush());
     }
 
+    /**
+     * An image that found no product can be sent again once one exists.
+     *
+     * "No match" means Shopify had nothing with that SKU — a reason that lives
+     * outside this app and gets fixed outside it. The image is edited, paid
+     * for and sitting on disk; leaving it stranded meant re-running the whole
+     * edit to produce a file we already had.
+     */
+    public function test_an_image_that_found_no_product_can_be_sent_again(): void
+    {
+        $item = $this->item($this->makeSession(), [
+            'status'           => 'skipped',
+            'shopify_image_id' => null,
+            'error_message'    => 'No Shopify product found for SKU or barcode: ENH121PER00508',
+        ]);
+
+        $this->assertTrue($item->isPushable(), 'a no-match image should be sendable once the product exists');
+        $this->assertFalse($item->isRepush(), 'it was never on Shopify, so nothing is being replaced');
+    }
+
+    /** A failed push is worth retrying; a failed edit has no file to retry with. */
+    public function test_a_failed_push_can_be_retried_but_a_failed_edit_cannot(): void
+    {
+        $session = $this->makeSession();
+
+        $pushFailed = $this->item($session, ['status' => 'failed', 'shopify_image_id' => null]);
+        $editFailed = $this->item($session, ['status' => 'failed', 'edited_path' => null, 'filename' => 'b.jpg']);
+
+        $this->assertTrue($pushFailed->isPushable());
+        $this->assertFalse($editFailed->isPushable(), 'there is no file to send');
+    }
+
     /** The push endpoint queues a pushed item rather than dropping it. */
     public function test_the_push_endpoint_accepts_an_image_that_is_already_up(): void
     {

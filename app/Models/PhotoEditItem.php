@@ -120,7 +120,24 @@ class PhotoEditItem extends Model
      */
     public function isPushable(): bool
     {
-        return in_array($this->status, ['edited', 'pushed'], true)
+        /*
+         * Everything except work still in flight.
+         *
+         * 'skipped' and 'failed' are here because their reasons are external
+         * and fixable: no Shopify product for that SKU, an identifier on two
+         * products at once, a refusal from Shopify. Somebody creates the
+         * product or corrects the barcode, and the same image should go
+         * straight up — the old behaviour left it stranded, and re-running the
+         * whole edit to un-strand it cost a credit to produce the same file.
+         *
+         * 'pushed' is here so an image can be sent again, which replaces what
+         * is on Shopify rather than adding to it.
+         *
+         * The file is the real limit, not the status. An edit that failed never
+         * wrote one, and once the sweep has taken the bytes there is nothing
+         * left to send — both are caught by the same check.
+         */
+        return in_array($this->status, ['edited', 'pushed', 'skipped', 'failed'], true)
             && $this->edited_path !== null;
     }
 

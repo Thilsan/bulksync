@@ -637,7 +637,7 @@ class PhotoEditorController extends Controller implements HasMiddleware
         // queuing a job that is certain to fail.
         $pushable = PhotoEditItem::where('photo_edit_session_id', $session->id)
             ->whereIn('id', $ids)
-            ->whereIn('status', ['edited', 'pushed'])
+            ->whereIn('status', ['edited', 'pushed', 'skipped', 'failed'])
             ->whereNotNull('edited_path')
             ->pluck('id');
 

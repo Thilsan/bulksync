@@ -108,7 +108,7 @@
         <div class="flex flex-wrap items-center gap-2">
             <button type="button" @click="selectAll()"
                 class="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-600 transition-colors hover:border-gray-400">
-                Select all ready
+                Select all sendable
             </button>
             <button type="button" @click="selectNone()"
                 class="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-600 transition-colors hover:border-gray-400">
@@ -116,7 +116,7 @@
             </button>
             <span class="text-xs text-gray-500">
                 <strong class="tabular-nums text-gray-800" x-text="selectedCount"></strong>
-                of <span class="tabular-nums" x-text="readyCount"></span> selected
+                of <span class="tabular-nums" x-text="readyCount"></span> sendable
             </span>
         </div>
 
@@ -440,6 +440,11 @@ function photoReview(sessionId) {
             }
         },
 
+        /*
+         * Everything that can go to Shopify right now — which includes images
+         * that failed or found no matching product, because those reasons get
+         * fixed on Shopify's side and the image is still sitting here ready.
+         */
         get readyCount() {
             return this.items.filter(i => i.pushable).length;
         },
