@@ -21,9 +21,28 @@
      * has to guess; the boxes show just the number beside a px label.
      */
     $edgePx = function (string $side) use ($val) {
-        $stored = (string) $val('padding_' . $side);
+        $stored = trim((string) $val('padding_' . $side));
 
-        return str_ends_with($stored, 'px') ? (int) rtrim($stored, 'px') : null;
+        if ($stored === '') {
+            return null;
+        }
+
+        if (str_ends_with($stored, 'px')) {
+            return (int) rtrim($stored, 'px');
+        }
+
+        /*
+         * A preset stores per-edge padding as a fraction of the canvas, because
+         * a fraction survives the canvas changing. This box is in pixels, and a
+         * number input with step="1" rejects 0.1 outright — which stops the
+         * whole form submitting, and silently, because the browser cannot show
+         * an error on a field hidden inside a collapsed section.
+         */
+        $fraction = (float) $stored;
+
+        return $fraction > 0 && $fraction <= 1
+            ? (int) round($fraction * (int) ($val('height') ?: 2000))
+            : (int) round($fraction);
     };
 
     // The tree lays the buttons out; the flat map, handed to the browser whole,
@@ -175,8 +194,15 @@
             this.width  = e.width;
             this.height = e.height;
             this.padding = e.padding ?? 0;
-            this.padTop = e.padding_top; this.padBottom = e.padding_bottom;
-            this.padLeft = e.padding_left; this.padRight = e.padding_right;
+            // Presets carry per-edge padding as a fraction; these boxes are in
+            // whole pixels, and a fraction in one of them makes the form
+            // unsubmittable with no visible error.
+            const px = (v) => v === null || v === undefined || v === ''
+                ? null
+                : (v > 0 && v <= 1 ? Math.round(v * (e.height || 2000)) : Math.round(v));
+
+            this.padTop = px(e.padding_top);   this.padBottom = px(e.padding_bottom);
+            this.padLeft = px(e.padding_left); this.padRight = px(e.padding_right);
             this.hAlign = e.h_align; this.vAlign = e.v_align;
             this.scaling = e.scaling; this.refBox = e.reference_box;
             this.custom = false;
@@ -351,7 +377,7 @@
                     <div>
                         <label for="pad-{{ $edge }}-{{ $uid }}" class="mb-1 block text-xs text-gray-600">{{ $label }}</label>
                         <div class="relative">
-                            <input id="pad-{{ $edge }}-{{ $uid }}" type="number" min="0" max="2000" step="1"
+                            <input id="pad-{{ $edge }}-{{ $uid }}" type="number" min="0" max="2000" step="any"
                                    name="{{ $name('padding_' . $edge) }}" placeholder="&mdash;"
                                    x-model.number="pad{{ ucfirst($edge) }}"
                                    class="w-full rounded-lg border border-gray-300 py-1.5 pl-3 pr-9 text-sm focus:border-brand-500 focus:outline-none">
