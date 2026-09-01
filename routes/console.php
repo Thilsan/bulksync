@@ -184,6 +184,32 @@ $prunePhotoEditorFiles = function () {
             }
         });
 
+    /*
+     * Full-size files of images already on Shopify, once the push is old enough
+     * to be settled. Kept until now so the image can be sent again; after this
+     * the bytes are a duplicate of something permanent, and they are the
+     * largest thing this feature writes.
+     *
+     * Thumbnails stay, so the session still shows what was done — only the
+     * ability to re-push goes, which is what the window was for.
+     */
+    $repushDays = max(1, (int) config('services.photoroom.repush_days', 2));
+
+    PhotoEditItem::where('status', 'pushed')
+        ->whereNotNull('edited_path')
+        ->where('updated_at', '<', now()->subDays($repushDays))
+        ->chunkById(200, function ($items) use (&$freed) {
+            foreach ($items as $item) {
+                $path = storage_path('app/' . $item->edited_path);
+
+                if (is_file($path)) {
+                    $freed += (int) filesize($path);
+                }
+
+                $item->discardFullSize();
+            }
+        });
+
     // Directories whose session row is already gone — a delete that half
     // finished, or a database restored from behind the filesystem. Nothing
     // references these, so nothing else would ever find them again.

@@ -114,6 +114,21 @@ return [
         'retention_days' => (int) env('PHOTOROOM_RETENTION_DAYS', 7),
 
         /*
+         * How long a pushed image keeps its full-size file, so it can be sent
+         * to Shopify again.
+         *
+         * The file used to be deleted the moment Shopify accepted it, which
+         * made re-pushing impossible without paying to edit the image a second
+         * time. Keeping it costs disk — it is the largest thing this feature
+         * writes, and this server's disk has filled twice — so the window is
+         * short and separate from the seven-day session retention.
+         *
+         * Two days covers "we pushed it to the wrong product" and "the buyer
+         * looked at it the next morning", which is what re-pushing is for.
+         */
+        'repush_days' => (int) env('PHOTOROOM_REPUSH_DAYS', 2),
+
+        /*
          * Log the instructions sent with each edit. Off by default — it is a
          * few hundred bytes per image and only useful while something is
          * behaving in a way nobody can explain from the result alone.

@@ -34,12 +34,16 @@ class PushEditedPhotoJob implements ShouldQueue
     {
         $item = PhotoEditItem::find($this->itemId);
 
-        if (!$item || $item->status === 'pushed') {
+        if (!$item) {
             return;
         }
 
-        // The full-size file is deleted once an image reaches Shopify, so an
-        // item without one has either been pushed already or been swept.
+        /*
+         * An image already on Shopify is allowed through — sending it again is
+         * how a wrong product or a late correction gets fixed, and it replaces
+         * rather than duplicates. What decides it is the file, not the status:
+         * once the sweep has taken the bytes there is nothing left to send.
+         */
         if (!$item->edited_path || !is_file(storage_path('app/' . $item->edited_path))) {
             $item->update([
                 'status'        => 'failed',
@@ -102,6 +106,9 @@ class PushEditedPhotoJob implements ShouldQueue
             // Style-code matches are gallery-only; they have no variant to bind to.
             $variantId = $matchingMode === 'style_code' ? null : ($variant['variant_id'] ?? null);
 
+            // Read before the update below overwrites it.
+            $previousImageId = $item->isRepush() ? $item->shopify_image_id : null;
+
             $imageId = $shopify->uploadImageToProduct(
                 $variant['product_id'],
                 $content,
@@ -127,9 +134,33 @@ class PushEditedPhotoJob implements ShouldQueue
                 'error_message'    => null,
             ]);
 
-            // Shopify now holds these bytes permanently, so our copy is a
-            // duplicate — and it is the largest thing this feature writes.
-            $item->discardFullSize();
+            /*
+             * The full-size file is deliberately kept now, so the image can be
+             * sent again — to a different product, or after somebody spots
+             * something. It is the largest thing this feature writes and this
+             * server's disk has filled twice, so it is not kept indefinitely:
+             * the nightly sweep drops it once the push is old enough to be
+             * settled. See services.photoroom.repush_days.
+             */
+            if ($previousImageId && $previousImageId !== $imageId) {
+                /*
+                 * Replacing rather than adding. Somebody sending an image again
+                 * means the one on Shopify is wrong, not that they want two of
+                 * them — and a duplicate is worse than either, because it is
+                 * the kind of thing nobody notices until a customer does.
+                 *
+                 * Deleted after the new one is up, so a failure here leaves the
+                 * product with an image rather than none.
+                 */
+                try {
+                    $shopify->deleteProductImage($variant['product_id'], $previousImageId);
+                } catch (\Throwable $e) {
+                    Log::warning("PushEditedPhotoJob item {$this->itemId}: the previous image could not be removed", [
+                        'image' => $previousImageId,
+                        'error' => $e->getMessage(),
+                    ]);
+                }
+            }
 
         } catch (\Throwable $e) {
             Log::error("PushEditedPhotoJob item {$this->itemId} failed: " . $e->getMessage());

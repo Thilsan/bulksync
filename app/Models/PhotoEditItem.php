@@ -108,9 +108,26 @@ class PhotoEditItem extends Model
     }
 
     /** Only an item that edited cleanly and still has its file can be pushed. */
+    /**
+     * Can this image be sent to Shopify right now?
+     *
+     * An image already on Shopify counts, for as long as its full-size file is
+     * still on disk. Pushing to the wrong product, or spotting something after
+     * the fact, used to mean re-running the whole edit and paying for it again.
+     *
+     * The file is what limits it, not the status: once the sweep has taken the
+     * bytes there is nothing left to send, and the answer becomes no again.
+     */
     public function isPushable(): bool
     {
-        return $this->status === 'edited' && $this->edited_path !== null;
+        return in_array($this->status, ['edited', 'pushed'], true)
+            && $this->edited_path !== null;
+    }
+
+    /** Already on Shopify — so sending it again replaces what is there. */
+    public function isRepush(): bool
+    {
+        return $this->status === 'pushed' && $this->shopify_image_id !== null;
     }
 
     public function statusLabel(): string

@@ -176,6 +176,17 @@
                             image</strong>. Photos already on that product move down.
                         </span>
                     </li>
+                    <template x-if="repushCount">
+                        <li class="flex gap-2">
+                            <span class="text-amber-500">&bull;</span>
+                            <span>
+                                <strong class="font-semibold text-amber-800" x-text="repushCount"></strong>
+                                <span x-text="repushCount === 1 ? 'image is' : 'images are'"></span>
+                                already on Shopify. Sending again <strong class="font-semibold text-amber-800">replaces</strong>
+                                what is there, rather than adding a second copy.
+                            </span>
+                        </li>
+                    </template>
                     <li class="flex gap-2">
                         <span class="text-gray-400">&bull;</span>
                         <span>This appears on the live website. Removing an image afterwards is done in Shopify, not here.</span>
@@ -442,6 +453,15 @@ function photoReview(sessionId) {
          * thing than five images across five, and it is the products that get
          * their main image rearranged.
          */
+        /*
+         * How many of the chosen images are already on Shopify. Sending one of
+         * those replaces what is there, which is a different thing from adding
+         * a photo and worth saying before the click rather than after.
+         */
+        get repushCount() {
+            return this.items.filter(i => i.pushable && this.selectedIds[i.id] && i.status === 'pushed').length;
+        },
+
         get skuCount() {
             return new Set(
                 this.items
