@@ -359,35 +359,34 @@ class PhotoroomService
          */
         'perfume' => [
             'label' => 'Perfume',
-            'note'  => 'The bottle stands on a line 8.5% up from the bottom — the same line the catalogue\'s own perfume shots stand on. Bottom-aligned like bags rather than centred like a garment: bottles vary in height, and a row of them wants to stand on one line rather than float at different ones.',
+            'note'  => 'The bottle stands on a line 10.6% up from the bottom and fills 79% of the height — measured off a live Blue Salon perfume shot on the same 2000x2000 canvas. Bottom-aligned like bags rather than centred like a garment: bottles vary in height, and a row of them wants to stand on one line rather than float at different ones.',
             'edits' => [
                 'width'  => 2000,
                 'height' => 2000,
 
                 /*
-                 * 8.5% is the line itself, with nothing subtracted from it.
+                 * Measured off a live product page, not off a supplied sample.
                  *
-                 * Photoroom pads from the subject's bounding box, so a drop
-                 * shadow inside that box would eat the padding and leave the
-                 * glass floating above the line. These bottle cutouts carry no
-                 * drop shadow: what sits under the liquid is the bottle's own
-                 * thick clear glass base, up to 7% of the frame on a BDK-style
-                 * bottle, and that is subject, not shadow. Measured on a
-                 * finished 2.2% render the whole bottle bottoms out at 2.3% —
-                 * padding_bottom and the real bottle bottom are the same
-                 * number here.
+                 * A BDK 100ml on bluesalon.com, exported at 2000x2000, puts the
+                 * bottle's lowest pixel 10.6% up from the bottom, leaves 10.3%
+                 * above it, and lets the bottle fill 79.1% of the height. Those
+                 * are the three numbers that matter, and 10.3 + 79.1 + 10.6
+                 * closes to 100 — so top padding is what sets the size and
+                 * padding_bottom is what sets the line.
                  *
-                 * An earlier revision read that glass base as a 6.2% shadow
-                 * and subtracted it, which pushed the bottle below the line
-                 * with its base hanging past the canvas floor.
+                 * Two earlier revisions were measured from a sample image on a
+                 * 2160x2238 canvas and read 8.5%. A percentage of a taller
+                 * canvas is not the same percentage of a square one; carried
+                 * across, it framed the bottle 2% low and about 9% too large.
+                 * Measure perfume against a square export or not at all.
                  *
-                 * If a supplier's shots ever do arrive with a real drop shadow,
-                 * the shadow will take this 8.5% and the glass will ride high.
-                 * Split this entry rather than re-tuning it — no single figure
-                 * suits both.
+                 * No shadow is subtracted here. What sits under the liquid on a
+                 * bottle like this is its own thick clear glass base, which is
+                 * subject, and the catalogue shot's own feather below the glass
+                 * is only 0.6%.
                  */
-                'padding'        => 0.05,
-                'padding_bottom' => 0.085,
+                'padding'        => 0.103,
+                'padding_bottom' => 0.106,
                 'v_align'        => 'bottom',
             ],
         ],

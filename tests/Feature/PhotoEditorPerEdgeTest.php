@@ -37,7 +37,7 @@ class PhotoEditorPerEdgeTest extends TestCase
      * Every preset's fraction reaches the box as whole pixels.
      *
      * Derived from each preset rather than written out, because the figures are
-     * tuned — perfume's moved from 10% to 8.5% to stand on the catalogue line —
+     * tuned — perfume's moved from 10% to 10.6% to stand on the catalogue line —
      * and a hard-coded pixel count here fails on a preset change without
      * anything being wrong. What must hold is the conversion, not the value.
      */

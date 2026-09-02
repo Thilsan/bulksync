@@ -246,7 +246,7 @@ class PhotoEditorFramingTest extends TestCase
     {
         $baselines = [
             'women/bags'     => '0.2',    // three bags measured 19.8%, 19.9%, 18.6%
-            'perfume'         => '0.085', // the catalogue base line itself; no shadow to allow for
+            'perfume'         => '0.106', // measured off a live 2000x2000 catalogue shot
         ];
 
         foreach ($baselines as $key => $expected) {
