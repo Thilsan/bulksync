@@ -308,7 +308,14 @@
         <span x-text="width && height ? `${width} × ${height}` : 'original size'"></span>
         &middot; <span x-text="Math.round(padding * 100) + '% around'"></span>
         <template x-if="padBottom">
-            <span>&middot; base <span x-text="Math.round(padBottom * 100) + '%'"></span> up</span>
+            {{-- padBottom is held in pixels, because the input box beside it is
+                 a px field that a fraction cannot be typed into. The rest of
+                 this line speaks in percentages, so it is converted back rather
+                 than multiplied by 100 as though it were still a fraction —
+                 which is what turned perfume's 10.6% into "21200%". With no
+                 canvas set there is nothing to be a percentage of, so the pixel
+                 value is shown as itself. --}}
+            <span>&middot; base <span x-text="height ? Math.round(padBottom / height * 100) + '%' : padBottom + 'px'"></span> up</span>
         </template>
         &middot; <span x-text="{ top: 'top-aligned', bottom: 'standing on the base line', center: 'centred' }[vAlign]"></span>
         &middot; whole product shown
