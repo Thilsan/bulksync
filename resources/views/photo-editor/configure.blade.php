@@ -131,6 +131,7 @@
                             'filename' => $p->filename,
                             'thumb'    => route('photo-editor.onedrive-thumb', [$session, $p]),
                             'asIs'     => (bool) $p->skip_edit,
+                            'keepBg'   => (bool) $p->keep_background,
                         ],
                     ])->all();
                 @endphp
@@ -174,9 +175,12 @@
                             <p class="text-xs text-gray-500">
                                 Drag to reorder — the first photo becomes the product's main image on Shopify.
                             </p>
-                            <p class="text-xs" :class="asIsCount ? 'text-amber-700' : 'text-gray-400'">
+                            <p class="text-xs" :class="asIsCount || keepBgCount ? 'text-amber-700' : 'text-gray-400'">
                                 <span x-text="asIsCount"></span> going up untouched
                                 <span x-show="asIsCount" x-cloak>— no credits spent on those</span>
+                                <span x-show="keepBgCount" x-cloak>
+                                    · <span x-text="keepBgCount"></span> framed with the background kept
+                                </span>
                             </p>
                         </div>
 
@@ -195,7 +199,7 @@
                                            :value="id" :checked="id === {{ (int) $group->lifestyle_source_item_id }}">
 
                                     <img :src="photos[id].thumb" :alt="photos[id].filename" loading="lazy"
-                                         :class="asIs[id] ? 'border-amber-400' : 'border-transparent'"
+                                         :class="asIs[id] ? 'border-amber-400' : (keepBg[id] ? 'border-sky-400' : 'border-transparent')"
                                          class="aspect-square w-full rounded-lg border-2 bg-gray-100 object-cover peer-checked:border-brand-500">
 
                                     <span class="mt-1 block truncate text-[11px] text-gray-500" x-text="photos[id].filename"></span>
@@ -227,6 +231,24 @@
 
                                     <template x-if="asIs[id]">
                                         <input type="hidden" :name="`groups[{{ $group->id }}][as_is][]`" :value="id">
+                                    </template>
+
+                                    {{-- Framed like its siblings, but with the
+                                         background left alone — for the shot
+                                         whose background is the point. Still a
+                                         credit: it goes to Photoroom, it just
+                                         does not get erased. --}}
+                                    <button type="button" @click.prevent="toggleKeepBg(id)"
+                                            :title="keepBg[id] ? 'Keeping its background — click to cut it out instead' : 'Will be cut out — click to keep its background and only reframe it'"
+                                            :class="keepBg[id]
+                                                ? 'bg-sky-500 text-white'
+                                                : 'bg-white/90 text-gray-500 opacity-0 group-hover:opacity-100'"
+                                            class="absolute right-1 bottom-6 rounded px-1.5 py-0.5 text-[10px] font-semibold shadow-sm transition-opacity">
+                                        <span x-text="keepBg[id] ? 'KEEP BG' : 'keep bg?'"></span>
+                                    </button>
+
+                                    <template x-if="keepBg[id]">
+                                        <input type="hidden" :name="`groups[{{ $group->id }}][keep_bg][]`" :value="id">
                                     </template>
 
                                     <span x-show="lifestyle > 0" x-cloak
@@ -291,13 +313,39 @@
             // Seeded from what was stored, so reopening the screen shows the
             // same answer it was left with.
             asIs: Object.fromEntries(ids.map(id => [id, !! (photos[id] || {}).asIs])),
+            keepBg: Object.fromEntries(ids.map(id => [id, !! (photos[id] || {}).keepBg])),
 
             get asIsCount() {
                 return Object.values(this.asIs).filter(Boolean).length;
             },
 
+            get keepBgCount() {
+                return Object.values(this.keepBg).filter(Boolean).length;
+            },
+
+            // The two are alternatives, not layers: untouched never reaches
+            // Photoroom, so it cannot also be asking Photoroom for a reframe.
+            // Turning one on turns the other off rather than leaving a state
+            // the form would have to arbitrate.
             toggleAsIs(id) {
                 this.asIs[id] = ! this.asIs[id];
+
+                if (this.asIs[id]) {
+                    this.keepBg[id] = false;
+                }
+
+                window.dispatchEvent(new CustomEvent('photo-credits-changed'));
+            },
+
+            toggleKeepBg(id) {
+                this.keepBg[id] = ! this.keepBg[id];
+
+                if (this.keepBg[id]) {
+                    this.asIs[id] = false;
+                }
+
+                // Still billable either way, so the credit estimate does not
+                // move — but it does when this clears an untouched tick.
                 window.dispatchEvent(new CustomEvent('photo-credits-changed'));
             },
 

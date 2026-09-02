@@ -257,6 +257,8 @@ class PhotoEditorController extends Controller implements HasMiddleware
             'groups.*.order.*'         => ['integer'],
             'groups.*.as_is'           => ['nullable', 'array'],
             'groups.*.as_is.*'         => ['integer'],
+            'groups.*.keep_bg'         => ['nullable', 'array'],
+            'groups.*.keep_bg.*'       => ['integer'],
         ]);
 
         // The run's own settings, which every group follows unless it opted out.
@@ -292,6 +294,7 @@ class PhotoEditorController extends Controller implements HasMiddleware
 
             $this->saveOrder($session, (array) ($input['order'] ?? []));
             $this->saveUntouched($session, $group->sku, (array) ($input['as_is'] ?? []));
+            $this->saveKeptBackgrounds($session, $group->sku, (array) ($input['keep_bg'] ?? []), (array) ($input['as_is'] ?? []));
 
             // A count without a photo to build from would queue work that can
             // only fail, so it is refused here rather than at the API.
@@ -497,6 +500,37 @@ class PhotoEditorController extends Controller implements HasMiddleware
 
         if ($itemIds) {
             $scope()->whereIn('id', $itemIds)->update(['skip_edit' => true]);
+        }
+    }
+
+    /**
+     * Mark which of a SKU's photos keep the background they came with.
+     *
+     * These still go through Photoroom and still cost a credit — they are
+     * asking for the canvas, padding and alignment their group is set to, with
+     * only the erase switched off. That is the difference from an untouched
+     * photo, which never reaches the API.
+     *
+     * A photo cannot be both. "Untouched" is the stronger statement — it means
+     * the file is already right — so anything ticked as untouched is dropped
+     * from this list rather than being sent to Photoroom by a contradiction
+     * between two checkboxes.
+     *
+     * Written for the whole SKU, and scoped to the session, for the reasons
+     * saveUntouched is.
+     */
+    private function saveKeptBackgrounds(PhotoEditSession $session, string $sku, array $itemIds, array $untouchedIds): void
+    {
+        $scope = fn () => PhotoEditItem::where('photo_edit_session_id', $session->id)
+            ->where('sku_detected', $sku)
+            ->where('kind', 'cutout');
+
+        $scope()->update(['keep_background' => false]);
+
+        $itemIds = array_diff($itemIds, $untouchedIds);
+
+        if ($itemIds) {
+            $scope()->whereIn('id', $itemIds)->update(['keep_background' => true]);
         }
     }
 

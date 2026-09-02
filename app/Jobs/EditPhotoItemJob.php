@@ -128,7 +128,7 @@ class EditPhotoItemJob implements ShouldQueue
             $classification = null;
             $onModel        = !empty($edits['virtual_model']);
 
-            if ($photoroom->generatesOwnCanvas($edits) && !$onModel) {
+            if ($photoroom->generatesOwnCanvas($edits) && !$onModel && !$item->keep_background) {
                 try {
                     $classification = $gemini->classifyGarmentView($raw);
                 } catch (\Throwable $e) {
@@ -139,7 +139,26 @@ class EditPhotoItemJob implements ShouldQueue
             $itemEdits   = $edits;
             $appliedMode = 'none';
 
-            if ($photoroom->generatesOwnCanvas($edits)) {
+            /*
+             * This photo is here for the framing, not the cutout. Its
+             * background is the point — a detail shot, or a frame the
+             * photographer composed — so it goes to Photoroom to be put on the
+             * same canvas at the same size as its siblings, with the erase
+             * switched off.
+             *
+             * It overrides the redraw modes too. Ghost mannequin, flat lay and
+             * virtual model all build a new canvas from scratch, which cannot
+             * mean anything for a photo whose whole point is the background it
+             * already has.
+             */
+            if ($item->keep_background) {
+                $itemEdits['remove_background'] = false;
+                $itemEdits['ghost_mannequin']   = false;
+                $itemEdits['flat_lay']          = false;
+                $itemEdits['virtual_model']     = false;
+
+                $appliedMode = 'kept_background';
+            } elseif ($photoroom->generatesOwnCanvas($edits)) {
                 if ($onModel) {
                     // Photoroom builds the whole scene, mannequin and all — a
                     // separate erase pass would only be a wasted request.
