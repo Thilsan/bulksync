@@ -228,6 +228,51 @@ class PhotoEditorFramingTest extends TestCase
     }
 
     /**
+     * Beauty was measured, not inherited.
+     *
+     * The request was to reuse perfume's framing. The samples say otherwise:
+     * a YSL concealer sits at 8.6% and fills 82.8%, where perfume sits at
+     * 10.3%/10.6% and fills 79.1%. Copying perfume across would have framed
+     * every beauty product about 2% smaller than the catalogue does, which is
+     * the same mistake the perfume preset itself made twice by carrying a
+     * percentage over from a canvas it was not measured on.
+     */
+    public function test_beauty_keeps_its_own_measurement_rather_than_perfumes(): void
+    {
+        $beauty  = $this->layoutFields(PhotoroomService::applyFramingPreset([], 'beauty/makeup'));
+        $perfume = $this->layoutFields(PhotoroomService::applyFramingPreset([], 'perfume'));
+
+        $this->assertSame('0.086', $beauty['padding'] ?? null);
+        $this->assertNotSame($perfume['padding'] ?? null, $beauty['padding'] ?? null,
+            'beauty has quietly been given perfume\'s framing');
+    }
+
+    /**
+     * Both shots of the sample product agree on 8.6%, one bound by its height
+     * and one by its width — so the preset has to be a single padding applied
+     * to whichever edge binds, not a height rule.
+     */
+    public function test_beauty_is_centred_on_both_axes(): void
+    {
+        $fields = $this->layoutFields(PhotoroomService::applyFramingPreset([], 'beauty/makeup'));
+
+        $this->assertSame('center', $fields['verticalAlignment'] ?? null);
+        $this->assertSame('center', $fields['horizontalAlignment'] ?? null);
+        $this->assertArrayNotHasKey('paddingBottom', $fields,
+            'a swatch photographed flat has no bottom edge to stand on');
+    }
+
+    /** Skin care follows makeup until somebody measures a jar. */
+    public function test_skincare_follows_makeup(): void
+    {
+        $makeup   = $this->layoutFields(PhotoroomService::applyFramingPreset([], 'beauty/makeup'));
+        $skincare = $this->layoutFields(PhotoroomService::applyFramingPreset([], 'beauty/skincare'));
+
+        $this->assertSame($makeup['padding'] ?? null, $skincare['padding'] ?? null);
+        $this->assertSame($makeup['outputSize'] ?? null, $skincare['outputSize'] ?? null);
+    }
+
+    /**
      * The categories that stand on a line, and only those.
      *
      * Two kinds of product need one. A bag category holds a flat clutch and a

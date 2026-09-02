@@ -391,6 +391,55 @@ class PhotoroomService
             ],
         ],
 
+        'beauty' => [
+            'label'         => 'Beauty',
+            'subcategories' => [
+                'makeup' => [
+                    'label' => 'Makeup',
+                    'note'  => 'Measured: 8.6% padding, centred, filling 82.8% of the 2000x2000 canvas. Tighter than perfume and centred rather than stood on a line — a beauty range mixes upright packaging with swatches and jars laid flat, and a swatch has no bottom edge to stand on.',
+                    'edits' => [
+                        'width'  => 2000,
+                        'height' => 2000,
+
+                        /*
+                         * Measured off a live YSL concealer on the catalogue,
+                         * exported square, in both of its shots — and the pair
+                         * is what makes the number trustworthy rather than a
+                         * single reading. The packaging shot is bound by its
+                         * height and leaves 8.6% above and below; the swatch
+                         * shot is bound by its width and leaves 8.6% left and
+                         * right. One constant, applied to whichever edge binds,
+                         * which is exactly what Photoroom's padding does.
+                         *
+                         * Deliberately not perfume's numbers, which were
+                         * checked against these samples first and do not match:
+                         * perfume sits at 10.3%/10.6% and fills 79.1%, about 2%
+                         * looser, and stands on a base line. Copying it here
+                         * would have framed every beauty product smaller than
+                         * the catalogue does.
+                         *
+                         * Centred, with no padding_bottom. Perfume earns its
+                         * base line because every product in it is a bottle
+                         * standing up, so a row of them wants one shared floor.
+                         * That does not survive contact with a swatch or a
+                         * palette photographed flat, where there is no bottom
+                         * to align and the shot would be dragged off centre.
+                         */
+                        'padding' => 0.086,
+                    ],
+                ],
+                'skincare' => [
+                    'label' => 'Skin Care',
+                    'note'  => 'Follows Makeup at 8.6% centred, unmeasured. No skincare sample was supplied, and the two sit side by side in the same catalogue — worth measuring a jar and a tube before it is trusted, since a squat jar may want the canvas filled harder than a tall tube.',
+                    'edits' => [
+                        'width'   => 2000,
+                        'height'  => 2000,
+                        'padding' => 0.086,
+                    ],
+                ],
+            ],
+        ],
+
         'watches_jewellery' => [
             'label'         => 'Watches & Jewellery',
             'subcategories' => [
@@ -716,6 +765,9 @@ class PhotoroomService
         'kids/footwear'   => 'the shoes',
 
         'perfume'                     => 'the perfume bottle',
+
+        'beauty/makeup'               => 'the makeup product',
+        'beauty/skincare'             => 'the skincare product',
 
         'watches_jewellery/watches'   => 'the watch',
         'watches_jewellery/jewellery' => 'the jewellery',
