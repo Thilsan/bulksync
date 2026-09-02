@@ -359,31 +359,35 @@ class PhotoroomService
          */
         'perfume' => [
             'label' => 'Perfume',
-            'note'  => 'The glass lands 9% up from the bottom, filling 86% of the height — matching the catalogue\'s own perfume shots, which measure 9.6% and 86%. Bottom-aligned like bags rather than centred like a garment: bottles vary in height, and a row of them wants to stand on one line rather than float at different ones.',
+            'note'  => 'The bottle stands on a line 8.5% up from the bottom — the same line the catalogue\'s own perfume shots stand on. Bottom-aligned like bags rather than centred like a garment: bottles vary in height, and a row of them wants to stand on one line rather than float at different ones.',
             'edits' => [
                 'width'  => 2000,
                 'height' => 2000,
 
                 /*
-                 * 2.2% at the bottom, not the 9.6% the catalogue measures, and
-                 * the difference is a drop shadow.
+                 * 8.5% is the line itself, with nothing subtracted from it.
                  *
-                 * Photoroom pads from the subject's bounding box, and a soft
-                 * shadow under a bottle is part of that box — it measured 6.2%
-                 * of the frame on the shot this was set from. Ask for 9.6% and
-                 * the shadow takes it, leaving the glass floating 16% up and
-                 * reading 7% smaller than everything already on the site.
-                 * Asking for 2.2% gives the shadow its 6.2% and puts the glass
-                 * on the line.
+                 * Photoroom pads from the subject's bounding box, so a drop
+                 * shadow inside that box would eat the padding and leave the
+                 * glass floating above the line. These bottle cutouts carry no
+                 * drop shadow: what sits under the liquid is the bottle's own
+                 * thick clear glass base, up to 7% of the frame on a BDK-style
+                 * bottle, and that is subject, not shadow. Measured on a
+                 * finished 2.2% render the whole bottle bottoms out at 2.3% —
+                 * padding_bottom and the real bottle bottom are the same
+                 * number here.
                  *
-                 * The cost of that arithmetic: it assumes a shadow. A bottle
-                 * shot without one lands at 2.2% — too low. If shadowless
-                 * perfume shots start arriving, this is the entry that needs
-                 * splitting rather than re-tuning, because no single figure
+                 * An earlier revision read that glass base as a 6.2% shadow
+                 * and subtracted it, which pushed the bottle below the line
+                 * with its base hanging past the canvas floor.
+                 *
+                 * If a supplier's shots ever do arrive with a real drop shadow,
+                 * the shadow will take this 8.5% and the glass will ride high.
+                 * Split this entry rather than re-tuning it — no single figure
                  * suits both.
                  */
                 'padding'        => 0.05,
-                'padding_bottom' => 0.022,
+                'padding_bottom' => 0.085,
                 'v_align'        => 'bottom',
             ],
         ],
