@@ -33,29 +33,33 @@ class PhotoEditorPerEdgeTest extends TestCase
         ])->render();
     }
 
-    /** A fraction on the way in becomes whole pixels in the box. */
-    public function test_a_preset_fraction_reaches_the_form_as_pixels(): void
+    /**
+     * Every preset's fraction reaches the box as whole pixels.
+     *
+     * Derived from each preset rather than written out, because the figures are
+     * tuned — perfume's moved from 10% to 2.2% to allow for a drop shadow —
+     * and a hard-coded pixel count here fails on a preset change without
+     * anything being wrong. What must hold is the conversion, not the value.
+     */
+    public function test_every_preset_fraction_reaches_the_form_as_pixels(): void
     {
-        $html = $this->render(
-            PhotoroomService::applyFramingPreset(PhotoroomService::defaultEdits(), 'perfume'),
+        $withBaseline = array_filter(
+            PhotoroomService::framingPresetsFlat(),
+            fn (array $preset) => isset($preset['edits']['padding_bottom']),
         );
 
-        preg_match('/padBottom:\s*([^,\s]+)/', $html, $m);
+        $this->assertNotEmpty($withBaseline, 'no preset has a base line, so this proves nothing');
 
-        $this->assertSame('200', $m[1] ?? null,
-            '10% of a 2000 canvas should reach the box as 200 pixels, not as 0.1');
-    }
+        foreach ($withBaseline as $key => $preset) {
+            $edits    = PhotoroomService::applyFramingPreset(PhotoroomService::defaultEdits(), $key);
+            $expected = (string) (int) round($preset['edits']['padding_bottom'] * $preset['edits']['height']);
 
-    /** Bags carry one too, and 20% of 2000 is 400. */
-    public function test_the_bags_baseline_reaches_the_form_as_pixels(): void
-    {
-        $html = $this->render(
-            PhotoroomService::applyFramingPreset(PhotoroomService::defaultEdits(), 'women/bags'),
-        );
+            preg_match('/padBottom:\s*([^,\s]+)/', $this->render($edits), $m);
 
-        preg_match('/padBottom:\s*([^,\s]+)/', $html, $m);
-
-        $this->assertSame('400', $m[1] ?? null);
+            $this->assertSame($expected, $m[1] ?? null,
+                "{$key}: {$preset['edits']['padding_bottom']} of {$preset['edits']['height']} should reach the box "
+                . "as {$expected} pixels, not as a fraction");
+        }
     }
 
     /** A value already in pixels is left as it is. */
