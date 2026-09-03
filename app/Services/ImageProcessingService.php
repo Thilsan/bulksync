@@ -8,6 +8,7 @@ use Intervention\Image\Encoders\JpegEncoder;
 use Intervention\Image\Encoders\PngEncoder;
 use Intervention\Image\Encoders\WebpEncoder;
 use Intervention\Image\ImageManager;
+use Intervention\Image\Interfaces\ImageInterface;
 use Intervention\Image\Drivers\Gd\Driver as GdDriver;
 use Intervention\Image\Drivers\Imagick\Driver as ImagickDriver;
 
@@ -42,6 +43,61 @@ class ImageProcessingService
     }
 
     /**
+     * Decode bytes into an image, in a colorspace the rest of the library can
+     * name.
+     *
+     * Intervention asks Imagick what colorspace an image is in and maps the
+     * answer onto its own small list — CMYK, sRGB, RGB, HSL, HSB. An AVIF does
+     * not decode into any of them: Imagick reports it as YCbCr, the analyzer
+     * runs out of arms, and the whole operation dies with "Failed to analyze
+     * colorspace" before a single line of our own work has run. That is what
+     * put eleven .avif files on the failed list with an error that says nothing
+     * about AVIF.
+     *
+     * Only the unmappable ones are touched, so CMYK still reaches the CMYK
+     * handling that was deliberately put there. And it is a conversion, not a
+     * relabel — transformImageColorspace moves the pixels, where setColorspace
+     * would only rename what they claim to be and leave the colours wrong.
+     *
+     * GD has no such problem and no such API, so this is a no-op there.
+     */
+    private function decode(string $imageContent): ImageInterface
+    {
+        $img = $this->manager->decode($imageContent);
+
+        if (!extension_loaded('imagick')) {
+            return $img;
+        }
+
+        $native = $img->core()->native();
+
+        if (!$native instanceof \Imagick) {
+            return $img;
+        }
+
+        $mappable = [
+            \Imagick::COLORSPACE_CMYK,
+            \Imagick::COLORSPACE_SRGB,
+            \Imagick::COLORSPACE_RGB,
+            \Imagick::COLORSPACE_HSL,
+            \Imagick::COLORSPACE_HSB,
+        ];
+
+        try {
+            if (!in_array($native->getImageColorspace(), $mappable, true)) {
+                $native->transformImageColorspace(\Imagick::COLORSPACE_SRGB);
+            }
+        } catch (\Throwable $e) {
+            // Better a picture in an odd colorspace than no picture: the
+            // analyzer may still cope, and if it does not the caller's own
+            // error is more informative than one thrown from in here.
+            Log::warning('ImageProcessingService: could not normalise colorspace', ['error' => $e->getMessage()]);
+        }
+
+        return $img;
+    }
+
+    /**
      * Shrink an image for sending to a vision AI API — vision models don't need
      * full resolution to identify colors/textures/details, and smaller images
      * mean fewer tokens and faster uploads. Never upscales. Does not touch the
@@ -49,7 +105,7 @@ class ImageProcessingService
      */
     public function scaleDownForAnalysis(string $imageContent, int $maxDimension = 1024, int $maxBytes = 1_500_000): string
     {
-        $img = $this->manager->decode($imageContent);
+        $img = $this->decode($imageContent);
         $img->scaleDown($maxDimension, $maxDimension);
         $result = $img->encode(new JpegEncoder(quality: 85))->toString();
 
@@ -84,7 +140,7 @@ class ImageProcessingService
 
         // orient() applies the flag to the pixels and clears it, so every later
         // decode in the pipeline sees an image that needs no interpretation.
-        return $this->manager->decode($imageContent)
+        return $this->decode($imageContent)
             ->orient()
             ->encode(new JpegEncoder(quality: 95))
             ->toString();
@@ -122,7 +178,7 @@ class ImageProcessingService
 
         // No background is exposed by a quarter or half turn, so the fill
         // colour rotate() would use never reaches a pixel.
-        $img = $this->manager->decode($imageContent)->rotate($degrees);
+        $img = $this->decode($imageContent)->rotate($degrees);
 
         // A cutout has to stay a PNG on the way out: JPEG has no alpha, so
         // re-encoding one here would hand Photoroom a subject sitting on
@@ -157,7 +213,7 @@ class ImageProcessingService
             return $imageContent;
         }
 
-        $img    = $this->manager->decode($imageContent);
+        $img    = $this->decode($imageContent);
         $height = $img->height();
         $offset = (int) round($height * $top);
         $keep   = $height - $offset - (int) round($height * $bottom);
@@ -193,7 +249,7 @@ class ImageProcessingService
         }
 
         // Unreadable header (CMYK TIFF and friends) — pay for the decode.
-        $img = $this->manager->decode($imageContent);
+        $img = $this->decode($imageContent);
 
         return $img->width() > $img->height();
     }
@@ -237,7 +293,7 @@ class ImageProcessingService
      */
     public function thumbnail(string $imageContent, int $maxDimension = 420, bool $preserveAlpha = false): string
     {
-        $img = $this->manager->decode($imageContent);
+        $img = $this->decode($imageContent);
         $img->scaleDown($maxDimension, $maxDimension);
 
         return $preserveAlpha
@@ -267,7 +323,7 @@ class ImageProcessingService
     {
         $imageContent = $this->capPixelCount($imageContent);
 
-        $encode = fn (int $quality) => $this->manager->decode($imageContent)
+        $encode = fn (int $quality) => $this->decode($imageContent)
             ->encode(new JpegEncoder(quality: $quality))
             ->toString();
 
@@ -328,7 +384,7 @@ class ImageProcessingService
             return $imageContent;
         }
 
-        $result = $this->manager->decode($imageContent)
+        $result = $this->decode($imageContent)
             ->encode(new JpegEncoder(quality: self::START_QUALITY))
             ->toString();
 
@@ -342,14 +398,14 @@ class ImageProcessingService
         while ($lo < $hi) {
             $mid  = (int) ceil(($lo + $hi) / 2);
             $size = strlen(
-                $this->manager->decode($imageContent)
+                $this->decode($imageContent)
                     ->encode(new JpegEncoder(quality: $mid))
                     ->toString()
             );
             if ($size <= $maxBytes) { $lo = $mid; } else { $hi = $mid - 1; }
         }
 
-        $result = $this->manager->decode($imageContent)
+        $result = $this->decode($imageContent)
             ->encode(new JpegEncoder(quality: $lo))
             ->toString();
 
@@ -374,7 +430,7 @@ class ImageProcessingService
         $scale = 0.9;
 
         while (strlen($result) > $maxBytes && $scale > 0.3) {
-            $img    = $this->manager->decode($imageContent);
+            $img    = $this->decode($imageContent);
             $result = $img
                 ->scaleDown((int) ($img->width() * $scale), (int) ($img->height() * $scale))
                 ->encode(new JpegEncoder(quality: self::MIN_QUALITY))
@@ -391,7 +447,7 @@ class ImageProcessingService
         // (5000 × 5000 is 25 MP) — shrink the target, keeping its aspect ratio.
         [$width, $height] = $this->clampToPixelLimit($width, $height);
 
-        $img = $this->manager->decode($imageContent);
+        $img = $this->decode($imageContent);
         $img->cover($width, $height);
         $result = $img->encode(new JpegEncoder(quality: self::START_QUALITY))->toString();
 
@@ -404,20 +460,20 @@ class ImageProcessingService
 
         while ($lo < $hi) {
             $mid  = (int) ceil(($lo + $hi) / 2);
-            $img  = $this->manager->decode($imageContent);
+            $img  = $this->decode($imageContent);
             $img->cover($width, $height);
             $size = strlen($img->encode(new JpegEncoder(quality: $mid))->toString());
 
             if ($size <= $maxBytes) { $lo = $mid; } else { $hi = $mid - 1; }
         }
 
-        $final = $this->manager->decode($imageContent);
+        $final = $this->decode($imageContent);
         $final->cover($width, $height);
         $result = $final->encode(new JpegEncoder(quality: $lo))->toString();
 
         $scale = 0.9;
         while (strlen($result) > $maxBytes && $scale > 0.3) {
-            $img    = $this->manager->decode($imageContent);
+            $img    = $this->decode($imageContent);
             $img->cover((int) ($width * $scale), (int) ($height * $scale));
             $result = $img->encode(new JpegEncoder(quality: self::MIN_QUALITY))->toString();
             $scale -= 0.1;
@@ -441,7 +497,7 @@ class ImageProcessingService
         }
 
         // Unreadable header (CMYK TIFF and friends) — fall back to decoding.
-        $img    = $this->manager->decode($imageContent);
+        $img    = $this->decode($imageContent);
         $pixels = $img->width() * $img->height();
 
         if ($pixels <= self::MAX_PIXELS) {
@@ -474,7 +530,7 @@ class ImageProcessingService
         }
 
         try {
-            $img = $this->manager->decode($imageContent);
+            $img = $this->decode($imageContent);
         } catch (\Throwable $e) {
             // Better an image Shopify may refuse than no image at all: the
             // caller still has bytes that a person can look at and re-run.
