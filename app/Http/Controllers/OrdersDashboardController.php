@@ -5,7 +5,6 @@ namespace App\Http\Controllers;
 use App\Models\User;
 use App\Services\OrdersSummaryService;
 use App\Support\OrdersSummary;
-use App\Support\ProductCreationSummary;
 use App\Support\WorkspaceSummary;
 use Illuminate\Container\Attributes\CurrentUser;
 use Illuminate\Http\Request;
@@ -77,7 +76,6 @@ class OrdersDashboardController extends Controller
                 'result'    => ['ok' => true, 'status' => 100, 'message' => '', 'data' => null],
                 'summary'   => null,
                 'platforms' => $this->platformList(null, $filters['platforms']),
-                'products'  => null,
                 'fallback'  => null,
                 'workspace' => WorkspaceSummary::for($user),
             ]);
@@ -109,7 +107,6 @@ class OrdersDashboardController extends Controller
             'result'    => $result,
             'summary'   => $result['ok'] && $result['data'] ? $this->shape($result['data'], $previous['data'] ?? null) : null,
             'platforms' => $this->platformList($result['data'] ?? null, $filters['platforms']),
-            'products'  => ProductCreationSummary::for($user, $filters['from']->copy()->startOfDay(), $filters['to']->copy()->endOfDay()),
             'fallback'  => $this->fallbackRange($filters),
             'workspace' => null,
         ]);

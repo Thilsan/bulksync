@@ -3,8 +3,6 @@
 namespace Tests\Feature;
 
 use App\Models\PhotoEditSession;
-use App\Models\ProductRequest;
-use App\Models\ProductRequestDraftProduct;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
@@ -666,67 +664,5 @@ class OrdersDashboardTest extends TestCase
 
         $this->assertStringNotContainsString('Photo Editor', $body);
         $this->assertStringNotContainsString('Not mine to see', $body);
-    }
-
-    // ── Product creation ─────────────────────────────────────────────────────
-
-    public function test_the_product_creation_panel_counts_requests_skus_and_uploads(): void
-    {
-        $this->fakeOk();
-
-        $open = $this->request(['status' => ProductRequest::WAITING_MAPPING, 'total_skus' => 30, 'mapped_skus' => 18, 'pending_skus' => 7, 'not_mapped_skus' => 5]);
-        $this->request(['status' => ProductRequest::PUBLISHED, 'total_skus' => 12, 'mapped_skus' => 12, 'published_at' => now()->subDay()]);
-        $this->request(['status' => ProductRequest::SUBMITTED, 'total_skus' => 8, 'on_hold' => true]);
-
-        ProductRequestDraftProduct::create([
-            'product_request_id' => $open->id, 'handle' => 'a-shirt', 'title' => 'A Shirt',
-            'push_status' => ProductRequestDraftProduct::PUSHED, 'pushed_at' => now()->subHours(2),
-        ]);
-        ProductRequestDraftProduct::create([
-            'product_request_id' => $open->id, 'handle' => 'b-shirt', 'title' => 'B Shirt',
-            'push_status' => ProductRequestDraftProduct::FAILED,
-        ]);
-
-        $this->actingAs($this->admin)
-            ->get(route('orders.dashboard'))
-            ->assertOk()
-            ->assertSee('Product creation')
-            ->assertSee('Waiting on brand managers to map')
-            ->assertSee('Open by stage')
-            ->assertSee('Waiting for Mapping');
-    }
-
-    /**
-     * Requested and published are counted inside the range; what is still open
-     * is counted as it stands, or a request stuck since June disappears the
-     * moment somebody looks at this week.
-     */
-    public function test_open_requests_are_counted_outside_the_date_range(): void
-    {
-        $this->fakeOk();
-
-        $this->request(['status' => ProductRequest::WAITING_MAPPING, 'created_at' => now()->subYear()]);
-
-        $response = $this->actingAs($this->admin)
-            ->get(route('orders.dashboard', ['preset' => 'today']))
-            ->assertOk();
-
-        // Raised long before the range, still shown as open work.
-        $this->assertStringContainsString('Waiting for Mapping', $response->getContent());
-    }
-
-    private function request(array $attributes = []): ProductRequest
-    {
-        static $n = 0;
-        $n++;
-
-        return ProductRequest::create(array_merge([
-            'reference' => 'PCR-2026-' . str_pad((string) $n, 5, '0', STR_PAD_LEFT),
-            'user_id'   => $this->admin->id,
-            'brand'     => 'Bluesalon',
-            'category'  => 'Fashion',
-            'status'    => ProductRequest::SUBMITTED,
-            'priority'  => 'medium',
-        ], $attributes));
     }
 }
