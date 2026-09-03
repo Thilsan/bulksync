@@ -54,24 +54,9 @@
                 @endif
             </p>
         </div>
-        <div class="flex items-center gap-2">
-            @if($user->hasFeature('bulk_upload'))
-                <a href="{{ route('upload.create') }}"
-                   class="inline-flex items-center gap-2 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
-                   style="background-color:#1d5a74" onmouseover="this.style.backgroundColor='#164659'" onmouseout="this.style.backgroundColor='#1d5a74'">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
-                    </svg>
-                    New Upload
-                </a>
-            @endif
-            @if($user->hasFeature('product_request'))
-                <a href="{{ route('product-requests.index') }}"
-                   class="inline-flex items-center gap-2 border border-gray-300 text-gray-700 text-sm font-medium px-4 py-2 rounded-lg hover:bg-gray-50 transition-colors">
-                    Product Creation Requests
-                </a>
-            @endif
-        </div>
+        {{-- No New Upload / Product Creation Requests buttons here. This is a
+             management view — somewhere to read the numbers, not a place to
+             start work. The home dashboard keeps both. --}}
     </div>
 
     {{-- ── Headline numbers ─────────────────────────────────────────────── --}}

@@ -487,6 +487,36 @@ class OrdersDashboardTest extends TestCase
             ->assertSee('Workload — last 14 days', false);
     }
 
+    /**
+     * A management view is for reading numbers, not starting work — and the
+     * home dashboard, which is where you do start work, keeps its buttons.
+     */
+    public function test_the_studio_tab_drops_the_action_buttons_but_the_home_page_keeps_them(): void
+    {
+        $this->fakeOk();
+
+        $studio = $this->actingAs($this->admin)
+            ->get(route('orders.dashboard', ['tab' => 'studio']))->assertOk()->getContent();
+
+        $home = $this->actingAs($this->admin)
+            ->get(route('dashboard'))->assertOk()->getContent();
+
+        // Both phrases also name links in the sidebar, which is on every page,
+        // so presence alone proves nothing — the tab must have exactly one
+        // fewer of each than the home screen it was copied from.
+        foreach (['New Upload', 'Product Creation Requests'] as $label) {
+            $this->assertSame(
+                substr_count($home, $label) - 1,
+                substr_count($studio, $label),
+                "Expected the studio tab to drop the {$label} button and keep the nav link.",
+            );
+        }
+
+        // The hover colour belongs to the New Upload button and nothing else.
+        $this->assertStringNotContainsString("this.style.backgroundColor='#164659'", $studio);
+        $this->assertStringContainsString("this.style.backgroundColor='#164659'", $home);
+    }
+
     // ── Product creation ─────────────────────────────────────────────────────
 
     public function test_the_product_creation_panel_counts_requests_skus_and_uploads(): void
