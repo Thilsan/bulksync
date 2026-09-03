@@ -24,9 +24,11 @@ use Illuminate\Support\Collection;
  * running". This gathers it in one pass — headline figures, a fortnight of
  * throughput, whatever is running right now, and one merged timeline.
  *
- * It lives here rather than in a controller because two screens show it: the
- * home dashboard, and the AI Studio tab of the management dashboard. One copy
- * means the two can never drift into disagreeing about the same numbers.
+ * This feeds the AI Studio tab of the management dashboard only. It is a
+ * deliberate copy of what DashboardController does for the home screen, which
+ * is left exactly as it is by request — so the two can drift, and a change to
+ * one has to be made in the other by hand. The paired view is
+ * resources/views/orders/studio.blade.php.
  *
  * Everything is scoped the way the modules scope themselves — a super admin
  * sees the whole workspace, everyone else sees their own work — and a module

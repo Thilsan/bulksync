@@ -1,11 +1,13 @@
 {{--
-    The workspace picture: headline numbers, a fortnight of throughput, what is
-    running now, and one merged timeline across every module.
+    The AI Studio tab of the management dashboard: headline numbers, a
+    fortnight of throughput, what is running now, the module cards and one
+    merged timeline across every module.
 
-    Shared by two screens — the home dashboard and the AI Studio tab of the
-    management dashboard — so the two can never drift into showing the same
-    numbers differently. Its data comes from App\Support\WorkspaceSummary; pass
-    that array in whole when including it.
+    This is a deliberate copy of the home dashboard rather than a shared
+    partial — the home screen is left exactly as it is, by request. The cost
+    is that the two can drift: a change made to resources/views/dashboard.blade.php
+    will not appear here unless it is made here too, and the same goes for
+    App\Support\WorkspaceSummary against DashboardController.
 --}}
 @php
     /**

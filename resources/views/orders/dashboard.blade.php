@@ -51,7 +51,7 @@
     </div>
 
     @if($tab === 'studio')
-        @include('partials.workspace-dashboard', $workspace)
+        @include('orders.studio', $workspace)
     @else
 
     {{-- ── Filters ──────────────────────────────────────────────────────────
