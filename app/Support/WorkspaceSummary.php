@@ -36,7 +36,7 @@ use Illuminate\Support\Collection;
  */
 class WorkspaceSummary
 {
-    /** How far back the throughput chart and the "recent" numbers look. */
+    /** How far back the "recent" per-module counts look. */
     private const TREND_DAYS = 14;
 
     /**
@@ -81,7 +81,9 @@ class WorkspaceSummary
             'greeting'    => $this->greeting(),
             'headline'    => $this->headline($upload, $sku, $ai, $requests, $audit),
             'modules'     => $this->modules($upload, $sku, $audit, $migration, $ai, $requests),
-            'trend'       => $this->trend($user, $since),
+
+            // No throughput chart on this tab, so the six grouped queries that
+            // fed it are not run. The greeting still counts what is live.
             'running'     => $this->running($mine, $can),
             'requests'    => $requests,
             'launches'    => $can('product_request') ? $this->launches($user) : collect(),
@@ -90,7 +92,6 @@ class WorkspaceSummary
             'stores'      => $this->stores($user),
             'health'      => $this->health($user),
             'team'        => $user->is_super_admin ? $this->team() : collect(),
-            'trendDays'   => self::TREND_DAYS,
         ];
     }
 
@@ -450,79 +451,6 @@ class WorkspaceSummary
         }
 
         return $cards;
-    }
-
-    // ── Throughput chart ─────────────────────────────────────────────────────
-
-    /**
-     * A day-by-day count of jobs started, per module, for the trend window.
-     * Returned pre-padded so the view can draw bars without any date logic.
-     */
-    private function trend(User $user, Carbon $since): array
-    {
-        $series = [
-            'Uploads'    => ['model' => UploadSession::class,         'feature' => 'bulk_upload',     'class' => 'bg-brand-500'],
-            'SKU checks' => ['model' => SkuCheckSession::class,       'feature' => 'sku_checker',     'class' => 'bg-emerald-500'],
-            'Audits'     => ['model' => ImageAuditSession::class,     'feature' => 'image_audit',     'class' => 'bg-sky-500'],
-            'AI content' => ['model' => AiContentSession::class,      'feature' => 'ai_content',      'class' => 'bg-violet-500'],
-            'Migrations' => ['model' => StoreMigrationSession::class, 'feature' => 'store_sync',      'class' => 'bg-indigo-500'],
-            'Requests'   => ['model' => ProductRequest::class,        'feature' => 'product_request', 'class' => 'bg-amber-500'],
-        ];
-
-        $days = collect(range(0, self::TREND_DAYS - 1))
-            ->map(fn ($offset) => $since->copy()->addDays($offset))
-            ->keyBy(fn (Carbon $day) => $day->toDateString());
-
-        $legend = [];
-        $totals = $days->map(fn () => [])->all();
-
-        foreach ($series as $label => $meta) {
-            if (! $user->hasFeature($meta['feature'])) {
-                continue;
-            }
-
-            $query = $meta['model']::query()->where('created_at', '>=', $since);
-
-            if (! $user->is_super_admin) {
-                $query->where('user_id', $user->id);
-            }
-
-            $counts = $query
-                ->selectRaw('DATE(created_at) as day, COUNT(*) as aggregate')
-                ->groupBy('day')
-                ->pluck('aggregate', 'day');
-
-            $legend[$label] = [
-                'class' => $meta['class'],
-                'total' => (int) $counts->sum(),
-            ];
-
-            foreach ($totals as $date => $stack) {
-                $count = (int) ($counts[$date] ?? 0);
-                if ($count > 0) {
-                    $totals[$date][] = ['label' => $label, 'class' => $meta['class'], 'count' => $count];
-                }
-            }
-        }
-
-        $bars = [];
-        foreach ($days as $date => $day) {
-            $stack = $totals[$date] ?? [];
-            $bars[] = [
-                'date'  => $day,
-                'total' => array_sum(array_column($stack, 'count')),
-                'stack' => $stack,
-            ];
-        }
-
-        $peak = max(1, max(array_column($bars, 'total') ?: [0]));
-
-        return [
-            'bars'   => $bars,
-            'peak'   => $peak,
-            'legend' => $legend,
-            'total'  => array_sum(array_column($bars, 'total')),
-        ];
     }
 
     // ── Live work ────────────────────────────────────────────────────────────

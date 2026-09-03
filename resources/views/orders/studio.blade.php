@@ -84,103 +84,10 @@
     </div>
     @endif
 
-    {{-- ── Throughput + live work ───────────────────────────────────────── --}}
-    <div class="grid grid-cols-1 xl:grid-cols-3 gap-5">
-
-        {{-- Jobs per day. Plain divs rather than a chart library: the numbers are
-             small integers and the page has to render without any JS. --}}
-        <div class="xl:col-span-2 bg-white rounded-xl border border-gray-200 shadow-sm">
-            <div class="px-5 py-3.5 border-b border-gray-100 flex items-center justify-between">
-                <div>
-                    <h3 class="text-sm font-semibold text-gray-800">Workload — last {{ $trendDays }} days</h3>
-                    <p class="text-xs text-gray-400">{{ number_format($trend['total']) }} {{ Str::plural('job', $trend['total']) }} started across every module</p>
-                </div>
-                <div class="hidden sm:flex flex-wrap items-center gap-x-3 gap-y-1 justify-end">
-                    @foreach($trend['legend'] as $label => $line)
-                        <span class="inline-flex items-center gap-1.5 text-xs text-gray-500">
-                            <span class="w-2 h-2 rounded-sm {{ $line['class'] }}"></span>
-                            {{ $label }}
-                            <span class="text-gray-400 tabular-nums">{{ number_format($line['total']) }}</span>
-                        </span>
-                    @endforeach
-                </div>
-            </div>
-
-            <div class="px-5 pt-5 pb-3 relative">
-                @if($trend['total'] === 0)
-                    <div class="absolute inset-0 flex flex-col items-center justify-center text-center pointer-events-none">
-                        <p class="text-sm text-gray-500">No jobs in the last {{ $trendDays }} days</p>
-                        <p class="text-xs text-gray-400 mt-0.5">Bars appear here as work is run.</p>
-                    </div>
-                @endif
-                <div class="flex items-end gap-1.5 h-40 {{ $trend['total'] === 0 ? 'opacity-40' : '' }}">
-                    @foreach($trend['bars'] as $bar)
-                        <div class="flex-1 flex flex-col justify-end items-center h-full group relative">
-                            @if($bar['total'] > 0)
-                                <span class="text-[10px] text-gray-400 tabular-nums mb-1">{{ $bar['total'] }}</span>
-                                <div class="w-full flex flex-col-reverse rounded-t overflow-hidden"
-                                     style="height: {{ max(4, round($bar['total'] / $trend['peak'] * 100)) }}%">
-                                    @foreach($bar['stack'] as $piece)
-                                        <div class="{{ $piece['class'] }} w-full"
-                                             style="flex: {{ $piece['count'] }} 1 0"
-                                             title="{{ $piece['label'] }}: {{ $piece['count'] }}"></div>
-                                    @endforeach
-                                </div>
-                            @else
-                                <div class="w-full h-1 rounded-t bg-gray-100"></div>
-                            @endif
-                        </div>
-                    @endforeach
-                </div>
-                <div class="flex gap-1.5 mt-2 border-t border-gray-100 pt-2">
-                    @foreach($trend['bars'] as $bar)
-                        <div class="flex-1 text-center">
-                            <p class="text-[10px] text-gray-400 leading-tight">{{ $bar['date']->format('d') }}</p>
-                            <p class="text-[9px] text-gray-300 leading-tight uppercase">{{ $bar['date']->format('D') }}</p>
-                        </div>
-                    @endforeach
-                </div>
-            </div>
-        </div>
-
-        {{-- Live work --}}
-        <div class="bg-white rounded-xl border border-gray-200 shadow-sm flex flex-col">
-            <div class="px-5 py-3.5 border-b border-gray-100 flex items-center gap-2">
-                <span class="relative flex h-2 w-2">
-                    @if($running->isNotEmpty())
-                        <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-brand-400 opacity-75"></span>
-                    @endif
-                    <span class="relative inline-flex rounded-full h-2 w-2 {{ $running->isNotEmpty() ? 'bg-brand-500' : 'bg-gray-300' }}"></span>
-                </span>
-                <h3 class="text-sm font-semibold text-gray-800">Running now</h3>
-                <span class="ml-auto text-xs text-gray-400">{{ $running->count() }} active</span>
-            </div>
-
-            @forelse($running as $job)
-                @php $t = $tones[$job['tone']] ?? $tones['gray']; @endphp
-                <a href="{{ $job['url'] }}" class="px-5 py-3 border-b border-gray-50 hover:bg-gray-50/70 transition-colors block">
-                    <div class="flex items-center justify-between gap-2">
-                        <p class="text-sm font-medium text-gray-800 truncate">{{ $job['title'] }}</p>
-                        <span class="text-xs {{ $t['text'] }} shrink-0">{{ $job['percent'] }}%</span>
-                    </div>
-                    <p class="text-xs text-gray-400 mt-0.5">{{ $job['module'] }} · {{ $job['detail'] }}</p>
-                    <div class="mt-2 h-1.5 rounded-full bg-gray-100 overflow-hidden">
-                        <div class="h-full {{ $t['fill'] }} rounded-full" style="width: {{ max(2, $job['percent']) }}%"></div>
-                    </div>
-                </a>
-            @empty
-                <div class="flex-1 flex flex-col items-center justify-center px-5 py-10 text-center">
-                    <div class="w-10 h-10 rounded-full bg-gray-50 flex items-center justify-center mb-2">
-                        <svg class="w-5 h-5 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                        </svg>
-                    </div>
-                    <p class="text-sm text-gray-500">Everything is finished</p>
-                    <p class="text-xs text-gray-400 mt-0.5">No queued or running jobs.</p>
-                </div>
-            @endforelse
-        </div>
-    </div>
+    {{-- No workload chart and no "running now" panel here. Both answer
+         "what is the studio doing this minute", which belongs on the home
+         dashboard where the work is started — this screen is for reading
+         the numbers. The home dashboard keeps both. --}}
 
     {{-- ── Module cards ─────────────────────────────────────────────────── --}}
     @if(count($modules))

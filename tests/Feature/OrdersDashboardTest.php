@@ -441,7 +441,7 @@ class OrdersDashboardTest extends TestCase
             ->get(route('orders.dashboard'))
             ->assertOk()
             ->assertSee('Daily orders and revenue')
-            ->assertDontSee('Workload — last 14 days', false);
+            ->assertDontSee('Connections');
     }
 
     /**
@@ -456,7 +456,7 @@ class OrdersDashboardTest extends TestCase
         $this->actingAs($this->admin)
             ->get(route('orders.dashboard', ['tab' => 'studio']))
             ->assertOk()
-            ->assertSee('Workload — last 14 days', false)
+            ->assertSee('Connections')
             ->assertDontSee('Daily orders and revenue');
 
         Http::assertNothingSent();
@@ -484,14 +484,14 @@ class OrdersDashboardTest extends TestCase
         $this->actingAs($viewer)
             ->get(route('orders.dashboard', ['tab' => 'studio']))
             ->assertOk()
-            ->assertSee('Workload — last 14 days', false);
+            ->assertSee('Connections');
     }
 
     /**
-     * A management view is for reading numbers, not starting work — and the
-     * home dashboard, which is where you do start work, keeps its buttons.
+     * A management view is for reading numbers, not starting or watching work
+     * — and the home dashboard, which is where you do both, keeps all of it.
      */
-    public function test_the_studio_tab_drops_the_action_buttons_but_the_home_page_keeps_them(): void
+    public function test_the_studio_tab_drops_what_belongs_on_the_home_dashboard(): void
     {
         $this->fakeOk();
 
@@ -515,6 +515,12 @@ class OrdersDashboardTest extends TestCase
         // The hover colour belongs to the New Upload button and nothing else.
         $this->assertStringNotContainsString("this.style.backgroundColor='#164659'", $studio);
         $this->assertStringContainsString("this.style.backgroundColor='#164659'", $home);
+
+        // The throughput chart and the live-work panel go the same way.
+        foreach (['Workload', 'Running now', 'jobs started across every module'] as $gone) {
+            $this->assertStringNotContainsString($gone, $studio);
+            $this->assertStringContainsString($gone, $home);
+        }
     }
 
     // ── Product creation ─────────────────────────────────────────────────────
