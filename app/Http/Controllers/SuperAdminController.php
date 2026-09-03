@@ -192,6 +192,7 @@ class SuperAdminController extends Controller
             'perm_metafield_update' => $request->boolean('perm_metafield_update'),
             'perm_product_request'  => $request->boolean('perm_product_request'),
             'perm_photo_editor'     => $request->boolean('perm_photo_editor'),
+            'perm_orders_dashboard' => $request->boolean('perm_orders_dashboard'),
             'pcr_role'              => $request->input('pcr_role') ?: null,
             'pcr_categories'        => $categories ?: null,
             'pcr_brand_categories'  => $brandCategories ?: null,

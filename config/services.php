@@ -136,4 +136,22 @@ return [
         'log_requests' => (bool) env('PHOTOROOM_LOG_REQUESTS', false),
     ],
 
+    /*
+     * The cross-platform orders endpoint on the ecommerce server. One shared
+     * token unlocks revenue for every storefront, so it is read here and sent
+     * from this server — it must never reach the browser.
+     */
+    'orders_api' => [
+        'url'   => env('ORDERS_API_URL', 'https://ecommerce.abuissa.com/ecombackend/dashboard_api/orders_summary.php'),
+        'token' => env('ORDERS_API_TOKEN'),
+
+        /*
+         * The endpoint answers a six-year range in under a second, so anything
+         * near this is the server having stopped answering rather than a slow
+         * query. Two requests go out per page load — the range and the one
+         * before it — and the page waits on both.
+         */
+        'timeout' => (int) env('ORDERS_API_TIMEOUT', 20),
+    ],
+
 ];

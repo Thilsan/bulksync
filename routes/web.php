@@ -4,6 +4,7 @@ use App\Http\Controllers\Auth\LoginController;
 use App\Http\Controllers\BulkUploadController;
 use App\Http\Controllers\ChatController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\OrdersDashboardController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\OneDriveAuthController;
 use App\Http\Controllers\ProductRequestSheetAuthController;
@@ -30,6 +31,10 @@ Route::post('/logout', [LoginController::class, 'logout'])->name('logout');
 Route::middleware('auth')->group(function () {
 
     Route::get('/', [DashboardController::class, 'index'])->name('dashboard');
+
+    // Orders across every storefront. Read-only, and the only screen in the
+    // app whose numbers come from the ecommerce server rather than this one.
+    Route::get('/orders', [OrdersDashboardController::class, 'index'])->name('orders.dashboard');
 
     // Bulk upload
     Route::get('/upload',           [BulkUploadController::class, 'dashboard'])->name('upload.dashboard');
