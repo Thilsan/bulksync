@@ -65,6 +65,8 @@
                     'resumed'        => ['bg-green-100 text-green-700',   'M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z'],
                     'balance_mapped' => ['bg-teal-100 text-teal-700',     'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z'],
                     'reminder'       => ['bg-violet-100 text-violet-700', 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z'],
+                    'mapping_needed' => ['bg-amber-100 text-amber-700',   'M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-.34-.014-.677-.041-1.009z'],
+                    'photos_needed'  => ['bg-pink-100 text-pink-700',     'M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z M15 13a3 3 0 11-6 0 3 3 0 016 0z'],
                     default          => ['bg-brand-100 text-brand-700',   'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2'],
                 };
 
@@ -78,6 +80,8 @@
                     'resumed'        => 'is back in progress',
                     'balance_mapped' => $data['status_label'] ?? 'SKU mapping updated',
                     'reminder'       => 'needs your attention',
+                    'mapping_needed',
+                    'photos_needed'  => $data['status_label'] ?? 'needs your attention',
                     default          => 'is now ' . ($data['status_label'] ?? $data['to_status'] ?? 'updated'),
                 };
             @endphp

@@ -74,46 +74,51 @@ class ProductRequestMappingNeeded extends Notification implements ShouldQueue
     {
         $request = $this->requestForEmail($this->requestId);
         $waiting = count($this->pending);
+        $subject = "[{$this->reference}] {$waiting} " . ($waiting === 1 ? 'SKU needs' : 'SKUs need')
+                 . " mapping in Cegid for {$this->website}";
 
         $mail = (new MailMessage)
-            ->subject("{$this->reference} — {$waiting} SKU(s) need mapping in Cegid for {$this->website}")
-            ->greeting("Hello {$notifiable->name},")
-            ->line("**{$this->brand}** on **{$this->website}**: {$this->mapped} of {$this->total} SKUs are mapped and live.")
-            ->line("**{$waiting}** still need mapping in Cegid before they can go on the website.");
-
-        foreach ($this->summaryRows($request) as $label => $value) {
-            if (filled($value)) {
-                $mail->line("**{$label}:** {$value}");
-            }
-        }
+            ->subject($subject)
+            ->view('emails.product-request.mapping-needed', [
+                'recipientName' => $notifiable->name,
+                'brand'         => $this->brand,
+                'website'       => $this->website,
+                'mapped'        => $this->mapped,
+                'total'         => $this->total,
+                'waiting'       => $waiting,
+                'percent'       => $this->total > 0 ? (int) round($this->mapped / $this->total * 100) : 0,
+                'rows'          => $this->summaryRows($request),
+                'url'           => $this->requestUrl($this->requestId),
+                'subject'       => $subject,
+                'preheader'     => "{$this->mapped} of {$this->total} mapped — {$waiting} still need mapping in Cegid.",
+            ]);
 
         // The list is attached rather than printed: at two SKUs an inline list is
         // friendlier, at two hundred it makes the mail unreadable, and the same
         // file works either way — and can be opened next to Cegid.
-        $mail->attachData(
+        return $mail->attachData(
             $this->csv(),
             "{$this->reference}-needs-mapping.csv",
             ['mime' => 'text/csv'],
         );
-
-        return $mail
-            ->line('The attached CSV lists them. Once they are mapped they appear on the request on their own — the check runs hourly and there is nothing to re-submit.')
-            ->action('Open the request', $this->requestUrl($this->requestId))
-            ->line('The SKUs that are already mapped can be taken forward without waiting for these.');
     }
 
     public function toArray(object $notifiable): array
     {
-        $request = $this->requestForEmail($this->requestId);
+        $waiting = count($this->pending);
 
         return [
-            'type'       => 'mapping_needed',
-            'request_id' => $this->requestId,
-            'reference'  => $this->reference,
-            'title'      => "{$this->reference} — " . count($this->pending) . ' SKU(s) need mapping in Cegid',
-            'body'       => "{$this->mapped} of {$this->total} mapped for {$this->website}.",
-            'url'        => $this->requestUrl($this->requestId),
-            'mine'       => $this->concernsRecipient($request, $notifiable),
+            'kind'         => 'mapping_needed',
+            // Sent to one person because the mapping is theirs to do, so it always
+            // rings — the recipient can be a brand manager found by category who
+            // holds no assignment on the request and did not raise it.
+            'for_me'       => true,
+            'request_id'   => $this->requestId,
+            'reference'    => $this->reference,
+            'brand'        => $this->brand,
+            'status_label' => "{$waiting} " . ($waiting === 1 ? 'SKU needs' : 'SKUs need') . ' mapping in Cegid',
+            'remarks'      => "{$this->mapped} of {$this->total} mapped for {$this->website}.",
+            'actor'        => 'SKU check',
         ];
     }
 

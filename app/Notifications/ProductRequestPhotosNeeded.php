@@ -54,37 +54,37 @@ class ProductRequestPhotosNeeded extends Notification implements ShouldQueue
     public function toMail(object $notifiable): MailMessage
     {
         $request = $this->requestForEmail($this->requestId);
+        $subject = "[{$this->reference}] Photos needed for {$this->brand}";
 
-        $mail = (new MailMessage)
-            ->subject("{$this->reference} — photos needed for {$this->brand}")
-            ->greeting("Hello {$notifiable->name},")
-            ->line("**{$this->brand}** on **{$this->website}** is going to a photoshoot, so the products are needed.")
-            ->line("Please arrange the samples for the {$this->skus} SKU(s) on this request, or send the images if the brand has already supplied them.");
-
-        foreach ($this->summaryRows($request) as $label => $value) {
-            if (filled($value)) {
-                $mail->line("**{$label}:** {$value}");
-            }
-        }
-
-        return $mail
-            ->line("Asked by {$this->askedBy}.")
-            ->action('Open the request', $this->requestUrl($this->requestId))
-            ->line('The shoot is booked from the Photoshoot Schedule once the samples arrive.');
+        return (new MailMessage)
+            ->subject($subject)
+            ->view('emails.product-request.photos-needed', [
+                'recipientName' => $notifiable->name,
+                'brand'         => $this->brand,
+                'website'       => $this->website,
+                'skus'          => $this->skus,
+                'askedBy'       => $this->askedBy,
+                'rows'          => $this->summaryRows($request),
+                'url'           => $this->requestUrl($this->requestId),
+                'subject'       => $subject,
+                'preheader'     => "{$this->brand} is going to a photoshoot — samples for {$this->skus} SKU(s) are needed.",
+            ]);
     }
 
     public function toArray(object $notifiable): array
     {
-        $request = $this->requestForEmail($this->requestId);
-
         return [
-            'type'       => 'photos_needed',
-            'request_id' => $this->requestId,
-            'reference'  => $this->reference,
-            'title'      => "{$this->reference} — photos needed for {$this->brand}",
-            'body'       => "{$this->skus} SKU(s) on {$this->website}, asked by {$this->askedBy}.",
-            'url'        => $this->requestUrl($this->requestId),
-            'mine'       => $this->concernsRecipient($request, $notifiable),
+            'kind'         => 'photos_needed',
+            // Sent to one person because the samples are theirs to arrange, so it
+            // always rings — the recipient can be a brand manager found by category
+            // who holds no assignment on the request and did not raise it.
+            'for_me'       => true,
+            'request_id'   => $this->requestId,
+            'reference'    => $this->reference,
+            'brand'        => $this->brand,
+            'status_label' => "needs photos for {$this->skus} " . ($this->skus === 1 ? 'SKU' : 'SKUs'),
+            'remarks'      => "Samples needed for the photoshoot on {$this->website}.",
+            'actor'        => $this->askedBy,
         ];
     }
 }
