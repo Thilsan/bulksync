@@ -529,6 +529,52 @@ class OrdersDashboardTest extends TestCase
         }
     }
 
+    /**
+     * The studio tab is for reading, not for doing.
+     *
+     * Management asked to look at the numbers, not to start work from here, so
+     * nothing in the tab's own markup is clickable. This counts links inside
+     * the page body — the layout's sidebar, store switcher and notification
+     * bell are the chrome every page carries and are not part of the tab.
+     */
+    public function test_nothing_in_the_studio_tab_is_clickable(): void
+    {
+        $this->fakeOk();
+
+        $studio = $this->actingAs($this->admin)
+            ->get(route('orders.dashboard', ['tab' => 'studio']))->assertOk()->getContent();
+
+        $body = $this->tabBody($studio);
+
+        // Proves the slice caught the real content, so the counts below are
+        // not passing against an empty string.
+        $this->assertStringContainsString('Your modules', $body);
+
+        $this->assertSame(0, substr_count($body, '<a '), 'The studio tab should contain no links.');
+        $this->assertSame(0, substr_count($body, '<button'), 'The studio tab should contain no buttons.');
+        $this->assertSame(0, substr_count($body, '<form'), 'The studio tab should contain no forms.');
+
+        // The calls to action that came with the copied module cards.
+        foreach (['New upload', 'Run a check', 'Start an audit', 'Generate content', 'Open the board'] as $cta) {
+            $this->assertStringNotContainsString($cta, $body);
+        }
+    }
+
+    /**
+     * The tab's own markup — not the tab bar above it, whose two links have to
+     * stay clickable, and not the sidebar and header every screen carries.
+     */
+    private function tabBody(string $html): string
+    {
+        $start = strpos($html, 'data-tab="studio"');
+        $this->assertNotFalse($start, 'Could not find the studio tab in the rendered page.');
+
+        $end = strpos($html, 'Powered by the Abuissa', $start);
+        $this->assertNotFalse($end, 'Could not find the page footer in the rendered page.');
+
+        return substr($html, $start, $end - $start);
+    }
+
     // ── Product creation ─────────────────────────────────────────────────────
 
     public function test_the_product_creation_panel_counts_requests_skus_and_uploads(): void

@@ -2,8 +2,8 @@
 
 namespace App\Console\Commands;
 
-use App\Models\PhotoEditItem;
 use App\Services\PhotoroomService;
+use App\Support\PhotoroomAllowance;
 use Illuminate\Console\Command;
 use Illuminate\Support\Carbon;
 
@@ -27,73 +27,40 @@ class PhotoroomUsage extends Command
 
     protected $description = 'Report Photoroom API requests against the plan allowance';
 
-    /** A sandbox key edits 100 images a day; a live key is billed monthly. */
-    private const SANDBOX_DAILY_CAP = 100;
-
-    /** Statuses that can only be reached by Photoroom having answered. */
-    private const SUCCEEDED = ['edited', 'pushing', 'pushed'];
-
-    public function handle(PhotoroomService $photoroom): int
+    public function handle(PhotoroomService $photoroom, PhotoroomAllowance $allowance): int
     {
-        // The window that matters differs by key. A sandbox key ages each
-        // request out 24 hours after it was made; a live key is billed against
-        // an allowance that resets on the plan's anniversary day.
-        $hours = $this->option('hours') !== null
-            ? max(1, (int) $this->option('hours'))
-            : ($photoroom->isSandbox() ? 24 : $this->hoursSinceReset());
+        $hours = $this->option('hours') !== null ? max(1, (int) $this->option('hours')) : null;
 
-        $since = now()->subHours($hours);
-
-        $items = PhotoEditItem::where('updated_at', '>=', $since)
-            ->get(['status', 'error_message', 'apparel_mode_applied', 'updated_at']);
-
-        $succeeded = $items->whereIn('status', self::SUCCEEDED);
-
-        // A throttled request is refused before Photoroom counts it, so today's
-        // 429s are free. Every other failure still had to be uploaded to earn
-        // its refusal, and was counted.
-        $chargedFailures = $items->where('status', 'failed')
-            ->reject(fn ($i) => $this->wasRefusedUncounted((string) $i->error_message));
-
-        // Mannequin removal is its own request, spent before the edit itself.
-        $extraCalls = $succeeded->where('apparel_mode_applied', 'mannequin_removed')->count();
-
-        $spent = $succeeded->count() + $chargedFailures->count() + $extraCalls;
+        $r     = $allowance->report($hours);
+        $hours = $r['window_hours'];
 
         $this->newLine();
-        $this->line("Photoroom usage, last {$hours}h (since {$since->format('D d M H:i')})");
+        $this->line("Photoroom usage, last {$hours}h (since {$r['since']->format('D d M H:i')})");
         $this->line(str_repeat('─', 56));
-        $this->line(sprintf('  %-34s %d', 'Edits that succeeded', $succeeded->count()));
-        $this->line(sprintf('  %-34s %d', 'Extra mannequin-removal requests', $extraCalls));
-        $this->line(sprintf('  %-34s %d', 'Failures that still cost a request', $chargedFailures->count()));
-        $this->line(sprintf('  %-34s %d', 'Throttled (free, not counted)', $items->count() - $succeeded->count() - $chargedFailures->count()));
+        $this->line(sprintf('  %-34s %d', 'Edits that succeeded', $r['succeeded']));
+        $this->line(sprintf('  %-34s %d', 'Extra mannequin-removal requests', $r['extra_calls']));
+        $this->line(sprintf('  %-34s %d', 'Failures that still cost a request', $r['charged_failures']));
+        $this->line(sprintf('  %-34s %d', 'Throttled (free, not counted)', $r['free_refusals']));
         $this->line(str_repeat('─', 56));
-        $this->line(sprintf('  %-34s %d', 'Requests spent', $spent));
+        $this->line(sprintf('  %-34s %d', 'Requests spent', $r['spent']));
 
-        if ($photoroom->isSandbox()) {
-            $left = self::SANDBOX_DAILY_CAP - $spent;
+        if ($r['is_sandbox']) {
+            $this->line(sprintf('  %-34s %d of %d', 'Sandbox allowance', $r['left'], $r['quota']));
 
-            $this->line(sprintf('  %-34s %d of %d', 'Sandbox allowance', max(0, $left), self::SANDBOX_DAILY_CAP));
-
-            if ($left <= 0) {
+            if ($r['left'] <= 0) {
                 $this->newLine();
                 $this->warn('  Allowance is spent. Capacity returns as each request ages out below.');
             }
+
+            $this->reportRefill($r['succeeded_items'], $hours);
         } else {
-            $quota = max(1, (int) config('services.photoroom.monthly_quota', 1000));
-            $left  = $quota - $spent;
+            $this->line(sprintf('  %-34s %d of %d', 'Monthly allowance', $r['left'], $r['quota']));
+            $this->line(sprintf('  %-34s %s', 'Resets', $r['resets_on']->format('D d M Y')));
 
-            $this->line(sprintf('  %-34s %d of %d', 'Monthly allowance', max(0, $left), $quota));
-            $this->line(sprintf('  %-34s %s', 'Resets', $this->nextReset()->format('D d M Y')));
-
-            if ($left <= 0) {
+            if ($r['left'] <= 0) {
                 $this->newLine();
                 $this->warn('  Monthly allowance is spent. It does not trickle back — it resets on the date above.');
             }
-        }
-
-        if ($photoroom->isSandbox()) {
-            $this->reportRefill($items->whereIn('status', self::SUCCEEDED), $hours);
         }
 
         $this->newLine();
@@ -102,45 +69,6 @@ class PhotoroomUsage extends Command
         $this->newLine();
 
         return self::SUCCESS;
-    }
-
-    /**
-     * Did this failure cost a request?
-     *
-     * Two different messages mean "Photoroom turned us away without counting
-     * it": the raw 429 as it arrives, and the quota marker that then fails the
-     * rest of the batch locally without so much as a connection. Matching only
-     * the first silently bills every item the marker saved.
-     */
-    private function wasRefusedUncounted(string $error): bool
-    {
-        foreach (['throttl', 'quota is exhausted'] as $needle) {
-            if (stripos($error, $needle) !== false) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /** Hours since the allowance last reset, for a monthly-billed key. */
-    private function hoursSinceReset(): int
-    {
-        $day  = min(28, max(1, (int) config('services.photoroom.quota_resets_on', 1)));
-        $last = now()->day >= $day
-            ? now()->startOfDay()->setDay($day)
-            : now()->startOfDay()->subMonthNoOverflow()->setDay($day);
-
-        return max(1, (int) ceil($last->diffInMinutes(now()) / 60));
-    }
-
-    private function nextReset(): Carbon
-    {
-        $day = min(28, max(1, (int) config('services.photoroom.quota_resets_on', 1)));
-
-        return now()->day >= $day
-            ? now()->startOfDay()->addMonthNoOverflow()->setDay($day)
-            : now()->startOfDay()->setDay($day);
     }
 
     /**

@@ -64,22 +64,18 @@
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         @foreach($headline as $tile)
             @php $t = $tones[$tile['tone']] ?? $tones['gray']; @endphp
-            <a href="{{ route($tile['route']) }}"
-               class="bg-white rounded-xl border border-gray-200 shadow-sm p-5 hover:border-gray-300 hover:shadow transition-all group">
+            <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
                 <div class="flex items-start justify-between">
                     <div class="w-10 h-10 rounded-lg {{ $t['bg'] }} {{ $t['text'] }} flex items-center justify-center">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="{{ $tile['icon'] }}"/>
                         </svg>
                     </div>
-                    <svg class="w-4 h-4 text-gray-300 group-hover:text-gray-500 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
-                    </svg>
                 </div>
                 <p class="mt-4 text-3xl font-semibold text-gray-900 tabular-nums leading-none">{{ number_format($tile['value']) }}</p>
                 <p class="mt-1.5 text-sm font-medium text-gray-700">{{ $tile['label'] }}</p>
                 <p class="text-xs text-gray-400 mt-0.5">{{ $tile['note'] }}</p>
-            </a>
+            </div>
         @endforeach
     </div>
     @endif
@@ -135,12 +131,6 @@
                         </div>
                         <p class="text-[11px] text-gray-400 mt-1.5">{{ $module['barNote'] }}</p>
                     </div>
-
-                    <a href="{{ route($module['route']) }}"
-                       class="mt-4 pt-3 border-t border-gray-100 text-xs font-medium {{ $t['text'] }} hover:underline inline-flex items-center gap-1">
-                        {{ $module['link'] }}
-                        <span aria-hidden="true">&rarr;</span>
-                    </a>
                 </div>
             @endforeach
         </div>
@@ -172,7 +162,7 @@
                     @foreach($feed as $event)
                         @php $t = $tones[$event['tone']] ?? $tones['gray']; @endphp
                         <li>
-                            <a href="{{ $event['url'] }}" class="flex items-start gap-3 px-5 py-3 hover:bg-gray-50/70 transition-colors">
+                            <div class="flex items-start gap-3 px-5 py-3">
                                 <span class="w-7 h-7 rounded-lg {{ $t['bg'] }} {{ $t['text'] }} flex items-center justify-center shrink-0 mt-0.5">
                                     <span class="w-1.5 h-1.5 rounded-full {{ $t['fill'] }}"></span>
                                 </span>
@@ -194,7 +184,7 @@
                                         @endif
                                     </p>
                                 </div>
-                            </a>
+                            </div>
                         </li>
                     @endforeach
                 </ul>
@@ -218,7 +208,6 @@
                                 <p class="text-xs text-gray-400 truncate">{{ $item['detail'] }}</p>
                             </div>
                             @if(! $item['ok'])
-                                <a href="{{ route($item['route']) }}" class="text-xs text-brand-600 hover:text-brand-700 font-medium shrink-0">Fix</a>
                             @endif
                         </li>
                     @endforeach
@@ -229,7 +218,6 @@
             <div class="bg-white rounded-xl border border-gray-200 shadow-sm">
                 <div class="px-5 py-3.5 border-b border-gray-100 flex items-center justify-between">
                     <h3 class="text-sm font-semibold text-gray-800">Stores</h3>
-                    <a href="{{ route('stores.index') }}" class="text-xs text-brand-600 hover:text-brand-700 font-medium">Manage &rarr;</a>
                 </div>
                 @if($stores->isEmpty())
                     <p class="px-5 py-6 text-sm text-gray-400 text-center">No store connected yet.</p>
@@ -262,7 +250,6 @@
             <div class="bg-white rounded-xl border border-gray-200 shadow-sm">
                 <div class="px-5 py-3.5 border-b border-gray-100 flex items-center justify-between">
                     <h3 class="text-sm font-semibold text-gray-800">Team</h3>
-                    <a href="{{ route('super-admin.index') }}" class="text-xs text-brand-600 hover:text-brand-700 font-medium">Admin panel &rarr;</a>
                 </div>
                 <ul class="divide-y divide-gray-50">
                     @foreach($team as $member)

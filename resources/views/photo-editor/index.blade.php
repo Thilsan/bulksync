@@ -68,6 +68,57 @@
     </div>
     @endif
 
+    {{-- What the allowance has gone on. Put above the form rather than beside
+         it because it is read before a run is planned, not after: the number
+         that matters is how many photos can still be edited this month, and
+         the one place it was previously available was a shell command. --}}
+    <div class="mb-5 rounded-xl border border-gray-200 bg-white px-5 py-4">
+        <div class="flex flex-wrap items-baseline justify-between gap-2">
+            <p class="text-xs font-medium uppercase tracking-wider text-gray-400">
+                Photoroom {{ $allowance['is_sandbox'] ? 'sandbox allowance' : 'monthly allowance' }}
+            </p>
+            <p class="text-xs text-gray-500">
+                @if ($allowance['is_sandbox'])
+                    Rolling 24 hours — capacity returns as each edit ages out
+                @else
+                    Resets {{ $allowance['resets_on']->format('D d M Y') }}
+                @endif
+            </p>
+        </div>
+
+        <div class="mt-3 grid grid-cols-3 gap-4">
+            <div>
+                <p class="text-2xl font-semibold tabular-nums text-gray-900">{{ number_format($allowance['spent']) }}</p>
+                <p class="text-xs text-gray-500">Edited</p>
+            </div>
+            <div>
+                <p class="text-2xl font-semibold tabular-nums {{ $allowance['left'] ? 'text-emerald-600' : 'text-red-600' }}">
+                    {{ number_format($allowance['left']) }}
+                </p>
+                <p class="text-xs text-gray-500">Left</p>
+            </div>
+            <div>
+                <p class="text-2xl font-semibold tabular-nums text-gray-400">{{ number_format($allowance['quota']) }}</p>
+                <p class="text-xs text-gray-500">Total</p>
+            </div>
+        </div>
+
+        <div class="mt-3 h-1.5 overflow-hidden rounded-full bg-gray-100">
+            <div class="h-full rounded-full {{ $allowance['percent_used'] >= 90 ? 'bg-red-500' : ($allowance['percent_used'] >= 70 ? 'bg-amber-500' : 'bg-brand-500') }}"
+                 style="width: {{ max(2, $allowance['percent_used']) }}%"></div>
+        </div>
+
+        {{-- Counted from our own rows, so it can only undercount — a deleted
+             session takes its requests out of the tally with it. Said plainly
+             rather than left for someone to discover against a real bill. --}}
+        <p class="mt-2 text-xs text-gray-400">
+            Counted from this app's own edits, so treat it as a minimum.
+            @if ($allowance['charged_failures'])
+                Includes {{ $allowance['charged_failures'] }} failed {{ Str::plural('edit', $allowance['charged_failures']) }} that still cost a request.
+            @endif
+        </p>
+    </div>
+
     <form method="POST" action="{{ route('photo-editor.store') }}" @submit="loading = true"
           class="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_20rem] xl:grid-cols-[minmax(0,1fr)_23rem]">
         @csrf

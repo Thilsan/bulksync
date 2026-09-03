@@ -51,7 +51,11 @@
     </div>
 
     @if($tab === 'studio')
-        @include('orders.studio', $workspace)
+        {{-- Read-only by design: management asked to see the numbers, not to
+             start work from here. The marker lets a test hold that line. --}}
+        <div data-tab="studio">
+            @include('orders.studio', $workspace)
+        </div>
     @else
 
     {{-- ── Filters ──────────────────────────────────────────────────────────
