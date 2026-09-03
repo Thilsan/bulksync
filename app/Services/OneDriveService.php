@@ -402,13 +402,47 @@ class OneDriveService
         if (strlen($content) < 4) {
             return false;
         }
-        return str_starts_with($content, "\xFF\xD8")          // JPEG
+
+        if (str_starts_with($content, "\xFF\xD8")             // JPEG
             || str_starts_with($content, "\x89PNG")           // PNG
             || str_starts_with($content, "GIF")               // GIF
             || str_starts_with($content, "BM")                // BMP
             || str_starts_with($content, "\x49\x49\x2A\x00") // TIFF LE
             || str_starts_with($content, "\x4D\x4D\x00\x2A") // TIFF BE
-            || str_contains(substr($content, 0, 16), "WEBP"); // WebP
+            || str_contains(substr($content, 0, 16), "WEBP")   // WebP
+        ) {
+            return true;
+        }
+
+        return self::isAvif($content);
+    }
+
+    /**
+     * AVIF, which has no magic number at byte zero.
+     *
+     * It is an ISO base-media file like MP4: the first box is a length, then
+     * "ftyp", then the brands that say what the file actually is. So the brand
+     * is what gets checked, not the box — HEIC and video share the container
+     * and are not files this pipeline can open.
+     *
+     * Missing this was not a cosmetic gap. Every download path here is gated on
+     * isImageBytes, so an AVIF was fetched successfully four times over, judged
+     * not to be an image each time, and reported as "all download methods
+     * failed" — a network-sounding error for a file that had arrived intact.
+     * The scanner had already accepted the extension, so the two halves
+     * disagreed about whether AVIF was supported at all.
+     */
+    private static function isAvif(string $content): bool
+    {
+        if (substr($content, 4, 4) !== 'ftyp') {
+            return false;
+        }
+
+        // Major brand sits at byte 8; compatible brands follow it, and a file
+        // branded "mif1" can still declare "avif" among them.
+        $brands = substr($content, 8, 24);
+
+        return str_contains($brands, 'avif') || str_contains($brands, 'avis');
     }
 
     /**
