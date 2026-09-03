@@ -445,6 +445,49 @@ class PhotoroomService
             'subcategories' => [
                 'watches'   => ['label' => 'Watches',   'note' => 'House rule, unmeasured: 10% around a 2000 square. A small product may want the canvas filled harder — worth sampling before it is trusted.', 'edits' => ['width' => 2000, 'height' => 2000, 'padding' => 0.10]],
                 'jewellery' => ['label' => 'Jewellery', 'note' => 'House rule, unmeasured: 10% around a 2000 square. A small product may want the canvas filled harder — worth sampling before it is trusted.', 'edits' => ['width' => 2000, 'height' => 2000, 'padding' => 0.10]],
+                'rings'     => [
+                    'label' => 'Rings',
+                    'note'  => 'Measured: 20.1% around a 2000 square, centred, the ring filling 59.8% of the height. Twice the padding of every other category — a ring is small and read close up, and the catalogue gives it room rather than filling the canvas with it.',
+                    'edits' => [
+                        'width'  => 2000,
+                        'height' => 2000,
+
+                        /*
+                         * Measured off a Blue Salon ring on a square export:
+                         * 20.1% above, 59.8% of the height filled, 20.1% below.
+                         * The three close to 100, so the padding is the whole
+                         * story and no per-edge override is needed.
+                         *
+                         * Twice the padding of anything else here, and that is
+                         * the finding rather than a rounding. The house rule
+                         * this category inherited was 10%, which would have
+                         * filled 80% of the canvas with a ring instead of 60% —
+                         * a third too large, and conspicuous beside every other
+                         * ring already on the site. Jewellery's own note warns
+                         * that a small product may want the canvas filled
+                         * harder; a ring turns out to want the opposite, which
+                         * is why it was worth measuring rather than reasoning
+                         * about.
+                         *
+                         * Centred, and deliberately so rather than by default.
+                         * Perfume and bags stand on a base line because a row of
+                         * bottles or a row of handbags reads as a row only when
+                         * they share a floor. A ring has no floor to stand on:
+                         * it is photographed upright, on its side, or flat, and
+                         * it is round enough that neither edge is obviously its
+                         * bottom. Pinned to one, a band shot flat would sit low
+                         * and an upright ring would sit high, which is the exact
+                         * raggedness a base line is meant to prevent. The
+                         * measurement agrees: 20.1 above and 20.1 below.
+                         *
+                         * Its own subcategory rather than folded into Jewellery
+                         * because 20.1% is nothing like jewellery's 10%, and
+                         * because "the ring" is a better thing to ask Photoroom
+                         * to cut out than "the jewellery".
+                         */
+                        'padding' => 0.201,
+                    ],
+                ],
             ],
         ],
     ];
@@ -771,6 +814,7 @@ class PhotoroomService
 
         'watches_jewellery/watches'   => 'the watch',
         'watches_jewellery/jewellery' => 'the jewellery',
+        'watches_jewellery/rings'     => 'the ring',
     ];
 
     /** What a category calls its product, or null if it has no name for it. */

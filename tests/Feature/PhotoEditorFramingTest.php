@@ -273,6 +273,48 @@ class PhotoEditorFramingTest extends TestCase
     }
 
     /**
+     * A ring is centred on purpose, not by omission.
+     *
+     * Perfume and bags stand on a base line because a row of them reads as a
+     * row only when they share a floor. A ring has no floor: it is shot
+     * upright, on its side or flat, and it is round enough that neither edge
+     * is its bottom — so pinning it to one would make a flat band sit low and
+     * an upright ring sit high, which is the raggedness a base line exists to
+     * prevent.
+     */
+    public function test_rings_are_centred_and_stand_on_no_line(): void
+    {
+        $fields = $this->layoutFields(PhotoroomService::applyFramingPreset([], 'watches_jewellery/rings'));
+
+        $this->assertSame('center', $fields['verticalAlignment'] ?? null);
+        $this->assertSame('center', $fields['horizontalAlignment'] ?? null);
+        $this->assertArrayNotHasKey('paddingBottom', $fields);
+        $this->assertSame('2000x2000', $fields['outputSize'] ?? null);
+    }
+
+    /**
+     * The measurement, pinned so it cannot drift back to the house rule it
+     * replaced. 10% would fill 80% of the canvas with a ring where the
+     * catalogue fills 60% — a third too large beside every ring already on the
+     * site, and the reason this was measured rather than reasoned about.
+     */
+    public function test_rings_keep_the_padding_they_were_measured_at(): void
+    {
+        $rings     = $this->layoutFields(PhotoroomService::applyFramingPreset([], 'watches_jewellery/rings'));
+        $jewellery = $this->layoutFields(PhotoroomService::applyFramingPreset([], 'watches_jewellery/jewellery'));
+
+        $this->assertSame('0.201', $rings['padding'] ?? null);
+        $this->assertNotSame($jewellery['padding'] ?? null, $rings['padding'] ?? null,
+            'rings have quietly been given the house rule they were measured away from');
+    }
+
+    /** Its own noun cuts out better than the category's. */
+    public function test_a_ring_is_named_as_a_ring_for_segmentation(): void
+    {
+        $this->assertSame('the ring', PhotoroomService::productNoun('watches_jewellery/rings'));
+    }
+
+    /**
      * The categories that stand on a line, and only those.
      *
      * Two kinds of product need one. A bag category holds a flat clutch and a
