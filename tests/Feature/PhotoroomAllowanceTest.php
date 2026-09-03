@@ -131,6 +131,44 @@ class PhotoroomAllowanceTest extends TestCase
         $this->assertNull($r['resets_on'], 'a rolling window has no reset date');
     }
 
+    /**
+     * The history page is the Photo Editor's dashboard, so it carries both the
+     * allowance and the running totals — and the totals are summed over every
+     * session rather than the twenty on the page, since a total that changed
+     * when you turned the page would not be one.
+     */
+    public function test_the_history_page_totals_every_session_not_just_the_page(): void
+    {
+        config(['services.photoroom.api_key' => 'live_sk_test']);
+
+        $user = User::factory()->create(['is_active' => true, 'perm_photo_editor' => true]);
+
+        foreach ([[10, 8, 6, 2], [5, 5, 5, 0]] as [$found, $edited, $pushed, $failed]) {
+            PhotoEditSession::create([
+                'user_id'       => $user->id,
+                'name'          => 'Run',
+                'onedrive_link' => 'https://example.com',
+                'edits'         => ['remove_background' => true],
+                'total_files'   => $found,
+                'edited_files'  => $edited,
+                'pushed_files'  => $pushed,
+                'failed_files'  => $failed,
+            ]);
+        }
+
+        $html = $this->actingAs($user)->get(route('photo-editor.history'))->assertOk()->getContent();
+
+        foreach (['Sessions', 'Found', 'Edited', 'On Shopify', 'Failed', 'Left', 'Total'] as $label) {
+            $this->assertStringContainsString($label, $html);
+        }
+
+        // 10 + 5 found, 8 + 5 edited, 6 + 5 pushed, 2 + 0 failed.
+        foreach (['15', '13', '11'] as $sum) {
+            $this->assertStringContainsString('>' . $sum . '</p>', str_replace(["\n", ' '], ['', ''], $html),
+                "the {$sum} total is missing");
+        }
+    }
+
     /** The screen leads with these, so the page must render them. */
     public function test_the_photo_editor_screen_shows_the_allowance(): void
     {

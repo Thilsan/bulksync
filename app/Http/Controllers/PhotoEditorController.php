@@ -101,8 +101,21 @@ class PhotoEditorController extends Controller implements HasMiddleware
 
     public function history(): View
     {
+        // Summed over every run this person can see, not just the page of
+        // twenty below it — a total that changed when you turned the page
+        // would not be a total.
+        $totals = $this->scope()
+            ->selectRaw('COUNT(*) AS sessions')
+            ->selectRaw('COALESCE(SUM(total_files), 0)  AS found')
+            ->selectRaw('COALESCE(SUM(edited_files), 0) AS edited')
+            ->selectRaw('COALESCE(SUM(pushed_files), 0) AS pushed')
+            ->selectRaw('COALESCE(SUM(failed_files), 0) AS failed')
+            ->first();
+
         return view('photo-editor.history', [
-            'sessions' => $this->scope()->with('store')->latest()->paginate(20),
+            'sessions'  => $this->scope()->with('store')->latest()->paginate(20),
+            'totals'    => $totals,
+            'allowance' => $this->allowance->report(),
         ]);
     }
 

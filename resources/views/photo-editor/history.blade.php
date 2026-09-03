@@ -11,6 +11,74 @@
     </div>
     @endif
 
+    {{-- ── What the allowance has gone on ──────────────────────────────
+         The number that decides whether the next run can happen at all, so it
+         leads. Everything below it is history; this is the only figure on the
+         page that constrains what you do next. --}}
+    <div class="rounded-xl border border-gray-200 bg-white px-5 py-4">
+        <div class="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 class="text-sm font-semibold text-gray-800">
+                Photoroom {{ $allowance['is_sandbox'] ? 'sandbox allowance' : 'monthly allowance' }}
+            </h2>
+            <p class="text-xs text-gray-500">
+                @if ($allowance['is_sandbox'])
+                    Rolling 24 hours — capacity returns as each edit ages out
+                @else
+                    Resets {{ $allowance['resets_on']->format('D d M Y') }}
+                @endif
+            </p>
+        </div>
+
+        <div class="mt-3 grid grid-cols-3 gap-4">
+            <div>
+                <p class="text-2xl font-semibold tabular-nums text-gray-900">{{ number_format($allowance['spent']) }}</p>
+                <p class="text-xs text-gray-500">Credits used</p>
+            </div>
+            <div>
+                <p class="text-2xl font-semibold tabular-nums {{ $allowance['left'] ? 'text-emerald-600' : 'text-red-600' }}">
+                    {{ number_format($allowance['left']) }}
+                </p>
+                <p class="text-xs text-gray-500">Left</p>
+            </div>
+            <div>
+                <p class="text-2xl font-semibold tabular-nums text-gray-400">{{ number_format($allowance['quota']) }}</p>
+                <p class="text-xs text-gray-500">Total</p>
+            </div>
+        </div>
+
+        <div class="mt-3 h-1.5 overflow-hidden rounded-full bg-gray-100">
+            <div class="h-full rounded-full {{ $allowance['percent_used'] >= 90 ? 'bg-red-500' : ($allowance['percent_used'] >= 70 ? 'bg-amber-500' : 'bg-brand-500') }}"
+                 style="width: {{ max(2, $allowance['percent_used']) }}%"></div>
+        </div>
+
+        <p class="mt-2 text-xs text-gray-400">
+            Counted from this app's own edits, so treat it as a minimum.
+            @if ($allowance['charged_failures'])
+                Includes {{ $allowance['charged_failures'] }} failed {{ Str::plural('edit', $allowance['charged_failures']) }} that still cost a request.
+            @endif
+        </p>
+    </div>
+
+    {{-- ── Everything run so far ───────────────────────────────────────────
+         Summed across every session, not the page below, so paging does not
+         move the totals. --}}
+    <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        @foreach ([
+            ['sessions', 'Sessions',   'gray'],
+            ['found',    'Found',      'gray'],
+            ['edited',   'Edited',     'emerald'],
+            ['pushed',   'On Shopify', 'brand'],
+            ['failed',   'Failed',     'red'],
+        ] as [$key, $label, $color])
+        <div class="rounded-xl border border-gray-200 bg-white p-4">
+            <p class="text-xs font-medium uppercase tracking-wider text-gray-400">{{ $label }}</p>
+            <p class="mt-1.5 text-2xl font-semibold tabular-nums {{ (int) $totals->{$key} === 0 && $color === 'red' ? 'text-gray-300' : 'text-' . $color . '-600' }}">
+                {{ number_format((int) $totals->{$key}) }}
+            </p>
+        </div>
+        @endforeach
+    </div>
+
     <div class="flex items-center justify-between">
         <p class="text-sm text-gray-500">
             {{ $sessions->total() }} edit session{{ $sessions->total() !== 1 ? 's' : '' }}
