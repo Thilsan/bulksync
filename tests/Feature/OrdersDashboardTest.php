@@ -516,8 +516,14 @@ class OrdersDashboardTest extends TestCase
         $this->assertStringNotContainsString("this.style.backgroundColor='#164659'", $studio);
         $this->assertStringContainsString("this.style.backgroundColor='#164659'", $home);
 
-        // The throughput chart and the live-work panel go the same way.
-        foreach (['Workload', 'Running now', 'jobs started across every module'] as $gone) {
+        // The throughput chart, the live-work panel and the pipeline card all
+        // go the same way — each stays on the home dashboard.
+        $gonePhrases = [
+            'Workload', 'Running now', 'jobs started across every module',
+            'Product creation pipeline', 'Latest requests', 'Upcoming launches', 'Photoshoot room',
+        ];
+
+        foreach ($gonePhrases as $gone) {
             $this->assertStringNotContainsString($gone, $studio);
             $this->assertStringContainsString($gone, $home);
         }

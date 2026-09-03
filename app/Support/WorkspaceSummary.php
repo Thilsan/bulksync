@@ -85,9 +85,6 @@ class WorkspaceSummary
             // No throughput chart on this tab, so the six grouped queries that
             // fed it are not run. The greeting still counts what is live.
             'running'     => $this->running($mine, $can),
-            'requests'    => $requests,
-            'launches'    => $can('product_request') ? $this->launches($user) : collect(),
-            'photoshoots' => $can('product_request') ? $this->photoshoots($user) : collect(),
             'feed'        => $this->feed($mine, $can),
             'stores'      => $this->stores($user),
             'health'      => $this->health($user),
@@ -208,20 +205,18 @@ class WorkspaceSummary
     /**
      * Product creation requests are scoped by desk, not by owner: the whole
      * point of the module is that a request passes through several teams.
+     *
+     * Only what the headline tile and the module card read — this tab shows no
+     * pipeline of its own, so the stage counts and the latest-request list the
+     * home dashboard gathers are not queried here.
      */
     private function requestStats(User $user): array
     {
         $desk = fn () => ProductRequest::query()->onMyDesk($user);
 
-        $byStage = $desk()
-            ->selectRaw('status, COUNT(*) as aggregate')
-            ->groupBy('status')
-            ->pluck('aggregate', 'status');
-
         $open = $desk()->whereNotIn('status', ProductRequest::CLOSED_STATUSES);
 
         return [
-            'total'     => $desk()->count(),
             'open'      => (clone $open)->count(),
             'on_hold'   => $desk()->onHold()->count(),
             'overdue'   => (clone $open)
@@ -229,13 +224,8 @@ class WorkspaceSummary
                 ->whereDate('online_launch_date', '<', Carbon::today())
                 ->count(),
             'published' => $desk()->whereIn('status', [ProductRequest::PUBLISHED, ProductRequest::COMPLETED])->count(),
-            'mine'      => ProductRequest::query()->assignedTo($user)
-                ->whereNotIn('status', ProductRequest::CLOSED_STATUSES)->count(),
             'skus'      => (int) $desk()->sum('total_skus'),
             'mapped'    => (int) $desk()->sum('mapped_skus'),
-            'unmapped'  => (int) $desk()->sum('not_mapped_skus'),
-            'by_stage'  => $byStage,
-            'recent'    => $desk()->with(['user', 'store'])->latest()->limit(6)->get(),
         ];
     }
 
@@ -545,30 +535,6 @@ class WorkspaceSummary
         }
 
         return $live->sortByDesc('started')->values()->take(6);
-    }
-
-    // ── Product request side panels ──────────────────────────────────────────
-
-    /** Requests with a launch date coming up (or already missed). */
-    private function launches(User $user): Collection
-    {
-        return ProductRequest::query()->onMyDesk($user)
-            ->whereNotIn('status', ProductRequest::CLOSED_STATUSES)
-            ->whereNotNull('online_launch_date')
-            ->orderBy('online_launch_date')
-            ->limit(5)
-            ->get();
-    }
-
-    /** Shoots that are booked or in the room right now. */
-    private function photoshoots(User $user): Collection
-    {
-        return ProductRequest::query()->onMyDesk($user)
-            ->whereIn('photoshoot_status', ProductRequest::SHOOT_OPEN_STATUSES)
-            ->orderByRaw('photoshoot_scheduled_at IS NULL')
-            ->orderBy('photoshoot_scheduled_at')
-            ->limit(4)
-            ->get();
     }
 
     // ── Merged timeline ──────────────────────────────────────────────────────
