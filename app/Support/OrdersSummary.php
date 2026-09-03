@@ -48,6 +48,40 @@ class OrdersSummary
     ];
 
     /**
+     * What each storefront is called, as against what its database column is
+     * called. `billjumlamerchant` and `outoftheblue` are schema, not names.
+     *
+     * Anything not listed keeps a capitalised version of its slug — new
+     * storefronts are auto-discovered, so this map will always be a step
+     * behind, and a shop appearing as "Newshop" is fine where one appearing
+     * as nothing would not be. The slug stays on the row as a tooltip, so a
+     * wrong guess here is visible rather than misleading.
+     */
+    public const PLATFORM_NAMES = [
+        'americantourister' => 'American Tourister',
+        'billjumla'         => 'Billjumla',
+        'billjumlamerchant' => 'Billjumla Merchant',
+        'bluesalon'         => 'Bluesalon',
+        'colehaan'          => 'Cole Haan',
+        'faceshop'          => 'Face Shop',
+        'fifa'              => 'FIFA',
+        'goldgourmet'       => 'Gold Gourmet',
+        'outoftheblue'      => 'Out of the Blue',
+        'oryxtec'           => 'Oryxtec',
+        'parigallery'       => 'Pari Gallery',
+        'qataroutlet'       => 'Qatar Outlet',
+        'secretnotes'       => 'Secret Notes',
+        'toys4me'           => 'Toys4me',
+        'wcmq'              => 'WCMQ',
+    ];
+
+    /** The readable name for a storefront slug. */
+    public static function platform(string $slug): string
+    {
+        return self::PLATFORM_NAMES[$slug] ?? Str::title(str_replace(['_', '-'], ' ', $slug));
+    }
+
+    /**
      * Two legacy spellings of one idea. Kept separate everywhere in the data,
      * shown as one thing, because nobody in the business thinks of them as two
      * different ways to receive a parcel.
@@ -257,13 +291,13 @@ class OrdersSummary
     public static function topN(array $rows, string $key, int $limit = 8): array
     {
         if (\count($rows) <= $limit + 1) {
-            return array_map(fn ($r) => $r + ['label' => (string) $r[$key]], $rows);
+            return array_map(fn ($r) => $r + ['label' => self::platform((string) $r[$key])], $rows);
         }
 
         $top  = \array_slice($rows, 0, $limit);
         $rest = \array_slice($rows, $limit);
 
-        $top = array_map(fn ($r) => $r + ['label' => (string) $r[$key]], $top);
+        $top = array_map(fn ($r) => $r + ['label' => self::platform((string) $r[$key])], $top);
 
         $top[] = [
             'label'   => \count($rest) . ' others',

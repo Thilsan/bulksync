@@ -283,37 +283,37 @@
             </details>
         </div>
 
-        {{-- ── Platforms ────────────────────────────────────────────────── --}}
-        @php $maxBar = max(1, ...array_map(fn ($r) => $r['revenue'], $summary['platform_bars'] ?: [['revenue' => 0]])); @endphp
+        {{-- ── Platforms ──────────────────────────────────────────────────
+             One table rather than a bar chart with the same numbers listed
+             underneath it. The bar lives in the revenue cell, so size and
+             figure are read in one place instead of two. --}}
+        @php
+            $rows    = $summary['platforms'];
+            $maxRow  = max(1, ...array_map(fn ($r) => (float) $r['revenue'], $rows ?: [['revenue' => 0]]));
+            $selling = count($rows);
+        @endphp
         <div class="bg-white rounded-xl border border-gray-200 shadow-sm">
-            <div class="px-5 py-3.5 border-b border-gray-100 flex items-center justify-between gap-3">
+            <div class="px-5 py-3.5 border-b border-gray-100 flex items-baseline justify-between gap-3">
                 <h3 class="text-sm font-semibold text-gray-800">Platforms</h3>
-                @if($summary['dormant'])
-                    <span class="text-xs text-gray-400">{{ count($summary['dormant']) }} with no orders</span>
-                @endif
+                <span class="text-xs text-gray-400">
+                    {{ $selling }} selling{{ $summary['dormant'] ? ' · ' . count($summary['dormant']) . ' quiet' : '' }}
+                </span>
             </div>
 
-            <div class="px-5 py-4 space-y-2">
-                @foreach($summary['platform_bars'] as $row)
-                    <div class="flex items-center gap-3">
-                        <span class="w-32 shrink-0 text-xs text-gray-700 truncate">{{ $row['label'] }}</span>
-                        <div class="flex-1 bg-gray-100 rounded-full h-2.5 overflow-hidden">
-                            <div class="h-full bg-brand-500 rounded-full" style="width: {{ $share($row['revenue'], $maxBar) }}%"></div>
-                        </div>
-                        <span class="w-28 shrink-0 text-right text-xs tabular-nums text-gray-700">{{ $money($row['revenue']) }}</span>
-                        <span class="w-14 shrink-0 text-right text-xs tabular-nums text-gray-400">{{ $num($row['orders']) }}</span>
-                    </div>
-                @endforeach
-            </div>
-
-            {{-- Sorting reorders the rows already on the page rather than
-                 re-asking the endpoint, and leaves them readable with no JS. --}}
-            <div class="border-t border-gray-100 overflow-x-auto" x-data="{ dir: {} }">
-                <table class="w-full text-xs min-w-[720px]" x-ref="table">
-                    <thead class="bg-gray-50 text-gray-500">
+            <div class="overflow-x-auto" x-data="{ dir: {} }">
+                <table class="w-full text-sm min-w-[680px]" x-ref="table">
+                    <thead class="text-xs text-gray-500 border-b border-gray-100">
                         <tr>
-                            @foreach(['platform' => 'Platform', 'orders' => 'Orders', 'revenue' => 'Revenue', 'aov' => 'Avg order', 'share' => 'Share', 'last' => 'Last order'] as $key => $label)
-                                <th class="px-4 py-2 font-medium {{ $loop->first ? 'text-left' : 'text-right' }}">
+                            @foreach([
+                                'name'    => ['Platform',  'text-left'],
+                                'orders'  => ['Orders',    'text-right'],
+                                'revenue' => ['Revenue ' . $ccy, 'text-right'],
+                                'aov'     => ['Avg order', 'text-right'],
+                                'last'    => ['Last order','text-right'],
+                            ] as $key => [$label, $align])
+                                <th class="px-5 py-2.5 font-medium {{ $align }}">
+                                    {{-- Sorting reorders the rows already on the
+                                         page; the endpoint is not asked again. --}}
                                     <button type="button" class="hover:text-gray-800"
                                             @click="
                                                 dir['{{ $key }}'] = dir['{{ $key }}'] === 'asc' ? 'desc' : 'asc';
@@ -328,32 +328,60 @@
                             @endforeach
                         </tr>
                     </thead>
-                    <tbody class="divide-y divide-gray-100">
-                        @foreach($summary['platforms'] as $row)
-                            <tr data-platform="{{ $row['platform'] }}" data-orders="{{ $row['orders'] }}"
+                    <tbody class="divide-y divide-gray-50">
+                        @foreach($rows as $row)
+                            @php
+                                $name = \App\Support\OrdersSummary::platform($row['platform']);
+                                $last = $row['last_order_at'] ? \Illuminate\Support\Carbon::parse($row['last_order_at']) : null;
+                            @endphp
+                            <tr class="hover:bg-gray-50/60"
+                                data-name="{{ $name }}" data-orders="{{ $row['orders'] }}"
                                 data-revenue="{{ $row['revenue'] }}" data-aov="{{ $row['average_order_value'] }}"
-                                data-share="{{ $row['share_of_revenue'] }}" data-last="{{ $row['last_order_at'] ?? '' }}">
-                                <td class="px-4 py-2 text-gray-800">{{ $row['platform'] }}</td>
-                                <td class="px-4 py-2 text-right tabular-nums text-gray-700">{{ $num($row['orders']) }}</td>
-                                <td class="px-4 py-2 text-right tabular-nums text-gray-700">{{ $money($row['revenue']) }}</td>
-                                <td class="px-4 py-2 text-right tabular-nums text-gray-700">{{ $money($row['average_order_value']) }}</td>
-                                <td class="px-4 py-2 text-right tabular-nums text-gray-500">{{ $pct($row['share_of_revenue']) }}</td>
-                                <td class="px-4 py-2 text-right tabular-nums text-gray-500">{{ $row['last_order_at'] ?? '—' }}</td>
-                            </tr>
-                        @endforeach
-                        {{-- A shop that has stopped selling should read as zero,
-                             not vanish off the bottom of the list. --}}
-                        @foreach($summary['dormant'] as $slug)
-                            <tr class="text-gray-400" data-platform="{{ $slug }}" data-orders="0" data-revenue="0" data-aov="0" data-share="0" data-last="">
-                                <td class="px-4 py-2">{{ $slug }}</td>
-                                <td class="px-4 py-2 text-right tabular-nums">0</td>
-                                <td class="px-4 py-2 text-right tabular-nums">0.00</td>
-                                <td class="px-4 py-2 text-right">—</td>
-                                <td class="px-4 py-2 text-right">—</td>
-                                <td class="px-4 py-2 text-right">—</td>
+                                data-last="{{ $row['last_order_at'] ?? '' }}">
+
+                                <td class="px-5 py-2.5">
+                                    {{-- The slug is what the endpoint calls it, kept
+                                         within reach in case a name here is wrong. --}}
+                                    <span class="font-medium text-gray-800" title="{{ $row['platform'] }}">{{ $name }}</span>
+                                </td>
+
+                                <td class="px-5 py-2.5 text-right tabular-nums text-gray-600">{{ $num($row['orders']) }}</td>
+
+                                <td class="px-5 py-2.5 text-right">
+                                    <span class="tabular-nums font-medium text-gray-900">{{ $money($row['revenue']) }}</span>
+                                    <span class="block text-xs text-gray-400 tabular-nums">{{ $pct($row['share_of_revenue']) }}</span>
+                                    <span class="block mt-1 h-1 rounded-full bg-brand-500 ml-auto"
+                                          style="width: {{ $share($row['revenue'], $maxRow) }}%"
+                                          role="presentation"></span>
+                                </td>
+
+                                <td class="px-5 py-2.5 text-right tabular-nums text-gray-600">{{ $money($row['average_order_value']) }}</td>
+
+                                {{-- "3 hours ago" answers "is this shop still
+                                     trading" at a glance; the exact stamp is a
+                                     hover away for anyone who needs it. --}}
+                                <td class="px-5 py-2.5 text-right text-gray-500 whitespace-nowrap"
+                                    @if($last) title="{{ $row['last_order_at'] }}" @endif>
+                                    {{ $last ? $last->diffForHumans(short: true) : '—' }}
+                                </td>
                             </tr>
                         @endforeach
                     </tbody>
+
+                    {{-- Storefronts that sold nothing in this range. One quiet
+                         line rather than a screen of zeros — a shop that has
+                         stopped selling still has to be visible, but it does
+                         not deserve the same room as one that is trading. --}}
+                    @if($summary['dormant'])
+                        <tfoot>
+                            <tr class="border-t border-gray-100">
+                                <td colspan="5" class="px-5 py-3 text-xs text-gray-400">
+                                    No orders in this range:
+                                    <span class="text-gray-500">{{ collect($summary['dormant'])->map(fn ($p) => \App\Support\OrdersSummary::platform($p))->join(', ') }}</span>
+                                </td>
+                            </tr>
+                        </tfoot>
+                    @endif
                 </table>
             </div>
         </div>

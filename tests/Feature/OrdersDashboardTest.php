@@ -333,15 +333,40 @@ class OrdersDashboardTest extends TestCase
             ->assertSee('needs a look');
     }
 
-    /** A shop that stops selling should read as a zero, not disappear. */
-    public function test_platforms_with_no_orders_still_appear(): void
+    /**
+     * A shop that stops selling has to stay visible — but one quiet line, not
+     * a row of zeros taking the same room as a storefront that is trading.
+     */
+    public function test_platforms_with_no_orders_are_named_rather_than_dropped(): void
     {
         $this->fakeOk();
 
         $this->actingAs($this->admin)
             ->get(route('orders.dashboard'))
             ->assertOk()
-            ->assertSee('1 with no orders');
+            ->assertSee('2 selling · 1 quiet', false)
+            ->assertSee('No orders in this range:')
+            ->assertSee('WCMQ');
+    }
+
+    /** Slugs are schema. The table shows what people call the shops. */
+    public function test_storefronts_are_shown_by_name_not_by_slug(): void
+    {
+        $this->fakeOk(['by_platform' => [
+            ['platform' => 'billjumlamerchant', 'orders' => 10, 'revenue' => 100.0, 'average_order_value' => 10.0,
+             'share_of_orders' => 100.0, 'share_of_revenue' => 100.0, 'orders_with_value' => 10,
+             'min_order_value' => 1, 'max_order_value' => 20,
+             'first_order_at' => '2026-08-01 09:00:00', 'last_order_at' => '2026-08-31 09:00:00'],
+        ]]);
+
+        $html = $this->actingAs($this->admin)
+            ->get(route('orders.dashboard'))->assertOk()->getContent();
+
+        $this->assertStringContainsString('Billjumla Merchant', $html);
+
+        // The slug stays reachable, so a wrong display name is visible rather
+        // than quietly replacing the real one.
+        $this->assertStringContainsString('title="billjumlamerchant"', $html);
     }
 
     // ── States ───────────────────────────────────────────────────────────────
