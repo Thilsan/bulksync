@@ -112,6 +112,107 @@ class ImageProcessingService
     }
 
     /**
+     * Put the product on the canvas at exactly the size the standard says.
+     *
+     * The presets are measured off the live catalogue and exist so a row of
+     * products lines up, which only works if the number is actually hit. It was
+     * not: the same settings put one ring at 59.7% of the frame and another at
+     * 65.5%, because Photoroom decides how far it is willing to scale a subject
+     * and that depends on the picture. A standard that lands within six points
+     * is not a standard.
+     *
+     * So the framing is settled here instead, where it is arithmetic rather
+     * than a negotiation. Photoroom still does the cutout and the background;
+     * this only decides how large the product sits and where.
+     *
+     * Skipped when the result is already within tolerance, because the work
+     * costs a resample and a resample costs a little sharpness — there is no
+     * sense spending that to move a product by half a percent.
+     */
+    public function frameToStandard(
+        string $imageContent,
+        int $canvasEdge,
+        float $padding,
+        ?float $paddingBottom = null,
+        string $verticalAlignment = 'center',
+        float $tolerance = 0.015,
+    ): string {
+        try {
+            if ($canvasEdge < 100 || $padding < 0 || $padding >= 0.5) {
+                return $imageContent;
+            }
+
+            $img = $this->decode($imageContent);
+            $w   = $img->width();
+            $h   = $img->height();
+
+            $box = $this->subjectBox($imageContent, $w, $h);
+
+            if ($box === null) {
+                return $imageContent;
+            }
+
+            [$minX, $minY, $maxX, $maxY] = $box;
+
+            $boxW = $maxX - $minX + 1;
+            $boxH = $maxY - $minY + 1;
+
+            // The product fits inside the canvas less its padding on both
+            // sides, on whichever of its own edges is the longer.
+            $target = $canvasEdge * (1 - 2 * $padding);
+            $longest = max($boxW, $boxH);
+
+            if ($longest <= 0) {
+                return $imageContent;
+            }
+
+            if ($w === $canvasEdge && $h === $canvasEdge
+                && abs(($longest / $canvasEdge) - (1 - 2 * $padding)) <= $tolerance) {
+                return $imageContent;
+            }
+
+            $scale = $target / $longest;
+            $newW  = max(1, (int) round($boxW * $scale));
+            $newH  = max(1, (int) round($boxH * $scale));
+
+            $x = (int) round(($canvasEdge - $newW) / 2);
+            $y = match ($verticalAlignment) {
+                'top'    => (int) round($canvasEdge * $padding),
+                'bottom' => $canvasEdge - (int) round($canvasEdge * ($paddingBottom ?? $padding)) - $newH,
+                default  => (int) round(($canvasEdge - $newH) / 2),
+            };
+
+            /*
+             * Grown outwards from the product rather than composited onto a
+             * blank canvas: this build of Intervention has no create() or
+             * place(), but resizeCanvas anchored to a corner does the same job.
+             * The product is cropped out, scaled to the size the standard
+             * wants, then the canvas is grown around it — first to put the
+             * required space above and to its left, then to fill the rest out
+             * to the full square.
+             *
+             * Transparent, so a cutout stays a cutout. Where the background was
+             * filled in, the product's own edges already carry it.
+             */
+            $subject = $this->decode($imageContent)
+                ->crop($boxW, $boxH, $minX, $minY)
+                ->resize($newW, $newH);
+
+            return $subject
+                ->resizeCanvas($x + $newW, $y + $newH, 'rgba(0, 0, 0, 0)', 'bottom-right')
+                ->resizeCanvas($canvasEdge, $canvasEdge, 'rgba(0, 0, 0, 0)', 'top-left')
+                ->encode(new PngEncoder())
+                ->toString();
+        } catch (\Throwable $e) {
+            // Photoroom's own framing is a reasonable fallback; it is only
+            // inconsistent, not wrong.
+            Log::warning('ImageProcessingService: could not frame to standard', ['error' => $e->getMessage()]);
+
+            return $imageContent;
+        }
+    }
+
+    /**
      * Trim the empty background from around the product.
      *
      * A supplier photograph is mostly white: the ring in these files occupies

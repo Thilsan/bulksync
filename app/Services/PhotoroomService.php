@@ -464,7 +464,7 @@ class PhotoroomService
                 'jewellery' => ['label' => 'Jewellery', 'note' => 'House rule, unmeasured: 10% around a 2000 square. A small product may want the canvas filled harder — worth sampling before it is trusted.', 'edits' => ['width' => 2000, 'height' => 2000, 'padding' => 0.10]],
                 'rings'     => [
                     'label' => 'Rings',
-                    'note'  => 'Measured: 20.1% around a 2000 square, centred, the ring filling 59.8% of the height. Twice the padding of every other category — a ring is small and read close up, and the catalogue gives it room rather than filling the canvas with it.',
+                    'note'  => 'Measured at 20.1% and set to 22%, centred, the ring filling 56% of a 2000 square. The catalogue measures 20.1%, but side by side the ring read large at that size and 22% was chosen on the eye. Twice the padding of every other category either way — a ring is small and read close up, and it is given room rather than filling the canvas.',
                     'edits' => [
                         'width'  => 2000,
                         'height' => 2000,
@@ -474,6 +474,14 @@ class PhotoroomService
                          * 20.1% above, 59.8% of the height filled, 20.1% below.
                          * The three close to 100, so the padding is the whole
                          * story and no per-edge override is needed.
+                         *
+                         * Set to 22% rather than the measured 20.1%. Shown four
+                         * versions side by side the operator judged 20.1% to
+                         * read large, and picked 56% fill on the eye. The
+                         * measurement is kept in this note because it is what
+                         * the rest of the site already uses: rings published
+                         * before this sit at 60%, and if they are ever re-run
+                         * this is where to find the number they were made to.
                          *
                          * Twice the padding of anything else here, and that is
                          * the finding rather than a rounding. The house rule
@@ -502,7 +510,7 @@ class PhotoroomService
                          * because "the ring" is a better thing to ask Photoroom
                          * to cut out than "the jewellery".
                          */
-                        'padding' => 0.201,
+                        'padding' => 0.22,
                     ],
                 ],
             ],

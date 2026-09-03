@@ -293,17 +293,22 @@ class PhotoEditorFramingTest extends TestCase
     }
 
     /**
-     * The measurement, pinned so it cannot drift back to the house rule it
-     * replaced. 10% would fill 80% of the canvas with a ring where the
-     * catalogue fills 60% — a third too large beside every ring already on the
-     * site, and the reason this was measured rather than reasoned about.
+     * Pinned so it cannot drift back to the house rule it replaced. 10% would
+     * fill 80% of the canvas with a ring where the catalogue fills 60% — a
+     * third too large, and the reason this was measured rather than reasoned
+     * about.
+     *
+     * 22%, not the measured 20.1%: shown four versions side by side the
+     * operator judged the measurement to read large and chose 56% fill on the
+     * eye. Both numbers are in the preset's note, because rings published
+     * before this sit at the measured 60%.
      */
     public function test_rings_keep_the_padding_they_were_measured_at(): void
     {
         $rings     = $this->layoutFields(PhotoroomService::applyFramingPreset([], 'watches_jewellery/rings'));
         $jewellery = $this->layoutFields(PhotoroomService::applyFramingPreset([], 'watches_jewellery/jewellery'));
 
-        $this->assertSame('0.201', $rings['padding'] ?? null);
+        $this->assertSame('0.22', $rings['padding'] ?? null);
         $this->assertNotSame($jewellery['padding'] ?? null, $rings['padding'] ?? null,
             'rings have quietly been given the house rule they were measured away from');
     }

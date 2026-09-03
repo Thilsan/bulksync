@@ -302,6 +302,25 @@ class EditPhotoItemJob implements ShouldQueue
              * It has to happen here, while the bytes that were sent are still in
              * hand — a line later they are released.
              */
+            /*
+             * Photoroom framed it; this makes the framing exact. The same
+             * settings put one ring at 59.7% of its canvas and another at
+             * 65.5%, because how far it will scale a subject depends on the
+             * picture — and a measured standard that lands within six points is
+             * not a standard. Arithmetic settles it where negotiation cannot.
+             */
+            if (!empty($itemEdits['framing_preset'])
+                && !$photoroom->generatesOwnCanvas($itemEdits)
+                && !empty($itemEdits['width'])) {
+                $edited = $imageService->frameToStandard(
+                    $edited,
+                    (int) $itemEdits['width'],
+                    (float) ($itemEdits['padding'] ?? 0.10),
+                    isset($itemEdits['padding_bottom']) ? (float) $itemEdits['padding_bottom'] : null,
+                    (string) ($itemEdits['v_align'] ?? 'center'),
+                );
+            }
+
             if ($imageService->wasEnlarged($input, $edited)) {
                 $edited = $imageService->sharpenAfterEnlargement($edited);
             }

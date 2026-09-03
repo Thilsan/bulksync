@@ -363,4 +363,95 @@ class ImageProcessingServiceTest extends TestCase
 
         return ob_get_clean();
     }
+
+    /**
+     * A measured standard is only a standard if it is actually hit. Photoroom's
+     * own framing put one ring at 59.7% of its canvas and another at 65.5% from
+     * identical settings, so the size is settled here instead.
+     */
+    public function test_the_product_is_framed_to_the_padding_it_was_given(): void
+    {
+        $source = $this->productOnWhite(1000, 1000, 700, 500);
+
+        // A list of pairs, not a keyed array: PHP casts a float array key to
+        // an int, so 0.22 and 0.10 would both become 0.
+        foreach ([[0.22, 0.56], [0.10, 0.80]] as [$padding, $expectedFill]) {
+            $framed = $this->service->frameToStandard($source, 2000, $padding);
+
+            [$w, $h] = array_slice(getimagesizefromstring($framed), 0, 2);
+            $this->assertSame([2000, 2000], [$w, $h], 'the canvas is not the size asked for');
+
+            $box = $this->subjectFillOf($framed);
+
+            $this->assertEqualsWithDelta($expectedFill, $box, 0.02,
+                "padding {$padding} should leave the product filling {$expectedFill} of the canvas");
+        }
+    }
+
+    /** Bottom-aligned categories keep standing on their line. */
+    public function test_a_bottom_aligned_product_sits_on_its_base_line(): void
+    {
+        $framed = $this->service->frameToStandard(
+            $this->productOnWhite(1000, 1000, 400, 600),
+            2000,
+            0.103,
+            0.106,
+            'bottom',
+        );
+
+        $im = imagecreatefromstring($framed);
+        $h  = imagesy($im);
+
+        // Find the lowest non-transparent row.
+        $lowest = 0;
+        for ($y = $h - 1; $y >= 0; $y--) {
+            for ($x = 0; $x < imagesx($im); $x++) {
+                if (((imagecolorat($im, $x, $y) >> 24) & 0x7F) < 100) { $lowest = $y; break 2; }
+            }
+        }
+
+        $gap = ($h - 1 - $lowest) / $h;
+
+        $this->assertEqualsWithDelta(0.106, $gap, 0.02, 'the product is not standing on its base line');
+    }
+
+    /** Already right, so left alone rather than resampled for nothing. */
+    public function test_an_image_already_on_standard_is_not_reframed(): void
+    {
+        $onStandard = $this->service->frameToStandard($this->productOnWhite(1000, 1000, 600, 400), 2000, 0.22);
+
+        $this->assertSame($onStandard, $this->service->frameToStandard($onStandard, 2000, 0.22));
+    }
+
+    /** Nonsense in, the picture back out. */
+    public function test_framing_refuses_impossible_padding(): void
+    {
+        $source = $this->productOnWhite(400, 400, 200, 200);
+
+        $this->assertSame($source, $this->service->frameToStandard($source, 2000, 0.7));
+        $this->assertSame($source, $this->service->frameToStandard($source, 10, 0.2));
+        $this->assertSame('not an image', $this->service->frameToStandard('not an image', 2000, 0.2));
+    }
+
+    /** What fraction of the canvas the product's longest edge covers. */
+    private function subjectFillOf(string $bytes): float
+    {
+        $im = imagecreatefromstring($bytes);
+        $w = imagesx($im); $h = imagesy($im);
+        $minX = $w; $minY = $h; $maxX = -1; $maxY = -1;
+
+        for ($y = 0; $y < $h; $y++) {
+            for ($x = 0; $x < $w; $x++) {
+                $c = imagecolorat($im, $x, $y);
+                if ((($c >> 24) & 0x7F) > 100) continue;
+                if ((($c >> 16) & 255) >= 252 && (($c >> 8) & 255) >= 252 && ($c & 255) >= 252) continue;
+                if ($x < $minX) $minX = $x;
+                if ($x > $maxX) $maxX = $x;
+                if ($y < $minY) $minY = $y;
+                if ($y > $maxY) $maxY = $y;
+            }
+        }
+
+        return $maxX < 0 ? 0.0 : max($maxX - $minX + 1, $maxY - $minY + 1) / max($w, $h);
+    }
 }
