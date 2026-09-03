@@ -465,7 +465,7 @@ class OrdersDashboardTest extends TestCase
             ->get(route('orders.dashboard'))
             ->assertOk()
             ->assertSee('Daily orders and revenue')
-            ->assertDontSee('Connections');
+            ->assertDontSee('data-tab="studio"', false);
     }
 
     /**
@@ -480,7 +480,7 @@ class OrdersDashboardTest extends TestCase
         $this->actingAs($this->admin)
             ->get(route('orders.dashboard', ['tab' => 'studio']))
             ->assertOk()
-            ->assertSee('Connections')
+            ->assertSee('data-tab="studio"', false)
             ->assertDontSee('Daily orders and revenue');
 
         Http::assertNothingSent();
@@ -508,7 +508,7 @@ class OrdersDashboardTest extends TestCase
         $this->actingAs($viewer)
             ->get(route('orders.dashboard', ['tab' => 'studio']))
             ->assertOk()
-            ->assertSee('Connections');
+            ->assertSee('data-tab="studio"', false);
     }
 
     /**
@@ -545,11 +545,16 @@ class OrdersDashboardTest extends TestCase
         $gonePhrases = [
             'Workload', 'Running now', 'jobs started across every module',
             'Product creation pipeline', 'Latest requests', 'Upcoming launches', 'Photoshoot room',
+            'Recent activity', 'Connections', 'Stores',
         ];
 
+        // Absence is checked against the tab's own markup: "Stores" is also a
+        // sidebar link, and the sidebar is on every page including this one.
+        $studioBody = $this->tabBody($studio);
+
         foreach ($gonePhrases as $gone) {
-            $this->assertStringNotContainsString($gone, $studio);
-            $this->assertStringContainsString($gone, $home);
+            $this->assertStringNotContainsString($gone, $studioBody, "\"{$gone}\" should not be on the studio tab.");
+            $this->assertStringContainsString($gone, $home, "\"{$gone}\" should still be on the home dashboard.");
         }
     }
 
@@ -636,9 +641,6 @@ class OrdersDashboardTest extends TestCase
         // queue, so it is called out rather than counted as running.
         $this->assertStringContainsString('1 waiting to be set up', $body);
 
-        // And it shows up in the timeline alongside every other module.
-        $this->assertStringContainsString('Watches — August', $body);
-        $this->assertStringContainsString('100 edited · 80 pushed · 5 failed', $body);
     }
 
     /** No permission, no card — the same rule every other module follows. */
@@ -663,6 +665,5 @@ class OrdersDashboardTest extends TestCase
         );
 
         $this->assertStringNotContainsString('Photo Editor', $body);
-        $this->assertStringNotContainsString('Not mine to see', $body);
     }
 }

@@ -2,19 +2,17 @@
 
 namespace App\Support;
 
-use App\Models\ActivityLog;
 use App\Models\AiContentItem;
 use App\Models\AiContentSession;
 use App\Models\ImageAuditSession;
 use App\Models\PhotoEditSession;
 use App\Models\ProductRequest;
 use App\Models\SkuCheckSession;
-use App\Models\Store;
 use App\Models\StoreMigrationSession;
 use App\Models\UploadSession;
 use App\Models\User;
-use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Carbon;
 
 /**
  * What this workspace has been doing — the home screen's numbers, in one place.
@@ -87,10 +85,6 @@ class WorkspaceSummary
             // No throughput chart on this tab, so the six grouped queries that
             // fed it are not run. The greeting still counts what is live.
             'running'     => $this->running($mine, $can),
-            'feed'        => $this->feed($mine, $can),
-            'stores'      => $this->stores($user),
-            'health'      => $this->health($user),
-            'team'        => $user->is_super_admin ? $this->team() : collect(),
         ];
     }
 
@@ -586,218 +580,6 @@ class WorkspaceSummary
         }
 
         return $live->sortByDesc('started')->values()->take(6);
-    }
-
-    // ── Merged timeline ──────────────────────────────────────────────────────
-
-    /**
-     * One chronological list of finished work across every module — the answer
-     * to "what has this workspace been doing", without opening six screens.
-     */
-    private function feed(callable $mine, callable $can): Collection
-    {
-        $events = collect();
-
-        if ($can('bulk_upload')) {
-            $events = $events->concat(
-                $mine(UploadSession::class)->with('user')->latest()->limit(6)->get()
-                    ->map(fn (UploadSession $s) => [
-                        'module' => 'Image Upload',
-                        'tone'   => 'brand',
-                        'title'  => $s->name ?: 'Upload session',
-                        'detail' => number_format($s->uploaded_files) . ' uploaded · '
-                                    . number_format($s->skipped_files) . ' no match · '
-                                    . number_format($s->failed_files) . ' failed',
-                        'status' => $s->status,
-                        'who'    => $s->user?->name,
-                        'at'     => $s->created_at,
-                        'url'    => route('upload.show', $s),
-                    ])
-            );
-        }
-
-        if ($can('sku_checker')) {
-            $events = $events->concat(
-                $mine(SkuCheckSession::class)->with(['user', 'store'])->latest()->limit(6)->get()
-                    ->map(fn (SkuCheckSession $s) => [
-                        'module' => 'SKU Checker',
-                        'tone'   => 'emerald',
-                        'title'  => $s->name ?: 'SKU check on ' . ($s->store?->name ?? 'store'),
-                        'detail' => number_format($s->total_skus) . ' checked · '
-                                    . number_format($s->available_count) . ' available · '
-                                    . number_format($s->not_available_count) . ' not found',
-                        'status' => $s->status,
-                        'who'    => $s->user?->name,
-                        'at'     => $s->created_at,
-                        'url'    => route('sku-checker.show', $s),
-                    ])
-            );
-        }
-
-        if ($can('image_audit')) {
-            $events = $events->concat(
-                $mine(ImageAuditSession::class)->with(['user', 'store'])->latest()->limit(4)->get()
-                    ->map(fn (ImageAuditSession $s) => [
-                        'module' => 'Image Audit',
-                        'tone'   => 'sky',
-                        'title'  => 'Audit of ' . ($s->store?->name ?? 'store'),
-                        'detail' => number_format($s->total_products) . ' products · '
-                                    . number_format($s->without_images) . ' missing images',
-                        'status' => $s->status,
-                        'who'    => $s->user?->name,
-                        'at'     => $s->created_at,
-                        'url'    => route('image-audit.show', $s),
-                    ])
-            );
-        }
-
-        if ($can('ai_content')) {
-            $events = $events->concat(
-                $mine(AiContentSession::class)->with(['user', 'store'])->latest()->limit(4)->get()
-                    ->map(fn (AiContentSession $s) => [
-                        'module' => 'AI Content',
-                        'tone'   => 'violet',
-                        'title'  => 'Content for ' . ($s->store?->name ?? 'store'),
-                        'detail' => number_format($s->processed_items) . ' of '
-                                    . number_format($s->total_items) . ' products written',
-                        'status' => $s->status,
-                        'who'    => $s->user?->name,
-                        'at'     => $s->created_at,
-                        'url'    => route('ai-content.show', $s),
-                    ])
-            );
-        }
-
-        if ($can('photo_editor')) {
-            $events = $events->concat(
-                $mine(PhotoEditSession::class)->with('user')->latest()->limit(4)->get()
-                    ->map(fn (PhotoEditSession $s) => [
-                        'module' => 'Photo Editor',
-                        'tone'   => 'rose',
-                        'title'  => $s->name ?: 'Photo edit session',
-                        'detail' => number_format($s->edited_files) . ' edited · '
-                                    . number_format($s->pushed_files) . ' pushed · '
-                                    . number_format($s->failed_files) . ' failed',
-                        'status' => $s->status,
-                        'who'    => $s->user?->name,
-                        'at'     => $s->created_at,
-                        'url'    => null,
-                    ])
-            );
-        }
-
-        if ($can('store_sync')) {
-            $events = $events->concat(
-                $mine(StoreMigrationSession::class)->with(['user', 'fromStore', 'toStore'])->latest()->limit(4)->get()
-                    ->map(fn (StoreMigrationSession $s) => [
-                        'module' => 'Product Migration',
-                        'tone'   => 'indigo',
-                        'title'  => ($s->fromStore?->name ?? 'Source') . ' → ' . ($s->toStore?->name ?? 'Target'),
-                        'detail' => number_format($s->success_count) . ' migrated · '
-                                    . number_format($s->failed_count) . ' failed',
-                        'status' => $s->status,
-                        'who'    => $s->user?->name,
-                        'at'     => $s->created_at,
-                        'url'    => route('store-image-sync.show', $s->token),
-                    ])
-            );
-        }
-
-        return $events
-            ->filter(fn (array $e) => $e['at'] !== null)
-            ->sortByDesc('at')
-            ->values()
-            ->take(8);
-    }
-
-    // ── Workspace context ────────────────────────────────────────────────────
-
-    /** The stores this account can reach, and how much work each has taken. */
-    private function stores(User $user): Collection
-    {
-        $stores   = Store::accessibleBy($user)->orderBy('name')->get();
-        $activeId = Store::getActive($user->id)?->id;
-
-        return $stores->map(function (Store $store) use ($user, $activeId) {
-            $scope = function ($query) use ($user) {
-                return $user->is_super_admin ? $query : $query->where('user_id', $user->id);
-            };
-
-            return [
-                'model'      => $store,
-                'active'     => $store->id === $activeId,
-                'connected'  => filled($store->shopify_access_token),
-                'uploads'    => $scope(UploadSession::where('store_id', $store->id))->count(),
-                'checks'     => $scope(SkuCheckSession::where('store_id', $store->id))->count(),
-                'requests'   => $scope(ProductRequest::where('store_id', $store->id))->count(),
-            ];
-        });
-    }
-
-    /**
-     * Integrations this workspace leans on. A dead OneDrive connection is the
-     * single most common reason an upload fails, so it is on the front page
-     * rather than three clicks into settings.
-     */
-    private function health(User $user): array
-    {
-        $activeStore = Store::getActive($user->id);
-
-        return [
-            [
-                'name'   => 'OneDrive',
-                'ok'     => filled($user->onedrive_refresh_token),
-                'detail' => filled($user->onedrive_refresh_token)
-                    ? 'Connected — image folders can be read'
-                    : 'Not connected — uploads cannot read folders',
-                'route'  => 'settings.index',
-            ],
-            [
-                'name'   => 'Shopify',
-                'ok'     => $activeStore !== null && filled($activeStore->shopify_access_token),
-                'detail' => $activeStore
-                    ? ($activeStore->name . ' is the active store')
-                    : 'No active store selected',
-                'route'  => 'stores.index',
-            ],
-            [
-                'name'   => 'Gemini AI',
-                'ok'     => filled(config('services.gemini.api_key')),
-                'detail' => filled(config('services.gemini.api_key'))
-                    ? 'Key present — content generation available'
-                    : 'No API key — content generation is off',
-                'route'  => 'settings.index',
-            ],
-            [
-                'name'   => 'Email',
-                'ok'     => \App\Models\Setting::get('mail_enabled') === '1',
-                'detail' => \App\Models\Setting::get('mail_enabled') === '1'
-                    ? 'Notifications are being sent'
-                    : 'Notifications are switched off',
-                'route'  => 'settings.index',
-            ],
-        ];
-    }
-
-    /** Super admin only: who has been in the system lately. */
-    private function team(): Collection
-    {
-        $lastSeen = ActivityLog::where('action', ActivityLog::ACTION_LOGIN)
-            ->selectRaw('user_id, MAX(created_at) as seen_at')
-            ->groupBy('user_id')
-            ->pluck('seen_at', 'user_id');
-
-        return User::orderByDesc('is_super_admin')
-            ->orderBy('name')
-            ->limit(8)
-            ->get()
-            ->map(fn (User $u) => [
-                'name'    => $u->name,
-                'email'   => $u->email,
-                'role'    => $u->is_super_admin ? 'Super Admin' : ($u->pcrRoleLabel() ?? 'Member'),
-                'active'  => (bool) $u->is_active,
-                'seen_at' => isset($lastSeen[$u->id]) ? Carbon::parse($lastSeen[$u->id]) : null,
-            ]);
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
