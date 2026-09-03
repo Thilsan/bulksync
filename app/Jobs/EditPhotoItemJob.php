@@ -376,6 +376,12 @@ class EditPhotoItemJob implements ShouldQueue
 
     private function fitForPhotoroom(string $content, ImageProcessingService $imageService): string
     {
+        // Depth is not a size problem, so it is settled before the size checks
+        // below — those return the original bytes untouched whenever the picture
+        // already fits, which is exactly how a small 10-bit AVIF reached the API
+        // unaltered and came back rejected.
+        $content = $imageService->capBitDepth($content);
+
         $info    = @getimagesizefromstring($content);
         $tooWide = $info && max((int) $info[0], (int) $info[1]) > PhotoroomService::MAX_INPUT_EDGE;
 

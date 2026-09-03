@@ -98,6 +98,54 @@ class ImageProcessingService
     }
 
     /**
+     * Bring anything deeper than 8 bits per channel back down to 8.
+     *
+     * Photoroom refuses more than 8-bit outright: "Images deeper than 8-bit are
+     * not supported (received 10-bit)". Some of the AVIFs suppliers send are
+     * 10-bit HDR, and depth is invisible to every other check we make — the
+     * file is small, its dimensions are fine, it decodes cleanly, and it is
+     * rejected anyway.
+     *
+     * Re-encoded as PNG rather than JPEG. Several of these carry transparency,
+     * and a JPEG would flatten it onto black before Photoroom ever saw the
+     * picture. PNG is bigger, but the caller's size check runs after this and
+     * will shrink it if it has to.
+     *
+     * GD cannot produce a file deeper than 8 bits, so without Imagick there is
+     * nothing here to do.
+     */
+    public function capBitDepth(string $imageContent, int $maxDepth = 8): string
+    {
+        if (!extension_loaded('imagick')) {
+            return $imageContent;
+        }
+
+        $imagick = null;
+
+        try {
+            $imagick = new \Imagick();
+            $imagick->readImageBlob($imageContent);
+
+            if ($imagick->getImageDepth() <= $maxDepth) {
+                return $imageContent;
+            }
+
+            $imagick->setImageDepth($maxDepth);
+            $imagick->setImageFormat('png');
+
+            return $imagick->getImageBlob();
+        } catch (\Throwable $e) {
+            // Worth trying the original: Photoroom's own rejection names the
+            // problem more usefully than a failure thrown from in here.
+            Log::warning('ImageProcessingService: could not cap bit depth', ['error' => $e->getMessage()]);
+
+            return $imageContent;
+        } finally {
+            $imagick?->clear();
+        }
+    }
+
+    /**
      * Shrink an image for sending to a vision AI API — vision models don't need
      * full resolution to identify colors/textures/details, and smaller images
      * mean fewer tokens and faster uploads. Never upscales. Does not touch the

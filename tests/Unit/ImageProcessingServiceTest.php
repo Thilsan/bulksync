@@ -175,4 +175,54 @@ class ImageProcessingServiceTest extends TestCase
 
         return ob_get_clean();
     }
+
+    /**
+     * Photoroom refuses more than 8 bits per channel, and supplier AVIFs
+     * sometimes arrive at 10. Nothing else we check can see it: the file is
+     * small, the dimensions are fine, it decodes cleanly, and the API rejects
+     * it anyway with "Images deeper than 8-bit are not supported".
+     */
+    public function test_a_deeper_than_8_bit_image_is_brought_down_to_8(): void
+    {
+        if (!extension_loaded('imagick')) {
+            $this->markTestSkipped('bit depth is an Imagick concern; GD cannot make a file deeper than 8 bits');
+        }
+
+        $deep = new \Imagick();
+        $deep->newImage(400, 400, new \ImagickPixel('rgb(180,120,90)'));
+        $deep->setImageDepth(16);
+        $deep->setImageFormat('png');
+        $source = $deep->getImageBlob();
+        $deep->clear();
+
+        $probe = new \Imagick();
+        $probe->readImageBlob($source);
+        $this->assertGreaterThan(8, $probe->getImageDepth(), 'the fixture is not actually deep');
+        $probe->clear();
+
+        $capped = new \Imagick();
+        $capped->readImageBlob($this->service->capBitDepth($source));
+
+        $this->assertLessThanOrEqual(8, $capped->getImageDepth());
+        $this->assertSame([400, 400], array_slice(getimagesizefromstring($this->service->capBitDepth($source)), 0, 2),
+            'the picture itself should be unchanged');
+        $capped->clear();
+    }
+
+    /**
+     * Re-encoding costs quality and time, so an image that is already within
+     * the limit must come back as the very bytes that went in.
+     */
+    public function test_an_image_already_within_the_limit_is_returned_untouched(): void
+    {
+        $source = $this->jpeg(300, 300, quality: 85);
+
+        $this->assertSame($source, $this->service->capBitDepth($source));
+    }
+
+    /** Nothing to do, and nothing thrown, when the bytes cannot be read. */
+    public function test_unreadable_bytes_are_handed_back_rather_than_throwing(): void
+    {
+        $this->assertSame('not an image at all', $this->service->capBitDepth('not an image at all'));
+    }
 }
