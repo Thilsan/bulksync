@@ -280,4 +280,87 @@ class ImageProcessingServiceTest extends TestCase
     {
         $this->assertSame('not an image', $this->service->sharpenAfterEnlargement('not an image'));
     }
+
+    /**
+     * The case this was written for: a small product on a large white sheet.
+     *
+     * Four fifths of a supplier ring photograph is background, and it is paid
+     * for twice — once by putting the file over the upscaler's ceiling, and
+     * again by leaving the product too small in frame for Photoroom to enlarge.
+     */
+    public function test_a_small_product_on_a_large_white_sheet_is_cropped_in(): void
+    {
+        $source = $this->productOnWhite(1200, 1200, 200, 200);
+
+        $cropped = $this->service->cropToSubject($source);
+
+        [$w, $h] = array_slice(getimagesizefromstring($cropped), 0, 2);
+
+        $this->assertLessThan(1200, $w, 'the background was not trimmed');
+        $this->assertGreaterThan(200, $w, 'the product itself was clipped');
+        $this->assertLessThan(1_000_000, $w * $h, 'still too big for the upscaler');
+    }
+
+    /** Nothing to trim, nothing trimmed. */
+    public function test_a_product_that_already_fills_the_frame_is_left_alone(): void
+    {
+        $source = $this->productOnWhite(400, 400, 380, 380);
+
+        $this->assertSame($source, $this->service->cropToSubject($source));
+    }
+
+    /**
+     * A blank frame means the detection found nothing, not that the product is
+     * infinitely small — so the picture is handed back rather than cropped to
+     * a speck.
+     */
+    public function test_an_empty_frame_is_returned_untouched(): void
+    {
+        $blank = $this->productOnWhite(400, 400, 0, 0);
+
+        $this->assertSame($blank, $this->service->cropToSubject($blank));
+    }
+
+    /** Unreadable bytes come back as they came. */
+    public function test_uncroppable_bytes_are_returned_as_they_came(): void
+    {
+        $this->assertSame('not an image', $this->service->cropToSubject('not an image'));
+    }
+
+    /**
+     * The margin is what protects a pale edge from a threshold that cannot see
+     * it, so the crop must sit clear of the product on every side.
+     */
+    public function test_the_crop_keeps_a_margin_around_the_product(): void
+    {
+        $cropped = $this->service->cropToSubject($this->productOnWhite(1000, 1000, 200, 300));
+
+        [$w, $h] = array_slice(getimagesizefromstring($cropped), 0, 2);
+
+        $this->assertGreaterThanOrEqual(280, $w, 'no margin left or right');
+        $this->assertGreaterThanOrEqual(400, $h, 'no margin top or bottom');
+    }
+
+    /** A dark shape centred on a white canvas. */
+    private function productOnWhite(int $w, int $h, int $productW, int $productH): string
+    {
+        $im = imagecreatetruecolor($w, $h);
+        imagefilledrectangle($im, 0, 0, $w, $h, imagecolorallocate($im, 255, 255, 255));
+
+        if ($productW > 0 && $productH > 0) {
+            imagefilledellipse(
+                $im,
+                intdiv($w, 2),
+                intdiv($h, 2),
+                $productW,
+                $productH,
+                imagecolorallocate($im, 60, 60, 70),
+            );
+        }
+
+        ob_start();
+        imagepng($im);
+
+        return ob_get_clean();
+    }
 }

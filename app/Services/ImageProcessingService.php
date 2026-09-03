@@ -22,6 +22,13 @@ class ImageProcessingService
      * where a halo shows long before a garment's would.
      */
     private const SHARPEN_LEVEL = 12;
+
+    /**
+     * At or above this on every channel, a pixel is background rather than
+     * product. Deliberately close to pure white: these are pale rings on white,
+     * where trimming a real edge is far worse than keeping a band of nothing.
+     */
+    private const BACKGROUND_WHITE = 252;
     private const MIN_QUALITY   = 30;
 
     /** Quarter and half turns offered for straightening an input photo. */
@@ -102,6 +109,147 @@ class ImageProcessingService
         }
 
         return $img;
+    }
+
+    /**
+     * Trim the empty background from around the product.
+     *
+     * A supplier photograph is mostly white: the ring in these files occupies
+     * about a fifth of the frame, and the other four fifths are paid for twice
+     * over. Once because Photoroom's upscaler refuses an input over a million
+     * pixels, and a 1146-square of mostly nothing is over it — so the two
+     * largest supplier files could not be upscaled at all, while the smallest
+     * could. And again because Photoroom's fit will shrink a subject onto the
+     * canvas but not enlarge one, so a product that is small in its own frame
+     * stays small in the output however the canvas is set.
+     *
+     * Cropping to the product answers both: the pixel count falls inside the
+     * best upscale model's ceiling, and the subject fills enough of the frame
+     * to be framed rather than left where it was.
+     *
+     * The margin is generous and so is the white threshold. This runs on white
+     * jewellery photographed on white, where the cost of trimming a pale edge
+     * is a clipped product and the cost of leaving a band of background is
+     * nothing at all.
+     */
+    public function cropToSubject(string $imageContent, float $margin = 0.25): string
+    {
+        try {
+            $img = $this->decode($imageContent);
+            $w   = $img->width();
+            $h   = $img->height();
+
+            if ($w < 50 || $h < 50) {
+                return $imageContent;
+            }
+
+            $box = $this->subjectBox($imageContent, $w, $h);
+
+            if ($box === null) {
+                return $imageContent;
+            }
+
+            [$minX, $minY, $maxX, $maxY] = $box;
+
+            $boxW = $maxX - $minX + 1;
+            $boxH = $maxY - $minY + 1;
+            $area = ($boxW * $boxH) / ($w * $h);
+
+            /*
+             * Two ways the detection can be wrong, and both look like a number
+             * rather than an error. A box covering almost everything means the
+             * background was not white and there is nothing to trim; a box
+             * covering almost nothing means a speck of dust was mistaken for
+             * the product. Neither is worth cropping on.
+             */
+            if ($area > 0.85 || $area < 0.005) {
+                return $imageContent;
+            }
+
+            $pad = (int) round(max($boxW, $boxH) * max(0.0, $margin));
+
+            $x0 = max(0, $minX - $pad);
+            $y0 = max(0, $minY - $pad);
+            $x1 = min($w - 1, $maxX + $pad);
+            $y1 = min($h - 1, $maxY + $pad);
+
+            return $img->crop($x1 - $x0 + 1, $y1 - $y0 + 1, $x0, $y0)
+                ->encode(new PngEncoder())
+                ->toString();
+        } catch (\Throwable $e) {
+            // An untrimmed picture is still a picture.
+            Log::warning('ImageProcessingService: could not crop to subject', ['error' => $e->getMessage()]);
+
+            return $imageContent;
+        }
+    }
+
+    /**
+     * The product's bounding box, or null when nothing stands out.
+     *
+     * Measured on a small copy. Scanning a 1146-square pixel by pixel in PHP
+     * costs seconds per image and the box only has to be right to within a few
+     * pixels, because a quarter of the subject's size is added around it
+     * afterwards.
+     *
+     * @return array{0:int,1:int,2:int,3:int}|null
+     */
+    private function subjectBox(string $imageContent, int $width, int $height): ?array
+    {
+        $proxyEdge = 240;
+
+        $proxy = @imagecreatefromstring(
+            $this->decode($imageContent)->scaleDown($proxyEdge, $proxyEdge)->encode(new PngEncoder())->toString(),
+        );
+
+        if (!$proxy) {
+            return null;
+        }
+
+        $pw = imagesx($proxy);
+        $ph = imagesy($proxy);
+
+        $minX = $pw; $minY = $ph; $maxX = -1; $maxY = -1;
+
+        for ($y = 0; $y < $ph; $y++) {
+            for ($x = 0; $x < $pw; $x++) {
+                $rgba = imagecolorat($proxy, $x, $y);
+
+                // Transparent counts as background, the same as white does.
+                if ((($rgba >> 24) & 0x7F) > 100) {
+                    continue;
+                }
+
+                if ((($rgba >> 16) & 0xFF) >= self::BACKGROUND_WHITE
+                    && (($rgba >> 8) & 0xFF) >= self::BACKGROUND_WHITE
+                    && ($rgba & 0xFF) >= self::BACKGROUND_WHITE) {
+                    continue;
+                }
+
+                if ($x < $minX) $minX = $x;
+                if ($x > $maxX) $maxX = $x;
+                if ($y < $minY) $minY = $y;
+                if ($y > $maxY) $maxY = $y;
+            }
+        }
+
+        imagedestroy($proxy);
+
+        if ($maxX < 0) {
+            return null;
+        }
+
+        // Back to the original's scale, rounded outwards so the box can only
+        // grow with the conversion, never clip.
+        $sx = $width / $pw;
+        $sy = $height / $ph;
+
+        return [
+            (int) floor($minX * $sx),
+            (int) floor($minY * $sy),
+            (int) min($width - 1, ceil(($maxX + 1) * $sx)),
+            (int) min($height - 1, ceil(($maxY + 1) * $sy)),
+        ];
     }
 
     /**

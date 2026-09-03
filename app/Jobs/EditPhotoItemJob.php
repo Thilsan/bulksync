@@ -256,6 +256,16 @@ class EditPhotoItemJob implements ShouldQueue
             // Photoroom refuses anything over 30 MB or 5000 px on its widest
             // side. Shrinking here costs one local decode; finding out from the
             // API costs a round trip and the whole upload.
+            /*
+             * Trim the empty background first. It is what puts these files over
+             * the upscaler's ceiling — a 1146-square of mostly white is 1.3
+             * million pixels, and the best model takes a quarter of one — and
+             * what leaves the product too small in frame for Photoroom to scale
+             * up. Everything after this sees the product rather than the sheet
+             * of white it was photographed on.
+             */
+            $raw = $imageService->cropToSubject($raw);
+
             $input = $this->fitForPhotoroom($raw, $imageService);
             unset($raw);
 
@@ -270,10 +280,9 @@ class EditPhotoItemJob implements ShouldQueue
             $beforeRel = $session->storageDir() . "/{$item->id}-before.jpg";
             file_put_contents(storage_path('app/' . $beforeRel), $imageService->thumbnail($input, 420));
 
-            // A canvas the picture cannot fill on its own pixels is the one
-            // case where the AI upscaler is strictly better than doing nothing,
-            // so it is decided here from the file rather than left to a
-            // checkbox somebody has to remember per run.
+            // Whether to upscale is the operator's call. What is settled here is
+            // how: which model can take an input this size, and what it should
+            // be upscaled to.
             if (!$photoroom->generatesOwnCanvas($itemEdits)) {
                 $itemEdits = $this->tuneUpscale($input, $itemEdits);
             }
@@ -402,34 +411,29 @@ class EditPhotoItemJob implements ShouldQueue
     }
 
     /**
-     * Turn the upscaler on for a photo that is about to be enlarged anyway.
+     * Settle how an upscale should run, for a run that asked for one.
      *
-     * A supplier's 500px ring on a 2000px canvas is being blown up four times
-     * whatever we do; the only question is whether Photoroom's model does it or
-     * a plain resize does. One arrived at 8 KB and went up to Shopify soft,
-     * beside two 121 KB shots of the same range that were fine — and the
-     * setting that would have fixed it was a checkbox, off by default, on a
-     * screen nobody revisits per photo.
+     * Not whether. Turning it on automatically for anything smaller than the
+     * canvas was tried and taken back out: it does not do what it appears to
+     * promise. Photoroom's fit shrinks a subject onto the canvas but will not
+     * enlarge one beyond its own pixels, so a photograph whose product is small
+     * in frame comes back small however much the picture around it is
+     * enlarged — and the operator, having ticked nothing, has no way to know
+     * why. An enhancement that quietly costs quality on every small photo and
+     * fixes the one thing people expect it to fix is worse than a checkbox.
      *
-     * Only smaller-than-canvas images qualify. Running the model over a photo
-     * that already has the pixels is work for nothing, and on jewellery it is
-     * worse than nothing: an upscaler reconstructs detail rather than
-     * recovering it, and the fine work on a ring — prongs, pavé, an engraved
-     * mark — is exactly what it is liable to reinvent.
-     *
-     * The target resolution is pinned to the canvas either way, including when
-     * the operator asked for the upscale themselves. Left open, the model picks
-     * its own factor and a mixed catalogue comes out at mixed sizes.
+     * What is still decided here is which model to ask for. The two are not
+     * interchangeable: ai.slow is the better picture and refuses anything over
+     * a quarter of a megapixel, ai.fast takes four times that, and above the
+     * larger ceiling there is no upscaling to be had at all — so a request that
+     * cannot succeed is dropped rather than spent. The target resolution is
+     * pinned to the canvas, because left open the model picks its own factor
+     * and a mixed catalogue comes out at mixed sizes.
      */
     private function tuneUpscale(string $content, array $edits): array
     {
         $canvas = max((int) ($edits['width'] ?? 0), (int) ($edits['height'] ?? 0));
-
-        if ($canvas <= 0) {
-            return $edits; // No fixed canvas, so nothing to be too small for.
-        }
-
-        $info = @getimagesizefromstring($content);
+        $info   = @getimagesizefromstring($content);
 
         if (!$info) {
             return $edits;
@@ -437,33 +441,39 @@ class EditPhotoItemJob implements ShouldQueue
 
         $pixels = (int) $info[0] * (int) $info[1];
 
-        /*
-         * Both modes cap what they will take in, and above the larger ceiling
-         * there is no upscaling to be had — so the request is not spent finding
-         * that out, and an operator who ticked the box on a photo too big for
-         * it gets the edit rather than a refusal.
-         */
         if ($pixels > PhotoroomService::UPSCALE_MAX_PIXELS[PhotoroomService::UPSCALE_FAST]) {
+            // Too big for any model. An upscale asked for here would be a 400,
+            // so it is dropped rather than spent.
             unset($edits['upscale'], $edits['upscale_mode'], $edits['upscale_resolution']);
 
             return $edits;
         }
 
+        /*
+         * Turned on by the picture, not by a checkbox — but only now that the
+         * background has been trimmed, which is what makes it work at all.
+         *
+         * It was tried before the crop existed and taken back out, rightly: the
+         * two largest supplier files were over the ceiling so the upscale never
+         * ran, and on the one that did the product was still too small in frame
+         * for Photoroom to scale up. Cropped, both objections go: the pixel
+         * count falls inside the quality model and the product fills its frame.
+         */
         if (empty($edits['upscale'])) {
-            if (max((int) $info[0], (int) $info[1]) >= $canvas) {
-                return $edits; // It already has the pixels; leave it alone.
+            if ($canvas <= 0 || max((int) $info[0], (int) $info[1]) >= $canvas) {
+                return $edits;
             }
 
             $edits['upscale'] = true;
         }
 
-        // The smallest inputs are both the worst pictures and the only ones
-        // ai.slow will accept, so they get the better of the two models.
         $edits['upscale_mode'] ??= $pixels <= PhotoroomService::UPSCALE_MAX_PIXELS[PhotoroomService::UPSCALE_SLOW]
             ? PhotoroomService::UPSCALE_SLOW
             : PhotoroomService::UPSCALE_FAST;
 
-        $edits['upscale_resolution'] ??= $canvas;
+        if ($canvas > 0) {
+            $edits['upscale_resolution'] ??= $canvas;
+        }
 
         return $edits;
     }
