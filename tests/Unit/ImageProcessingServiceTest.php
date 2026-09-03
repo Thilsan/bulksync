@@ -3,7 +3,7 @@
 namespace Tests\Unit;
 
 use App\Services\ImageProcessingService;
-use PHPUnit\Framework\TestCase;
+use Tests\TestCase;
 
 class ImageProcessingServiceTest extends TestCase
 {
@@ -192,13 +192,20 @@ class ImageProcessingServiceTest extends TestCase
         $deep->newImage(400, 400, new \ImagickPixel('rgb(180,120,90)'));
         $deep->setImageDepth(16);
         $deep->setImageFormat('png');
+        // Without this the encoder quietly writes 8-bit and the fixture is not
+        // a fixture at all — which is exactly how this test first failed.
+        $deep->setOption('png:bit-depth', '16');
         $source = $deep->getImageBlob();
         $deep->clear();
 
         $probe = new \Imagick();
         $probe->readImageBlob($source);
-        $this->assertGreaterThan(8, $probe->getImageDepth(), 'the fixture is not actually deep');
+        $depth = $probe->getImageDepth();
         $probe->clear();
+
+        if ($depth <= 8) {
+            $this->markTestSkipped('this ImageMagick build will not write a deeper-than-8-bit PNG to test against');
+        }
 
         $capped = new \Imagick();
         $capped->readImageBlob($this->service->capBitDepth($source));
