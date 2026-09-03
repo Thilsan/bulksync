@@ -270,6 +270,14 @@ class EditPhotoItemJob implements ShouldQueue
             $beforeRel = $session->storageDir() . "/{$item->id}-before.jpg";
             file_put_contents(storage_path('app/' . $beforeRel), $imageService->thumbnail($input, 420));
 
+            // A canvas the picture cannot fill on its own pixels is the one
+            // case where the AI upscaler is strictly better than doing nothing,
+            // so it is decided here from the file rather than left to a
+            // checkbox somebody has to remember per run.
+            if (!$photoroom->generatesOwnCanvas($itemEdits)) {
+                $itemEdits = $this->tuneUpscale($input, $itemEdits);
+            }
+
             $edited = $photoroom->edit($input, $itemEdits, $item->filename);
             unset($input);
 
@@ -372,6 +380,49 @@ class EditPhotoItemJob implements ShouldQueue
         $info = @getimagesizefromstring($imageContent);
 
         return $info ? $info[0] . 'x' . $info[1] : 'unreadable';
+    }
+
+    /**
+     * Turn the upscaler on for a photo that is about to be enlarged anyway.
+     *
+     * A supplier's 500px ring on a 2000px canvas is being blown up four times
+     * whatever we do; the only question is whether Photoroom's model does it or
+     * a plain resize does. One arrived at 8 KB and went up to Shopify soft,
+     * beside two 121 KB shots of the same range that were fine — and the
+     * setting that would have fixed it was a checkbox, off by default, on a
+     * screen nobody revisits per photo.
+     *
+     * Only smaller-than-canvas images qualify. Running the model over a photo
+     * that already has the pixels is work for nothing, and on jewellery it is
+     * worse than nothing: an upscaler reconstructs detail rather than
+     * recovering it, and the fine work on a ring — prongs, pavé, an engraved
+     * mark — is exactly what it is liable to reinvent.
+     *
+     * The target resolution is pinned to the canvas either way, including when
+     * the operator asked for the upscale themselves. Left open, the model picks
+     * its own factor and a mixed catalogue comes out at mixed sizes.
+     */
+    private function tuneUpscale(string $content, array $edits): array
+    {
+        $canvas = max((int) ($edits['width'] ?? 0), (int) ($edits['height'] ?? 0));
+
+        if ($canvas <= 0) {
+            return $edits; // No fixed canvas, so nothing to be too small for.
+        }
+
+        if (empty($edits['upscale'])) {
+            $info = @getimagesizefromstring($content);
+
+            if (!$info || max((int) $info[0], (int) $info[1]) >= $canvas) {
+                return $edits;
+            }
+
+            $edits['upscale'] = true;
+        }
+
+        $edits['upscale_resolution'] ??= $canvas;
+
+        return $edits;
     }
 
     private function fitForPhotoroom(string $content, ImageProcessingService $imageService): string
