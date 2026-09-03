@@ -431,6 +431,62 @@ class OrdersDashboardTest extends TestCase
         Http::assertNothingSent();
     }
 
+    // ── Tabs ─────────────────────────────────────────────────────────────────
+
+    public function test_the_orders_tab_is_the_default(): void
+    {
+        $this->fakeOk();
+
+        $this->actingAs($this->admin)
+            ->get(route('orders.dashboard'))
+            ->assertOk()
+            ->assertSee('Daily orders and revenue')
+            ->assertDontSee('Workload — last 14 days', false);
+    }
+
+    /**
+     * The studio tab shows the workspace picture on its own fortnightly clock,
+     * so calling the orders endpoint for it would be two round trips spent on
+     * numbers the page does not show.
+     */
+    public function test_the_studio_tab_shows_the_workspace_dashboard_without_calling_the_api(): void
+    {
+        $this->fakeOk();
+
+        $this->actingAs($this->admin)
+            ->get(route('orders.dashboard', ['tab' => 'studio']))
+            ->assertOk()
+            ->assertSee('Workload — last 14 days', false)
+            ->assertDontSee('Daily orders and revenue');
+
+        Http::assertNothingSent();
+    }
+
+    /** Both tabs are reachable and neither is rendered on top of the other. */
+    public function test_an_unknown_tab_falls_back_to_orders(): void
+    {
+        $this->fakeOk();
+
+        $this->actingAs($this->admin)
+            ->get(route('orders.dashboard', ['tab' => 'nonsense']))
+            ->assertOk()
+            ->assertSee('Daily orders and revenue');
+    }
+
+    /** The studio tab renders for someone who owns none of the other tools. */
+    public function test_the_studio_tab_renders_with_no_module_permissions(): void
+    {
+        $viewer = $this->grant(User::create([
+            'name' => 'Mei Lin', 'email' => 'mei2@example.test',
+            'password' => 'password', 'is_active' => true,
+        ]));
+
+        $this->actingAs($viewer)
+            ->get(route('orders.dashboard', ['tab' => 'studio']))
+            ->assertOk()
+            ->assertSee('Workload — last 14 days', false);
+    }
+
     // ── Product creation ─────────────────────────────────────────────────────
 
     public function test_the_product_creation_panel_counts_requests_skus_and_uploads(): void

@@ -34,6 +34,26 @@
 @section('content')
 <div class="space-y-5" x-data="{ busy: false }">
 
+    {{-- ── Tabs ─────────────────────────────────────────────────────────────
+         Two views of the same business: what sold, and what the studio is
+         making. Plain links, so each tab is its own shareable URL. --}}
+    <div class="border-b border-gray-200 flex items-center gap-1" role="tablist">
+        @foreach($tabs as $key => $label)
+            <a href="{{ route('orders.dashboard', $key === 'orders' ? array_merge(request()->query(), ['tab' => 'orders']) : ['tab' => $key]) }}"
+               role="tab" @if($tab === $key) aria-selected="true" @endif
+               class="px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors
+                      {{ $tab === $key
+                          ? 'border-brand-600 text-brand-700'
+                          : 'border-transparent text-gray-500 hover:text-gray-800 hover:border-gray-300' }}">
+                {{ $label }}
+            </a>
+        @endforeach
+    </div>
+
+    @if($tab === 'studio')
+        @include('partials.workspace-dashboard', $workspace)
+    @else
+
     {{-- ── Filters ──────────────────────────────────────────────────────────
          One GET form, so the whole view lives in the URL and can be sent to
          somebody. The preset chips are submit buttons rather than links, which
@@ -546,5 +566,6 @@
     </div>
 
     </div>{{-- /busy --}}
+    @endif
 </div>
 @endsection

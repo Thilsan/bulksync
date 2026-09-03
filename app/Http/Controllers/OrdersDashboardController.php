@@ -6,6 +6,7 @@ use App\Models\User;
 use App\Services\OrdersSummaryService;
 use App\Support\OrdersSummary;
 use App\Support\ProductCreationSummary;
+use App\Support\WorkspaceSummary;
 use Illuminate\Container\Attributes\CurrentUser;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -51,11 +52,36 @@ class OrdersDashboardController extends Controller
      */
     private const PLATFORM_CACHE = 'orders_dashboard.platforms';
 
+    /** The two halves of the screen. Which one is open lives in the URL. */
+    private const TABS = ['orders' => 'Orders', 'studio' => 'AI Studio'];
+
     public function index(Request $request, OrdersSummaryService $orders, #[CurrentUser] User $user): View
     {
         abort_unless($user->hasFeature('orders_dashboard'), 403);
 
+        $tab = $request->string('tab')->toString();
+        $tab = \array_key_exists($tab, self::TABS) ? $tab : 'orders';
+
         $filters = $this->filters($request);
+
+        // The studio tab is the workspace picture on its own fortnightly clock,
+        // so the orders endpoint is not called for it at all — no point paying
+        // for two API round trips to render a page that shows neither.
+        if ($tab === 'studio') {
+            return view('orders.dashboard', [
+                'tab'       => $tab,
+                'tabs'      => self::TABS,
+                'filters'   => $filters,
+                'presets'   => $this->presets(),
+                'bases'     => OrdersSummaryService::BASES,
+                'result'    => ['ok' => true, 'status' => 100, 'message' => '', 'data' => null],
+                'summary'   => null,
+                'platforms' => $this->platformList(null, $filters['platforms']),
+                'products'  => null,
+                'fallback'  => null,
+                'workspace' => WorkspaceSummary::for($user),
+            ]);
+        }
 
         $result   = ['ok' => false, 'status' => 0, 'message' => '', 'data' => null];
         $previous = $result;
@@ -75,6 +101,8 @@ class OrdersDashboardController extends Controller
         }
 
         return view('orders.dashboard', [
+            'tab'       => $tab,
+            'tabs'      => self::TABS,
             'filters'   => $filters,
             'presets'   => $this->presets(),
             'bases'     => OrdersSummaryService::BASES,
@@ -83,6 +111,7 @@ class OrdersDashboardController extends Controller
             'platforms' => $this->platformList($result['data'] ?? null, $filters['platforms']),
             'products'  => ProductCreationSummary::for($user, $filters['from']->copy()->startOfDay(), $filters['to']->copy()->endOfDay()),
             'fallback'  => $this->fallbackRange($filters),
+            'workspace' => null,
         ]);
     }
 
