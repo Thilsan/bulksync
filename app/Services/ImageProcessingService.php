@@ -15,6 +15,13 @@ use Intervention\Image\Drivers\Imagick\Driver as ImagickDriver;
 class ImageProcessingService
 {
     private const START_QUALITY = 100;
+
+    /**
+     * How hard to sharpen an enlarged image, on Intervention's 1-100 scale.
+     * Mild on purpose: the subjects here are bright metal and stones on white,
+     * where a halo shows long before a garment's would.
+     */
+    private const SHARPEN_LEVEL = 12;
     private const MIN_QUALITY   = 30;
 
     /** Quarter and half turns offered for straightening an input photo. */
@@ -95,6 +102,53 @@ class ImageProcessingService
         }
 
         return $img;
+    }
+
+    /**
+     * Restore the edge acuity an enlargement costs.
+     *
+     * Interpolation invents the pixels between the ones that existed, and it
+     * makes them by averaging — which is why an enlarged photograph looks soft
+     * even when nothing is technically lost. Sharpening does not put detail
+     * back, and nothing can; it restores the local contrast at edges that the
+     * averaging flattened, which is what the eye reads as sharpness.
+     *
+     * Deliberately mild. Past about 15 the halo around a bright stone on white
+     * starts to show, and a ring is mostly bright edges on white.
+     *
+     * Only worth spending on an image that was enlarged. Sharpening one that
+     * came back at or above its original size is amplifying grain and JPEG
+     * artefacts for nothing.
+     */
+    public function sharpenAfterEnlargement(string $imageContent, int $level = self::SHARPEN_LEVEL): string
+    {
+        try {
+            return $this->decode($imageContent)
+                ->sharpen(max(1, min(20, $level)))
+                ->encode(new PngEncoder())
+                ->toString();
+        } catch (\Throwable $e) {
+            // A soft picture beats no picture.
+            Log::warning('ImageProcessingService: could not sharpen', ['error' => $e->getMessage()]);
+
+            return $imageContent;
+        }
+    }
+
+    /**
+     * Was this image enlarged on its way to the canvas, and therefore worth
+     * sharpening? Compares what went out with what came back.
+     */
+    public function wasEnlarged(string $before, string $after): bool
+    {
+        $in  = @getimagesizefromstring($before);
+        $out = @getimagesizefromstring($after);
+
+        if (!$in || !$out) {
+            return false;
+        }
+
+        return max((int) $out[0], (int) $out[1]) > max((int) $in[0], (int) $in[1]);
     }
 
     /**

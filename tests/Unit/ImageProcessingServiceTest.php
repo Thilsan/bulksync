@@ -232,4 +232,52 @@ class ImageProcessingServiceTest extends TestCase
     {
         $this->assertSame('not an image at all', $this->service->capBitDepth('not an image at all'));
     }
+
+    /**
+     * Sharpening is judged against what was actually sent, not against the
+     * preset — a photograph that already had the pixels gains nothing from it
+     * and would only have its grain and JPEG artefacts amplified.
+     */
+    public function test_only_an_enlarged_image_counts_as_enlarged(): void
+    {
+        $small = $this->jpeg(500, 500, quality: 90);
+        $large = $this->jpeg(2000, 2000, quality: 90);
+
+        $this->assertTrue($this->service->wasEnlarged($small, $large));
+        $this->assertFalse($this->service->wasEnlarged($large, $small), 'a shrink is not an enlargement');
+        $this->assertFalse($this->service->wasEnlarged($large, $large), 'same size is not an enlargement');
+        $this->assertFalse($this->service->wasEnlarged('not an image', $large));
+    }
+
+    /** It changes the picture without changing its shape. */
+    public function test_sharpening_keeps_the_dimensions_and_alters_the_pixels(): void
+    {
+        $source    = $this->jpeg(600, 400, quality: 95);
+        $sharpened = $this->service->sharpenAfterEnlargement($source);
+
+        $this->assertSame([600, 400], array_slice(getimagesizefromstring($sharpened), 0, 2));
+        $this->assertNotSame($source, $sharpened);
+    }
+
+    /**
+     * Kept mild on purpose. A ring is bright metal and stones on white, where a
+     * halo shows long before it would on a garment — so the level is clamped
+     * however it is called.
+     */
+    public function test_the_sharpening_level_is_clamped(): void
+    {
+        $source = $this->jpeg(400, 400, quality: 95);
+
+        foreach ([-50, 0, 500] as $absurd) {
+            $out = $this->service->sharpenAfterEnlargement($source, $absurd);
+
+            $this->assertSame([400, 400], array_slice(getimagesizefromstring($out), 0, 2));
+        }
+    }
+
+    /** A picture it cannot read comes back untouched rather than throwing. */
+    public function test_unsharpenable_bytes_are_returned_as_they_came(): void
+    {
+        $this->assertSame('not an image', $this->service->sharpenAfterEnlargement('not an image'));
+    }
 }

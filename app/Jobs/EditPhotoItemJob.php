@@ -279,6 +279,24 @@ class EditPhotoItemJob implements ShouldQueue
             }
 
             $edited = $photoroom->edit($input, $itemEdits, $item->filename);
+
+            /*
+             * A ring that arrived 500 px wide and leaves on a 2000 px canvas has
+             * been enlarged four times over, and interpolation makes those new
+             * pixels by averaging the old ones — which is exactly what reads as
+             * soft. Sharpening restores the edge contrast that averaging
+             * flattened. It adds no detail, because nothing can; it stops the
+             * detail that survived from looking like less than it is.
+             *
+             * Measured against what actually went out rather than against the
+             * preset, so a photograph that already had the pixels is left alone.
+             * It has to happen here, while the bytes that were sent are still in
+             * hand — a line later they are released.
+             */
+            if ($imageService->wasEnlarged($input, $edited)) {
+                $edited = $imageService->sharpenAfterEnlargement($edited);
+            }
+
             unset($input);
 
             /*
@@ -293,6 +311,7 @@ class EditPhotoItemJob implements ShouldQueue
                     'size' => $this->describeSize($edited),
                 ]);
             }
+
 
             $format = $photoroom->outputFormat($itemEdits);
             $isJpeg = $format === 'jpg';
