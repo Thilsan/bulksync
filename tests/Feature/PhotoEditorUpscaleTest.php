@@ -79,12 +79,40 @@ class PhotoEditorUpscaleTest extends TestCase
         $this->assertSame('edited', $item->fresh()->status, $item->fresh()->error_message ?? '');
     }
 
-    /** The case that prompted this: 500px onto a 2000px canvas. */
+    /**
+     * The case that prompted this: a tiny supplier photo onto a 2000px canvas.
+     *
+     * ai.slow rather than ai.fast — the smallest inputs are both the worst
+     * pictures and the only ones ai.slow will accept, so they get the better of
+     * the two models. "ai.auto" is not a v2 value at all: it was in the code
+     * unexercised, and the first run that used it failed the edit outright.
+     */
     public function test_a_photo_smaller_than_the_canvas_is_upscaled(): void
     {
-        $this->edit(sourceEdge: 500);
+        $this->edit(sourceEdge: 500); // 250,000 px — inside ai.slow's ceiling
 
-        $this->assertSame('ai.auto', $this->sent['upscale.mode'] ?? null);
+        $this->assertSame(PhotoroomService::UPSCALE_SLOW, $this->sent['upscale.mode'] ?? null);
+    }
+
+    /** Past ai.slow's quarter-megapixel ceiling, the faster model takes over. */
+    public function test_a_larger_input_uses_the_mode_that_will_accept_it(): void
+    {
+        $this->edit(sourceEdge: 900); // 810,000 px — too big for slow, fine for fast
+
+        $this->assertSame(PhotoroomService::UPSCALE_FAST, $this->sent['upscale.mode'] ?? null);
+    }
+
+    /**
+     * Above the larger ceiling there is no upscaling to be had, so the request
+     * is not spent finding that out — the photo is still smaller than the
+     * canvas, and still goes through without it.
+     */
+    public function test_an_input_too_big_for_either_model_is_not_upscaled(): void
+    {
+        $this->edit(sourceEdge: 1500); // 2,250,000 px, yet under the 2000 canvas
+
+        $this->assertArrayNotHasKey('upscale.mode', $this->sent ?? []);
+        $this->assertSame('2000x2000', $this->sent['outputSize'] ?? null, 'the edit itself must still happen');
     }
 
     /**
@@ -113,10 +141,23 @@ class PhotoEditorUpscaleTest extends TestCase
     /** An operator who ticked the box still gets a pinned target. */
     public function test_an_explicit_upscale_is_still_pinned_to_the_canvas(): void
     {
+        $this->edit(sourceEdge: 900, edits: ['upscale' => true]);
+
+        $this->assertSame(PhotoroomService::UPSCALE_FAST, $this->sent['upscale.mode'] ?? null);
+        $this->assertSame('2000x2000', $this->sent['upscale.targetResolution'] ?? null);
+    }
+
+    /**
+     * Ticking the box cannot make an oversized photo upscalable, and must not
+     * cost the edit either — the refusal is predictable, so it is prevented
+     * rather than recovered from.
+     */
+    public function test_an_explicit_upscale_on_an_oversized_photo_is_dropped_not_failed(): void
+    {
         $this->edit(sourceEdge: 2400, edits: ['upscale' => true]);
 
-        $this->assertSame('ai.auto', $this->sent['upscale.mode'] ?? null);
-        $this->assertSame('2000x2000', $this->sent['upscale.targetResolution'] ?? null);
+        $this->assertArrayNotHasKey('upscale.mode', $this->sent ?? []);
+        $this->assertSame('2000x2000', $this->sent['outputSize'] ?? null);
     }
 
     /** With no fixed canvas there is nothing to be too small for. */

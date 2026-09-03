@@ -410,15 +410,39 @@ class EditPhotoItemJob implements ShouldQueue
             return $edits; // No fixed canvas, so nothing to be too small for.
         }
 
-        if (empty($edits['upscale'])) {
-            $info = @getimagesizefromstring($content);
+        $info = @getimagesizefromstring($content);
 
-            if (!$info || max((int) $info[0], (int) $info[1]) >= $canvas) {
-                return $edits;
+        if (!$info) {
+            return $edits;
+        }
+
+        $pixels = (int) $info[0] * (int) $info[1];
+
+        /*
+         * Both modes cap what they will take in, and above the larger ceiling
+         * there is no upscaling to be had — so the request is not spent finding
+         * that out, and an operator who ticked the box on a photo too big for
+         * it gets the edit rather than a refusal.
+         */
+        if ($pixels > PhotoroomService::UPSCALE_MAX_PIXELS[PhotoroomService::UPSCALE_FAST]) {
+            unset($edits['upscale'], $edits['upscale_mode'], $edits['upscale_resolution']);
+
+            return $edits;
+        }
+
+        if (empty($edits['upscale'])) {
+            if (max((int) $info[0], (int) $info[1]) >= $canvas) {
+                return $edits; // It already has the pixels; leave it alone.
             }
 
             $edits['upscale'] = true;
         }
+
+        // The smallest inputs are both the worst pictures and the only ones
+        // ai.slow will accept, so they get the better of the two models.
+        $edits['upscale_mode'] ??= $pixels <= PhotoroomService::UPSCALE_MAX_PIXELS[PhotoroomService::UPSCALE_SLOW]
+            ? PhotoroomService::UPSCALE_SLOW
+            : PhotoroomService::UPSCALE_FAST;
 
         $edits['upscale_resolution'] ??= $canvas;
 

@@ -32,6 +32,23 @@ class PhotoroomService
      * Photoroom refuses anything above these, so callers shrink first rather
      * than spending a request to be told no.
      */
+    /**
+     * The two upscale modes v2 accepts, and how big an input each will take.
+     *
+     * They are not interchangeable: ai.slow is the better picture and refuses
+     * anything over a quarter of a megapixel, ai.fast takes four times that.
+     * Above the larger ceiling there is no upscaling to be had at all, which is
+     * a limit worth knowing before a request is spent discovering it.
+     */
+    public const UPSCALE_SLOW = 'ai.slow';
+    public const UPSCALE_FAST = 'ai.fast';
+    public const UPSCALE_MODES = [self::UPSCALE_SLOW, self::UPSCALE_FAST];
+
+    public const UPSCALE_MAX_PIXELS = [
+        self::UPSCALE_SLOW =>   262_144, // 512 x 512
+        self::UPSCALE_FAST => 1_000_000, // 1000 x 1000
+    ];
+
     public const MAX_INPUT_BYTES = 29_000_000; // API limit is 30 MB
     public const MAX_INPUT_EDGE  = 5000;       // widest side, in pixels
 
@@ -627,7 +644,75 @@ class PhotoroomService
             ]);
         }
 
-        return $this->postWithRetry($imageContent, $filename, $fields, $headers);
+        try {
+            return $this->postWithRetry($imageContent, $filename, $fields, $headers);
+        } catch (\Throwable $e) {
+            /*
+             * An enhancement the account or the API will not take should cost
+             * the enhancement, not the edit.
+             *
+             * Upscale is the one that proved this: the mode value here had sat
+             * unexercised behind a checkbox nobody ticked, so the first run that
+             * turned it on failed images that had been editing fine for months —
+             * a cutout lost to a refinement that was only ever a nice-to-have.
+             *
+             * Only for a refusal that names the field. Anything else is about
+             * the image or the account and is the caller's to hear.
+             */
+            $optional = $this->optionalFieldRefused($e->getMessage(), $fields);
+
+            if ($optional === null) {
+                throw $e;
+            }
+
+            Log::warning('Photoroom refused an enhancement — retrying without it', [
+                'file'    => $filename,
+                'dropped' => $optional,
+                'error'   => $e->getMessage(),
+            ]);
+
+            return $this->postWithRetry(
+                $imageContent,
+                $filename,
+                array_diff_key($fields, array_flip($optional)),
+                $headers,
+            );
+        }
+    }
+
+    /**
+     * Which fields a 400 was complaining about, when they are ones the edit can
+     * do without — or null when the refusal was about something that matters.
+     *
+     * Matched on the field name Photoroom echoes back ("upscale/mode must be
+     * equal to one of the allowed values"), and only for the enhancements:
+     * dropping a cutout or a canvas to force a request through would hand back
+     * an image nobody asked for.
+     *
+     * @return list<string>|null
+     */
+    private function optionalFieldRefused(string $error, array $fields): ?array
+    {
+        if (!str_contains($error, '400')) {
+            return null;
+        }
+
+        foreach (['upscale', 'expand', 'uncrop', 'lighting', 'beautify', 'ironing', 'shadow'] as $group) {
+            if (!preg_match('#\b' . $group . '[./]#i', $error)) {
+                continue;
+            }
+
+            $dropped = array_values(array_filter(
+                array_keys($fields),
+                fn (string $name) => str_starts_with($name, $group . '.') || $name === $group,
+            ));
+
+            if ($dropped) {
+                return $dropped;
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -1117,7 +1202,15 @@ class PhotoroomService
         $this->applyLighting($fields, $edits);
 
         if (!empty($edits['upscale'])) {
-            $fields['upscale.mode'] = 'ai.auto';
+            /*
+             * "ai.auto" is not one of them, whatever the general documentation
+             * says — v2 on the Plus plan refuses it with "upscale/mode must be
+             * equal to one of the allowed values", and the API is the authority
+             * over its own docs.
+             */
+            $fields['upscale.mode'] = in_array($edits['upscale_mode'] ?? '', self::UPSCALE_MODES, true)
+                ? $edits['upscale_mode']
+                : self::UPSCALE_FAST;
 
             /*
              * Without a target, upscale picks its own factor. Naming the

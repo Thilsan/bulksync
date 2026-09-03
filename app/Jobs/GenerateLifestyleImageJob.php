@@ -221,12 +221,17 @@ class GenerateLifestyleImageJob implements ShouldQueue
     /**
      * Generate the scene, upscaled to the catalogue's canvas if Photoroom will.
      *
-     * Whether the upscaler can be combined with generation in one request is
-     * not something Photoroom documents, and the answer has been no — a 400
-     * naming upscale/mode. So it is asked for and then given up on rather than
-     * assumed either way: an on-model shot at the size generation chose is
-     * worth having, and losing the whole image over an optional enhancement is
-     * the wrong way round.
+     * The 400 naming upscale/mode that this was written around was not, it
+     * turns out, Photoroom refusing to combine the upscaler with generation.
+     * The mode being sent was "ai.auto", which v2 does not accept from anyone
+     * for anything — so this retry fired on every single on-model shot, and
+     * none has ever reached the catalogue canvas. With a real mode value the
+     * first attempt now has a chance of standing.
+     *
+     * The retry stays regardless. Whether the two can be combined is still
+     * undocumented, and an on-model shot at the size generation chose is worth
+     * having: losing the whole image over an optional enhancement is the wrong
+     * way round.
      *
      * Deliberately narrow. Only a rejection that names upscale is retried, and
      * only once — a 429 or a credit problem is not something a second identical
@@ -243,7 +248,7 @@ class GenerateLifestyleImageJob implements ShouldQueue
                 throw $e;
             }
 
-            Log::info('Photoroom refused the upscale alongside generation; retrying at the size it chooses.', [
+            Log::info('Photoroom refused the upscale; retrying at the size generation chooses.', [
                 'item'  => $this->itemId,
                 'error' => $e->getMessage(),
             ]);

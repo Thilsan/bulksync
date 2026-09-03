@@ -405,6 +405,11 @@ class PhotoEditorFramingTest extends TestCase
      * withholds outputSize from a generated canvas because forcing one shape
      * into another is what produces a stretched result. Photoroom's upscaler is
      * the route, and it has to be asked for explicitly, so this pins that it is.
+     *
+     * It also pins the mode. This test previously asserted "ai.auto", a value
+     * v2 does not accept — so the request it describes was rejected every time
+     * and the job quietly fell back to the generated size. A test can hold a
+     * mistake still as easily as it holds a decision.
      */
     public function test_an_on_model_shot_is_brought_up_to_the_catalogue_canvas(): void
     {
@@ -418,7 +423,7 @@ class PhotoEditorFramingTest extends TestCase
 
         $fields = app(PhotoroomService::class)->buildFields($edits);
 
-        $this->assertSame('ai.auto', $fields['upscale.mode'] ?? null,
+        $this->assertSame(PhotoroomService::UPSCALE_FAST, $fields['upscale.mode'] ?? null,
             'an on-model shot is left at whatever size generation chose');
 
         // "widthxheight", not a bare number — Photoroom rejects "2000".
