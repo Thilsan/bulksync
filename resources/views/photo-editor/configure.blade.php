@@ -149,15 +149,16 @@
                      x-init="$watch('lifestyle', () => recount())">
 
                     <div class="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 px-5 py-4">
-                        <div>
-                            <h2 class="font-mono text-sm font-semibold text-gray-900">{{ $group->sku }}</h2>
-                            <p class="text-xs text-gray-500">{{ $groupPhotos->count() }} {{ Str::plural('photo', $groupPhotos->count()) }}</p>
+                        <div class="flex items-baseline gap-3">
+                            <h2 class="font-mono text-base font-semibold tracking-tight text-gray-900">{{ $group->sku }}</h2>
+                            <p class="text-xs text-gray-400">{{ $groupPhotos->count() }} {{ Str::plural('photo', $groupPhotos->count()) }}</p>
                         </div>
-                        <label class="flex cursor-pointer items-center gap-2 text-xs text-gray-600">
+                        <label class="flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs transition-colors hover:bg-gray-50"
+                               :class="differs ? 'text-brand-700' : 'text-gray-500'">
                             <input type="checkbox" name="groups[{{ $group->id }}][differs]" value="1"
                                    x-model="differs" @change="open = differs"
                                    class="h-3.5 w-3.5 rounded border-gray-300 text-brand-600 focus:ring-brand-500">
-                            <span x-text="differs ? 'This SKU is set to differ' : 'Same as the run'"></span>
+                            <span x-text="differs ? 'Settings differ for this SKU' : 'Same as the run'"></span>
                         </label>
                     </div>
 
@@ -171,91 +172,110 @@
                          product's main image. --}}
                     <div class="px-5 py-4"
                          x-data="photoOrder(@js($groupPhotos->pluck('id')->all()))">
-                        <div class="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+                        <div class="mb-3 flex flex-wrap items-baseline justify-between gap-2">
                             <p class="text-xs text-gray-500">
-                                Drag to reorder — the first photo becomes the product's main image on Shopify.
+                                Drag to reorder — photo 1 becomes the product's main image on Shopify.
                             </p>
-                            <p class="text-xs" :class="asIsCount || keepBgCount ? 'text-amber-700' : 'text-gray-400'">
-                                <span x-text="asIsCount"></span> going up untouched
-                                <span x-show="asIsCount" x-cloak>— no credits spent on those</span>
-                                <span x-show="keepBgCount" x-cloak>
-                                    · <span x-text="keepBgCount"></span> framed with the background kept
+                            <p class="flex items-center gap-2 text-xs">
+                                <span x-show="asIsCount" x-cloak class="rounded-full bg-amber-50 px-2 py-0.5 font-medium text-amber-700">
+                                    <span x-text="asIsCount"></span> untouched — no credit
+                                </span>
+                                <span x-show="keepBgCount" x-cloak class="rounded-full bg-sky-50 px-2 py-0.5 font-medium text-sky-700">
+                                    <span x-text="keepBgCount"></span> keeping its background
+                                </span>
+                                <span x-show="!asIsCount && !keepBgCount" class="text-gray-400">
+                                    Every photo cut out and reframed
                                 </span>
                             </p>
                         </div>
 
-                        <div class="grid grid-cols-3 gap-3 sm:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10">
+                        {{-- Four or five to a row rather than ten. These are
+                             the pictures the whole decision rests on, and at a
+                             tenth of the width nobody can see what they are
+                             deciding about. --}}
+                        <div class="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
                             <template x-for="(id, index) in order" :key="id">
-                                <label class="group relative cursor-grab active:cursor-grabbing"
-                                       draggable="true"
-                                       @dragstart="from = index"
-                                       @dragover.prevent
-                                       @drop.prevent="moveTo(index)"
-                                       :class="from === index ? 'opacity-40' : ''">
+                                <div class="group"
+                                     draggable="true"
+                                     @dragstart="from = index"
+                                     @dragover.prevent
+                                     @drop.prevent="moveTo(index)"
+                                     :class="from === index ? 'opacity-40' : ''">
                                     <input type="hidden" :name="`groups[{{ $group->id }}][order][]`" :value="id">
 
-                                    <input type="radio" class="peer sr-only"
-                                           name="groups[{{ $group->id }}][lifestyle_source_item_id]"
-                                           :value="id" :checked="id === {{ (int) $group->lifestyle_source_item_id }}">
+                                    <label class="relative block cursor-grab active:cursor-grabbing">
+                                        <input type="radio" class="peer sr-only"
+                                               name="groups[{{ $group->id }}][lifestyle_source_item_id]"
+                                               :value="id" :checked="id === {{ (int) $group->lifestyle_source_item_id }}">
 
-                                    <img :src="photos[id].thumb" :alt="photos[id].filename" loading="lazy"
-                                         :class="asIs[id] ? 'border-amber-400' : (keepBg[id] ? 'border-sky-400' : 'border-transparent')"
-                                         class="aspect-square w-full rounded-lg border-2 bg-gray-100 object-cover peer-checked:border-brand-500">
+                                        {{-- object-contain, not cover: a crop can
+                                             hide the very edge of a product that
+                                             decides whether a shot is usable. --}}
+                                        <div class="relative overflow-hidden rounded-xl border-2 bg-white transition-colors peer-checked:border-brand-500"
+                                             :class="asIs[id] ? 'border-amber-400' : (keepBg[id] ? 'border-sky-400' : (index === 0 ? 'border-brand-300' : 'border-gray-200'))">
+                                            <img :src="photos[id].thumb" :alt="photos[id].filename" loading="lazy"
+                                                 class="aspect-square w-full bg-white object-contain">
 
-                                    <span class="mt-1 block truncate text-[11px] text-gray-500" x-text="photos[id].filename"></span>
+                                            {{-- Position is the one number here
+                                                 with a consequence on the shop:
+                                                 the first photo becomes the
+                                                 product's main image. --}}
+                                            <span class="pointer-events-none absolute left-2 top-2 flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold text-white shadow-sm"
+                                                  :class="index === 0 ? 'bg-brand-600' : 'bg-gray-900/60'"
+                                                  x-text="index + 1"></span>
 
-                                    {{-- Its place in the gallery, so the order is
-                                         readable without counting tiles. --}}
-                                    <span class="pointer-events-none absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold text-white"
-                                          :class="index === 0 ? 'bg-brand-600' : 'bg-gray-800/70'"
-                                          x-text="index + 1"></span>
+                                            <span x-show="index === 0"
+                                                  class="pointer-events-none absolute right-2 top-2 rounded-full bg-brand-600 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white shadow-sm">
+                                                Main
+                                            </span>
 
-                                    <button type="button" x-show="index !== 0" @click.prevent="makeFirst(index)"
-                                            class="absolute inset-x-1 bottom-6 hidden rounded bg-gray-900/80 py-0.5 text-[10px] font-medium text-white group-hover:block">
-                                        Make first
-                                    </button>
+                                            <span x-show="lifestyle > 0 && index !== 0" x-cloak
+                                                  class="pointer-events-none absolute right-2 top-2 rounded-full bg-white/95 px-2 py-0.5 text-[10px] font-semibold text-gray-600 shadow-sm peer-checked:bg-brand-600 peer-checked:text-white">
+                                                Model wears this
+                                            </span>
 
-                                    {{-- Edit this photo, or send it up as it is.
-                                         A shot that is already right costs a
-                                         credit to change nothing, so this is the
-                                         difference between a 10-credit run and a
-                                         6-credit one. --}}
-                                    <button type="button" @click.prevent="toggleAsIs(id)"
-                                            :title="asIs[id] ? 'Going to Shopify untouched — click to edit it instead' : 'Will be edited — click to send it as it is'"
-                                            :class="asIs[id]
-                                                ? 'bg-amber-500 text-white'
-                                                : 'bg-white/90 text-gray-500 opacity-0 group-hover:opacity-100'"
-                                            class="absolute left-1 bottom-6 rounded px-1.5 py-0.5 text-[10px] font-semibold shadow-sm transition-opacity">
-                                        <span x-text="asIs[id] ? 'AS IS' : 'as is?'"></span>
-                                    </button>
+                                            <button type="button" x-show="index !== 0" @click.prevent="makeFirst(index)"
+                                                    class="absolute inset-x-2 bottom-2 rounded-lg bg-gray-900/85 py-1.5 text-xs font-medium text-white opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100">
+                                                Make main image
+                                            </button>
+                                        </div>
+                                    </label>
+
+                                    <p class="mt-2 truncate text-xs text-gray-500" x-text="photos[id].filename"></p>
+
+                                    {{-- The two treatments, spelled out under
+                                         every photo rather than revealed on
+                                         hover. Hidden, they were a feature
+                                         nobody knew was there — and each one
+                                         changes what the run costs. --}}
+                                    <div class="mt-1.5 grid grid-cols-2 gap-1.5">
+                                        <button type="button" @click.prevent="toggleAsIs(id)"
+                                                :title="asIs[id] ? 'Going to Shopify untouched — click to edit it instead' : 'Will be edited — click to send it as it is'"
+                                                :class="asIs[id]
+                                                    ? 'bg-amber-500 text-white ring-amber-500'
+                                                    : 'bg-white text-gray-500 ring-gray-200 hover:ring-gray-300'"
+                                                class="rounded-lg px-2 py-1 text-[11px] font-semibold ring-1 transition-colors">
+                                            As is
+                                        </button>
+
+                                        <button type="button" @click.prevent="toggleKeepBg(id)"
+                                                :title="keepBg[id] ? 'Keeping its background — click to cut it out instead' : 'Will be cut out — click to keep its background and only reframe it'"
+                                                :class="keepBg[id]
+                                                    ? 'bg-sky-500 text-white ring-sky-500'
+                                                    : 'bg-white text-gray-500 ring-gray-200 hover:ring-gray-300'"
+                                                class="rounded-lg px-2 py-1 text-[11px] font-semibold ring-1 transition-colors">
+                                            Keep BG
+                                        </button>
+                                    </div>
 
                                     <template x-if="asIs[id]">
                                         <input type="hidden" :name="`groups[{{ $group->id }}][as_is][]`" :value="id">
                                     </template>
 
-                                    {{-- Framed like its siblings, but with the
-                                         background left alone — for the shot
-                                         whose background is the point. Still a
-                                         credit: it goes to Photoroom, it just
-                                         does not get erased. --}}
-                                    <button type="button" @click.prevent="toggleKeepBg(id)"
-                                            :title="keepBg[id] ? 'Keeping its background — click to cut it out instead' : 'Will be cut out — click to keep its background and only reframe it'"
-                                            :class="keepBg[id]
-                                                ? 'bg-sky-500 text-white'
-                                                : 'bg-white/90 text-gray-500 opacity-0 group-hover:opacity-100'"
-                                            class="absolute right-1 bottom-6 rounded px-1.5 py-0.5 text-[10px] font-semibold shadow-sm transition-opacity">
-                                        <span x-text="keepBg[id] ? 'KEEP BG' : 'keep bg?'"></span>
-                                    </button>
-
                                     <template x-if="keepBg[id]">
                                         <input type="hidden" :name="`groups[{{ $group->id }}][keep_bg][]`" :value="id">
                                     </template>
-
-                                    <span x-show="lifestyle > 0" x-cloak
-                                          class="pointer-events-none absolute left-1 top-1 rounded bg-white/90 px-1.5 py-0.5 text-[10px] font-semibold text-gray-700 peer-checked:bg-brand-600 peer-checked:text-white">
-                                        Model wears this
-                                    </span>
-                                </label>
+                                </div>
                             </template>
                         </div>
                     </div>

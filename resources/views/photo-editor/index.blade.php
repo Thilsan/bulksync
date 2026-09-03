@@ -119,8 +119,7 @@
         </p>
     </div>
 
-    <form method="POST" action="{{ route('photo-editor.store') }}" @submit="loading = true"
-          class="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_20rem] xl:grid-cols-[minmax(0,1fr)_23rem]">
+    <form method="POST" action="{{ route('photo-editor.store') }}" @submit="loading = true">
         @csrf
 
         <div class="space-y-6">
@@ -243,79 +242,6 @@
             </div>
         </div>
 
-        {{-- ─────────────────────────── Helper column ─────────────────────────── --}}
-        <aside class="space-y-4 lg:sticky lg:top-6">
-            <div class="overflow-hidden rounded-xl border border-gray-200 bg-white">
-                <div class="border-b border-gray-100 px-4 py-3">
-                    <h2 class="text-sm font-semibold text-gray-800">What this run costs</h2>
-                </div>
-                <div class="space-y-2.5 px-4 py-4 text-xs leading-relaxed text-gray-600">
-                    <p>Photoroom charges <strong class="text-gray-800">one credit per image</strong>, whatever
-                       combination of edits you pick — so 40 photos is 40 credits.</p>
-                    <p>A folder holding more than <strong class="text-gray-800">{{ number_format($maxImages) }}</strong>
-                       images is refused before anything is sent.</p>
-                    <p class="text-gray-500">Nothing reaches Shopify until you pick the images on the next screen.</p>
-                </div>
-            </div>
-
-            <div class="overflow-hidden rounded-xl border border-gray-200 bg-white">
-                <div class="border-b border-gray-100 px-4 py-3">
-                    <h2 class="text-sm font-semibold text-gray-800">Folder layout</h2>
-                    <p class="mt-0.5 text-xs text-gray-500">Same layout the bulk uploader reads.</p>
-                </div>
-                <div class="px-4 py-4">
-                    <pre class="overflow-x-auto text-[11px] leading-relaxed text-gray-600"><code>Shared folder/
-├── <span class="font-semibold text-brand-700">AB-1234</span>/        <span class="text-gray-400">SKU</span>
-│   ├── front.jpg
-│   └── back.jpg
-└── <span class="font-semibold text-brand-700">5901234123457</span>/  <span class="text-gray-400">barcode</span>
-    └── main.jpg</code></pre>
-                </div>
-            </div>
-
-            <div class="overflow-hidden rounded-xl border border-gray-200 bg-white">
-                <div class="border-b border-gray-100 px-4 py-3">
-                    <h2 class="text-sm font-semibold text-gray-800">What happens next</h2>
-                </div>
-                <ol class="divide-y divide-gray-100 text-xs">
-                    @foreach ([
-                        'Every image in the folder is fetched and edited.',
-                        'You compare before and after, side by side.',
-                        'You tick the ones worth keeping.',
-                        'Only those get pushed to ' . ($activeStore?->name ?? 'your store') . '.',
-                    ] as $i => $step)
-                    <li class="flex gap-2.5 px-4 py-3">
-                        <span class="grid h-4 w-4 shrink-0 place-items-center rounded-full bg-brand-100 text-[10px] font-bold text-brand-700">{{ $i + 1 }}</span>
-                        <span class="text-gray-600">{{ $step }}</span>
-                    </li>
-                    @endforeach
-                </ol>
-                <div class="border-t border-gray-100 bg-gray-50 px-4 py-3">
-                    <p class="text-[11px] leading-relaxed text-gray-500">
-                        Edited files are kept for {{ $retentionDays }} days, then cleared automatically.
-                    </p>
-                </div>
-            </div>
-
-            @if ($recent->isNotEmpty())
-            <div class="overflow-hidden rounded-xl border border-gray-200 bg-white">
-                <div class="flex items-center justify-between border-b border-gray-100 px-4 py-3">
-                    <h2 class="text-sm font-semibold text-gray-800">Recent runs</h2>
-                    <a href="{{ route('photo-editor.history') }}" class="text-xs font-medium text-brand-600 hover:text-brand-700">All →</a>
-                </div>
-                <div class="divide-y divide-gray-100">
-                    @foreach ($recent as $run)
-                    <a href="{{ route('photo-editor.show', $run) }}" class="block px-4 py-3 transition-colors hover:bg-gray-50">
-                        <p class="truncate text-xs font-medium text-gray-800">{{ $run->name }}</p>
-                        <p class="mt-0.5 truncate text-[11px] text-gray-400">
-                            {{ $run->edited_files }} edited · {{ $run->pushed_files }} pushed · {{ $run->created_at->diffForHumans() }}
-                        </p>
-                    </a>
-                    @endforeach
-                </div>
-            </div>
-            @endif
-        </aside>
     </form>
 </div>
 

@@ -62,11 +62,9 @@ class PhotoEditorController extends Controller implements HasMiddleware
         $user = auth()->user();
 
         return view('photo-editor.index', [
-            'activeStore'          => Store::getActive(),
             'onedriveConfigured'   => !empty($user->onedrive_access_token),
             'photoroomConfigured'  => $this->photoroom->isConfigured(),
             'isSandbox'            => $this->photoroom->isSandbox(),
-            'maxImages'            => (int) config('services.photoroom.max_images', 120),
 
             // What the allowance has gone on, so a run is planned against what
             // is left rather than started and stopped halfway by a quota wall.
@@ -75,8 +73,6 @@ class PhotoEditorController extends Controller implements HasMiddleware
             // What the settings block on the form starts filled in with. Same
             // array the session is created with, so the two cannot drift.
             'defaultEdits'         => PhotoroomService::defaultEdits(),
-            'retentionDays'        => (int) config('services.photoroom.retention_days', 7),
-            'recent'               => $this->scope()->with('store')->latest()->limit(5)->get(),
 
             // The option lists live on the service, so the form, the validation
             // rules and the API mapping can never disagree about what exists.

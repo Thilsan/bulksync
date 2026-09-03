@@ -82,7 +82,17 @@ class PhotoEditorLayoutTest extends TestCase
         $this->assertStringContainsString('Cancel', $html);
     }
 
-    public function test_the_helper_column_sits_beside_the_form(): void
+    /**
+     * The helper column was removed on request: four cards of explanation
+     * beside a form people fill in every day, and the one number worth reading
+     * — how much Photoroom allowance is left — now sits above the form where
+     * it is seen before a run is planned rather than after.
+     *
+     * Asserted rather than assumed, because the grid it left behind would
+     * otherwise keep a 20rem empty track on the right and nothing on screen
+     * would say why the form stops half way across.
+     */
+    public function test_the_form_stands_alone_with_no_helper_column(): void
     {
         config(['services.photoroom.api_key' => 'sandbox_test_key']);
 
@@ -97,18 +107,17 @@ class PhotoEditorLayoutTest extends TestCase
         $form = $xpath->query('//form[contains(@action, "photo-editor")]')->item(0);
         $this->assertNotNull($form, 'the run form is missing');
 
-        // Both grid tracks, or there is only one column to sit in.
-        $this->assertStringContainsString('lg:grid-cols-', $form->getAttribute('class'));
+        $this->assertSame(0, $xpath->query('./aside', $form)->length,
+            'the helper column is back');
 
-        // The helper column must be a direct child of the form, beside the
-        // left-hand column — not nested inside it.
-        $aside = $xpath->query('./aside', $form);
-        $this->assertSame(1, $aside->length, 'the helper column is not a direct child of the form');
+        $this->assertStringNotContainsString('lg:grid-cols-', $form->getAttribute('class'),
+            'the form still reserves a column for a sidebar that is gone');
 
-        $this->assertStringContainsString('What this run costs', $aside->item(0)->textContent);
+        foreach (['What this run costs', 'Folder layout', 'What happens next', 'Recent runs'] as $card) {
+            $this->assertStringNotContainsString($card, $html, "the \"{$card}\" card is still rendered");
+        }
 
-        // The submit button belongs to the form's own column, not adrift.
-        $submit = $xpath->query('.//button[@type="submit"]', $form);
-        $this->assertSame(1, $submit->length);
+        // The submit button belongs to the form, not adrift.
+        $this->assertSame(1, $xpath->query('.//button[@type="submit"]', $form)->length);
     }
 }
