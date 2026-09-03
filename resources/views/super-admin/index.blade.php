@@ -169,7 +169,7 @@
                                     'metafield_update' => 'Metafield Update',
                                     'product_request'  => 'Product Creation Request',
                                     'photo_editor'     => 'Photo Editor (Photoroom)',
-                                    'orders_dashboard' => 'Orders Dashboard (company revenue)',
+                                    'orders_dashboard' => 'Management Dashboard (company revenue)',
                                 ];
                             @endphp
                             @foreach($features as $key => $label)
