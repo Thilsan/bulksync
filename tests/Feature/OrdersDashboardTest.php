@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\PhotoEditSession;
 use App\Models\ProductRequest;
 use App\Models\ProductRequestDraftProduct;
 use App\Models\User;
@@ -573,6 +574,73 @@ class OrdersDashboardTest extends TestCase
         $this->assertNotFalse($end, 'Could not find the page footer in the rendered page.');
 
         return substr($html, $start, $end - $start);
+    }
+
+    // ── Photo Editor ─────────────────────────────────────────────────────────
+
+    /**
+     * Photoroom charges per image edited, so "how many did we edit and how many
+     * of those actually reached a product" is the question worth a card.
+     */
+    public function test_the_studio_tab_reports_photo_editor_work(): void
+    {
+        $this->fakeOk();
+
+        PhotoEditSession::create([
+            'user_id' => $this->admin->id, 'name' => 'Watches — August',
+            'onedrive_link' => 'https://example.test/folder', 'edits' => ['background' => true],
+            'status' => 'completed', 'scan_status' => 'scanned',
+            'total_files' => 120, 'scanned_files' => 120, 'edited_files' => 100,
+            'pushed_files' => 80, 'failed_files' => 5,
+        ]);
+
+        PhotoEditSession::create([
+            'user_id' => $this->admin->id, 'name' => 'Bags — awaiting setup',
+            'onedrive_link' => 'https://example.test/bags', 'edits' => [],
+            'status' => 'configuring', 'scan_status' => 'scanned',
+            'total_files' => 40, 'scanned_files' => 40,
+        ]);
+
+        $body = $this->tabBody(
+            $this->actingAs($this->admin)
+                ->get(route('orders.dashboard', ['tab' => 'studio']))->assertOk()->getContent()
+        );
+
+        $this->assertStringContainsString('Photo Editor', $body);
+        $this->assertStringContainsString('80 of 100 edited images pushed to a product', $body);
+
+        // A session parked in 'configuring' is waiting on a person, not the
+        // queue, so it is called out rather than counted as running.
+        $this->assertStringContainsString('1 waiting to be set up', $body);
+
+        // And it shows up in the timeline alongside every other module.
+        $this->assertStringContainsString('Watches — August', $body);
+        $this->assertStringContainsString('100 edited · 80 pushed · 5 failed', $body);
+    }
+
+    /** No permission, no card — the same rule every other module follows. */
+    public function test_photo_editor_is_absent_without_the_permission(): void
+    {
+        $this->fakeOk();
+
+        $viewer = $this->grant(User::create([
+            'name' => 'Mei Lin', 'email' => 'mei3@example.test',
+            'password' => 'password', 'is_active' => true,
+        ]));
+
+        PhotoEditSession::create([
+            'user_id' => $viewer->id, 'name' => 'Not mine to see',
+            'onedrive_link' => 'https://example.test/x', 'edits' => [],
+            'status' => 'completed', 'scan_status' => 'scanned', 'edited_files' => 9,
+        ]);
+
+        $body = $this->tabBody(
+            $this->actingAs($viewer)
+                ->get(route('orders.dashboard', ['tab' => 'studio']))->assertOk()->getContent()
+        );
+
+        $this->assertStringNotContainsString('Photo Editor', $body);
+        $this->assertStringNotContainsString('Not mine to see', $body);
     }
 
     // ── Product creation ─────────────────────────────────────────────────────

@@ -6,6 +6,7 @@ use App\Models\ActivityLog;
 use App\Models\AiContentItem;
 use App\Models\AiContentSession;
 use App\Models\ImageAuditSession;
+use App\Models\PhotoEditSession;
 use App\Models\ProductRequest;
 use App\Models\SkuCheckSession;
 use App\Models\Store;
@@ -74,13 +75,14 @@ class WorkspaceSummary
         $audit     = $can('image_audit')      ? $this->auditStats($mine, $since)     : null;
         $migration = $can('store_sync')       ? $this->migrationStats($mine, $since) : null;
         $ai        = $can('ai_content')       ? $this->aiStats($mine, $since)        : null;
+        $photo     = $can('photo_editor')     ? $this->photoStats($mine, $since)     : null;
         $requests  = $can('product_request')  ? $this->requestStats($user)           : null;
 
         return [
             'user'        => $user,
             'greeting'    => $this->greeting(),
             'headline'    => $this->headline($upload, $sku, $ai, $requests, $audit),
-            'modules'     => $this->modules($upload, $sku, $audit, $migration, $ai, $requests),
+            'modules'     => $this->modules($upload, $sku, $audit, $migration, $ai, $requests, $photo),
 
             // No throughput chart on this tab, so the six grouped queries that
             // fed it are not run. The greeting still counts what is live.
@@ -106,6 +108,7 @@ class WorkspaceSummary
         SkuCheckSession::class       => ['pending', 'running'],
         ImageAuditSession::class     => ['pending', 'running'],
         AiContentSession::class      => ['pending', 'processing', 'translating'],
+        PhotoEditSession::class      => ['pending', 'processing'],
         StoreMigrationSession::class => ['pending', 'running'],
     ];
 
@@ -199,6 +202,29 @@ class WorkspaceSummary
             'translated'=> AiContentItem::whereIn('session_id', $itemIds)->whereNotNull('ai_description_ar')->count(),
             'running'   => $this->live((clone $all))->count(),
             'latest'    => (clone $all)->with('store')->latest()->first(),
+        ];
+    }
+
+    /**
+     * Photoroom edits: what was cut out, and how much of it reached a product.
+     *
+     * A session sits in 'configuring' between the folder scan and someone
+     * choosing the edits, which is waiting on a person rather than work in
+     * flight — it is counted separately from the running total for that reason.
+     */
+    private function photoStats(callable $mine, Carbon $since): array
+    {
+        $all = $mine(PhotoEditSession::class);
+
+        return [
+            'sessions'  => (clone $all)->count(),
+            'recent'    => (clone $all)->where('created_at', '>=', $since)->count(),
+            'scanned'   => (int) (clone $all)->sum('scanned_files'),
+            'edited'    => (int) (clone $all)->sum('edited_files'),
+            'pushed'    => (int) (clone $all)->sum('pushed_files'),
+            'failed'    => (int) (clone $all)->sum('failed_files'),
+            'running'   => $this->live((clone $all))->count(),
+            'awaiting'  => (clone $all)->where('status', 'configuring')->count(),
         ];
     }
 
@@ -306,7 +332,7 @@ class WorkspaceSummary
      * One card per tool the user owns, each carrying the two or three numbers
      * that tool is actually about plus a health line.
      */
-    private function modules(?array $upload, ?array $sku, ?array $audit, ?array $migration, ?array $ai, ?array $requests): array
+    private function modules(?array $upload, ?array $sku, ?array $audit, ?array $migration, ?array $ai, ?array $requests, ?array $photo = null): array
     {
         $cards = [];
 
@@ -394,6 +420,31 @@ class WorkspaceSummary
                 'barNote' => $ai['items'] > 0
                     ? number_format($ai['processed']) . ' of ' . number_format($ai['items']) . ' queued products written'
                     : 'Nothing queued for writing',
+            ];
+        }
+
+        if ($photo) {
+            $cards[] = [
+                'name'    => 'Photo Editor',
+                'blurb'   => 'Backgrounds cut out and retouched through Photoroom.',
+                'route'   => 'photo-editor.index',
+                'link'    => 'New edit',
+                'tone'    => 'rose',
+                'icon'    => 'M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z',
+                'running' => $photo['running'],
+                'metrics' => [
+                    ['Sessions', number_format($photo['sessions'])],
+                    ['Edited',   number_format($photo['edited'])],
+                    ['Pushed',   number_format($photo['pushed'])],
+                ],
+
+                // Editing an image costs money; pushing it is what makes that
+                // money worth spending, so the bar tracks the second one.
+                'bar'     => $this->ratio($photo['pushed'], $photo['edited']),
+                'barNote' => $photo['edited'] > 0
+                    ? number_format($photo['pushed']) . ' of ' . number_format($photo['edited']) . ' edited images pushed to a product'
+                        . ($photo['awaiting'] > 0 ? ' · ' . number_format($photo['awaiting']) . ' waiting to be set up' : '')
+                    : 'No images edited yet',
             ];
         }
 
@@ -613,6 +664,24 @@ class WorkspaceSummary
                         'who'    => $s->user?->name,
                         'at'     => $s->created_at,
                         'url'    => route('ai-content.show', $s),
+                    ])
+            );
+        }
+
+        if ($can('photo_editor')) {
+            $events = $events->concat(
+                $mine(PhotoEditSession::class)->with('user')->latest()->limit(4)->get()
+                    ->map(fn (PhotoEditSession $s) => [
+                        'module' => 'Photo Editor',
+                        'tone'   => 'rose',
+                        'title'  => $s->name ?: 'Photo edit session',
+                        'detail' => number_format($s->edited_files) . ' edited · '
+                                    . number_format($s->pushed_files) . ' pushed · '
+                                    . number_format($s->failed_files) . ' failed',
+                        'status' => $s->status,
+                        'who'    => $s->user?->name,
+                        'at'     => $s->created_at,
+                        'url'    => null,
                     ])
             );
         }
