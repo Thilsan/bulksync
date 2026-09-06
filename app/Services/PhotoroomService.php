@@ -464,7 +464,7 @@ class PhotoroomService
                 'jewellery' => ['label' => 'Jewellery', 'note' => 'House rule, unmeasured: 10% around a 2000 square. A small product may want the canvas filled harder — worth sampling before it is trusted.', 'edits' => ['width' => 2000, 'height' => 2000, 'padding' => 0.10]],
                 'necklaces' => [
                     'label' => 'Necklaces',
-                    'note'  => 'Measured: the chain runs off the top of the frame — no space above it at all — the necklace filling 90% of a 2000 square with 10% below. Two catalogue shots agree to a tenth of a percent. Nothing is centred: a necklace hangs, so the top edge is where it is anchored and the room is all underneath.',
+                    'note'  => 'Measured: the chain runs edge to edge at the top — no space above it at all — the necklace filling 90% of a 2000 square and ending on a line 10% up from the bottom. Two catalogue shots agree to a tenth of a percent. Every necklace ends on that same line whatever the chain: height decides the size, so a heavy curb and a fine cable finish together rather than the wide one stopping short.',
                     'edits' => [
                         'width'  => 2000,
                         'height' => 2000,
@@ -483,10 +483,16 @@ class PhotoroomService
                          * and centring one would leave a gap above it that no
                          * other necklace on the site has.
                          *
+                         * Both edges declared, which is what tells the framing
+                         * pass to size by height and ignore the width. Two
+                         * necklaces side by side have to end on the same line,
+                         * and chains differ enormously in thickness — let the
+                         * width have a say and a heavy curb finishes 29% up
+                         * from the bottom where a fine cable finishes at 10%.
+                         *
                          * The 5% left and right is a guard rather than a
-                         * measurement. Both samples are taller than they are
-                         * wide, so the height binds and the sides never come
-                         * into it — but a wide collar would otherwise reach the
+                         * measurement. Both samples are taller than wide, so it
+                         * never binds; it only stops a wide collar reaching the
                          * edge of the canvas.
                          */
                         'padding'        => 0.05,

@@ -454,4 +454,63 @@ class ImageProcessingServiceTest extends TestCase
 
         return $maxX < 0 ? 0.0 : max($maxX - $minX + 1, $maxY - $minY + 1) / max($w, $h);
     }
+
+    /**
+     * Necklaces end on one line, whatever the chain.
+     *
+     * Two side by side is how they are seen, and chains differ enormously in
+     * thickness. Sized by the smaller of width and height, a heavy curb chain
+     * finishes 29% up from the bottom where a fine cable finishes at 10%, and
+     * the shared line — the whole point of the standard — is gone.
+     */
+    public function test_necklaces_of_different_widths_end_on_the_same_line(): void
+    {
+        $bottoms = [];
+
+        foreach ([[300, 1600], [1400, 1600]] as [$productW, $productH]) {
+            $framed = $this->service->frameToStandard(
+                $this->productOnWhite(2000, 2000, $productW, $productH),
+                2000,
+                0.05,
+                0.10,
+                'top',
+                0.015,
+                0.0,
+            );
+
+            $im = imagecreatefromstring($framed);
+            $h  = imagesy($im);
+
+            $lowest = 0;
+            for ($y = $h - 1; $y >= 0; $y--) {
+                for ($x = 0; $x < imagesx($im); $x++) {
+                    if (((imagecolorat($im, $x, $y) >> 24) & 0x7F) < 100) { $lowest = $y; break 2; }
+                }
+            }
+
+            $bottoms[] = ($h - 1 - $lowest) / $h;
+        }
+
+        $this->assertEqualsWithDelta(0.10, $bottoms[0], 0.02, 'the narrow one misses the line');
+        $this->assertEqualsWithDelta($bottoms[0], $bottoms[1], 0.02,
+            'a wide chain and a narrow one do not finish together');
+    }
+
+    /** It will give up the side margin to hold the line, but never the canvas. */
+    public function test_a_product_wider_than_the_canvas_is_not_pushed_off_it(): void
+    {
+        $framed = $this->service->frameToStandard(
+            $this->productOnWhite(2000, 2000, 1900, 700),
+            2000,
+            0.05,
+            0.10,
+            'top',
+            0.015,
+            0.0,
+        );
+
+        [$w, $h] = array_slice(getimagesizefromstring($framed), 0, 2);
+
+        $this->assertSame([2000, 2000], [$w, $h]);
+    }
 }

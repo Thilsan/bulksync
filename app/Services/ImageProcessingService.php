@@ -174,8 +174,30 @@ class ImageProcessingService
                 return $imageContent;
             }
 
-            // Whichever runs out first decides the size.
-            $scale = min($availableW / $boxW, $availableH / $boxH);
+            /*
+             * When both vertical edges are declared, the height is the whole
+             * rule and the width is not consulted.
+             *
+             * Necklaces are why. Two of them side by side have to end on the
+             * same line, and a heavy curb chain is far wider than a fine one —
+             * let the width have a say and the wide one stops short, finishing
+             * 29% up from the bottom where the slim one finishes at 10%. The
+             * shared line is the point of the standard, so height wins and the
+             * sides give way.
+             *
+             * The canvas is the one thing it will not cross: better a necklace
+             * wider than its side margin than one running off the picture.
+             */
+            if ($paddingTop !== null && $paddingBottom !== null) {
+                $scale = $availableH / $boxH;
+
+                if ($boxW * $scale > $canvasEdge) {
+                    $scale = $canvasEdge / $boxW;
+                }
+            } else {
+                // Whichever runs out first decides the size.
+                $scale = min($availableW / $boxW, $availableH / $boxH);
+            }
 
             if ($w === $canvasEdge && $h === $canvasEdge && abs($scale - 1.0) <= $tolerance) {
                 return $imageContent;

@@ -318,6 +318,7 @@ class EditPhotoItemJob implements ShouldQueue
                     (float) ($itemEdits['padding'] ?? 0.10),
                     isset($itemEdits['padding_bottom']) ? (float) $itemEdits['padding_bottom'] : null,
                     (string) ($itemEdits['v_align'] ?? 'center'),
+                    paddingTop: isset($itemEdits['padding_top']) ? (float) $itemEdits['padding_top'] : null,
                 );
             }
 
