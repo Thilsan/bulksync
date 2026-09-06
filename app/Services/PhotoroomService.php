@@ -462,6 +462,40 @@ class PhotoroomService
             'subcategories' => [
                 'watches'   => ['label' => 'Watches',   'note' => 'House rule, unmeasured: 10% around a 2000 square. A small product may want the canvas filled harder — worth sampling before it is trusted.', 'edits' => ['width' => 2000, 'height' => 2000, 'padding' => 0.10]],
                 'jewellery' => ['label' => 'Jewellery', 'note' => 'House rule, unmeasured: 10% around a 2000 square. A small product may want the canvas filled harder — worth sampling before it is trusted.', 'edits' => ['width' => 2000, 'height' => 2000, 'padding' => 0.10]],
+                'necklaces' => [
+                    'label' => 'Necklaces',
+                    'note'  => 'Measured: the chain runs off the top of the frame — no space above it at all — the necklace filling 90% of a 2000 square with 10% below. Two catalogue shots agree to a tenth of a percent. Nothing is centred: a necklace hangs, so the top edge is where it is anchored and the room is all underneath.',
+                    'edits' => [
+                        'width'  => 2000,
+                        'height' => 2000,
+
+                        /*
+                         * Measured off two Blue Salon necklaces, both square
+                         * exports, and they agree: 0% above, 89.9% and 90.0% of
+                         * the height filled, 10.1% and 10.0% below.
+                         *
+                         * The only category here anchored to the top. Everything
+                         * else either stands on a base line or floats in the
+                         * middle, because everything else sits on a surface or
+                         * has no particular edge. A necklace hangs from one, and
+                         * the catalogue photographs it hanging out of frame:
+                         * cropping the chain is the convention, not an accident,
+                         * and centring one would leave a gap above it that no
+                         * other necklace on the site has.
+                         *
+                         * The 5% left and right is a guard rather than a
+                         * measurement. Both samples are taller than they are
+                         * wide, so the height binds and the sides never come
+                         * into it — but a wide collar would otherwise reach the
+                         * edge of the canvas.
+                         */
+                        'padding'        => 0.05,
+                        'padding_top'    => 0.0,
+                        'padding_bottom' => 0.10,
+                        'v_align'        => 'top',
+                    ],
+                ],
+
                 'rings'     => [
                     'label' => 'Rings',
                     'note'  => 'Measured at 20.1% and set to 22%, centred, the ring filling 56% of a 2000 square. The catalogue measures 20.1%, but side by side the ring read large at that size and 22% was chosen on the eye. Twice the padding of every other category either way — a ring is small and read close up, and it is given room rather than filling the canvas.',
@@ -908,6 +942,7 @@ class PhotoroomService
         'watches_jewellery/watches'   => 'the watch',
         'watches_jewellery/jewellery' => 'the jewellery',
         'watches_jewellery/rings'     => 'the ring',
+        'watches_jewellery/necklaces' => 'the necklace',
     ];
 
     /** What a category calls its product, or null if it has no name for it. */

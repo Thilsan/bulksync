@@ -320,45 +320,76 @@ class PhotoEditorFramingTest extends TestCase
     }
 
     /**
-     * The categories that stand on a line, and only those.
+     * The categories anchored to an edge, and only those.
      *
-     * Two kinds of product need one. A bag category holds a flat clutch and a
-     * tall top-handle bag; a perfume category holds a squat bottle and a slim
-     * one. Fit each to the canvas and they come out different heights whatever
-     * the padding, so only a shared bottom edge makes a row of them read as a
-     * row. A garment category has no such problem — every dress is taller than
-     * it is wide, so the padding is the base line.
+     * Two kinds of product need it, for opposite reasons. Some stand on
+     * something: a bag category holds a flat clutch and a tall top-handle bag,
+     * a perfume category a squat bottle and a slim one, and only a shared
+     * bottom edge makes a row of them read as a row. One hangs from something:
+     * a necklace is photographed with the chain running off the top of the
+     * frame, so it is anchored up there and the room is all underneath.
+     *
+     * Everything else floats in the middle, because a garment or a ring has no
+     * edge that means anything.
      *
      * Asserted as a closed list because an override is a decision. One
      * appearing on a category that never asked for it would move that
-     * category's products off the line every other one stands on, and nothing
-     * on the screen would say so.
+     * category's products off the line every other one shares, and nothing on
+     * the screen would say so.
      */
-    public function test_only_the_categories_that_stand_on_a_line_have_a_baseline(): void
+    public function test_only_the_anchored_categories_have_a_per_edge_override(): void
     {
-        $baselines = [
-            'women/bags'     => '0.2',    // three bags measured 19.8%, 19.9%, 18.6%
-            'perfume'         => '0.106', // measured off a live 2000x2000 catalogue shot
+        $anchored = [
+            // three bags measured 19.8%, 19.9%, 18.6%
+            'women/bags' => ['verticalAlignment' => 'bottom', 'paddingBottom' => '0.2'],
+            // measured off a live 2000x2000 catalogue shot
+            'perfume'    => ['verticalAlignment' => 'bottom', 'paddingBottom' => '0.106'],
+            // two catalogue shots, both with the chain running off the top
+            'watches_jewellery/necklaces' => [
+                'verticalAlignment' => 'top',
+                'paddingTop'        => '0',
+                'paddingBottom'     => '0.1',
+            ],
         ];
 
-        foreach ($baselines as $key => $expected) {
+        foreach ($anchored as $key => $expected) {
             $fields = $this->layoutFields(PhotoroomService::applyFramingPreset([], $key));
 
-            $this->assertSame($expected, $fields['paddingBottom'] ?? null,
-                "{$key} lost the base line it was measured on");
-            $this->assertSame('bottom', $fields['verticalAlignment'],
-                "{$key} has a base line but is not standing on it");
+            foreach ($expected as $field => $value) {
+                $this->assertSame($value, $fields[$field] ?? null,
+                    "{$key} lost the {$field} it was measured with");
+            }
         }
 
         foreach (array_keys(PhotoroomService::framingPresetsFlat()) as $key) {
-            if (isset($baselines[$key])) {
+            if (isset($anchored[$key])) {
                 continue;
             }
 
-            $this->assertArrayNotHasKey('paddingBottom',
-                $this->layoutFields(PhotoroomService::applyFramingPreset([], $key)),
+            $fields = $this->layoutFields(PhotoroomService::applyFramingPreset([], $key));
+
+            $this->assertArrayNotHasKey('paddingBottom', $fields,
+                "{$key} has a per-edge override nobody declared");
+            $this->assertArrayNotHasKey('paddingTop', $fields,
                 "{$key} has a per-edge override nobody declared");
         }
+    }
+
+    /**
+     * A necklace hangs; it does not sit.
+     *
+     * The measurement is unambiguous — 0% above the chain in both catalogue
+     * shots — and it is the only category here anchored to the top. Centring
+     * one would leave a gap above it that no other necklace on the site has.
+     */
+    public function test_a_necklace_hangs_from_the_top_of_the_frame(): void
+    {
+        $fields = $this->layoutFields(PhotoroomService::applyFramingPreset([], 'watches_jewellery/necklaces'));
+
+        $this->assertSame('top', $fields['verticalAlignment'] ?? null);
+        $this->assertSame('0', $fields['paddingTop'] ?? null, 'a necklace should touch the top edge');
+        $this->assertSame('0.1', $fields['paddingBottom'] ?? null);
+        $this->assertSame('the necklace', PhotoroomService::productNoun('watches_jewellery/necklaces'));
     }
 
     /**

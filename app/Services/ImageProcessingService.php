@@ -136,6 +136,7 @@ class ImageProcessingService
         ?float $paddingBottom = null,
         string $verticalAlignment = 'center',
         float $tolerance = 0.015,
+        ?float $paddingTop = null,
     ): string {
         try {
             if ($canvasEdge < 100 || $padding < 0 || $padding >= 0.5) {
@@ -157,29 +158,36 @@ class ImageProcessingService
             $boxW = $maxX - $minX + 1;
             $boxH = $maxY - $minY + 1;
 
-            // The product fits inside the canvas less its padding on both
-            // sides, on whichever of its own edges is the longer.
-            $target = $canvasEdge * (1 - 2 * $padding);
-            $longest = max($boxW, $boxH);
+            /*
+             * Top and bottom are allowed to differ, because for some products
+             * they do. A necklace hangs from the top of the frame — the chain
+             * runs off the edge with nothing above it and the space is all
+             * below — so the room it has vertically is not twice one number.
+             */
+            $top    = $paddingTop    ?? $padding;
+            $bottom = $paddingBottom ?? $padding;
 
-            if ($longest <= 0) {
+            $availableW = $canvasEdge * (1 - 2 * $padding);
+            $availableH = $canvasEdge * (1 - $top - $bottom);
+
+            if ($boxW <= 0 || $boxH <= 0 || $availableW <= 0 || $availableH <= 0) {
                 return $imageContent;
             }
 
-            if ($w === $canvasEdge && $h === $canvasEdge
-                && abs(($longest / $canvasEdge) - (1 - 2 * $padding)) <= $tolerance) {
+            // Whichever runs out first decides the size.
+            $scale = min($availableW / $boxW, $availableH / $boxH);
+
+            if ($w === $canvasEdge && $h === $canvasEdge && abs($scale - 1.0) <= $tolerance) {
                 return $imageContent;
             }
-
-            $scale = $target / $longest;
             $newW  = max(1, (int) round($boxW * $scale));
             $newH  = max(1, (int) round($boxH * $scale));
 
             $x = (int) round(($canvasEdge - $newW) / 2);
             $y = match ($verticalAlignment) {
-                'top'    => (int) round($canvasEdge * $padding),
-                'bottom' => $canvasEdge - (int) round($canvasEdge * ($paddingBottom ?? $padding)) - $newH,
-                default  => (int) round(($canvasEdge - $newH) / 2),
+                'top'    => (int) round($canvasEdge * $top),
+                'bottom' => $canvasEdge - (int) round($canvasEdge * $bottom) - $newH,
+                default  => (int) round($canvasEdge * $top) + (int) round(($availableH - $newH) / 2),
             };
 
             /*
