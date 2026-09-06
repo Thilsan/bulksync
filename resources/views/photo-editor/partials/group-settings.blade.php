@@ -437,7 +437,12 @@
 <details class="rounded-lg border border-gray-200 px-3 py-2">
     <summary class="cursor-pointer text-xs font-semibold uppercase tracking-wide text-gray-500">
         Finishing
-        <span class="ml-1 font-normal normal-case tracking-normal text-gray-400">lighting, shadow, upscaling</span>
+        {{-- Every control inside is named here. The list said "lighting,
+             shadow, upscaling" while also holding crease removal and background
+             extension, so somebody looking for creases had no reason to open
+             it — a summary that omits half of what it summarises hides the
+             feature rather than describing it. --}}
+        <span class="ml-1 font-normal normal-case tracking-normal text-gray-400">lighting, shadow, upscaling, ironing, background</span>
     </summary>
     <div class="mt-3 grid gap-3 sm:grid-cols-3">
         <div>
@@ -470,11 +475,22 @@
     </div>
 
     <div class="mt-3 flex flex-wrap gap-4">
-        @foreach (['upscale' => 'Upscale small photos', 'expand' => 'Extend the background', 'ironing' => 'Smooth creases'] as $field => $label)
-            <label class="flex cursor-pointer items-center gap-2 text-xs text-gray-700">
+        {{-- What each one is for, because two of the three are wrong on most
+             folders and the label alone does not say so: ironing is an apparel
+             model with nothing to do on a ring, and upscaling now decides
+             itself from the picture. --}}
+        @foreach ([
+            'upscale' => ['Upscale small photos', 'Already automatic for photos smaller than the canvas — tick only to force it'],
+            'expand'  => ['Extend the background', 'Invents canvas beyond the edges of the photo'],
+            'ironing' => ['Ironing', "Photoroom's apparel model — smooths creases in fabric, nothing to do on jewellery or a bottle"],
+        ] as $field => [$label, $hint])
+            <label class="flex cursor-pointer items-start gap-2 text-xs text-gray-700" title="{{ $hint }}">
                 <input type="checkbox" name="{{ $name($field) }}" value="1" @checked($val($field))
-                       class="h-3.5 w-3.5 rounded border-gray-300 text-brand-600 focus:ring-brand-500">
-                {{ $label }}
+                       class="mt-0.5 h-3.5 w-3.5 shrink-0 rounded border-gray-300 text-brand-600 focus:ring-brand-500">
+                <span>
+                    {{ $label }}
+                    <span class="block text-[11px] leading-snug text-gray-400">{{ $hint }}</span>
+                </span>
             </label>
         @endforeach
     </div>
