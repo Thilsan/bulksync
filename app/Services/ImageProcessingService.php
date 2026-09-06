@@ -159,6 +159,31 @@ class ImageProcessingService
             $boxH = $maxY - $minY + 1;
 
             /*
+             * A product that fills its frame corner to corner is not a product,
+             * it is a failure to find one — and the sandbox key is how it
+             * happens. Its watermark is tiled across the whole canvas, and a
+             * watermark is not white, so the box comes back as the entire
+             * picture. Framed on that, the necklace inside it lands wherever it
+             * happened to sit, which is why a row of them came out on four
+             * different lines.
+             *
+             * Photoroom's own framing is the better answer here: only
+             * inconsistent, where this would be confidently wrong.
+             *
+             * 0.93 rather than something nearer 1: a legitimately framed
+             * product covers well under that — the loosest preset here fills
+             * 90% of each edge, which is 81% of the area — so the gap between a
+             * real subject and a full-canvas one is wide enough to be safe.
+             */
+            if (($boxW * $boxH) / ($w * $h) > 0.93) {
+                Log::warning('ImageProcessingService: no distinct subject to frame — leaving Photoroom\'s framing alone', [
+                    'width' => $w, 'height' => $h,
+                ]);
+
+                return $imageContent;
+            }
+
+            /*
              * Top and bottom are allowed to differ, because for some products
              * they do. A necklace hangs from the top of the frame — the chain
              * runs off the edge with nothing above it and the space is all

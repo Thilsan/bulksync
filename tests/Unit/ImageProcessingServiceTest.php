@@ -513,4 +513,40 @@ class ImageProcessingServiceTest extends TestCase
 
         $this->assertSame([2000, 2000], [$w, $h]);
     }
+
+    /**
+     * A sandbox watermark is not a product.
+     *
+     * It is tiled across the whole canvas and it is not white, so the subject
+     * box comes back as the entire picture. Framed on that, the real product
+     * inside lands wherever it happened to sit — which is how four necklaces
+     * came out on four different lines. Photoroom's own framing is better than
+     * a confident wrong answer.
+     */
+    public function test_a_frame_with_no_distinct_subject_is_left_alone(): void
+    {
+        $watermarked = $this->watermarkedCanvas(1000, 1000);
+
+        $this->assertSame($watermarked, $this->service->frameToStandard($watermarked, 2000, 0.05, 0.10, 'top', 0.015, 0.0));
+    }
+
+    /** A canvas covered edge to edge in faint marks, as the sandbox returns. */
+    private function watermarkedCanvas(int $w, int $h): string
+    {
+        $im   = imagecreatetruecolor($w, $h);
+        $grey = imagecolorallocate($im, 190, 190, 190);
+        imagefilledrectangle($im, 0, 0, $w, $h, imagecolorallocate($im, 255, 255, 255));
+
+        // Right to the edges, as a real watermark is.
+        for ($y = 0; $y < $h; $y += 60) {
+            for ($x = 0; $x < $w; $x += 90) {
+                imagefilledrectangle($im, $x, $y, min($w - 1, $x + 40), min($h - 1, $y + 8), $grey);
+            }
+        }
+
+        ob_start();
+        imagepng($im);
+
+        return ob_get_clean();
+    }
 }
