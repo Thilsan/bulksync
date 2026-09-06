@@ -103,8 +103,12 @@
     </div>
 
     {{-- ── Selection toolbar ───────────────────────────────────────────── --}}
-    <div class="sticky top-2 z-20 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white/95 px-5 py-3 shadow-sm backdrop-blur"
-         x-show="readyCount > 0" x-cloak>
+    {{-- Shown while work is still running too, not only once something is
+         selectable: the progress block at the top of the page scrolls away, and
+         a long run is exactly when somebody is scrolling. --}}
+    <div class="sticky top-2 z-20 rounded-xl border border-gray-200 bg-white/95 px-5 py-3 shadow-sm backdrop-blur"
+         x-show="readyCount > 0 || !isFinished || stats.working > 0" x-cloak>
+      <div class="flex flex-wrap items-center justify-between gap-3">
         <div class="flex flex-wrap items-center gap-2">
             <button type="button" @click="selectAll()"
                 class="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-600 transition-colors hover:border-gray-400">
@@ -126,6 +130,17 @@
                       :class="pushResult.error ? 'text-red-600' : 'text-emerald-700'"
                       x-text="pushResult.error ? pushResult.error : pushResult.queued + ' queued for Shopify'"></span>
             </template>
+            {{-- Saving what Shopify will not take yet. A run where nothing
+                 matched is finished work, already paid for, and it should not
+                 have to be re-run once the products exist. --}}
+            <button type="button" @click="downloadSelected()" :disabled="selectedCount === 0"
+                class="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 transition-colors hover:border-gray-400 disabled:cursor-not-allowed disabled:opacity-50">
+                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.8">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3"/>
+                </svg>
+                <span x-text="`Download ${selectedCount}`"></span>
+            </button>
+
             <button type="button" @click="confirmOpen = true" :disabled="selectedCount === 0 || pushing"
                 class="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-5 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50">
                 <svg x-show="pushing" x-cloak class="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
@@ -135,6 +150,28 @@
                 <span x-text="pushing ? 'Sending…' : `Push ${selectedCount} to Shopify`"></span>
             </button>
         </div>
+      </div>
+
+      {{-- The same figure as the block above, kept to one line so the toolbar
+           stays a toolbar. --}}
+      <div x-show="!isFinished || stats.working > 0" x-cloak class="mt-2.5">
+          <div class="flex items-baseline justify-between gap-2 text-[11px]">
+              <span class="flex items-center gap-1.5 font-medium text-gray-600">
+                  <span class="relative flex h-1.5 w-1.5">
+                      <span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-brand-400 opacity-75"></span>
+                      <span class="relative inline-flex h-1.5 w-1.5 rounded-full bg-brand-500"></span>
+                  </span>
+                  <span x-text="scanStatus === 'scanning' ? 'Reading the folder…' : 'Editing…'"></span>
+              </span>
+              <span class="tabular-nums text-gray-400">
+                  <span x-text="stats.edited + stats.pushed"></span> of <span x-text="stats.total"></span>
+                  · <span class="font-semibold text-brand-700" x-text="progress + '%'"></span>
+              </span>
+          </div>
+          <div class="mt-1.5 h-1 overflow-hidden rounded-full bg-gray-100">
+              <div class="h-full rounded-full bg-brand-500 transition-all" :style="`width: ${progress}%`"></div>
+          </div>
+      </div>
     </div>
 
     {{-- ── Confirm before writing to the shop ──────────────────────────────
@@ -301,6 +338,21 @@
                                 class="rounded-md bg-gray-900/70 px-2 py-1 text-[10px] font-medium text-white opacity-0 transition-opacity group-hover:opacity-100">
                             Full size
                         </button>
+
+                        {{-- The same file the push sends. A SKU with no product
+                             behind it yet is not a failed edit — it is a
+                             finished picture with nowhere to go, and it should
+                             not have to be re-run once the product exists.
+                             Kept visible rather than on hover for those,
+                             because saving it is the only thing left to do. --}}
+                        <a x-show="item.full_url"
+                           :href="`/photo-editor/{{ $session->id }}/item/${item.id}/download`"
+                           :class="item.status === 'skipped'
+                               ? 'bg-amber-500 hover:bg-amber-600 opacity-100'
+                               : 'bg-gray-900/70 hover:bg-gray-900 opacity-0 group-hover:opacity-100'"
+                           class="rounded-md px-2 py-1 text-[10px] font-medium text-white transition-opacity">
+                            Download
+                        </a>
                     </div>
                 </div>
 
@@ -580,6 +632,37 @@ function photoReview(sessionId) {
          * place (rather than waiting for the next poll) so the button
          * disappears immediately instead of staying clickable for up to 4s.
          */
+        /*
+         * Posted through a real form rather than fetch: a download has to reach
+         * the browser as a navigation, and there can be ninety ids, which is
+         * more than a query string should carry.
+         */
+        downloadSelected() {
+            const ids = this.items.filter(i => this.selectedIds[i.id]).map(i => i.id);
+
+            if (!ids.length) return;
+
+            const form = document.createElement('form');
+            form.method = 'POST';
+            form.action = `/photo-editor/${sessionId}/download`;
+            form.style.display = 'none';
+
+            const field = (name, value) => {
+                const input = document.createElement('input');
+                input.type  = 'hidden';
+                input.name  = name;
+                input.value = value;
+                form.appendChild(input);
+            };
+
+            field('_token', document.querySelector('meta[name=csrf-token]').content);
+            ids.forEach(id => field('item_ids[]', id));
+
+            document.body.appendChild(form);
+            form.submit();
+            form.remove();
+        },
+
         async reedit(item) {
             if (['editing', 'pushing', 'pending'].includes(item.status)) return;
 

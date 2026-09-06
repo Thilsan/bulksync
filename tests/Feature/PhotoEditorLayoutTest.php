@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\PhotoEditSession;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -80,6 +81,37 @@ class PhotoEditorLayoutTest extends TestCase
         $this->assertStringContainsString('role="dialog"', $html);
         $this->assertStringContainsString('main', $html);
         $this->assertStringContainsString('Cancel', $html);
+    }
+
+    /**
+     * The toolbar carries the progress while a run is going.
+     *
+     * The progress block at the top of the page scrolls away, and a long run is
+     * exactly when somebody is scrolling — so the sticky bar shows while work
+     * is still in flight, not only once something is selectable.
+     */
+    public function test_the_sticky_toolbar_shows_progress_while_a_run_is_going(): void
+    {
+        $user = User::factory()->create(['is_active' => true, 'perm_photo_editor' => true]);
+
+        $session = PhotoEditSession::create([
+            'user_id'       => $user->id,
+            'name'          => 'Run',
+            'onedrive_link' => 'https://example.com',
+            'status'        => 'processing',
+            'scan_status'   => 'scanned',
+            'edits'         => [],
+        ]);
+
+        $html = $this->actingAs($user)
+            ->get(route('photo-editor.show', $session))
+            ->assertOk()
+            ->getContent();
+
+        $this->assertStringContainsString('readyCount > 0 || !isFinished || stats.working > 0', $html,
+            'the toolbar only appears once something is selectable');
+        $this->assertStringContainsString("scanStatus === 'scanning' ? 'Reading the folder…' : 'Editing…'", $html,
+            'the toolbar does not say what it is doing');
     }
 
     /**

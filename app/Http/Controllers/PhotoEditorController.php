@@ -19,6 +19,7 @@ use App\Support\PhotoroomAllowance;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
 use Illuminate\Validation\Rule;
@@ -663,6 +664,109 @@ class PhotoEditorController extends Controller implements HasMiddleware
      * The selection is stored as it is acted on, so reopening the page shows
      * what was actually chosen rather than resetting to "everything".
      */
+    /**
+     * The edited file, to keep.
+     *
+     * The same bytes the push sends — PushEditedPhotoJob reads this very path
+     * and uploads it — so a photo saved here and uploaded to Shopify by hand is
+     * the photo the pipeline would have put there. That matters for the items
+     * this app cannot push itself: a SKU with no product behind it yet is not a
+     * failed edit, it is a finished picture with nowhere to go, and it should
+     * not have to be re-run once the product exists.
+     *
+     * Named for the SKU rather than the source filename, because the file is
+     * about to be uploaded by somebody reading a product page, not by somebody
+     * looking at a OneDrive folder.
+     */
+    public function download(PhotoEditSession $session, PhotoEditItem $item): BinaryFileResponse
+    {
+        $this->authorizeSession($session);
+
+        abort_unless($item->photo_edit_session_id === $session->id, 404);
+        abort_unless($item->edited_path, 404);
+
+        $path = storage_path('app/' . $item->edited_path);
+
+        abort_unless(is_file($path), 404);
+
+        $extension = pathinfo($item->edited_path, PATHINFO_EXTENSION) ?: 'jpg';
+        $name      = ($item->sku_detected ?: pathinfo($item->filename, PATHINFO_FILENAME) ?: 'edited') . '.' . $extension;
+
+        return response()->download($path, $name);
+    }
+
+    /**
+     * Every selected edit in one zip.
+     *
+     * Same files the single download serves, and the same ones the push sends.
+     * A run where nothing matched is the case this is for: ninety finished
+     * pictures, already paid for, that Shopify will not take yet because the
+     * products do not exist — saving them one at a time is ninety clicks to
+     * avoid re-running the whole session later.
+     *
+     * Written to a temp file rather than held in memory: ninety edits at half a
+     * megabyte is a zip nobody wants to assemble in RAM on a shared host, and
+     * the file is handed to the response to delete once it has been sent.
+     *
+     * Names inside the zip are SKU-based, and a repeated SKU is numbered rather
+     * than overwritten — a product with three photos would otherwise arrive as
+     * one.
+     */
+    public function downloadSelected(Request $request, PhotoEditSession $session): BinaryFileResponse
+    {
+        $this->authorizeSession($session);
+
+        $data = $request->validate([
+            'item_ids'   => ['required', 'array', 'min:1'],
+            'item_ids.*' => ['integer'],
+        ]);
+
+        $items = PhotoEditItem::where('photo_edit_session_id', $session->id)
+            ->whereIn('id', $data['item_ids'])
+            ->whereNotNull('edited_path')
+            ->inDisplayOrder()
+            ->get();
+
+        abort_if($items->isEmpty(), 404, 'None of those items have an edited file.');
+
+        $zipPath = tempnam(sys_get_temp_dir(), 'photo-edit-') . '.zip';
+        $zip     = new \ZipArchive();
+
+        if ($zip->open($zipPath, \ZipArchive::CREATE | \ZipArchive::OVERWRITE) !== true) {
+            abort(500, 'Could not create the download.');
+        }
+
+        $used = [];
+
+        foreach ($items as $item) {
+            $absolute = storage_path('app/' . $item->edited_path);
+
+            if (!is_file($absolute)) {
+                continue; // Swept up by retention, or never written.
+            }
+
+            $extension = pathinfo($item->edited_path, PATHINFO_EXTENSION) ?: 'jpg';
+            $base      = $item->sku_detected ?: pathinfo($item->filename, PATHINFO_FILENAME) ?: 'edited';
+
+            $used[$base] = ($used[$base] ?? 0) + 1;
+            $name        = $used[$base] > 1 ? "{$base}-{$used[$base]}.{$extension}" : "{$base}.{$extension}";
+
+            $zip->addFile($absolute, $name);
+        }
+
+        $count = $zip->numFiles;
+        $zip->close();
+
+        if ($count === 0) {
+            @unlink($zipPath);
+            abort(404, 'Those edits are no longer on disk — re-run them before downloading.');
+        }
+
+        $stem = Str::slug($session->name ?: 'photo-edits') ?: 'photo-edits';
+
+        return response()->download($zipPath, "{$stem}.zip")->deleteFileAfterSend(true);
+    }
+
     public function push(Request $request, PhotoEditSession $session): JsonResponse
     {
         $this->authorizeSession($session);

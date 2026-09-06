@@ -102,6 +102,13 @@ Route::middleware('auth')->group(function () {
         ->whereIn('variant', ['before', 'after', 'full'])
         ->name('photo-editor.preview');
 
+    Route::post('/photo-editor/{session}/download', [PhotoEditorController::class, 'downloadSelected'])
+        ->name('photo-editor.download-selected');
+
+    // The same bytes the push sends, for the items this app cannot push itself.
+    Route::get('/photo-editor/{session}/item/{item}/download', [PhotoEditorController::class, 'download'])
+        ->name('photo-editor.download');
+
     // Settings
     Route::get('/settings',                [SettingsController::class, 'index'])->name('settings.index');
     Route::put('/settings',                [SettingsController::class, 'update'])->name('settings.update');
