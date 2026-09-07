@@ -281,6 +281,25 @@
                     </div>
 
                     <div class="flex flex-wrap items-center gap-3 border-t border-gray-100 bg-gray-50 px-5 py-3">
+                        {{-- A necklace listing is mostly chain; the thing being
+                             bought is the pendant, and at catalogue framing it
+                             is a fiftieth of the picture. Offered per SKU
+                             because it costs a second credit and only some
+                             necklaces have anything worth showing close up. --}}
+                        <label class="flex cursor-pointer items-start gap-2 text-xs text-gray-700">
+                            <input type="checkbox" name="groups[{{ $group->id }}][pendant_closeup]" value="1"
+                                   @checked($group->pendant_closeup)
+                                   class="mt-0.5 h-3.5 w-3.5 shrink-0 rounded border-gray-300 text-brand-600 focus:ring-brand-500">
+                            <span>
+                                Close-up of the pendant
+                                <span class="block text-[11px] leading-snug text-gray-400">
+                                    A second image on this SKU, one more credit. Skipped if the necklace is chain all the way down.
+                                </span>
+                            </span>
+                        </label>
+
+                        <span class="h-6 w-px bg-gray-200"></span>
+
                         <label for="lifestyle-{{ $group->id }}" class="text-xs font-medium text-gray-700">On-model images</label>
                         <select id="lifestyle-{{ $group->id }}" name="groups[{{ $group->id }}][lifestyle_count]"
                                 x-model.number="lifestyle"

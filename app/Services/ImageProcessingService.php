@@ -268,6 +268,166 @@ class ImageProcessingService
     }
 
     /**
+     * Crop to the pendant at the bottom of a necklace.
+     *
+     * A necklace photograph is mostly chain, and the chain is thin: measured
+     * row by row, it lays down a steady twenty to forty-five pixels of product,
+     * and where the pendant hangs that jumps to several hundred. So the pendant
+     * is not looked for by shape — it is the heavy band nearest the bottom.
+     *
+     * Returns null when there is nothing that stands out, which is the honest
+     * answer for a plain chain or a string of pearls: a close-up of uniform
+     * links is not a second photograph worth paying for.
+     *
+     * The crop is deliberately generous. A pendant cut to its own edges looks
+     * like a mistake; a little chain above it reads as a detail shot.
+     */
+    public function cropToPendant(string $imageContent, float $margin = 0.6): ?string
+    {
+        try {
+            $img = $this->decode($imageContent);
+            $w   = $img->width();
+            $h   = $img->height();
+
+            $rows = $this->productPerRow($imageContent, $w, $h);
+
+            if ($rows === null) {
+                return null;
+            }
+
+            [$ink, $left, $right] = $rows;
+
+            $present = array_filter($ink);
+
+            if (count($present) < 10) {
+                return null;
+            }
+
+            $top    = min(array_keys($present));
+            $bottom = max(array_keys($present));
+
+            // The chain's own weight, as the middle of the distribution.
+            $weights = array_values($present);
+            sort($weights);
+            $chain = max(1, $weights[(int) floor(count($weights) / 2)]);
+
+            /*
+             * Twice the chain and then some. A pendant that is merely a little
+             * wider than the links it hangs from is not a pendant, it is a
+             * clasp or a knot in the chain, and cropping to it produces a
+             * photograph of nothing.
+             */
+            $threshold = max($chain * 2.5, 12);
+
+            $found = null;
+
+            for ($y = $bottom; $y > $top; $y--) {
+                if (($ink[$y] ?? 0) >= $threshold) {
+                    $found = $y;
+                    break;
+                }
+            }
+
+            if ($found === null) {
+                return null;
+            }
+
+            $bandTop = $found;
+            while ($bandTop > $top && ($ink[$bandTop - 1] ?? 0) >= $threshold * 0.5) {
+                $bandTop--;
+            }
+
+            $bandLeft = $w; $bandRight = -1;
+
+            for ($y = $bandTop; $y <= $bottom; $y++) {
+                if (($ink[$y] ?? 0) > 0) {
+                    $bandLeft  = min($bandLeft, $left[$y]);
+                    $bandRight = max($bandRight, $right[$y]);
+                }
+            }
+
+            $boxW = $bandRight - $bandLeft + 1;
+            $boxH = $bottom - $bandTop + 1;
+
+            // A band covering most of the picture is the necklace itself, not a
+            // pendant on it — there is no close-up to take.
+            if ($boxH / $h > 0.5 || $boxW <= 0 || $boxH <= 0) {
+                return null;
+            }
+
+            $size = (int) round(max($boxW, $boxH) * (1 + max(0.0, $margin)));
+            $size = min($size, min($w, $h));
+
+            $cx = (int) (($bandLeft + $bandRight) / 2);
+            $cy = (int) (($bandTop + $bottom) / 2);
+
+            $x = max(0, min($w - $size, $cx - intdiv($size, 2)));
+            $y = max(0, min($h - $size, $cy - intdiv($size, 2)));
+
+            return $this->decode($imageContent)
+                ->crop($size, $size, $x, $y)
+                ->encode(new PngEncoder())
+                ->toString();
+        } catch (\Throwable $e) {
+            Log::warning('ImageProcessingService: could not find a pendant', ['error' => $e->getMessage()]);
+
+            return null;
+        }
+    }
+
+    /**
+     * How much product sits on each row, and where it starts and ends.
+     *
+     * @return array{0:array<int,int>,1:array<int,int>,2:array<int,int>}|null
+     */
+    private function productPerRow(string $imageContent, int $width, int $height): ?array
+    {
+        $proxyEdge = 600; // enough to separate a chain from a pendant
+
+        $proxy = @imagecreatefromstring(
+            $this->decode($imageContent)->scaleDown($proxyEdge, $proxyEdge)->encode(new PngEncoder())->toString(),
+        );
+
+        if (!$proxy) {
+            return null;
+        }
+
+        $pw = imagesx($proxy);
+        $ph = imagesy($proxy);
+        $sx = $width / $pw;
+        $sy = $height / $ph;
+
+        $ink = []; $left = []; $right = [];
+
+        for ($py = 0; $py < $ph; $py++) {
+            $count = 0; $l = $pw; $r = -1;
+
+            for ($px = 0; $px < $pw; $px++) {
+                $rgba = imagecolorat($proxy, $px, $py);
+
+                if ((($rgba >> 24) & 0x7F) > 100) continue;
+
+                if ((($rgba >> 16) & 0xFF) >= self::BACKGROUND_WHITE
+                    && (($rgba >> 8) & 0xFF) >= self::BACKGROUND_WHITE
+                    && ($rgba & 0xFF) >= self::BACKGROUND_WHITE) continue;
+
+                $count++;
+                if ($px < $l) $l = $px;
+                if ($px > $r) $r = $px;
+            }
+
+            $y        = (int) round($py * $sy);
+            $ink[$y]  = (int) round($count * $sx);
+            $left[$y] = (int) floor($l * $sx);
+            $right[$y]= (int) ceil($r * $sx);
+        }
+
+        imagedestroy($proxy);
+
+        return [$ink, $left, $right];
+    }
+
+    /**
      * Trim the empty background from around the product.
      *
      * A supplier photograph is mostly white: the ring in these files occupies

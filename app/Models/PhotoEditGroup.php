@@ -24,6 +24,7 @@ class PhotoEditGroup extends Model
         'edits',
         'lifestyle_count',
         'lifestyle_source_item_id',
+        'pendant_closeup',
     ];
 
     protected function casts(): array
@@ -31,6 +32,7 @@ class PhotoEditGroup extends Model
         return [
             'edits'           => 'array',
             'lifestyle_count' => 'integer',
+            'pendant_closeup' => 'boolean',
         ];
     }
 

@@ -104,6 +104,12 @@ class PhotoEditItem extends Model
         return $this->kind === 'lifestyle';
     }
 
+    /** A second photograph of the pendant, taken from the same source shot. */
+    public function isCloseup(): bool
+    {
+        return $this->kind === 'closeup';
+    }
+
     public function session(): BelongsTo
     {
         return $this->belongsTo(PhotoEditSession::class, 'photo_edit_session_id');

@@ -264,6 +264,39 @@ class EditPhotoItemJob implements ShouldQueue
              * up. Everything after this sees the product rather than the sheet
              * of white it was photographed on.
              */
+            /*
+             * A close-up is the same photograph, cropped to the pendant before
+             * anything else happens to it. Everything after this — the upscale,
+             * the framing, the sharpening — then treats the pendant as the
+             * product, which is the point: at catalogue framing a pendant is a
+             * fiftieth of the picture, and reconstructing it from a crop is the
+             * only way to get a second image worth looking at.
+             */
+            if ($item->isCloseup()) {
+                $pendant = $imageService->cropToPendant($raw);
+
+                if ($pendant === null) {
+                    $item->update([
+                        'status'        => 'failed',
+                        'error_message' => 'No pendant to photograph — this necklace is chain all the way down.',
+                    ]);
+
+                    return;
+                }
+
+                $raw = $pendant;
+
+                /*
+                 * The necklace standard hangs the product from the top of the
+                 * frame, which is right for a necklace and wrong for the
+                 * pendant off it. A close-up is a product on its own and sits
+                 * in the middle like every other one.
+                 */
+                unset($itemEdits['padding_top'], $itemEdits['padding_bottom']);
+                $itemEdits['v_align'] = 'center';
+                $itemEdits['padding'] = 0.12;
+            }
+
             $raw = $imageService->cropToSubject($raw);
 
             $input = $this->fitForPhotoroom($raw, $imageService);

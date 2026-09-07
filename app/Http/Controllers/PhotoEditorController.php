@@ -273,6 +273,7 @@ class PhotoEditorController extends Controller implements HasMiddleware
             'groups.*.order.*'         => ['integer'],
             'groups.*.as_is'           => ['nullable', 'array'],
             'groups.*.as_is.*'         => ['integer'],
+            'groups.*.pendant_closeup' => ['nullable', 'boolean'],
             'groups.*.keep_bg'         => ['nullable', 'array'],
             'groups.*.keep_bg.*'       => ['integer'],
         ]);
@@ -311,6 +312,7 @@ class PhotoEditorController extends Controller implements HasMiddleware
             $this->saveOrder($session, (array) ($input['order'] ?? []));
             $this->saveUntouched($session, $group->sku, (array) ($input['as_is'] ?? []));
             $this->saveKeptBackgrounds($session, $group->sku, (array) ($input['keep_bg'] ?? []), (array) ($input['as_is'] ?? []));
+            $group->update(['pendant_closeup' => (bool) ($input['pendant_closeup'] ?? false)]);
 
             // A count without a photo to build from would queue work that can
             // only fail, so it is refused here rather than at the API.
@@ -385,6 +387,44 @@ class PhotoEditorController extends Controller implements HasMiddleware
                         : EditPhotoItemJob::dispatch($item->id)->onQueue('bulkupload');
                 }
             });
+
+        /*
+         * A second photograph of the pendant, for the SKUs that asked for one.
+         *
+         * Built from the same source shot as the main image rather than from
+         * the finished edit, so the pendant reaches Photoroom's upscaler as a
+         * small crop it can reconstruct — a close-up cut out of a finished
+         * 2000px frame is a seven-fold enlargement of a fiftieth of the
+         * picture, and looks it.
+         */
+        foreach (PhotoEditGroup::whereIn('id', $groupIds)->where('pendant_closeup', true)->get() as $group) {
+            $source = PhotoEditItem::where('photo_edit_session_id', $session->id)
+                ->where('sku_detected', $group->sku)
+                ->where('kind', 'cutout')
+                ->inDisplayOrder()
+                ->first();
+
+            if (!$source) {
+                continue;
+            }
+
+            $item = PhotoEditItem::create([
+                'photo_edit_session_id' => $session->id,
+                'kind'                  => 'closeup',
+                'source_item_id'        => $source->id,
+                'filename'              => pathinfo($source->filename, PATHINFO_FILENAME) . '-pendant.jpg',
+                'sku_detected'          => $group->sku,
+                'status'                => 'pending',
+                'selected'              => false,
+
+                // The same original the main image came from.
+                'onedrive_drive_id'     => $source->onedrive_drive_id,
+                'onedrive_item_id'      => $source->onedrive_item_id,
+                'onedrive_download_url' => $source->onedrive_download_url,
+            ]);
+
+            EditPhotoItemJob::dispatch($item->id)->onQueue('bulkupload');
+        }
 
         foreach (PhotoEditGroup::whereIn('id', $groupIds)->where('lifestyle_count', '>', 0)->get() as $group) {
             $source = PhotoEditItem::find($group->lifestyle_source_item_id);
