@@ -23,6 +23,14 @@ class ShopifyService
     private const BUCKET_MAX  = 40.0;
     private const BUCKET_RATE = 2.0;   // calls per second restored
 
+    /**
+     * SKUs per batched lookup, and the page size those batches ask for. Fifty
+     * leaves room for five variants each inside a 250-variant page; a batch that
+     * fills the page anyway is split rather than trusted.
+     */
+    private const SKU_BATCH      = 50;
+    private const SKU_BATCH_PAGE = 250;
+
     public function __construct(?Store $store = null)
     {
         $target = $store ?? Store::getActive();
@@ -378,6 +386,162 @@ class ShopifyService
             }
             return [];
         }
+    }
+
+    /**
+     * Look up many SKUs live, in as few calls as possible: sku => variants.
+     *
+     * The single-SKU form above costs one API call per SKU, which is what pushed
+     * long lists into warming the whole catalogue instead — reading every variant
+     * in the store to answer a few hundred questions, and then trusting a cache
+     * that can be evicted from underneath the answer. Shopify's variant search
+     * accepts OR, so a batch of SKUs travels in one query and nothing here is
+     * cached: every answer comes from Shopify as it stands right now.
+     *
+     * Matches are attributed by the `sku` Shopify returns, not by which query
+     * asked for them — inside a batch there is no other way to tell whose match
+     * is whose. That is stricter than the single-SKU path, which reports whatever
+     * the search returns under the SKU that was asked for.
+     *
+     * @param  list<string>  $skus
+     * @return array<string, list<array<string, mixed>>>  keyed as the caller spelled it
+     */
+    public function findVariantsBySkus(array $skus, bool $throwOnFailure = false): array
+    {
+        // One lookup key per SKU, but every spelling the caller used gets its own
+        // answer back — a list holding both "ABC" and "abc" must not lose one.
+        $spellings = [];
+
+        foreach ($skus as $sku) {
+            $sku = trim($sku);
+
+            if ($sku !== '') {
+                $spellings[mb_strtolower($sku)][] = $sku;
+            }
+        }
+
+        if (count($spellings) === 0) {
+            return [];
+        }
+
+        $results = [];
+
+        // Asked for as the caller spelled it: Shopify's search is not promised to
+        // be case-insensitive, so the lowercased form stays a local key only.
+        $terms = array_map(fn ($spelling) => $spelling[0], $spellings);
+
+        foreach (array_chunk(array_values($terms), self::SKU_BATCH) as $batch) {
+            foreach ($this->fetchSkuBatch($batch, $throwOnFailure) as $key => $variants) {
+                foreach ($spellings[$key] ?? [] as $spelling) {
+                    $results[$spelling] = $variants;
+                }
+            }
+        }
+
+        return $results;
+    }
+
+    /**
+     * One batched search, split and retried if the page cap is reached.
+     *
+     * A batch asks for at most SKU_BATCH_PAGE variants. Reaching that cap means
+     * the page may have cut off variants belonging to SKUs later in the batch,
+     * and a missing variant reads back as "not in Shopify" — the silent wrong
+     * answer this whole path exists to avoid. So a full page is halved and asked
+     * again rather than believed.
+     *
+     * @param  list<string>  $batch  lowercased SKUs
+     * @return array<string, list<array<string, mixed>>>  keyed by lowercased sku
+     */
+    private function fetchSkuBatch(array $batch, bool $throwOnFailure): array
+    {
+        $this->throttle();
+
+        try {
+            $response = $this->http->post(
+                "admin/api/{$this->apiVersion}/graphql.json",
+                [
+                    'json' => [
+                        'query'     => $this->variantBatchQuery(),
+                        'variables' => ['q' => $this->skuSearchExpression($batch)],
+                    ],
+                ]
+            );
+
+            $data = json_decode((string) $response->getBody(), true);
+            $this->assertNoGraphQlErrors($data, 'findVariantsBySkus(' . count($batch) . ' skus)');
+
+            $edges = $data['data']['productVariants']['edges'] ?? [];
+
+            if (count($edges) >= self::SKU_BATCH_PAGE && count($batch) > 1) {
+                $half = (int) ceil(count($batch) / 2);
+
+                return array_merge(
+                    $this->fetchSkuBatch(array_slice($batch, 0, $half), $throwOnFailure),
+                    $this->fetchSkuBatch(array_slice($batch, $half), $throwOnFailure)
+                );
+            }
+
+            $found = [];
+
+            foreach ($edges as $edge) {
+                $node = $edge['node'] ?? [];
+                $sku  = mb_strtolower(trim((string) ($node['sku'] ?? '')));
+
+                if ($sku === '') {
+                    continue;
+                }
+
+                $found[$sku][] = [
+                    'product_id'    => ltrim(str_replace('gid://shopify/Product/', '', $node['product']['id'] ?? ''), '/'),
+                    'product_title' => $node['product']['title'] ?? '',
+                    'variant_id'    => ltrim(str_replace('gid://shopify/ProductVariant/', '', $node['id'] ?? ''), '/'),
+                    'variant_sku'   => $node['sku'] ?? '',
+                    'published'     => ($node['product']['status'] ?? '') === 'ACTIVE',
+                ];
+            }
+
+            return $found;
+
+        } catch (\Throwable $e) {
+            Log::error('Shopify findVariantsBySkus failed for ' . count($batch) . ' SKUs: ' . $e->getMessage());
+
+            // Callers that report per-SKU results must pass true: an empty return
+            // here is indistinguishable from "none of these exist", which would
+            // mark a whole batch Not Available on a transport hiccup.
+            if ($throwOnFailure) {
+                throw new \RuntimeException('Shopify SKU lookup failed: ' . $e->getMessage(), 0, $e);
+            }
+
+            return [];
+        }
+    }
+
+    /**
+     * The search expression for a batch: sku:'A' OR sku:'B' OR …
+     *
+     * Quotes and backslashes are escaped rather than dropped — a SKU containing
+     * one would otherwise end the quoted term early and silently widen the search
+     * to match things nobody asked about.
+     *
+     * @param  list<string>  $batch
+     */
+    private function skuSearchExpression(array $batch): string
+    {
+        return implode(' OR ', array_map(
+            fn ($sku) => "sku:'" . str_replace(['\\', "'"], ['\\\\', "\\'"], $sku) . "'",
+            $batch
+        ));
+    }
+
+    /**
+     * The batched form of variantLookupQuery: a wider page, because one call now
+     * carries many SKUs, and only the fields a SKU check reports.
+     */
+    private function variantBatchQuery(): string
+    {
+        return 'query($q:String!){productVariants(first:' . self::SKU_BATCH_PAGE
+            . ',query:$q){edges{node{id sku product{id title status}}}}}';
     }
 
     /**

@@ -29,6 +29,21 @@ class ImageProcessingService
      * where trimming a real edge is far worse than keeping a band of nothing.
      */
     private const BACKGROUND_WHITE = 252;
+
+    /**
+     * Solid product, as opposed to anything merely not-white.
+     *
+     * Finding a pendant needs a stricter eye than trimming a background does.
+     * These photographs carry a soft reflection under the product — the ghost
+     * of the pendant on the surface it was shot on — at brightness 229 to 249,
+     * which the background threshold reads as product. Scanning up from the
+     * bottom of the picture, the reflection is the first thing wide enough to
+     * look like a pendant, so the close-up came out centred on the ghost with
+     * the top of the actual pendant cut off.
+     *
+     * Metal and stones sit far below this. The reflection does not.
+     */
+    private const SOLID_PRODUCT = 215;
     private const MIN_QUALITY   = 30;
 
     /** Quarter and half turns offered for straightening an input photo. */
@@ -289,13 +304,24 @@ class ImageProcessingService
             $w   = $img->width();
             $h   = $img->height();
 
-            $rows = $this->productPerRow($imageContent, $w, $h);
+            $rows = $this->productPerRow($imageContent, self::SOLID_PRODUCT);
 
             if ($rows === null) {
                 return null;
             }
 
-            [$ink, $left, $right] = $rows;
+            /*
+             * Measured on a small copy and kept in its coordinates until the
+             * end. Keying the profile by original row numbers left it sparse —
+             * one row in three existed — so every walk up the profile stopped
+             * on its first step against a row that was simply missing, and the
+             * crop took whatever it had reached, which was the bottom edge of
+             * the pendant.
+             */
+            [$ink, $left, $right, $pw, $ph] = $rows;
+
+            $sx = $w / $pw;
+            $sy = $h / $ph;
 
             $present = array_filter($ink);
 
@@ -319,23 +345,57 @@ class ImageProcessingService
              */
             $threshold = max($chain * 2.5, 12);
 
-            $found = null;
+            /*
+             * Every run of heavy rows, weighed.
+             *
+             * Taking the lowest one was wrong, and the pictures showed it: a
+             * reflection sits below the product it mirrors, so scanning up from
+             * the bottom finds the ghost first every time. On the gold rose the
+             * two bands are unmistakable — the pendant weighs 53,600 and its
+             * reflection 37,100 — and no brightness threshold separates them,
+             * because a reflection is a picture of the product.
+             *
+             * So weight decides. A reflection is always the fainter of the two.
+             */
+            $bands = [];
+            $current = null;
 
-            for ($y = $bottom; $y > $top; $y--) {
+            foreach (range($top, $bottom) as $y) {
                 if (($ink[$y] ?? 0) >= $threshold) {
-                    $found = $y;
-                    break;
+                    $current ??= ['from' => $y, 'to' => $y, 'weight' => 0];
+                    $current['to']      = $y;
+                    $current['weight'] += $ink[$y];
+                } elseif ($current !== null) {
+                    $bands[]  = $current;
+                    $current = null;
                 }
             }
 
-            if ($found === null) {
+            if ($current !== null) {
+                $bands[] = $current;
+            }
+
+            if ($bands === []) {
                 return null;
             }
 
-            $bandTop = $found;
-            while ($bandTop > $top && ($ink[$bandTop - 1] ?? 0) >= $threshold * 0.5) {
-                $bandTop--;
+            $heaviest = array_reduce($bands, fn ($carry, $b) => $carry === null || $b['weight'] > $carry['weight'] ? $b : $carry);
+
+            /*
+             * A second band nearly as heavy is not a reflection, it is another
+             * charm on the same chain — and the one a customer means by "the
+             * pendant" is the lowest of those, not the first.
+             */
+            $chosen = $heaviest;
+
+            foreach ($bands as $band) {
+                if ($band['from'] > $heaviest['from'] && $band['weight'] >= $heaviest['weight'] * 0.8) {
+                    $chosen = $band;
+                }
             }
+
+            $bandTop = $chosen['from'];
+            $bottom  = $chosen['to'];
 
             $bandLeft = $w; $bandRight = -1;
 
@@ -346,12 +406,18 @@ class ImageProcessingService
                 }
             }
 
+            // Back to the picture's own coordinates.
+            $bandLeft  = (int) floor($bandLeft * $sx);
+            $bandRight = (int) ceil($bandRight * $sx);
+            $bandTopPx = (int) floor($bandTop * $sy);
+            $bandBotPx = (int) ceil($bottom * $sy);
+
             $boxW = $bandRight - $bandLeft + 1;
-            $boxH = $bottom - $bandTop + 1;
+            $boxH = $bandBotPx - $bandTopPx + 1;
 
             // A band covering most of the picture is the necklace itself, not a
             // pendant on it — there is no close-up to take.
-            if ($boxH / $h > 0.5 || $boxW <= 0 || $boxH <= 0) {
+            if ($boxH / $h > 0.6 || $boxW <= 0 || $boxH <= 0) {
                 return null;
             }
 
@@ -359,7 +425,7 @@ class ImageProcessingService
             $size = min($size, min($w, $h));
 
             $cx = (int) (($bandLeft + $bandRight) / 2);
-            $cy = (int) (($bandTop + $bottom) / 2);
+            $cy = (int) (($bandTopPx + $bandBotPx) / 2);
 
             $x = max(0, min($w - $size, $cx - intdiv($size, 2)));
             $y = max(0, min($h - $size, $cy - intdiv($size, 2)));
@@ -378,9 +444,13 @@ class ImageProcessingService
     /**
      * How much product sits on each row, and where it starts and ends.
      *
-     * @return array{0:array<int,int>,1:array<int,int>,2:array<int,int>}|null
+     * Kept in the small copy's own coordinates: a profile keyed by the
+     * original's row numbers is full of holes, and every walk along it stops at
+     * the first one.
+     *
+     * @return array{0:array<int,int>,1:array<int,int>,2:array<int,int>,3:int,4:int}|null
      */
-    private function productPerRow(string $imageContent, int $width, int $height): ?array
+    private function productPerRow(string $imageContent, int $threshold = self::BACKGROUND_WHITE): ?array
     {
         $proxyEdge = 600; // enough to separate a chain from a pendant
 
@@ -394,8 +464,6 @@ class ImageProcessingService
 
         $pw = imagesx($proxy);
         $ph = imagesy($proxy);
-        $sx = $width / $pw;
-        $sy = $height / $ph;
 
         $ink = []; $left = []; $right = [];
 
@@ -407,24 +475,23 @@ class ImageProcessingService
 
                 if ((($rgba >> 24) & 0x7F) > 100) continue;
 
-                if ((($rgba >> 16) & 0xFF) >= self::BACKGROUND_WHITE
-                    && (($rgba >> 8) & 0xFF) >= self::BACKGROUND_WHITE
-                    && ($rgba & 0xFF) >= self::BACKGROUND_WHITE) continue;
+                if ((($rgba >> 16) & 0xFF) >= $threshold
+                    && (($rgba >> 8) & 0xFF) >= $threshold
+                    && ($rgba & 0xFF) >= $threshold) continue;
 
                 $count++;
                 if ($px < $l) $l = $px;
                 if ($px > $r) $r = $px;
             }
 
-            $y        = (int) round($py * $sy);
-            $ink[$y]  = (int) round($count * $sx);
-            $left[$y] = (int) floor($l * $sx);
-            $right[$y]= (int) ceil($r * $sx);
+            $ink[$py]   = $count;
+            $left[$py]  = $l;
+            $right[$py] = $r;
         }
 
         imagedestroy($proxy);
 
-        return [$ink, $left, $right];
+        return [$ink, $left, $right, $pw, $ph];
     }
 
     /**
