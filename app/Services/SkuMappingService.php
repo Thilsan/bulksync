@@ -45,12 +45,15 @@ class SkuMappingService
 
             $shopify = $this->shopifyFor($request);
 
-            if ($shopify) {
-                $this->warmIfWorthIt($shopify, $rows->count());
-            }
+            // Every SKU in one pass of batched queries, before the loop needs
+            // any of them. This used to warm the store's whole catalogue into a
+            // cache first — which cost twenty minutes on the largest store and
+            // could not fit it, so entries evicted each other and a missing one
+            // read back as "not in Shopify".
+            $found = $shopify ? $this->lookupShopify($shopify, $rows->pluck('sku')->all()) : [];
 
             foreach ($rows as $row) {
-                $variants  = $shopify ? $this->lookupShopify($shopify, $row->sku) : [];
+                $variants  = $found[$row->sku] ?? [];
                 $inShopify = !empty($variants);
 
                 $attributes = [
@@ -94,24 +97,6 @@ class SkuMappingService
      * hours — which, on a re-sync of two hundred requests, it pays back on the
      * first one.
      */
-    private const WARM_ABOVE = 100;
-
-    private function warmIfWorthIt(ShopifyService $shopify, int $skuCount): void
-    {
-        if ($skuCount < self::WARM_ABOVE || $shopify->isSkuCacheWarmed()) {
-            return;
-        }
-
-        try {
-            Log::info("SkuMappingService: {$skuCount} SKUs to check — warming the Shopify cache first.");
-            $shopify->warmSkuCache();
-        } catch (\Throwable $e) {
-            // Not fatal: without the warm every lookup goes live, which is slow
-            // but correct. Losing the whole validation over it would not be.
-            Log::warning('SkuMappingService: could not warm the SKU cache — ' . $e->getMessage());
-        }
-    }
-
     /**
      * Status for a row nobody has touched. Already in Shopify → clearly mapped;
      * otherwise it sits with the brand manager. Never auto-flags red: "we haven't
@@ -181,20 +166,26 @@ class SkuMappingService
             return null;
         }
 
-        return new ShopifyService($store);
+        return app(ShopifyService::class, ['store' => $store]);
     }
 
     /**
-     * Read-only lookup. A Shopify hiccup must not fail the whole request, so a
-     * failure reads as "not found" — the SKU stays pending and the next run,
-     * hourly or on the button, picks it up.
+     * Read-only lookup of every SKU at once, keyed by SKU.
+     *
+     * A Shopify hiccup must not fail the whole request, so a failure reads as
+     * "not found" — the SKU stays pending and the next run, hourly or on the
+     * button, picks it up. Batches fail independently, so one bad call costs
+     * its own batch rather than the whole request.
+     *
+     * @param  list<string>  $skus
+     * @return array<string, list<array<string, mixed>>>
      */
-    private function lookupShopify(ShopifyService $shopify, string $sku): array
+    private function lookupShopify(ShopifyService $shopify, array $skus): array
     {
         try {
-            return $shopify->findVariantsBySkuCached($sku);
+            return $shopify->findVariantsBySkus($skus);
         } catch (\Throwable $e) {
-            Log::warning("SkuMappingService: Shopify lookup failed for {$sku}: " . $e->getMessage());
+            Log::warning('SkuMappingService: Shopify lookup failed for ' . count($skus) . ' SKUs: ' . $e->getMessage());
             return [];
         }
     }

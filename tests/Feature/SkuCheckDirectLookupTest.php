@@ -17,7 +17,8 @@ use Tests\TestCase;
  * answers back out of a cache — 400k+ variants and twenty minutes on the largest
  * store, to answer a few hundred questions. Worse, an evicted cache entry is
  * indistinguishable from "no such SKU", so a product that exists was reported
- * Not Available. The fakes here fail loudly if either path comes back.
+ * Not Available. That warm is gone entirely; the fake here fails loudly if the
+ * job ever drops back to asking one SKU at a time.
  */
 class SkuCheckDirectLookupTest extends TestCase
 {
@@ -164,18 +165,10 @@ class FakeShopifyLookup extends ShopifyService
         return ($this->answer)($skus);
     }
 
-    public function warmSkuCache(): int
+    public function findVariantsBySku(string $sku, bool $throwOnFailure = false, bool $lean = false): array
     {
-        throw new \LogicException('a SKU check must not warm the whole catalogue');
-    }
-
-    public function isSkuCacheWarmed(): bool
-    {
-        throw new \LogicException('a SKU check must not consult the warm cache');
-    }
-
-    public function findVariantsBySkuCached(string $sku, bool $throwOnFailure = false): array
-    {
-        throw new \LogicException('a SKU check must not read the warm cache');
+        // A check must ask in batches, never one SKU at a time — that per-SKU
+        // cost is what the catalogue warm existed to work around.
+        throw new \LogicException('a SKU check must not fall back to per-SKU lookups');
     }
 }

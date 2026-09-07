@@ -72,7 +72,6 @@ Route::middleware('auth')->group(function () {
     Route::get('/upload/{session}/status', [BulkUploadController::class, 'status'])->name('upload.status');
 
     // Warm Shopify SKU cache on demand
-    Route::post('/upload/warm-cache', [BulkUploadController::class, 'warmCache'])->name('upload.warm-cache');
 
     /*
      * Photo Editor — OneDrive → Photoroom → review → Shopify.

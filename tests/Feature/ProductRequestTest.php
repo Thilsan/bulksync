@@ -29,6 +29,15 @@ class ProductRequestTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        // Static, so it would otherwise carry SKUs from one test into the next —
+        // and the SKU names repeat across these tests.
+        FakeMappingShopify::$present = [];
+    }
+
     private function brandManager(): User
     {
         return User::create([
@@ -752,32 +761,22 @@ class ProductRequestTest extends TestCase
      * throttled request — so a 1,020-SKU request took over an hour while the
      * same answer was one paginated read away.
      */
-    public function test_a_large_request_reads_the_store_once_instead_of_per_sku(): void
+    public function test_a_large_request_reads_the_store_in_batches_not_per_sku(): void
     {
         Notification::fake();
 
         $store = $this->plainSite();
         $user  = $this->brandManager();
 
-        $skus    = collect(range(1, 120))->map(fn ($i) => "WARM-{$i}")->implode("\n");
+        $skus    = collect(range(1, 120))->map(fn ($i) => "BATCH-{$i}")->implode("\n");
         $request = $this->submitFor($user, $store, $skus);
 
         $this->assertSame(120, $request->skus()->count());
 
-        // Warmed during that validation, so the lookups came from the cache.
-        $this->assertTrue((new \App\Services\ShopifyService($store))->isSkuCacheWarmed());
-    }
-
-    /** A handful of SKUs is cheaper asked one at a time than warming for. */
-    public function test_a_small_request_does_not_warm_the_whole_store(): void
-    {
-        Notification::fake();
-
-        $store = $this->plainSite();
-
-        $this->submitFor($this->brandManager(), $store, "SMALL-1\nSMALL-2");
-
-        $this->assertFalse((new \App\Services\ShopifyService($store))->isSkuCacheWarmed());
+        // Every SKU still gets an answer. The validation used to warm the whole
+        // catalogue into a cache to achieve that; it now asks Shopify for these
+        // 120 SKUs in batches, so nothing depends on a cache being warm.
+        $this->assertSame(0, $request->skus()->whereNull('in_shopify')->count());
     }
 
     // ── Whose dashboard is it ────────────────────────────────────────────────
@@ -1037,14 +1036,22 @@ class ProductRequestTest extends TestCase
     }
 
     /** Put a SKU in Shopify as far as the read-only check can see. */
+    /**
+     * Put a SKU into Shopify as far as the mapping check can tell.
+     *
+     * The check reads Shopify live, in batches, so this registers the SKU with a
+     * fake service bound into the container. It used to seed warm-cache keys
+     * instead — there is no cache on this path any more.
+     */
     private function appearsInShopify(ProductRequest $request, string $sku): void
     {
-        $shop = $request->store->shopify_domain;
+        FakeMappingShopify::$present[$request->store->shopify_domain . '|' . $sku] = [
+            ['product_id' => 111, 'product_title' => 'Now in Shopify', 'published' => true],
+        ];
 
-        \Illuminate\Support\Facades\Cache::put('shopify_sku_warmed_' . md5($shop), 1);
-        \Illuminate\Support\Facades\Cache::put(
-            'shopify_sku_' . md5($shop) . '_v1_' . md5($sku),
-            [['product_id' => 111, 'product_title' => 'Now in Shopify', 'published' => true]],
+        $this->app->bind(
+            \App\Services\ShopifyService::class,
+            fn ($app, $parameters) => new FakeMappingShopify($parameters['store'] ?? null),
         );
     }
 
@@ -1153,18 +1160,10 @@ class ProductRequestTest extends TestCase
         $this->actingAs($author)->post(route('product-requests.continue-mapped', $request))->assertRedirect();
 
         // The remaining SKU was never touched by hand, so the read-only Shopify
-        // check owns it. Warm the SKU cache the way the nightly warm does, with
-        // the product now present — that is what "created in Shopify later" looks
-        // like to this code.
-        $shop = $request->store->shopify_domain;
-
-        \Illuminate\Support\Facades\Cache::put('shopify_sku_warmed_' . md5($shop), 1);
-
+        // check owns it. Put every SKU in Shopify — that is what "created in
+        // Shopify later" looks like to this code.
         foreach ($request->skus as $row) {
-            \Illuminate\Support\Facades\Cache::put(
-                'shopify_sku_' . md5($shop) . '_v1_' . md5($row->sku),
-                [['product_id' => 111, 'product_title' => 'Now in Shopify', 'published' => true]],
-            );
+            $this->appearsInShopify($request, $row->sku);
         }
 
         app(\App\Jobs\RecheckProductRequestMappingsJob::class)->handle(
@@ -3508,5 +3507,33 @@ class ProductRequestTest extends TestCase
         app(ProductRequestWorkflow::class)->reconcileMapping($request->refresh());
 
         $request->refresh();
+    }
+}
+
+/**
+ * Answers the mapping check's batched lookup from a registry of SKUs the test
+ * has declared present, and reaches no network at all. A SKU that was never
+ * registered simply has no answer — which is how a SKU not yet in Shopify
+ * reads.
+ */
+class FakeMappingShopify extends \App\Services\ShopifyService
+{
+    /** @var array<string, list<array<string, mixed>>> keyed "domain|sku" */
+    public static array $present = [];
+
+    public function __construct(private ?\App\Models\Store $forStore = null) {}
+
+    public function findVariantsBySkus(array $skus, bool $throwOnFailure = false): array
+    {
+        $domain = $this->forStore?->shopify_domain ?? '';
+        $found  = [];
+
+        foreach ($skus as $sku) {
+            if (isset(self::$present[$domain . '|' . $sku])) {
+                $found[$sku] = self::$present[$domain . '|' . $sku];
+            }
+        }
+
+        return $found;
     }
 }

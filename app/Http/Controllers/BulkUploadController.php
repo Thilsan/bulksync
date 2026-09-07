@@ -327,14 +327,4 @@ class BulkUploadController extends Controller
             ],
         ]);
     }
-
-    /**
-     * Warm the Shopify SKU cache on demand (called from the upload form).
-     */
-    public function warmCache(): JsonResponse
-    {
-        $count = app(ShopifyService::class)->warmSkuCache();
-
-        return response()->json(['ok' => true, 'count' => $count]);
-    }
 }
