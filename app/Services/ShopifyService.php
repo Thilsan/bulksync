@@ -71,8 +71,16 @@ class ShopifyService
 
         $cached = Cache::get($this->skuEntryKey($sku, $gen));
 
-        // null here means cache is warmed but SKU not in Shopify
-        return $cached ?? [];
+        if ($cached !== null) {
+            return $cached;
+        }
+
+        // A miss on a warmed cache used to be read as "not in Shopify". It
+        // cannot mean that: the cache evicts under memory pressure, and an
+        // evicted key is indistinguishable from a SKU that was never there —
+        // which reported real products as missing and silently skipped their
+        // uploads. Ask Shopify; a genuine absence costs one call to confirm.
+        return $this->findVariantsBySku($sku, $throwOnFailure);
     }
 
     /**
@@ -93,7 +101,12 @@ class ShopifyService
 
         $cached = Cache::get($this->barcodeEntryKey($barcode, $gen));
 
-        return $cached ?? [];
+        if ($cached !== null) {
+            return $cached;
+        }
+
+        // Same reasoning as the SKU path: an evicted key is not an absence.
+        return $this->findVariantsByBarcode($barcode, $throwOnFailure);
     }
 
     /**
@@ -123,6 +136,23 @@ class ShopifyService
     public function warmSkuCache(): int
     {
         Log::info('ShopifyService: warming SKU cache…');
+
+        $maxVariants = (int) config('services.shopify.warm_max_variants', 50000);
+
+        // Products can only be fewer than variants, so a product count already
+        // over the cap settles it without reading a single page — and without
+        // spending twenty minutes of API calls to discover it.
+        if ($maxVariants > 0) {
+            $products = $this->getProductCount();
+
+            if ($products > $maxVariants) {
+                Log::warning("ShopifyService: skipping SKU cache warm for {$this->shop} — "
+                    . "{$products} products already exceeds the {$maxVariants}-variant cap. "
+                    . 'Lookups will go to Shopify directly.');
+
+                return 0;
+            }
+        }
 
         // New generation timestamp makes stale keys from prior warmings unreachable
         $gen    = time();
@@ -189,6 +219,20 @@ class ShopifyService
                 Cache::put($key, array_merge($existing, $newEntries), $ttl);
             }
             unset($barcodeMap);
+
+            // The cap again, now against the real variant count: a catalogue can
+            // be few products and many variants. Half-filling the cache is worse
+            // than not warming at all — the sentinel would claim a complete
+            // generation while the keys evict each other, and every evicted key
+            // reads back as "not in Shopify". Stop, write no sentinel, and let
+            // the lookups go live instead.
+            if ($maxVariants > 0 && $count > $maxVariants) {
+                Log::error("ShopifyService: SKU cache warm aborted for {$this->shop} — "
+                    . "{$count} variants exceeds the {$maxVariants} the cache can hold. "
+                    . 'No sentinel written, so lookups will go to Shopify directly.');
+
+                return $count;
+            }
 
             $page++;
             if ($page % 20 === 0) {

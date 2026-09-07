@@ -38,6 +38,19 @@ return [
     'shopify' => [
         'domain'       => env('SHOPIFY_DOMAIN'),
         'access_token' => env('SHOPIFY_ACCESS_TOKEN'),
+
+        /*
+         * A SKU cache warm only pays off if the whole catalogue fits in the
+         * cache. Past this many variants it cannot: the keys evict each other
+         * while the sentinel still claims a complete generation, and an evicted
+         * key reads back as "not in Shopify" — which silently skips uploads for
+         * products that exist. The warm also evicts everything else sharing the
+         * instance, queued jobs included.
+         *
+         * Stores over the cap are left to live lookups: slower per item, and
+         * always right. Set to 0 to disable the cap.
+         */
+        'warm_max_variants' => (int) env('SHOPIFY_WARM_MAX_VARIANTS', 50000),
     ],
 
     'onedrive' => [
