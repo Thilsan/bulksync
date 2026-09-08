@@ -44,6 +44,25 @@ class ImageProcessingService
      * Metal and stones sit far below this. The reflection does not.
      */
     private const SOLID_PRODUCT = 215;
+
+    /**
+     * The smallest pendant worth a close-up, in pixels of the source photo.
+     *
+     * A close-up has to enlarge the pendant until it fills the frame, and there
+     * is a point past which that stops being a photograph. Two real ones set
+     * the line: a pavé heart measuring 148 px has to grow more than ten times
+     * over to fill a 2000 square, and arrives as gravel where the stones should
+     * be; a rose at 285 px grows five times and still reads as jewellery.
+     *
+     * So 250, between the one that failed and the one that worked. Below it
+     * there is no close-up to be had, and saying so is better than spending a
+     * credit to produce something visibly false.
+     *
+     * Measured on the pendant itself, not on the crop around it — the crop
+     * carries 60% margin, so judging by that would let a pendant through at
+     * two-thirds the size intended.
+     */
+    private const SMALLEST_PENDANT = 250;
     private const MIN_QUALITY   = 30;
 
     /** Quarter and half turns offered for straightening an input photo. */
@@ -418,6 +437,20 @@ class ImageProcessingService
             // A band covering most of the picture is the necklace itself, not a
             // pendant on it — there is no close-up to take.
             if ($boxH / $h > 0.6 || $boxW <= 0 || $boxH <= 0) {
+                return null;
+            }
+
+            /*
+             * Too little pendant to enlarge. Scaled to the canvas this would be
+             * mostly invented pixels, and an obviously false photograph is
+             * worse than no second photograph.
+             */
+            if (max($boxW, $boxH) < self::SMALLEST_PENDANT) {
+                Log::info('ImageProcessingService: pendant too small for a close-up', [
+                    'pendant' => max($boxW, $boxH),
+                    'minimum' => self::SMALLEST_PENDANT,
+                ]);
+
                 return null;
             }
 

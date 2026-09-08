@@ -408,6 +408,44 @@ class PhotoroomService
             ],
         ],
 
+        /*
+         * A main category with nothing under it, like perfume: a cabin case and
+         * a large check-in are framed the same way, so a second level would be
+         * a menu with one item on it.
+         */
+        'luggage' => [
+            'label' => 'Luggage',
+            'note'  => 'Measured: 10% around a 2000 square, the case filling 80% of the height and standing on a line 10% up from the bottom. Bottom-aligned rather than centred, for the reason bags are: a cabin case and a large check-in fit the canvas at different heights whatever the padding, and only a shared floor makes a row of them read as a row.',
+            'edits' => [
+                'width'  => 2000,
+                'height' => 2000,
+
+                /*
+                 * Measured off a live Mosafer cabin case, exported square:
+                 * 10.0% above, 80.0% of the height filled, 10.0% below. The
+                 * three close to 100, so the padding is the whole story.
+                 *
+                 * The house rule for everything unmeasured was also 10%, and
+                 * this is the first time a sample has agreed with it exactly.
+                 * Recorded as measured rather than left as a house rule,
+                 * because the two are different claims: one is a decision and
+                 * the other is a number nobody has checked.
+                 *
+                 * Bottom-aligned, and padding_bottom is set to the same 10% the
+                 * measurement gives. On this sample that changes nothing — the
+                 * case fills the height, so centring and standing put it in the
+                 * same place. It matters for the next one: a wide check-in case
+                 * fits the canvas by its width, leaving it shorter, and centred
+                 * it would float above the line every other case stands on.
+                 * Suitcases stand on wheels, on a floor, which is exactly the
+                 * argument bags made.
+                 */
+                'padding'        => 0.10,
+                'padding_bottom' => 0.10,
+                'v_align'        => 'bottom',
+            ],
+        ],
+
         'beauty' => [
             'label'         => 'Beauty',
             'subcategories' => [
@@ -941,6 +979,8 @@ class PhotoroomService
         'kids/footwear'   => 'the shoes',
 
         'perfume'                     => 'the perfume bottle',
+
+        'luggage'                     => 'the suitcase',
 
         'beauty/makeup'               => 'the makeup product',
         'beauty/skincare'             => 'the skincare product',

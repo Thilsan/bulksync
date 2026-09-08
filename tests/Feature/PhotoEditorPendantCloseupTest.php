@@ -115,7 +115,7 @@ class PhotoEditorPendantCloseupTest extends TestCase
      */
     public function test_a_pendant_is_found_at_the_bottom_of_a_chain(): void
     {
-        $cropped = app(ImageProcessingService::class)->cropToPendant($this->necklace(withPendant: true));
+        $cropped = app(ImageProcessingService::class)->cropToPendant($this->necklace(withPendant: true, pendantSize: 400));
 
         $this->assertNotNull($cropped, 'the pendant was not found');
 
@@ -134,8 +134,27 @@ class PhotoEditorPendantCloseupTest extends TestCase
         $this->assertNull(app(ImageProcessingService::class)->cropToPendant($this->necklace(withPendant: false)));
     }
 
+    /**
+     * Too little pendant to enlarge is the same answer as no pendant at all.
+     *
+     * A close-up scales the pendant until it fills the frame. Below a point
+     * that is mostly invented pixels — a pavé heart of 148 px came back as
+     * gravel where the stones should be — and an obviously false photograph is
+     * worse than no second photograph.
+     */
+    public function test_a_pendant_too_small_to_enlarge_is_declined(): void
+    {
+        $service = app(ImageProcessingService::class);
+
+        $this->assertNull($service->cropToPendant($this->necklace(withPendant: true, pendantSize: 140)),
+            'a pendant this small cannot survive being blown up to fill the canvas');
+
+        $this->assertNotNull($service->cropToPendant($this->necklace(withPendant: true, pendantSize: 400)),
+            'a pendant with pixels to spare should still get its close-up');
+    }
+
     /** A thin vertical chain on white, optionally with a blob at the bottom. */
-    private function necklace(bool $withPendant): string
+    private function necklace(bool $withPendant, int $pendantSize = 220): string
     {
         $im = imagecreatetruecolor(1000, 1000);
         imagefilledrectangle($im, 0, 0, 1000, 1000, imagecolorallocate($im, 255, 255, 255));
@@ -146,7 +165,7 @@ class PhotoEditorPendantCloseupTest extends TestCase
         }
 
         if ($withPendant) {
-            imagefilledellipse($im, 500, 890, 220, 200, $metal);
+            imagefilledellipse($im, 500, 890, $pendantSize, $pendantSize, $metal);
         }
 
         ob_start();

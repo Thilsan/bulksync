@@ -324,8 +324,9 @@ class PhotoEditorFramingTest extends TestCase
      *
      * Two kinds of product need it, for opposite reasons. Some stand on
      * something: a bag category holds a flat clutch and a tall top-handle bag,
-     * a perfume category a squat bottle and a slim one, and only a shared
-     * bottom edge makes a row of them read as a row. One hangs from something:
+     * a perfume category a squat bottle and a slim one, a luggage category a
+     * cabin case and a large check-in — and only a shared bottom edge makes a
+     * row of them read as a row. One hangs from something:
      * a necklace is photographed with the chain running off the top of the
      * frame, so it is anchored up there and the room is all underneath.
      *
@@ -344,6 +345,8 @@ class PhotoEditorFramingTest extends TestCase
             'women/bags' => ['verticalAlignment' => 'bottom', 'paddingBottom' => '0.2'],
             // measured off a live 2000x2000 catalogue shot
             'perfume'    => ['verticalAlignment' => 'bottom', 'paddingBottom' => '0.106'],
+            // a cabin case, measured at 10/80/10; suitcases stand on wheels
+            'luggage'    => ['verticalAlignment' => 'bottom', 'paddingBottom' => '0.1'],
             // two catalogue shots, both with the chain running off the top
             'watches_jewellery/necklaces' => [
                 'verticalAlignment' => 'top',
@@ -373,6 +376,26 @@ class PhotoEditorFramingTest extends TestCase
             $this->assertArrayNotHasKey('paddingTop', $fields,
                 "{$key} has a per-edge override nobody declared");
         }
+    }
+
+    /**
+     * The house rule and a measurement are different claims.
+     *
+     * Luggage lands on 10%, which is also what every unmeasured category uses.
+     * It is recorded as measured because a number nobody has checked and a
+     * number that has been checked are not the same thing, even when they
+     * agree — and this is the first sample that has agreed with the house rule
+     * exactly.
+     */
+    public function test_luggage_stands_on_its_measured_line(): void
+    {
+        $fields = $this->layoutFields(PhotoroomService::applyFramingPreset([], 'luggage'));
+
+        $this->assertSame('0.1', $fields['padding'] ?? null);
+        $this->assertSame('0.1', $fields['paddingBottom'] ?? null);
+        $this->assertSame('bottom', $fields['verticalAlignment'] ?? null);
+        $this->assertSame('2000x2000', $fields['outputSize'] ?? null);
+        $this->assertSame('the suitcase', PhotoroomService::productNoun('luggage'));
     }
 
     /**
