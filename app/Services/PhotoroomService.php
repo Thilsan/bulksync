@@ -415,33 +415,34 @@ class PhotoroomService
          */
         'luggage' => [
             'label' => 'Luggage',
-            'note'  => 'Measured: 10% around a 2000 square, the case filling 80% of the height and standing on a line 10% up from the bottom. Bottom-aligned rather than centred, for the reason bags are: a cabin case and a large check-in fit the canvas at different heights whatever the padding, and only a shared floor makes a row of them read as a row.',
+            'note'  => '22.5% around a 2000 square, the case filling 55% of the height and standing on a line 22.5% up from the bottom. The catalogue shot measures 10/80/10, but it was photographed with the trolley handle raised — that 80% is handle and case together, and a case with the handle down filled the same 80% by itself and came out twice the size. 55% is where the case reads right on its own. Bottom-aligned rather than centred, for the reason bags are: a cabin case and a large check-in fit the canvas at different heights whatever the padding, and only a shared floor makes a row of them read as a row.',
             'edits' => [
                 'width'  => 2000,
                 'height' => 2000,
 
                 /*
                  * Measured off a live Mosafer cabin case, exported square:
-                 * 10.0% above, 80.0% of the height filled, 10.0% below. The
-                 * three close to 100, so the padding is the whole story.
+                 * 10.0% above, 80.0% of the height filled, 10.0% below. Those
+                 * three numbers are real and they are not the ones used here.
                  *
-                 * The house rule for everything unmeasured was also 10%, and
-                 * this is the first time a sample has agreed with it exactly.
-                 * Recorded as measured rather than left as a house rule,
-                 * because the two are different claims: one is a decision and
-                 * the other is a number nobody has checked.
+                 * The sample was shot with the trolley handle raised, so its
+                 * 80% is a chrome pole and a case stacked together — the case
+                 * alone is the lower 43% of the frame. Applied to a photograph
+                 * with the handle down, or one this app has cropped the handle
+                 * out of, the same rule fills all 80% with case and it arrives
+                 * at roughly twice the size of everything already on the site.
                  *
-                 * Bottom-aligned, and padding_bottom is set to the same 10% the
-                 * measurement gives. On this sample that changes nothing — the
-                 * case fills the height, so centring and standing put it in the
-                 * same place. It matters for the next one: a wide check-in case
-                 * fits the canvas by its width, leaving it shorter, and centred
-                 * it would float above the line every other case stands on.
-                 * Suitcases stand on wheels, on a floor, which is exactly the
-                 * argument bags made.
+                 * So the number is set on the case rather than on whatever
+                 * happens to be above it. 55% chosen by eye from four
+                 * candidates: 43% matches the sample's case exactly but leaves
+                 * a void where the handle used to be, and 80% is the zoom that
+                 * started this. The measurement stays written down because it
+                 * is what the site's own shots do, and because the trap it
+                 * hides — "the product" meaning two different things depending
+                 * on the handle — is worth the next person's time.
                  */
-                'padding'        => 0.10,
-                'padding_bottom' => 0.10,
+                'padding'        => 0.225,
+                'padding_bottom' => 0.225,
                 'v_align'        => 'bottom',
             ],
         ],

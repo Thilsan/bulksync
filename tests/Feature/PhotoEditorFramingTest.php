@@ -345,8 +345,8 @@ class PhotoEditorFramingTest extends TestCase
             'women/bags' => ['verticalAlignment' => 'bottom', 'paddingBottom' => '0.2'],
             // measured off a live 2000x2000 catalogue shot
             'perfume'    => ['verticalAlignment' => 'bottom', 'paddingBottom' => '0.106'],
-            // a cabin case, measured at 10/80/10; suitcases stand on wheels
-            'luggage'    => ['verticalAlignment' => 'bottom', 'paddingBottom' => '0.1'],
+            // the case at 55%; suitcases stand on wheels
+            'luggage'    => ['verticalAlignment' => 'bottom', 'paddingBottom' => '0.225'],
             // two catalogue shots, both with the chain running off the top
             'watches_jewellery/necklaces' => [
                 'verticalAlignment' => 'top',
@@ -379,20 +379,22 @@ class PhotoEditorFramingTest extends TestCase
     }
 
     /**
-     * The house rule and a measurement are different claims.
+     * The case is framed, not "the product".
      *
-     * Luggage lands on 10%, which is also what every unmeasured category uses.
-     * It is recorded as measured because a number nobody has checked and a
-     * number that has been checked are not the same thing, even when they
-     * agree — and this is the first sample that has agreed with the house rule
-     * exactly.
+     * The catalogue shot measures 10/80/10, and that 80% is a raised trolley
+     * handle and a case together. Applied to a photograph with the handle down
+     * — or one this app has cropped the handle out of — the case alone fills
+     * the 80% and arrives twice the size of everything already on the site.
+     *
+     * Pinned at 22.5% so nobody restores the measurement without also
+     * restoring the handle it was measured with.
      */
-    public function test_luggage_stands_on_its_measured_line(): void
+    public function test_luggage_frames_the_case_rather_than_the_raised_handle(): void
     {
         $fields = $this->layoutFields(PhotoroomService::applyFramingPreset([], 'luggage'));
 
-        $this->assertSame('0.1', $fields['padding'] ?? null);
-        $this->assertSame('0.1', $fields['paddingBottom'] ?? null);
+        $this->assertSame('0.225', $fields['padding'] ?? null);
+        $this->assertSame('0.225', $fields['paddingBottom'] ?? null);
         $this->assertSame('bottom', $fields['verticalAlignment'] ?? null);
         $this->assertSame('2000x2000', $fields['outputSize'] ?? null);
         $this->assertSame('the suitcase', PhotoroomService::productNoun('luggage'));
