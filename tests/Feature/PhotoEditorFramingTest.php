@@ -345,8 +345,8 @@ class PhotoEditorFramingTest extends TestCase
             'women/bags' => ['verticalAlignment' => 'bottom', 'paddingBottom' => '0.2'],
             // measured off a live 2000x2000 catalogue shot
             'perfume'    => ['verticalAlignment' => 'bottom', 'paddingBottom' => '0.106'],
-            // 30/60/10: a floor to stand on and headroom kept for the handle
-            'luggage'    => ['verticalAlignment' => 'bottom', 'paddingTop' => '0.3', 'paddingBottom' => '0.1'],
+            // a floor to stand on; the case is sized by its own body, not the handle
+            'luggage'    => ['verticalAlignment' => 'bottom', 'paddingBottom' => '0.1'],
             // two catalogue shots, both with the chain running off the top
             'watches_jewellery/necklaces' => [
                 'verticalAlignment' => 'top',
@@ -379,23 +379,25 @@ class PhotoEditorFramingTest extends TestCase
     }
 
     /**
-     * Luggage keeps headroom for a handle whether or not one is raised.
+     * A suitcase is sized by its case, not by whatever is standing on it.
      *
-     * Two shots of one case — handle up and handle down — are different heights
-     * of product. Fit each to the canvas and the handle-up shot shrinks its
-     * case to make room: measured at 54.5% against 29.3%, nearly half. Holding
-     * the top 30% aside for the handle puts both cases on the same floor at the
-     * same size, which is the whole point of a baseline.
+     * Two shots of one product — handle up and handle down — are wildly
+     * different heights, so fitting "the product" put the case at 59% in one
+     * and 32% in the other. Sizing the body instead puts every case at 48%,
+     * measured across four samples, and the handle uses the room above it.
      *
-     * The three numbers are pinned because an earlier 10/80/10 came off a
-     * sample whose handle was raised, where "the product" meant handle and case
-     * together — right about its own photograph, wrong about every other one.
+     * 48% is not a preference: a raised handle runs 0.87x its case height on
+     * this catalogue, so with the 10% floor that is the largest a case can be
+     * while its handle still fits the frame.
      */
-    public function test_luggage_keeps_headroom_for_the_handle(): void
+    public function test_a_suitcase_is_sized_by_its_case_not_its_handle(): void
     {
-        $fields = $this->layoutFields(PhotoroomService::applyFramingPreset([], 'luggage'));
+        $edits = PhotoroomService::applyFramingPreset([], 'luggage');
 
-        $this->assertSame('0.3', $fields['paddingTop'] ?? null, 'the room a raised handle needs');
+        $this->assertSame(0.48, $edits['body_fill'] ?? null, 'the case size every suitcase shares');
+
+        $fields = $this->layoutFields($edits);
+
         $this->assertSame('0.1', $fields['paddingBottom'] ?? null, 'the floor every case stands on');
         $this->assertSame('bottom', $fields['verticalAlignment'] ?? null);
         $this->assertSame('2000x2000', $fields['outputSize'] ?? null);

@@ -153,6 +153,7 @@ class ImageProcessingService
         string $verticalAlignment = 'center',
         float $tolerance = 0.015,
         ?float $paddingTop = null,
+        ?float $bodyFill = null,
     ): string {
         try {
             if ($canvasEdge < 100 || $padding < 0 || $padding >= 0.5) {
@@ -229,7 +230,40 @@ class ImageProcessingService
              * The canvas is the one thing it will not cross: better a necklace
              * wider than its side margin than one running off the picture.
              */
-            if ($paddingTop !== null && $paddingBottom !== null) {
+            if ($bodyFill !== null) {
+                /*
+                 * Size the body, not everything attached to it.
+                 *
+                 * A suitcase photographed with the trolley handle raised is
+                 * nearly twice the height of the same case with it down, so
+                 * fitting "the product" puts the case at 59% in one shot and
+                 * 32% in the other — the same case, half the size. Measuring
+                 * the body and scaling that instead puts every case at one
+                 * size, and the handle uses the room above it.
+                 *
+                 * The handle still has to fit. Where it will not, the whole
+                 * product is shrunk to the canvas rather than run off the top:
+                 * one image slightly small beats one with its handle sliced
+                 * through.
+                 */
+                $bodyHeight = $this->bodyHeight($imageContent, $h);
+
+                if ($bodyHeight === null || $bodyHeight <= 0) {
+                    $scale = min($availableW / $boxW, $availableH / $boxH);
+                } else {
+                    $scale = ($canvasEdge * $bodyFill) / $bodyHeight;
+
+                    $ceiling = $canvasEdge * (1 - $bottom);
+
+                    if ($boxH * $scale > $ceiling) {
+                        $scale = $ceiling / $boxH;
+                    }
+
+                    if ($boxW * $scale > $canvasEdge) {
+                        $scale = $canvasEdge / $boxW;
+                    }
+                }
+            } elseif ($paddingTop !== null && $paddingBottom !== null) {
                 $scale = $availableH / $boxH;
 
                 if ($boxW * $scale > $canvasEdge) {
@@ -523,6 +557,47 @@ class ImageProcessingService
 
             return null;
         }
+    }
+
+    /**
+     * The height of the product's body, ignoring anything thin above it.
+     *
+     * The body is everything at least half as wide as the widest row — the case
+     * of a suitcase, not the trolley handle standing on it. Returns null when
+     * the profile cannot be read.
+     */
+    private function bodyHeight(string $imageContent, int $height): ?int
+    {
+        $rows = $this->productPerRow($imageContent);
+
+        if ($rows === null) {
+            return null;
+        }
+
+        [$ink, , , , $ph] = $rows;
+
+        $present = array_filter($ink);
+
+        if ($present === []) {
+            return null;
+        }
+
+        $widest  = max($present);
+        $bottom  = max(array_keys($present));
+        $bodyTop = null;
+
+        foreach ($ink as $y => $n) {
+            if ($n >= $widest * 0.5) {
+                $bodyTop = $y;
+                break;
+            }
+        }
+
+        if ($bodyTop === null) {
+            return null;
+        }
+
+        return (int) round(($bottom - $bodyTop + 1) * ($height / $ph));
     }
 
     /**

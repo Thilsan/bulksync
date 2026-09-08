@@ -415,38 +415,37 @@ class PhotoroomService
          */
         'luggage' => [
             'label' => 'Luggage',
-            'note'  => 'Measured: the case stands on a line 10% up from the bottom, fills 60% of a 2000 square, and leaves 30% clear above it — the room a raised trolley handle occupies. Not symmetric, and deliberately so: every case sits on the same floor with the same headroom, whether its handle is up or down, so a row of them lines up and the ones with handles do not shrink to make space.',
+            'note'  => 'The case stands on a line 10% up from the bottom and fills 48% of a 2000 square — the case itself, not the case plus whatever is above it. A raised trolley handle measures 0.87x the case height on this catalogue, so 48% is the largest a case can be while its handle still fits the frame. Every suitcase therefore reads the same size whether it was shot with the handle up or down.',
             'edits' => [
                 'width'  => 2000,
                 'height' => 2000,
 
                 /*
-                 * Measured off sample.webp: 30.1% above, 60.0% of the height
-                 * filled, 9.9% below.
+                 * Measured off sample.webp: the case on a line 9.9% up, filling
+                 * 60.0% of the frame, 30.1% clear above it.
                  *
-                 * Three numbers rather than two, because the third is what
-                 * makes a shelf of suitcases line up. A case photographed with
-                 * the trolley handle raised and the same case with it down are
-                 * different heights of product; fit each to the canvas and the
-                 * handle-up shot shrinks its case to make room, which is
-                 * exactly what happened here — 54.5% against 29.3% for two
-                 * shots of one product.
+                 * The 60% is not used, and the reason is the whole difficulty
+                 * with luggage. That sample was shot with the handle down, so
+                 * its 60% is case alone. The same rule on a handle-up shot fits
+                 * handle and case together into 60% and leaves the case at 32%
+                 * — one product, two photographs, half the size.
                  *
-                 * Reserving the top 30% for the handle settles it. A handle-up
-                 * shot puts its handle in that space; a handle-down shot leaves
-                 * it empty; both put the case on the same floor at the same
-                 * size.
+                 * So the number is set on the body and the handle is allowed
+                 * the room above it. A raised handle measures 0.87x its case
+                 * across every sample here, which with the 10% floor caps the
+                 * case at 48% if the handle is still to fit. Cases therefore
+                 * read slightly smaller than sample.webp, and identical to each
+                 * other, which is the trade: a shelf that lines up beats one
+                 * image matching a reference while its neighbour does not.
                  *
-                 * An earlier reading of 10/80/10 came off a different sample
-                 * that had its handle raised, where "the product" meant handle
-                 * and case together. Applied to a case alone it filled the
-                 * frame at twice the size. Both numbers are right about their
-                 * own photograph, which is the trap: on a suitcase, say which
-                 * part you measured.
+                 * An earlier reading of 10/80/10 came off OG-Luggage.webp, also
+                 * handle-up, where "the product" meant both together. Every
+                 * number here is right about its own photograph. On a suitcase,
+                 * say which part you measured.
                  */
                 'padding'        => 0.10,
-                'padding_top'    => 0.30,
                 'padding_bottom' => 0.10,
+                'body_fill'      => 0.48,
                 'v_align'        => 'bottom',
             ],
         ],

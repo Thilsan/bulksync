@@ -549,4 +549,77 @@ class ImageProcessingServiceTest extends TestCase
 
         return ob_get_clean();
     }
+
+    /**
+     * A product with something thin standing on it is sized by the wide part.
+     *
+     * Two photographs of one suitcase — handle raised and handle down — are
+     * nearly twice each other's height. Fitting the whole product put the case
+     * at 59% in one shot and 32% in the other; sizing the body puts both at the
+     * number asked for, and the handle uses the room above it.
+     */
+    public function test_a_body_is_sized_without_counting_what_stands_on_it(): void
+    {
+        $service = $this->service;
+
+        /*
+         * The case is the widest thing in the picture, so how wide the widest
+         * row comes out is a direct reading of how big the case ended up —
+         * without re-deriving the body detection inside the test and testing
+         * the test instead of the code.
+         */
+        $widths = [];
+
+        foreach ([true, false] as $handleUp) {
+            $framed = $this->service->frameToStandard(
+                $this->caseWithHandle($handleUp),
+                2000,
+                0.10,
+                0.10,
+                'bottom',
+                0.015,
+                null,
+                0.48,
+            );
+
+            $im = imagecreatefromstring($framed);
+            $h  = imagesy($im);
+            $w  = imagesx($im);
+
+            $widest = 0;
+
+            for ($y = 0; $y < $h; $y++) {
+                $n = 0;
+                for ($x = 0; $x < $w; $x++) {
+                    if (((imagecolorat($im, $x, $y) >> 24) & 0x7F) < 100) $n++;
+                }
+                $widest = max($widest, $n);
+            }
+
+            $widths[] = $widest;
+        }
+
+        $this->assertGreaterThan(0, $widths[0], 'nothing was drawn');
+        $this->assertEqualsWithDelta($widths[0], $widths[1], $widths[0] * 0.05,
+            'a case with its handle up and one without come out different sizes');
+    }
+
+    /** A wide block, optionally with a tall narrow pole standing on it. */
+    private function caseWithHandle(bool $handleUp): string
+    {
+        $im = imagecreatetruecolor(1000, 1000);
+        imagefilledrectangle($im, 0, 0, 1000, 1000, imagecolorallocate($im, 255, 255, 255));
+        $dark = imagecolorallocate($im, 40, 40, 45);
+
+        imagefilledrectangle($im, 250, 550, 750, 950, $dark);
+
+        if ($handleUp) {
+            imagefilledrectangle($im, 470, 200, 530, 550, $dark);
+        }
+
+        ob_start();
+        imagepng($im);
+
+        return ob_get_clean();
+    }
 }
