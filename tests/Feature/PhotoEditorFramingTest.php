@@ -345,8 +345,8 @@ class PhotoEditorFramingTest extends TestCase
             'women/bags' => ['verticalAlignment' => 'bottom', 'paddingBottom' => '0.2'],
             // measured off a live 2000x2000 catalogue shot
             'perfume'    => ['verticalAlignment' => 'bottom', 'paddingBottom' => '0.106'],
-            // the case at 55%; suitcases stand on wheels
-            'luggage'    => ['verticalAlignment' => 'bottom', 'paddingBottom' => '0.225'],
+            // 30/60/10: a floor to stand on and headroom kept for the handle
+            'luggage'    => ['verticalAlignment' => 'bottom', 'paddingTop' => '0.3', 'paddingBottom' => '0.1'],
             // two catalogue shots, both with the chain running off the top
             'watches_jewellery/necklaces' => [
                 'verticalAlignment' => 'top',
@@ -379,22 +379,24 @@ class PhotoEditorFramingTest extends TestCase
     }
 
     /**
-     * The case is framed, not "the product".
+     * Luggage keeps headroom for a handle whether or not one is raised.
      *
-     * The catalogue shot measures 10/80/10, and that 80% is a raised trolley
-     * handle and a case together. Applied to a photograph with the handle down
-     * — or one this app has cropped the handle out of — the case alone fills
-     * the 80% and arrives twice the size of everything already on the site.
+     * Two shots of one case — handle up and handle down — are different heights
+     * of product. Fit each to the canvas and the handle-up shot shrinks its
+     * case to make room: measured at 54.5% against 29.3%, nearly half. Holding
+     * the top 30% aside for the handle puts both cases on the same floor at the
+     * same size, which is the whole point of a baseline.
      *
-     * Pinned at 22.5% so nobody restores the measurement without also
-     * restoring the handle it was measured with.
+     * The three numbers are pinned because an earlier 10/80/10 came off a
+     * sample whose handle was raised, where "the product" meant handle and case
+     * together — right about its own photograph, wrong about every other one.
      */
-    public function test_luggage_frames_the_case_rather_than_the_raised_handle(): void
+    public function test_luggage_keeps_headroom_for_the_handle(): void
     {
         $fields = $this->layoutFields(PhotoroomService::applyFramingPreset([], 'luggage'));
 
-        $this->assertSame('0.225', $fields['padding'] ?? null);
-        $this->assertSame('0.225', $fields['paddingBottom'] ?? null);
+        $this->assertSame('0.3', $fields['paddingTop'] ?? null, 'the room a raised handle needs');
+        $this->assertSame('0.1', $fields['paddingBottom'] ?? null, 'the floor every case stands on');
         $this->assertSame('bottom', $fields['verticalAlignment'] ?? null);
         $this->assertSame('2000x2000', $fields['outputSize'] ?? null);
         $this->assertSame('the suitcase', PhotoroomService::productNoun('luggage'));

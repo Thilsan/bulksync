@@ -415,34 +415,38 @@ class PhotoroomService
          */
         'luggage' => [
             'label' => 'Luggage',
-            'note'  => '22.5% around a 2000 square, the case filling 55% of the height and standing on a line 22.5% up from the bottom. The catalogue shot measures 10/80/10, but it was photographed with the trolley handle raised — that 80% is handle and case together, and a case with the handle down filled the same 80% by itself and came out twice the size. 55% is where the case reads right on its own. Bottom-aligned rather than centred, for the reason bags are: a cabin case and a large check-in fit the canvas at different heights whatever the padding, and only a shared floor makes a row of them read as a row.',
+            'note'  => 'Measured: the case stands on a line 10% up from the bottom, fills 60% of a 2000 square, and leaves 30% clear above it — the room a raised trolley handle occupies. Not symmetric, and deliberately so: every case sits on the same floor with the same headroom, whether its handle is up or down, so a row of them lines up and the ones with handles do not shrink to make space.',
             'edits' => [
                 'width'  => 2000,
                 'height' => 2000,
 
                 /*
-                 * Measured off a live Mosafer cabin case, exported square:
-                 * 10.0% above, 80.0% of the height filled, 10.0% below. Those
-                 * three numbers are real and they are not the ones used here.
+                 * Measured off sample.webp: 30.1% above, 60.0% of the height
+                 * filled, 9.9% below.
                  *
-                 * The sample was shot with the trolley handle raised, so its
-                 * 80% is a chrome pole and a case stacked together — the case
-                 * alone is the lower 43% of the frame. Applied to a photograph
-                 * with the handle down, or one this app has cropped the handle
-                 * out of, the same rule fills all 80% with case and it arrives
-                 * at roughly twice the size of everything already on the site.
+                 * Three numbers rather than two, because the third is what
+                 * makes a shelf of suitcases line up. A case photographed with
+                 * the trolley handle raised and the same case with it down are
+                 * different heights of product; fit each to the canvas and the
+                 * handle-up shot shrinks its case to make room, which is
+                 * exactly what happened here — 54.5% against 29.3% for two
+                 * shots of one product.
                  *
-                 * So the number is set on the case rather than on whatever
-                 * happens to be above it. 55% chosen by eye from four
-                 * candidates: 43% matches the sample's case exactly but leaves
-                 * a void where the handle used to be, and 80% is the zoom that
-                 * started this. The measurement stays written down because it
-                 * is what the site's own shots do, and because the trap it
-                 * hides — "the product" meaning two different things depending
-                 * on the handle — is worth the next person's time.
+                 * Reserving the top 30% for the handle settles it. A handle-up
+                 * shot puts its handle in that space; a handle-down shot leaves
+                 * it empty; both put the case on the same floor at the same
+                 * size.
+                 *
+                 * An earlier reading of 10/80/10 came off a different sample
+                 * that had its handle raised, where "the product" meant handle
+                 * and case together. Applied to a case alone it filled the
+                 * frame at twice the size. Both numbers are right about their
+                 * own photograph, which is the trap: on a suitcase, say which
+                 * part you measured.
                  */
-                'padding'        => 0.225,
-                'padding_bottom' => 0.225,
+                'padding'        => 0.10,
+                'padding_top'    => 0.30,
+                'padding_bottom' => 0.10,
                 'v_align'        => 'bottom',
             ],
         ],
