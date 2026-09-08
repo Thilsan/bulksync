@@ -120,7 +120,22 @@ class PushEditedPhotoJob implements ShouldQueue
 
             unset($content);
 
-            if ($variantId && $imageId) {
+            /*
+             * The variant's picture is the first photo of that SKU, and only
+             * the first.
+             *
+             * Every push used to set it, so on a SKU with several photos the
+             * variant ended up showing whichever one the queue happened to
+             * finish last — a suitcase with its handle raised, in the case that
+             * found this, rather than the front shot the operator had put in
+             * position one.
+             *
+             * Decided from the stored order rather than from the order things
+             * complete, because the queue gives no guarantee about the second
+             * and the operator has already expressed the first by dragging the
+             * tiles.
+             */
+            if ($variantId && $imageId && $this->leadsItsSku($item)) {
                 $shopify->setVariantImage($variantId, $imageId);
             }
 
@@ -230,6 +245,24 @@ class PushEditedPhotoJob implements ShouldQueue
             ->count();
 
         return $ahead + 1;
+    }
+
+    /**
+     * Is this the photo the operator put first for its SKU?
+     *
+     * Only real photographs count. A pendant close-up or an on-model image is
+     * generated from one of them and belongs in the gallery, never on the
+     * variant.
+     */
+    private function leadsItsSku(PhotoEditItem $item): bool
+    {
+        $first = PhotoEditItem::where('photo_edit_session_id', $item->photo_edit_session_id)
+            ->where('sku_detected', $item->sku_detected)
+            ->where('kind', 'cutout')
+            ->inDisplayOrder()
+            ->first();
+
+        return $first !== null && $first->id === $item->id;
     }
 
     private function syncPushedCount(int $sessionId): void

@@ -144,4 +144,69 @@ class PhotoEditorOrderTest extends TestCase
         $this->assertSame(1, $method->invoke(new \App\Jobs\PushEditedPhotoJob($kept->id), $kept),
             'a skipped photo still counted towards the gallery order');
     }
+
+    /**
+     * The variant's picture is the first photo, not the last one uploaded.
+     *
+     * Every push used to set it, so a SKU with several photos ended up showing
+     * whichever the queue happened to finish last — a suitcase with its handle
+     * raised, in the case that found this, instead of the front shot the
+     * operator had dragged into position one.
+     */
+    public function test_only_the_first_photo_becomes_the_variant_image(): void
+    {
+        $session = $this->makeSession();
+
+        $first  = $this->photo($session, 'LUG-1', 'front.jpg',  ['position' => 1, 'edited_path' => 'a.jpg']);
+        $second = $this->photo($session, 'LUG-1', 'handle.jpg', ['position' => 2, 'edited_path' => 'b.jpg']);
+
+        $leads = new \ReflectionMethod(\App\Jobs\PushEditedPhotoJob::class, 'leadsItsSku');
+        $leads->setAccessible(true);
+
+        $job = new \App\Jobs\PushEditedPhotoJob($first->id);
+
+        $this->assertTrue($leads->invoke($job, $first), 'the first photo should set the variant image');
+        $this->assertFalse($leads->invoke($job, $second), 'a later photo must not overwrite it');
+    }
+
+    /** Reordering moves the variant image with it. */
+    public function test_dragging_a_photo_first_makes_it_the_variant_image(): void
+    {
+        $session = $this->makeSession();
+
+        $wasFirst = $this->photo($session, 'LUG-1', 'front.jpg',  ['position' => 1, 'edited_path' => 'a.jpg']);
+        $promoted = $this->photo($session, 'LUG-1', 'handle.jpg', ['position' => 2, 'edited_path' => 'b.jpg']);
+
+        $wasFirst->update(['position' => 2]);
+        $promoted->update(['position' => 1]);
+
+        $leads = new \ReflectionMethod(\App\Jobs\PushEditedPhotoJob::class, 'leadsItsSku');
+        $leads->setAccessible(true);
+        $job = new \App\Jobs\PushEditedPhotoJob($promoted->id);
+
+        $this->assertTrue($leads->invoke($job, $promoted));
+        $this->assertFalse($leads->invoke($job, $wasFirst));
+    }
+
+    /**
+     * A generated image belongs in the gallery, never on the variant — it is
+     * made from one of the real photographs and is not the product's own front
+     * view.
+     */
+    public function test_a_generated_image_never_becomes_the_variant_image(): void
+    {
+        $session = $this->makeSession();
+
+        $photo   = $this->photo($session, 'LUG-1', 'front.jpg', ['position' => 5, 'edited_path' => 'a.jpg']);
+        $closeup = $this->photo($session, 'LUG-1', 'front-pendant.jpg', [
+            'position' => 1, 'edited_path' => 'b.jpg', 'kind' => 'closeup',
+        ]);
+
+        $leads = new \ReflectionMethod(\App\Jobs\PushEditedPhotoJob::class, 'leadsItsSku');
+        $leads->setAccessible(true);
+        $job = new \App\Jobs\PushEditedPhotoJob($closeup->id);
+
+        $this->assertFalse($leads->invoke($job, $closeup), 'a close-up must not take the variant image');
+        $this->assertTrue($leads->invoke($job, $photo), 'the real photograph should, even sorted later');
+    }
 }
