@@ -284,6 +284,88 @@ class ImageProcessingService
     }
 
     /**
+     * Cut a raised trolley handle off the top of a suitcase.
+     *
+     * The same measurement the pendant uses, read the other way up. A handle is
+     * a thin thing standing above a wide one — on a Mosafer cabin case the
+     * handle runs 49 to 64 pixels a row and the case 582 to 617, a tenfold step
+     * that needs no judgement to find. Everything above the case is cropped.
+     *
+     * A crop rather than a generative erase, deliberately. Nothing is invented
+     * and nothing of the product can be damaged: what is left is the original
+     * photograph, minus the top of it.
+     *
+     * Returns null when there is no such step — a case photographed with the
+     * handle down has nothing to remove, and saying so is better than cropping
+     * something off it.
+     */
+    public function cropAboveBody(string $imageContent, float $bodyShare = 0.5): ?string
+    {
+        try {
+            $img = $this->decode($imageContent);
+            $w   = $img->width();
+            $h   = $img->height();
+
+            $rows = $this->productPerRow($imageContent);
+
+            if ($rows === null) {
+                return null;
+            }
+
+            [$ink, , , $pw, $ph] = $rows;
+
+            $present = array_filter($ink);
+
+            if (count($present) < 10) {
+                return null;
+            }
+
+            $widest = max($present);
+            $top    = min(array_keys($present));
+
+            $bodyTop = null;
+
+            foreach ($ink as $y => $n) {
+                if ($n >= $widest * $bodyShare) {
+                    $bodyTop = $y;
+                    break;
+                }
+            }
+
+            if ($bodyTop === null || $bodyTop <= $top) {
+                return null; // The widest part starts at the top: nothing above it.
+            }
+
+            /*
+             * How tall the thin part is, as a share of the product. Below a
+             * tenth it is a lid, a clasp or the top of the case itself rather
+             * than a raised handle, and cropping it would take the product's
+             * own corner off.
+             */
+            $bottom = max(array_keys($present));
+
+            if (($bodyTop - $top) / max(1, $bottom - $top) < 0.1) {
+                return null;
+            }
+
+            $cutAt = (int) floor($bodyTop * ($h / $ph));
+
+            if ($cutAt <= 0 || $cutAt >= $h - 10) {
+                return null;
+            }
+
+            return $this->decode($imageContent)
+                ->crop($w, $h - $cutAt, 0, $cutAt)
+                ->encode(new PngEncoder())
+                ->toString();
+        } catch (\Throwable $e) {
+            Log::warning('ImageProcessingService: could not crop above the body', ['error' => $e->getMessage()]);
+
+            return null;
+        }
+    }
+
+    /**
      * Crop to the pendant at the bottom of a necklace.
      *
      * A necklace photograph is mostly chain, and the chain is thin: measured

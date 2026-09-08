@@ -132,6 +132,7 @@
                             'thumb'    => route('photo-editor.onedrive-thumb', [$session, $p]),
                             'asIs'     => (bool) $p->skip_edit,
                             'keepBg'   => (bool) $p->keep_background,
+                            'noHandle' => (bool) $p->remove_handle,
                         ],
                     ])->all();
                 @endphp
@@ -248,7 +249,7 @@
                                          hover. Hidden, they were a feature
                                          nobody knew was there — and each one
                                          changes what the run costs. --}}
-                                    <div class="mt-1.5 grid grid-cols-2 gap-1.5">
+                                    <div class="mt-1.5 grid grid-cols-3 gap-1.5">
                                         <button type="button" @click.prevent="toggleAsIs(id)"
                                                 :title="asIs[id] ? 'Going to Shopify untouched — click to edit it instead' : 'Will be edited — click to send it as it is'"
                                                 :class="asIs[id]
@@ -256,6 +257,20 @@
                                                     : 'bg-white text-gray-500 ring-gray-200 hover:ring-gray-300'"
                                                 class="rounded-lg px-2 py-1 text-[11px] font-semibold ring-1 transition-colors">
                                             As is
+                                        </button>
+
+                                        {{-- A suitcase shot with the handle up is
+                                             half handle, so the framing sizes
+                                             the case against a chrome pole. This
+                                             cuts above the body — a crop, so
+                                             nothing is invented. --}}
+                                        <button type="button" @click.prevent="toggleNoHandle(id)"
+                                                :title="noHandle[id] ? 'Handle will be cropped off — click to keep it' : 'Handle stays in shot — click to crop above the body'"
+                                                :class="noHandle[id]
+                                                    ? 'bg-violet-500 text-white ring-violet-500'
+                                                    : 'bg-white text-gray-500 ring-gray-200 hover:ring-gray-300'"
+                                                class="rounded-lg px-2 py-1 text-[11px] font-semibold ring-1 transition-colors">
+                                            No handle
                                         </button>
 
                                         <button type="button" @click.prevent="toggleKeepBg(id)"
@@ -274,6 +289,10 @@
 
                                     <template x-if="keepBg[id]">
                                         <input type="hidden" :name="`groups[{{ $group->id }}][keep_bg][]`" :value="id">
+                                    </template>
+
+                                    <template x-if="noHandle[id]">
+                                        <input type="hidden" :name="`groups[{{ $group->id }}][no_handle][]`" :value="id">
                                     </template>
                                 </div>
                             </template>
@@ -353,6 +372,7 @@
             // same answer it was left with.
             asIs: Object.fromEntries(ids.map(id => [id, !! (photos[id] || {}).asIs])),
             keepBg: Object.fromEntries(ids.map(id => [id, !! (photos[id] || {}).keepBg])),
+            noHandle: Object.fromEntries(ids.map(id => [id, !! (photos[id] || {}).noHandle])),
 
             get asIsCount() {
                 return Object.values(this.asIs).filter(Boolean).length;
@@ -370,10 +390,25 @@
                 this.asIs[id] = ! this.asIs[id];
 
                 if (this.asIs[id]) {
-                    this.keepBg[id] = false;
+                    this.keepBg[id]   = false;
+                    this.noHandle[id] = false;
                 }
 
                 window.dispatchEvent(new CustomEvent('photo-credits-changed'));
+            },
+
+            /*
+             * Independent of the other two: a photo can lose its handle and
+             * still be cut out, or lose its handle and keep its background.
+             * Only "as is" excludes it, because an untouched photo is not
+             * cropped either.
+             */
+            toggleNoHandle(id) {
+                this.noHandle[id] = ! this.noHandle[id];
+
+                if (this.noHandle[id]) {
+                    this.asIs[id] = false;
+                }
             },
 
             toggleKeepBg(id) {

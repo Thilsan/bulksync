@@ -297,6 +297,21 @@ class EditPhotoItemJob implements ShouldQueue
                 $itemEdits['padding'] = 0.12;
             }
 
+            /*
+             * A raised trolley handle, cut off before anything measures the
+             * product. Left on, it is half the picture: the framing sizes the
+             * case against a chrome pole and every suitcase comes out small.
+             */
+            if ($item->remove_handle) {
+                $withoutHandle = $imageService->cropAboveBody($raw);
+
+                if ($withoutHandle === null) {
+                    Log::info('EditPhotoItemJob: nothing above the body to crop', ['item' => $this->itemId]);
+                } else {
+                    $raw = $withoutHandle;
+                }
+            }
+
             $raw = $imageService->cropToSubject($raw);
 
             $input = $this->fitForPhotoroom($raw, $imageService);

@@ -276,6 +276,8 @@ class PhotoEditorController extends Controller implements HasMiddleware
             'groups.*.pendant_closeup' => ['nullable', 'boolean'],
             'groups.*.keep_bg'         => ['nullable', 'array'],
             'groups.*.keep_bg.*'       => ['integer'],
+            'groups.*.no_handle'       => ['nullable', 'array'],
+            'groups.*.no_handle.*'     => ['integer'],
         ]);
 
         // The run's own settings, which every group follows unless it opted out.
@@ -312,6 +314,7 @@ class PhotoEditorController extends Controller implements HasMiddleware
             $this->saveOrder($session, (array) ($input['order'] ?? []));
             $this->saveUntouched($session, $group->sku, (array) ($input['as_is'] ?? []));
             $this->saveKeptBackgrounds($session, $group->sku, (array) ($input['keep_bg'] ?? []), (array) ($input['as_is'] ?? []));
+            $this->saveRemovedHandles($session, $group->sku, (array) ($input['no_handle'] ?? []));
             $group->update(['pendant_closeup' => (bool) ($input['pendant_closeup'] ?? false)]);
 
             // A count without a photo to build from would queue work that can
@@ -556,6 +559,27 @@ class PhotoEditorController extends Controller implements HasMiddleware
 
         if ($itemIds) {
             $scope()->whereIn('id', $itemIds)->update(['skip_edit' => true]);
+        }
+    }
+
+    /**
+     * Mark which of a SKU's photos should lose their raised handle.
+     *
+     * Written for the whole SKU rather than only the ticked ones, so unticking
+     * a photo puts the handle back — a list of additions alone could never take
+     * one out again. Scoped to the session and the SKU for the reason
+     * saveOrder is.
+     */
+    private function saveRemovedHandles(PhotoEditSession $session, string $sku, array $itemIds): void
+    {
+        $scope = fn () => PhotoEditItem::where('photo_edit_session_id', $session->id)
+            ->where('sku_detected', $sku)
+            ->where('kind', 'cutout');
+
+        $scope()->update(['remove_handle' => false]);
+
+        if ($itemIds) {
+            $scope()->whereIn('id', $itemIds)->update(['remove_handle' => true]);
         }
     }
 
