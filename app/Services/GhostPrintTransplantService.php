@@ -184,6 +184,9 @@ class GhostPrintTransplantService
      */
     private const MAX_LABEL_TILT = 20.0;
 
+    /** Below this a pixel is ink, and measuring light on it would be nonsense. */
+    private const FABRIC_FLOOR = 150;
+
     /**
      * How much of the print's own size to feather around the transplanted
      * patch.
@@ -1034,10 +1037,82 @@ class GhostPrintTransplantService
             imagecopy($under, $canvas, $sx - $ox, $sy - $oy, $sx, $sy, $copyW, $copyH);
         }
 
-        $field = $this->shadingField($patch, $under);
+        $field = $this->plane($patch, $under, $pad);
+
+        /*
+         * ── Wiping the forgery first ───────────────────────────────────────
+         *
+         * The redraw's own print is still underneath, and it does not stay
+         * hidden. The patch is placed at the redraw's print box, so the ramp
+         * that feathers the join sits exactly on that print's outer edge —
+         * where the patch is only half opaque. Measured on a real result: a
+         * grey halo traced every bear, and a neighbouring bear's ghost showed
+         * through beside it, because the two prints are not the same shape.
+         *
+         * Widening the patch would not fix it, because the real print has to
+         * stay at the redraw's scale and position to sit naturally on the
+         * garment — stretching it to cover more would misplace the artwork.
+         *
+         * So the region is cleared to plain fabric before anything is laid on
+         * it. The fabric colour comes from the redraw's own corners, the same
+         * ring the shading is measured from, interpolated across — so what is
+         * painted in is the fabric the redraw would have had there if it had
+         * never drawn a print at all.
+         */
+        $fabric = $this->plane($under, null, $pad);
 
         imagedestroy($under);
 
+        /*
+         * Pass one: clear the redraw's print out of the way, fading to the
+         * redraw's own pixels at the edge of the region so the clearing itself
+         * cannot be seen. Full strength across the print's own box, which is
+         * what guarantees nothing of the forgery survives to show around the
+         * artwork replacing it.
+         */
+        for ($y = 0; $y < $ph; $y++) {
+            $cy = $oy + $y;
+
+            if ($cy < 0 || $cy >= $ch) {
+                continue;
+            }
+
+            for ($x = 0; $x < $pw; $x++) {
+                $cx = $ox + $x;
+
+                if ($cx < 0 || $cx >= $cw) {
+                    continue;
+                }
+
+                /*
+                 * The clearing runs at full strength across the whole region
+                 * and tapers only in a thin margin at its very edge.
+                 *
+                 * Sharing the artwork's own ramp was wrong and left a faint
+                 * rectangle: in the ramp the patch is only partly opaque, so
+                 * the fabric painted underneath keeps a quarter of the weight
+                 * and shows as a band. Out here the painted fabric costs
+                 * nothing, because the plane was fitted to these very pixels.
+                 */
+                $a = $this->featherAt($x, $y, $pw, $ph, max(1, (int) round($pad * 0.25)));
+
+                if ($a <= 0.0) {
+                    continue;
+                }
+
+                [$wr, $wg, $wb] = $this->planeAt($fabric, $x, $y);
+
+                $q = imagecolorat($canvas, $cx, $cy);
+
+                $r = (int) round($this->clamp($wr) * $a + (($q >> 16) & 0xFF) * (1 - $a));
+                $g = (int) round($this->clamp($wg) * $a + (($q >> 8) & 0xFF) * (1 - $a));
+                $b = (int) round($this->clamp($wb) * $a + ($q & 0xFF) * (1 - $a));
+
+                imagesetpixel($canvas, $cx, $cy, ($r << 16) | ($g << 8) | $b);
+            }
+        }
+
+        // Pass two: the photograph's artwork, onto the cleared fabric.
         for ($y = 0; $y < $ph; $y++) {
             $cy = $oy + $y;
 
@@ -1059,10 +1134,15 @@ class GhostPrintTransplantService
                 }
 
                 $p = imagecolorat($patch, $x, $y);
+
+                // The canvas, which the pass above has already cleared of the
+                // redraw's print inside this region and left untouched outside
+                // it. Blending against anything else puts a step at the ramp's
+                // outer edge, which is what a first attempt at the wipe did.
                 $q = imagecolorat($canvas, $cx, $cy);
 
                 // The patch's detail, carried on the redraw's own shading.
-                [$dr, $dg, $db] = $this->shadingAt($field, $x, $y, $pw, $ph);
+                [$dr, $dg, $db] = $this->planeAt($field, $x, $y);
 
                 $pr = $this->clamp((($p >> 16) & 0xFF) + $dr);
                 $pg = $this->clamp((($p >> 8) & 0xFF) + $dg);
@@ -1086,121 +1166,174 @@ class GhostPrintTransplantService
     }
 
     /**
-     * How far the photograph's fabric sits from the redraw's, measured at the
-     * patch's four corners: the field the print is carried on.
+     * How the light falls across the patch, as a plane fitted to the ring of
+     * fabric around the artwork.
      *
-     * ── Why corners and not a blur ─────────────────────────────────────────
+     * ── Three things that did not work, so nobody tries them again ─────────
      *
-     * Blurring both sides and taking the difference was the obvious answer and
-     * it was wrong. A blur of the patch includes the print, a blur of the
-     * redraw includes the redraw's own differently-placed print, and where the
-     * two disagree the correction blooms: on a real pair it put a white halo
-     * around every bear and every letter. The very thing being corrected must
-     * not be part of the measurement.
+     * 1. Blur both sides, take the difference. A blur of the patch contains
+     *    the print and a blur of the redraw contains the redraw's own,
+     *    differently-placed print. Where they disagree the correction blooms:
+     *    a white halo around every bear and every letter.
      *
-     * The corners of the padded patch are the feather margin — plain fabric in
-     * both images by construction, since the print is what the padding was
-     * placed around. Measured there and interpolated across, the field can
-     * describe a gradient without ever seeing a mark of ink.
+     * 2. Match the four corners and interpolate. Corners can be matched
+     *    exactly and still leave a visible rectangle, because a garment's
+     *    shading curves across the chest and corner-to-corner interpolation
+     *    cannot follow a curve.
      *
-     * Light pixels only, and a corner with too little fabric in it borrows the
-     * average of the others, so a print that runs close to one edge cannot drag
-     * that corner.
+     * 3. Sample a grid across the patch. It follows the curve, and it brings
+     *    back the haloing of (1) by another route — cells near the artwork have
+     *    little fabric left in them, and what they do have is the print's own
+     *    soft edge, so the field darkens around every mark.
      *
-     * @return array{0:array{0:float,1:float,2:float},1:array{0:float,1:float,2:float},2:array{0:float,1:float,2:float},3:array{0:float,1:float,2:float}}
-     *         top-left, top-right, bottom-left, bottom-right
+     * What they have in common is measuring inside the artwork. This does not:
+     * every sample comes from the feather ring, which is plain fabric in both
+     * images by construction, and a plane is fitted through them by least
+     * squares. A plane cannot bloom, because nothing near the ink is measured;
+     * and unlike four corners it carries a gradient in any direction, which is
+     * what a shirt's chest mostly does across a region this size.
+     *
+     * @param  \GdImage|null  $against  when given, the plane describes the
+     *                                  difference from this image; otherwise
+     *                                  the patch's own fabric colour.
+     * @return list<array{0:float,1:float,2:float}>  a, b, c per channel
      */
-    private function shadingField(\GdImage $patch, \GdImage $under): array
+    private function plane(\GdImage $img, ?\GdImage $against, int $pad): array
     {
-        $w = imagesx($patch);
-        $h = imagesy($patch);
+        $w = imagesx($img);
+        $h = imagesy($img);
 
-        // A fifth of each side: inside the feather margin on a typical print,
-        // and large enough to average the fabric's own grain away.
-        $bw = max(2, (int) round($w * 0.20));
-        $bh = max(2, (int) round($h * 0.20));
+        // Normal equations for z = a + b*x + c*y, per channel.
+        $n = 0;
+        $sx = 0.0; $sy = 0.0; $sxx = 0.0; $sxy = 0.0; $syy = 0.0;
+        $sz = [0.0, 0.0, 0.0];
+        $sxz = [0.0, 0.0, 0.0];
+        $syz = [0.0, 0.0, 0.0];
 
-        $corners = [
-            [0, 0],
-            [$w - $bw, 0],
-            [0, $h - $bh],
-            [$w - $bw, $h - $bh],
-        ];
+        $step = max(1, (int) round(max($w, $h) / 160));
 
-        $found = [];
-        $sum   = [0.0, 0.0, 0.0];
-        $seen  = 0;
-
-        foreach ($corners as $k => [$x0, $y0]) {
-            $acc = [0.0, 0.0, 0.0];
-            $n   = 0;
-
-            for ($y = $y0; $y < $y0 + $bh; $y += 2) {
-                for ($x = $x0; $x < $x0 + $bw; $x += 2) {
-                    $p = imagecolorat($patch, $x, $y);
-
-                    $pr = ($p >> 16) & 0xFF;
-                    $pg = ($p >> 8) & 0xFF;
-                    $pb = $p & 0xFF;
-
-                    // Fabric only. Ink here would measure the print, not the light.
-                    if (0.299 * $pr + 0.587 * $pg + 0.114 * $pb < 150) {
-                        continue;
-                    }
-
-                    $u = imagecolorat($under, $x, $y);
-
-                    $acc[0] += (($u >> 16) & 0xFF) - $pr;
-                    $acc[1] += (($u >> 8) & 0xFF) - $pg;
-                    $acc[2] += ($u & 0xFF) - $pb;
-                    $n++;
-                }
-            }
-
-            if ($n > 8) {
-                $found[$k] = [$acc[0] / $n, $acc[1] / $n, $acc[2] / $n];
-
-                foreach ([0, 1, 2] as $c) {
-                    $sum[$c] += $found[$k][$c];
+        for ($y = 0; $y < $h; $y += $step) {
+            for ($x = 0; $x < $w; $x += $step) {
+                // The ring only: inside the artwork's own box there is nothing
+                // trustworthy to measure.
+                if (min($x, $y, $w - 1 - $x, $h - 1 - $y) >= $pad) {
+                    continue;
                 }
 
-                $seen++;
+                $c = imagecolorat($img, $x, $y);
+
+                $r = ($c >> 16) & 0xFF;
+                $g = ($c >> 8) & 0xFF;
+                $b = $c & 0xFF;
+
+                if (0.299 * $r + 0.587 * $g + 0.114 * $b < self::FABRIC_FLOOR) {
+                    continue;
+                }
+
+                $vals = [$r, $g, $b];
+
+                if ($against !== null) {
+                    $u = imagecolorat($against, $x, $y);
+
+                    $vals = [
+                        (($u >> 16) & 0xFF) - $r,
+                        (($u >> 8) & 0xFF) - $g,
+                        ($u & 0xFF) - $b,
+                    ];
+                }
+
+                $n++;
+                $sx += $x; $sy += $y;
+                $sxx += $x * $x; $sxy += $x * $y; $syy += $y * $y;
+
+                foreach ([0, 1, 2] as $i) {
+                    $sz[$i]  += $vals[$i];
+                    $sxz[$i] += $x * $vals[$i];
+                    $syz[$i] += $y * $vals[$i];
+                }
             }
         }
 
-        $fallback = $seen > 0
-            ? [$sum[0] / $seen, $sum[1] / $seen, $sum[2] / $seen]
-            : [0.0, 0.0, 0.0];
+        $flat = $against === null ? [255.0, 0.0, 0.0] : [0.0, 0.0, 0.0];
 
-        return [
-            $found[0] ?? $fallback,
-            $found[1] ?? $fallback,
-            $found[2] ?? $fallback,
-            $found[3] ?? $fallback,
-        ];
-    }
-
-    /**
-     * The shading field at one pixel, interpolated between the four corners.
-     *
-     * @param  array{0:array{0:float,1:float,2:float},1:array{0:float,1:float,2:float},2:array{0:float,1:float,2:float},3:array{0:float,1:float,2:float}}  $field
-     * @return array{0:int,1:int,2:int}
-     */
-    private function shadingAt(array $field, int $x, int $y, int $w, int $h): array
-    {
-        $u = $w > 1 ? $x / ($w - 1) : 0.0;
-        $v = $h > 1 ? $y / ($h - 1) : 0.0;
+        if ($n < 12) {
+            return [$flat, $flat, $flat];
+        }
 
         $out = [];
 
-        foreach ([0, 1, 2] as $c) {
-            $top    = $field[0][$c] * (1 - $u) + $field[1][$c] * $u;
-            $bottom = $field[2][$c] * (1 - $u) + $field[3][$c] * $u;
-
-            $out[$c] = (int) round($top * (1 - $v) + $bottom * $v);
+        foreach ([0, 1, 2] as $i) {
+            $out[$i] = $this->solve3(
+                [
+                    [$n,   $sx,  $sy],
+                    [$sx,  $sxx, $sxy],
+                    [$sy,  $sxy, $syy],
+                ],
+                [$sz[$i], $sxz[$i], $syz[$i]],
+            ) ?? [$sz[$i] / $n, 0.0, 0.0];
         }
 
         return $out;
+    }
+
+    /**
+     * Solve a 3x3 system by elimination, or null when it is singular — which
+     * happens when the ring's samples all fall on one line and no plane
+     * through them is determined.
+     *
+     * @param  list<list<float>>  $m
+     * @param  list<float>  $v
+     * @return array{0:float,1:float,2:float}|null
+     */
+    private function solve3(array $m, array $v): ?array
+    {
+        for ($i = 0; $i < 3; $i++) {
+            $pivot = $i;
+
+            for ($r = $i + 1; $r < 3; $r++) {
+                if (abs($m[$r][$i]) > abs($m[$pivot][$i])) {
+                    $pivot = $r;
+                }
+            }
+
+            if (abs($m[$pivot][$i]) < 1e-9) {
+                return null;
+            }
+
+            [$m[$i], $m[$pivot]] = [$m[$pivot], $m[$i]];
+            [$v[$i], $v[$pivot]] = [$v[$pivot], $v[$i]];
+
+            for ($r = 0; $r < 3; $r++) {
+                if ($r === $i) {
+                    continue;
+                }
+
+                $f = $m[$r][$i] / $m[$i][$i];
+
+                for ($c = $i; $c < 3; $c++) {
+                    $m[$r][$c] -= $f * $m[$i][$c];
+                }
+
+                $v[$r] -= $f * $v[$i];
+            }
+        }
+
+        return [$v[0] / $m[0][0], $v[1] / $m[1][1], $v[2] / $m[2][2]];
+    }
+
+    /**
+     * A fitted plane's value at one pixel.
+     *
+     * @param  list<array{0:float,1:float,2:float}>  $plane
+     * @return array{0:int,1:int,2:int}
+     */
+    private function planeAt(array $plane, int $x, int $y): array
+    {
+        return [
+            (int) round($plane[0][0] + $plane[0][1] * $x + $plane[0][2] * $y),
+            (int) round($plane[1][0] + $plane[1][1] * $x + $plane[1][2] * $y),
+            (int) round($plane[2][0] + $plane[2][1] * $x + $plane[2][2] * $y),
+        ];
     }
 
     /**
