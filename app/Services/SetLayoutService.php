@@ -302,6 +302,32 @@ class SetLayoutService
             );
         }
 
+        /*
+         * A garment filling its frame corner to corner is not a garment, it is
+         * a failure to find one — and the sandbox key is how it happens. Its
+         * watermark is tiled across the whole canvas and is neither white nor
+         * transparent, so the box comes back as the entire picture.
+         *
+         * Laid out on that, each piece is scaled by its whole source frame
+         * rather than by the garment in it, so the garment lands small inside
+         * its band with the empty margin scaled up around it. Measured on a
+         * real set: a hoodie filling a third of its own frame came out a third
+         * of the size it should have been, on a layout whose numbers were all
+         * correct.
+         *
+         * The same 0.93 as ImageProcessingService::frameToStandard, and for
+         * the same reason — the loosest preset here leaves a real subject well
+         * under it, so the gap between a garment and a full-canvas box is wide
+         * enough to be safe.
+         */
+        if ((($maxX - $minX + 1) * ($maxY - $minY + 1)) / ($pw * $ph) > 0.93) {
+            throw new \RuntimeException(
+                "The {$which} image has no distinct garment in it — what was found fills the whole "
+                . 'frame. A Photoroom sandbox watermark does this: it covers the canvas, so there is '
+                . 'nothing to measure a garment against. Compose sets from live-key cutouts.'
+            );
+        }
+
         // Back to the image's own scale, rounded outwards so the box can only
         // grow with the conversion and never clip a sleeve.
         $sx = $w / $pw;
