@@ -600,9 +600,11 @@ function photoReview(sessionId) {
         },
 
         /*
-         * Sent as a form rather than fetched, for the same reason as the
-         * download: the answer is a file, and letting the browser save it is
-         * simpler and more reliable than assembling a blob to click.
+         * Posted as a form rather than fetched, so the browser follows the
+         * redirect back and the new set is in the grid when the page lands —
+         * along with the message saying which SKU it was filed under. A fetch
+         * would have to re-request the item list by hand to show the same
+         * thing.
          */
         makeCombo() {
             if (this.comboOrder.length !== 2 || this.composing) return;
@@ -629,9 +631,10 @@ function photoReview(sessionId) {
             form.submit();
             form.remove();
 
-            // The page stays where it is while the file downloads, so the
-            // button has to be released by hand.
-            setTimeout(() => { this.composing = false; }, 2500);
+            // The page is about to be replaced by the redirect, so there is
+            // nothing to release — the flag only has to hold long enough to
+            // stop a second click landing first.
+
         },
 
         selectAll() {

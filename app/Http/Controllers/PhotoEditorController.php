@@ -792,8 +792,11 @@ class PhotoEditorController extends Controller implements HasMiddleware
      * it a row in the session would hand the push path an item that looks
      * editable and is not.
      */
-    public function combo(Request $request, PhotoEditSession $session, SetLayoutService $layout): Response
-    {
+    public function combo(
+        Request $request,
+        PhotoEditSession $session,
+        SetLayoutService $layout,
+    ): RedirectResponse {
         $this->authorizeSession($session);
 
         $data = $request->validate([
@@ -830,18 +833,75 @@ class PhotoEditorController extends Controller implements HasMiddleware
         }
 
         /*
-         * Named from both pieces so the pair is readable in a download folder,
-         * and from the SKUs when they are known — a filename is what somebody
-         * matches this back to a product with.
+         * ── Kept as an item, not handed back as a download ─────────────────
+         *
+         * A download was the first design and it was the wrong half of the job:
+         * the set is a product image, and a product image that cannot reach
+         * Shopify is not finished. So it is created the way every other derived
+         * image here is created — kind 'set', pointing at the piece it was
+         * built from — and then the existing push and download both work on it
+         * with no special case.
+         *
+         * Its SKU is inherited from the pieces, which is possible because the
+         * pieces of a set are already filed under the set's own SKU: a folder
+         * named MSN124COM00282 holds the photographs of a two-piece jogging
+         * suit. When the two disagree there is nothing to inherit and no way to
+         * guess which product the set belongs to, so it says so.
          */
-        $name = collect($ordered)
-            ->map(fn ($item) => $item->sku_detected ?: pathinfo($item->filename, PATHINFO_FILENAME))
-            ->implode('-');
+        $skus = collect($ordered)->pluck('sku_detected')->filter()->unique();
 
-        return response($result['image'], 200, [
-            'Content-Type'        => 'image/png',
-            'Content-Disposition' => 'attachment; filename="' . ($name ?: 'set') . '-set.png"',
+        if ($skus->count() !== 1) {
+            return back()->with('info', $skus->isEmpty()
+                ? 'Neither piece has a SKU, so there is no product to file the set under.'
+                : 'Those two pieces are filed under different SKUs (' . $skus->implode(', ')
+                    . '), so it is not clear which product the set belongs to. Pick two pieces from '
+                    . 'the same SKU folder.');
+        }
+
+        $sku = $skus->first();
+
+        $item = PhotoEditItem::create([
+            'photo_edit_session_id' => $session->id,
+            'kind'                  => 'set',
+            'source_item_id'        => $ordered[0]->id,
+            'filename'              => $sku . '-set.png',
+            'sku_detected'          => $sku,
+            'status'                => 'edited',
+
+            // Composed rather than shot, so it is opted into rather than out
+            // of — the same call GenerateLifestyleImageJob's output makes.
+            'selected'              => false,
         ]);
+
+        $relative = $session->storageDir() . "/{$item->id}-after.png";
+        $absolute = storage_path('app/' . $relative);
+
+        if (!is_dir(dirname($absolute))) {
+            mkdir(dirname($absolute), 0775, true);
+        }
+
+        file_put_contents($absolute, $result['image']);
+
+        $thumbRelative = $session->storageDir() . "/{$item->id}-after-thumb.png";
+        file_put_contents(
+            storage_path('app/' . $thumbRelative),
+            app(ImageProcessingService::class)->thumbnail($result['image'], 420, true),
+        );
+
+        $item->update([
+            'edited_path'       => $relative,
+            'edited_thumb_path' => $thumbRelative,
+            'edited_size_kb'    => (int) round(strlen($result['image']) / 1024),
+        ]);
+
+        $session->update([
+            'total_files' => PhotoEditItem::where('photo_edit_session_id', $session->id)->count(),
+        ]);
+
+        return back()->with(
+            'info',
+            "Set image made for {$sku} — it is in the grid below, ready to push or download like any other.",
+        );
     }
 
     public function downloadSelected(Request $request, PhotoEditSession $session): BinaryFileResponse
@@ -950,6 +1010,19 @@ class PhotoEditorController extends Controller implements HasMiddleware
 
         if (in_array($item->status, ['editing', 'pushing'], true)) {
             return response()->json(['error' => 'This photo is still processing.'], 409);
+        }
+
+        /*
+         * A composed set has no photograph behind it to re-edit — no OneDrive
+         * source, because it was built from two items that do. Re-editing it
+         * would queue a download of nothing. Deleting it and composing again
+         * is the way to change one.
+         */
+        if ($item->kind === 'set') {
+            return response()->json([
+                'error' => 'A set image is composed from two other photos, so there is nothing to '
+                    . 're-edit. Make a new set from the pieces instead.',
+            ], 422);
         }
 
         // Reset away from a terminal status: EditPhotoItemJob refuses to

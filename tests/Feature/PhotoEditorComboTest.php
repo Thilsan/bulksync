@@ -43,11 +43,16 @@ class PhotoEditorComboTest extends TestCase
      * An item with a real edited file on disk, so the controller has something
      * to read.
      */
-    private function item(PhotoEditSession $session, string $filename, string $bytes): PhotoEditItem
-    {
+    private function item(
+        PhotoEditSession $session,
+        string $filename,
+        string $bytes,
+        string $sku = 'SETSKU1',
+    ): PhotoEditItem {
         $item = PhotoEditItem::create([
             'photo_edit_session_id' => $session->id,
             'filename'              => $filename,
+            'sku_detected'          => $sku,
             'status'                => 'edited',
         ]);
 
@@ -65,27 +70,78 @@ class PhotoEditorComboTest extends TestCase
         return $item->fresh();
     }
 
-    public function test_two_picked_pieces_come_back_as_one_set_image(): void
+    public function test_the_set_is_kept_as_a_pushable_item(): void
     {
         $user    = $this->user();
         $session = $this->makeSession($user);
 
-        $top    = $this->item($session, 'top.png', $this->cutout(1400, 900, 'wide'));
-        $bottom = $this->item($session, 'trouser.png', $this->cutout(900, 1500, 'tall'));
+        $top    = $this->item($session, 'top.png', $this->cutout(1400, 900, 'wide'), 'MSN124COM00282');
+        $bottom = $this->item($session, 'trouser.png', $this->cutout(900, 1500, 'tall'), 'MSN124COM00282');
 
-        $response = $this->actingAs($user)->post(
+        $this->actingAs($user)->post(
+            route('photo-editor.combo', $session),
+            ['item_ids' => [$top->id, $bottom->id]],
+        )->assertRedirect();
+
+        $set = PhotoEditItem::where('photo_edit_session_id', $session->id)
+            ->where('kind', 'set')
+            ->first();
+
+        $this->assertNotNull($set, 'no set item was created');
+
+        // The two things the push path needs, and nothing else.
+        $this->assertSame('MSN124COM00282', $set->sku_detected, 'the set did not inherit the pieces\' SKU');
+        $this->assertSame('edited', $set->status);
+        $this->assertNotNull($set->edited_path);
+
+        $image = @imagecreatefromstring((string) file_get_contents(storage_path('app/' . $set->edited_path)));
+
+        $this->assertNotFalse($image, 'the set file is not a readable image');
+        $this->assertSame(2000, imagesx($image), 'the set is not on the standard canvas');
+        $this->assertSame(2000, imagesy($image));
+    }
+
+    /**
+     * Two pieces from different products cannot be filed under either of them.
+     */
+    public function test_pieces_with_different_skus_are_refused(): void
+    {
+        $user    = $this->user();
+        $session = $this->makeSession($user);
+
+        $a = $this->item($session, 'a.png', $this->cutout(900, 900, 'square'), 'MSN124TOP00111');
+        $b = $this->item($session, 'b.png', $this->cutout(900, 900, 'square'), 'MSN124BTM00222');
+
+        $this->actingAs($user)
+            ->post(route('photo-editor.combo', $session), ['item_ids' => [$a->id, $b->id]])
+            ->assertRedirect();
+
+        $this->assertSame(
+            0,
+            PhotoEditItem::where('photo_edit_session_id', $session->id)->where('kind', 'set')->count(),
+            'a set was composed from two different products',
+        );
+    }
+
+    /** A composed set has no photograph behind it, so it cannot be re-edited. */
+    public function test_a_set_cannot_be_re_edited(): void
+    {
+        $user    = $this->user();
+        $session = $this->makeSession($user);
+
+        $top    = $this->item($session, 'top.png', $this->cutout(1400, 900, 'wide'), 'SET1');
+        $bottom = $this->item($session, 'trouser.png', $this->cutout(900, 1500, 'tall'), 'SET1');
+
+        $this->actingAs($user)->post(
             route('photo-editor.combo', $session),
             ['item_ids' => [$top->id, $bottom->id]],
         );
 
-        $response->assertOk();
-        $response->assertHeader('Content-Type', 'image/png');
+        $set = PhotoEditItem::where('photo_edit_session_id', $session->id)->where('kind', 'set')->firstOrFail();
 
-        $image = @imagecreatefromstring($response->getContent());
-
-        $this->assertNotFalse($image, 'the response is not a readable image');
-        $this->assertSame(2000, imagesx($image), 'the set is not on the standard canvas');
-        $this->assertSame(2000, imagesy($image));
+        $this->actingAs($user)
+            ->post(route('photo-editor.item.reedit', [$session, $set]))
+            ->assertStatus(422);
     }
 
     /**
@@ -162,14 +218,17 @@ class PhotoEditorComboTest extends TestCase
      */
     private function topColour(User $user, PhotoEditSession $session, array $ids): array
     {
-        $response = $this->actingAs($user)->post(
+        $this->actingAs($user)->post(
             route('photo-editor.combo', $session),
             ['item_ids' => $ids],
-        );
+        )->assertRedirect();
 
-        $response->assertOk();
+        $set = PhotoEditItem::where('photo_edit_session_id', $session->id)
+            ->where('kind', 'set')
+            ->latest('id')
+            ->firstOrFail();
 
-        $image = @imagecreatefromstring($response->getContent());
+        $image = @imagecreatefromstring((string) file_get_contents(storage_path('app/' . $set->edited_path)));
 
         // A quarter of the way down is inside the top piece's band on every
         // layout this service produces.
