@@ -20,9 +20,10 @@ class PhotoroomGhostTransplant extends Command
 {
     protected $signature = 'photoroom:ghost-transplant
                             {original : the photograph, stand and all}
-                            {ghost : Photoroom\'s Ghost Mannequin redraw of it}
+                            {ghost? : Photoroom\'s Ghost Mannequin redraw of it; not needed with --keep-photo}
                             {--out= : where to write the result}
-                            {--size=2000 : longest edge of the output}';
+                            {--size=2000 : longest edge of the output}
+                            {--keep-photo : keep the photograph and erase only the stand, so the direction never changes}';
 
     protected $description = 'Transplant the photograph\'s print onto a Ghost Mannequin redraw, keeping the redraw\'s geometry';
 
@@ -31,8 +32,10 @@ class PhotoroomGhostTransplant extends Command
         $originalPath = (string) $this->argument('original');
         $ghostPath    = (string) $this->argument('ghost');
 
-        foreach ([$originalPath, $ghostPath] as $path) {
-            if (!is_file($path)) {
+        $keepPhoto = (bool) $this->option('keep-photo');
+
+        foreach ($keepPhoto ? [$originalPath] : [$originalPath, $ghostPath] as $path) {
+            if ($path === '' || !is_file($path)) {
                 $this->error("No such file: {$path}");
 
                 return self::FAILURE;
@@ -42,16 +45,18 @@ class PhotoroomGhostTransplant extends Command
         $size = max(256, min(8000, (int) $this->option('size')));
 
         $original = (string) file_get_contents($originalPath);
-        $ghost    = (string) file_get_contents($ghostPath);
+        $ghost    = $keepPhoto ? '' : (string) file_get_contents($ghostPath);
 
         $this->line('');
         $this->line('  photograph : ' . $this->describe($original));
-        $this->line('  redraw     : ' . $this->describe($ghost));
+        $this->line('  redraw     : ' . ($keepPhoto ? 'not needed' : $this->describe($ghost)));
         $this->line('  output      : ' . $size . ' px on the longest edge');
         $this->line('');
 
         try {
-            $result = $service->transplant($original, $ghost, $size);
+            $result = $keepPhoto
+                ? $service->removeStand($original, $size)
+                : $service->transplant($original, $ghost, $size);
         } catch (\Throwable $e) {
             $this->error('Could not transplant: ' . $e->getMessage());
 
@@ -59,6 +64,23 @@ class PhotoroomGhostTransplant extends Command
         }
 
         $m = $result['metrics'];
+
+        if ($keepPhoto) {
+            $this->line('  stand erased at         : ' . implode(', ', $m['stand_box']));
+            $this->line('  share of the frame      : ' . sprintf('%.2f%%', $m['stand_share'] * 100));
+            $this->line('  output                  : ' . $m['output_size']);
+            $this->line('');
+            $this->info('  ' . $result['reason']);
+            $this->line('');
+
+            if ($out = $this->option('out')) {
+                file_put_contents($out, $result['image']);
+                $this->line("  written : {$out}");
+                $this->line('');
+            }
+
+            return self::SUCCESS;
+        }
 
         $this->line('  print in the photograph : ' . $m['photo_print']);
         $this->line('  print on the canvas     : ' . $m['target_print']);

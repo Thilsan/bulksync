@@ -154,6 +154,21 @@ class GhostPrintTransplantService
      * A threshold of 30 excludes the hanger outright.
      */
 
+    /*
+     * ── Telling a stand from artwork ──────────────────────────────────────
+     *
+     * The same measure that finds the print, read the other way. A print is
+     * line work and is nearly all outline; a stand is a slab. Measured on the
+     * Aigner tee, edge over root area: the print 18.5, the hanger 6.3.
+     */
+
+    /** Above this a dark run is line work, not a slab. */
+    private const MAX_STAND_EDGINESS = 12.0;
+
+    /** How much of the frame a stand may cover. */
+    private const MIN_STAND_SHARE = 0.004;
+    private const MAX_STAND_SHARE = 0.30;
+
     /** How far red must sit above green for a pixel to be label rather than stand. */
     private const LABEL_RED_OVER_GREEN = 30;
 
@@ -186,6 +201,19 @@ class GhostPrintTransplantService
 
     /** Below this a pixel is ink, and measuring light on it would be nonsense. */
     private const FABRIC_FLOOR = 150;
+
+    /**
+     * How far each ink mask is grown before it is softened, in output pixels.
+     *
+     * The wipe's has to reach further than the artwork's: it must cover the
+     * whole of the redraw's forged print, whose shape does not match the real
+     * one, or its outline shows around the artwork as a halo.
+     */
+    private const INK_SPREAD      = 3;
+    private const INK_SPREAD_WIPE = 7;
+
+    /** Passes of blur that turn the grown masks into soft edges. */
+    private const INK_SOFTEN = 4;
 
     /**
      * How much of the print's own size to feather around the transplanted
@@ -268,6 +296,281 @@ class GhostPrintTransplantService
             imagedestroy($photo);
             imagedestroy($redraw);
         }
+    }
+
+    /**
+     * Erase the stand from the photograph itself, using the redraw only to fill
+     * the hole it leaves.
+     *
+     * ── Why this exists alongside transplant() ─────────────────────────────
+     *
+     * transplant() keeps the redraw's garment and moves the photograph's
+     * artwork onto it. That fixes the print and the label, and it cannot fix
+     * the one thing left: the redraw draws the garment from a different
+     * viewpoint. Measured on an Aigner tee, the AIGNER baseline moved only 2.3
+     * degrees — so nothing is rotated — while the left sleeve came back
+     * foreshortened and the shoulders asymmetric. It is a pose change, and no
+     * rotation or de-skew turns a three-quarter view back into a front view.
+     *
+     * The prompt already forbids it in as many words and Photoroom does it
+     * anyway, at every plan tier. So if the direction has to survive, the
+     * garment's pixels must be the photograph's.
+     *
+     * That leaves one thing the photograph cannot supply: what is behind the
+     * stand. Here the redraw earns its keep — it rebuilt the collar and the
+     * shirt's inside back from a hanger that was covering nearly all of it —
+     * and it is asked for nothing else.
+     *
+     * ── How the two are lined up ───────────────────────────────────────────
+     *
+     * Not globally: the redraw re-proportions and re-frames the garment, which
+     * is what defeated a whole-garment registration. On the woven label
+     * instead. It appears in both images, it sits at the collar — exactly where
+     * the accuracy is needed — and it is found by hue, so the stand cannot be
+     * mistaken for it. A landmark inside the region of interest beats a fit
+     * over a garment that was redrawn.
+     *
+     * @return array{image: string, accepted: bool, reason: string, metrics: array}
+     *
+     * ── What it does not need ─────────────────────────────────────────────
+     *
+     * The redraw. That was the first design — map the hole into it and lift the
+     * collar it rebuilt — and it was both unreliable and unnecessary. See
+     * closeHole(). So a hanging garment needs no generative pass at all: no
+     * credit spent on it, no pose invented, no print or label redrawn, nothing
+     * to fail open from.
+     *
+     * @throws \RuntimeException  when there is no stand in the photograph to
+     *                            erase
+     */
+    public function removeStand(string $original, int $targetEdge = 2000): array
+    {
+        $photo = $this->decode($original, 'original');
+
+        try {
+            $stand = $this->findStand($photo);
+
+            if ($stand === null) {
+                throw new \RuntimeException(
+                    'No stand found in the photograph. Nothing here needs erasing, so the cutout '
+                    . 'alone will do — and it keeps every pixel of the original.'
+                );
+            }
+
+            // The photograph, at the size the catalogue wants, and the stand's
+            // box moved with it.
+            $canvas = $this->enlarge($photo, $targetEdge);
+            $scale  = imagesx($canvas) / imagesx($photo);
+
+            try {
+                $hole = $this->scaleBox($stand, $scale);
+
+                /*
+                 * Up to the top of the frame. A hanger's hook is thin and
+                 * bright and is not part of the slab the detector found, and
+                 * everything above a hanging garment's shoulders is backdrop
+                 * anyway — so taking the whole column removes the hook with the
+                 * hanger instead of leaving it floating.
+                 */
+                $hole[1] = 0;
+
+                $metrics = [
+                    'output_size' => imagesx($canvas) . 'x' . imagesy($canvas),
+                    'stand_box'   => $hole,
+                    'stand_share' => round(
+                        (($hole[2] - $hole[0] + 1) * ($hole[3] - $hole[1] + 1))
+                        / (imagesx($canvas) * imagesy($canvas)),
+                        4,
+                    ),
+                ];
+
+                /*
+                 * ── Filling the hole from the photograph itself ────────────
+                 *
+                 * The redraw was the obvious source and it is the wrong one.
+                 * Mapping the hole into it through the label put the wrong
+                 * region under the collar — the redraw re-proportions the
+                 * garment, so the label's size ratio does not describe where
+                 * anything else sits — and what came back was its background,
+                 * watermark and all.
+                 *
+                 * It is not needed. Look at what the stand actually covers on a
+                 * hanging garment: the frame above the shoulders, which is
+                 * backdrop, and the neck opening, behind which is the inside
+                 * back of the garment. On a cream shirt that inside is cream,
+                 * and on any garment it is the same cloth as the collar ring
+                 * around it. Both are light, both are already in the ring of
+                 * pixels surrounding the hole, and a plane fitted through them
+                 * describes the fall of light across it.
+                 *
+                 * So nothing is invented and nothing is imported. The hole is
+                 * closed with the photograph's own light, which is why the
+                 * direction, the print, the label and the resolution all
+                 * survive untouched — there is no second image in the result
+                 * at all.
+                 */
+                $this->closeHole($canvas, $hole);
+
+                return [
+                    'image'    => $this->encode($canvas),
+                    'accepted' => true,
+                    'reason'   => sprintf(
+                        'The stand is erased and every pixel of the result is the photograph at full '
+                        . 'size — so the direction, the print and the label are the ones you shot. The '
+                        . '%dx%d hole it left is closed with the light measured around it, and no '
+                        . 'second image is used at all.',
+                        $hole[2] - $hole[0] + 1,
+                        $hole[3] - $hole[1] + 1,
+                    ),
+                    'metrics'  => $metrics,
+                ];
+            } finally {
+                imagedestroy($canvas);
+            }
+        } finally {
+            imagedestroy($photo);
+        }
+    }
+
+    /**
+     * Close the hole the stand leaves with the light around it.
+     *
+     * A plane fitted to the ring of fabric and backdrop surrounding the hole,
+     * painted across it and feathered at the edges. The plane is what carries
+     * the gradient — the backdrop above a garment is not the same brightness as
+     * the cloth below it, and a flat fill would show as a slab.
+     *
+     * Light pixels only, which is what plane() does: the stand itself is dark
+     * and measuring it would paint the stand back in.
+     */
+    private function closeHole(\GdImage $canvas, array $hole): void
+    {
+        [$x0, $y0, $x1, $y1] = $hole;
+
+        $w = $x1 - $x0 + 1;
+        $h = $y1 - $y0 + 1;
+
+        $pad = (int) round(max($w, $h) * self::FEATHER);
+
+        $region = imagecreatetruecolor($w + 2 * $pad, $h + 2 * $pad);
+        imagefilledrectangle($region, 0, 0, imagesx($region) - 1, imagesy($region) - 1,
+            imagecolorallocate($region, 255, 255, 255));
+
+        $ox = $x0 - $pad;
+        $oy = $y0 - $pad;
+
+        $cw = imagesx($canvas);
+        $ch = imagesy($canvas);
+
+        $sx = max(0, $ox);
+        $sy = max(0, $oy);
+
+        $copyW = min(imagesx($region) - ($sx - $ox), $cw - $sx);
+        $copyH = min(imagesy($region) - ($sy - $oy), $ch - $sy);
+
+        if ($copyW > 0 && $copyH > 0) {
+            imagecopy($region, $canvas, $sx - $ox, $sy - $oy, $sx, $sy, $copyW, $copyH);
+        }
+
+        $light = $this->plane($region, null, $pad);
+
+        imagedestroy($region);
+
+        $rw = $w + 2 * $pad;
+        $rh = $h + 2 * $pad;
+
+        for ($y = 0; $y < $rh; $y++) {
+            $cy = $oy + $y;
+
+            if ($cy < 0 || $cy >= $ch) {
+                continue;
+            }
+
+            for ($x = 0; $x < $rw; $x++) {
+                $cx = $ox + $x;
+
+                if ($cx < 0 || $cx >= $cw) {
+                    continue;
+                }
+
+                $a = $this->featherAt($x, $y, $rw, $rh, $pad);
+
+                if ($a <= 0.0) {
+                    continue;
+                }
+
+                [$lr, $lg, $lb] = $this->planeAt($light, $x, $y);
+
+                $q = imagecolorat($canvas, $cx, $cy);
+
+                $r = (int) round($this->clamp($lr) * $a + (($q >> 16) & 0xFF) * (1 - $a));
+                $g = (int) round($this->clamp($lg) * $a + (($q >> 8) & 0xFF) * (1 - $a));
+                $b = (int) round($this->clamp($lb) * $a + ($q & 0xFF) * (1 - $a));
+
+                imagesetpixel($canvas, $cx, $cy, ($r << 16) | ($g << 8) | $b);
+            }
+        }
+    }
+
+    /**
+     * The stand's bounding box in the photograph, or null when nothing there
+     * looks like one.
+     *
+     * The same runs of ink the print is found among, judged the other way
+     * round. A print is line work and is nearly all edge; a hanger, a rail or a
+     * dress form is a slab, and a slab's outline is a small fraction of it.
+     * Measured on the Aigner tee: the hanger scored 6.3 on edge over root area
+     * against the print's 18.5, and it was the largest dark run in the frame.
+     *
+     * @return array{0:int,1:int,2:int,3:int}|null
+     */
+    private function findStand(\GdImage $img): ?array
+    {
+        $proxy = $this->proxy($img, self::DETECT_EDGE);
+
+        $w = imagesx($proxy);
+        $h = imagesy($proxy);
+
+        $components = $this->components($this->inkMask($proxy), $w, $h);
+
+        imagedestroy($proxy);
+
+        $best  = null;
+        $score = INF;
+
+        foreach ($components as $c) {
+            $share = $c['area'] / ($w * $h);
+
+            // Big enough to be a stand and not so big it is the garment.
+            if ($share < self::MIN_STAND_SHARE || $share > self::MAX_STAND_SHARE) {
+                continue;
+            }
+
+            $s = $c['edge'] / sqrt(max(1, $c['area']));
+
+            if ($s > self::MAX_STAND_EDGINESS) {
+                continue;
+            }
+
+            if ($s < $score) {
+                $score = $s;
+                $best  = $c;
+            }
+        }
+
+        if ($best === null) {
+            return null;
+        }
+
+        $sx = imagesx($img) / $w;
+        $sy = imagesy($img) / $h;
+
+        return [
+            (int) floor($best['minX'] * $sx),
+            (int) floor($best['minY'] * $sy),
+            (int) min(imagesx($img) - 1, ceil(($best['maxX'] + 1) * $sx)),
+            (int) min(imagesy($img) - 1, ceil(($best['maxY'] + 1) * $sy)),
+        ];
     }
 
     // ── Finding the print ──────────────────────────────────────────────────
@@ -1040,6 +1343,26 @@ class GhostPrintTransplantService
         $field = $this->plane($patch, $under, $pad);
 
         /*
+         * ── Replacing the artwork, not a region of fabric ──────────────────
+         *
+         * Every earlier version pasted a rectangle, and every one of them left
+         * a faint rectangle behind. The last measured only 2.5 levels against
+         * the fabric beside it — and was still perfectly visible, because the
+         * eye finds a straight edge in a smooth gradient however slight the
+         * step across it is. Chasing the step smaller was the wrong idea: a
+         * rectangle of fabric that has to match its surroundings exactly is a
+         * problem with no solution.
+         *
+         * There is nothing to match if the fabric is never touched. A print is
+         * ink on cloth, so only the ink is replaced: the redraw's ink is filled
+         * back to cloth, and the photograph's ink is laid down. Both masks are
+         * the shape of the artwork, so no straight edge is ever drawn, and the
+         * cloth around the print is the redraw's own to the last pixel.
+         */
+        $inkPatch = $this->inkAlpha($patch, self::INK_SPREAD);
+        $inkUnder = $this->inkAlpha($under, self::INK_SPREAD_WIPE);
+
+        /*
          * ── Wiping the forgery first ───────────────────────────────────────
          *
          * The redraw's own print is still underneath, and it does not stay
@@ -1094,7 +1417,8 @@ class GhostPrintTransplantService
                  * and shows as a band. Out here the painted fabric costs
                  * nothing, because the plane was fitted to these very pixels.
                  */
-                $a = $this->featherAt($x, $y, $pw, $ph, max(1, (int) round($pad * 0.25)));
+                // The redraw's own ink, and a little beyond it.
+                $a = (imagecolorat($inkUnder, $x, $y) & 0xFF) / 255;
 
                 if ($a <= 0.0) {
                     continue;
@@ -1127,7 +1451,9 @@ class GhostPrintTransplantService
                     continue;
                 }
 
-                $a = $this->featherAt($x, $y, $pw, $ph, $pad);
+                // The photograph's ink, and a little beyond it so its own
+                // soft edge lands on cloth rather than being cut off.
+                $a = (imagecolorat($inkPatch, $x, $y) & 0xFF) / 255;
 
                 if ($a <= 0.0) {
                     continue;
@@ -1163,6 +1489,105 @@ class GhostPrintTransplantService
         }
 
         imagedestroy($patch);
+        imagedestroy($inkPatch);
+        imagedestroy($inkUnder);
+    }
+
+    /**
+     * Where the ink is, as a soft mask: white on the artwork, black on cloth.
+     *
+     * Grown by $spread before it is softened, for two different reasons on the
+     * two sides. On the redraw's ink it has to reach past the forgery entirely,
+     * or its outline survives as a halo around the artwork replacing it. On the
+     * photograph's ink it has to carry the artwork's own antialiased edge, or
+     * the letters come out clipped and hard.
+     *
+     * The threshold is relative, the same way findPrint's is, because these
+     * garments are photographed on grounds nowhere near white.
+     */
+    private function inkAlpha(\GdImage $img, int $spread): \GdImage
+    {
+        $w = imagesx($img);
+        $h = imagesy($img);
+
+        $lumas = [];
+
+        for ($y = 0; $y < $h; $y++) {
+            for ($x = 0; $x < $w; $x++) {
+                $c = imagecolorat($img, $x, $y);
+
+                $lumas[$y * $w + $x] = (int) round(
+                    0.299 * (($c >> 16) & 0xFF) + 0.587 * (($c >> 8) & 0xFF) + 0.114 * ($c & 0xFF)
+                );
+            }
+        }
+
+        $sorted = $lumas;
+        sort($sorted);
+
+        $threshold = $sorted[(int) floor(0.90 * (count($sorted) - 1))] - self::INK_DROP;
+
+        $mask = imagecreatetruecolor($w, $h);
+
+        foreach ($lumas as $i => $l) {
+            $v = $l < $threshold ? 255 : 0;
+
+            imagesetpixel($mask, $i % $w, intdiv($i, $w), ($v << 16) | ($v << 8) | $v);
+        }
+
+        // Grow, then soften. Softening first would spread a grey rim that the
+        // growth then carries much further than intended.
+        for ($i = 0; $i < $spread; $i++) {
+            $this->grow1($mask);
+        }
+
+        for ($i = 0; $i < self::INK_SOFTEN; $i++) {
+            imagefilter($mask, IMG_FILTER_GAUSSIAN_BLUR);
+        }
+
+        return $mask;
+    }
+
+    /** Grow the light parts of a mask by one pixel: a 3x3 maximum. */
+    private function grow1(\GdImage $img): void
+    {
+        $w = imagesx($img);
+        $h = imagesy($img);
+
+        $src = imagecreatetruecolor($w, $h);
+        imagecopy($src, $img, 0, 0, 0, 0, $w, $h);
+
+        for ($y = 0; $y < $h; $y++) {
+            for ($x = 0; $x < $w; $x++) {
+                $max = 0;
+
+                for ($dy = -1; $dy <= 1; $dy++) {
+                    $ny = $y + $dy;
+
+                    if ($ny < 0 || $ny >= $h) {
+                        continue;
+                    }
+
+                    for ($dx = -1; $dx <= 1; $dx++) {
+                        $nx = $x + $dx;
+
+                        if ($nx < 0 || $nx >= $w) {
+                            continue;
+                        }
+
+                        $v = imagecolorat($src, $nx, $ny) & 0xFF;
+
+                        if ($v > $max) {
+                            $max = $v;
+                        }
+                    }
+                }
+
+                imagesetpixel($img, $x, $y, ($max << 16) | ($max << 8) | $max);
+            }
+        }
+
+        imagedestroy($src);
     }
 
     /**
