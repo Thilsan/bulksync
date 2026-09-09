@@ -6,6 +6,7 @@ use App\Models\PhotoEditItem;
 use App\Models\PhotoEditSession;
 use App\Models\User;
 use App\Services\GeminiService;
+use App\Services\GhostPrintTransplantService;
 use App\Services\ImageProcessingService;
 use App\Services\OneDriveService;
 use App\Services\PhotoroomService;
@@ -49,6 +50,7 @@ class EditPhotoItemJob implements ShouldQueue
         ImageProcessingService $imageService,
         PhotoroomService       $photoroom,
         GeminiService          $gemini,
+        GhostPrintTransplantService $transplant,
     ): void {
 
         $item = PhotoEditItem::find($this->itemId);
@@ -338,6 +340,59 @@ class EditPhotoItemJob implements ShouldQueue
             $edited = $photoroom->edit($input, $itemEdits, $item->filename);
 
             /*
+             * Ghost Mannequin comes back at 1K whatever canvas was asked for —
+             * Photoroom's own documentation reserves 2K and 4K for Enterprise
+             * plans — and at that size it does not merely soften a print, it
+             * draws a different one. Measured on an Aigner tee across all three
+             * of their tiers: the horseshoe monogram came back as a generic
+             * dotted grid at 1K, and at 4K as a sharp motif that still was not
+             * horseshoes. Resolution buys fidelity of rendering, not fidelity to
+             * the product, so a higher tier would buy a crisp forgery — on a
+             * licensed brand, worse than a soft one.
+             *
+             * The photograph still holds the real artwork, so it is put back.
+             * Each image supplies only what it can: the redraw keeps the
+             * geometry nothing else could produce — a collar rebuilt from
+             * behind a hanger that was covering it — and the print comes from
+             * the pixels that actually photographed it.
+             *
+             * Fails open in every direction. A plain garment has no print to
+             * move and is refused; so is a redraw that re-proportioned the
+             * artwork, or lit the fabric too differently to join. In each case
+             * the redraw goes out exactly as it does today, which is what makes
+             * this safe to run on every ghost edit: it can improve an item or
+             * leave it alone, never spoil one.
+             */
+            if ($appliedMode === 'ghost_mannequin') {
+                $canvasEdge = ((int) ($itemEdits['width'] ?? 0)) ?: 2000;
+
+                try {
+                    $swap = $transplant->transplant($input, $edited, $canvasEdge);
+
+                    if ($swap['accepted']) {
+                        $edited      = $swap['image'];
+                        $appliedMode = 'ghost_print_kept';
+                    }
+
+                    Log::info('Ghost mannequin print transplant', [
+                        'item'     => $this->itemId,
+                        'accepted' => $swap['accepted'],
+                        'reason'   => $swap['reason'],
+                    ] + $swap['metrics']);
+                } catch (\Throwable $e) {
+                    /*
+                     * Nothing to transplant is the ordinary case, not a fault —
+                     * most garments carry no print. Logged at info for that
+                     * reason, so a batch of plain dresses does not read as a
+                     * batch of failures.
+                     */
+                    Log::info(
+                        "EditPhotoItemJob item {$this->itemId} print transplant skipped: " . $e->getMessage()
+                    );
+                }
+            }
+
+            /*
              * A ring that arrived 500 px wide and leaves on a 2000 px canvas has
              * been enlarged four times over, and interpolation makes those new
              * pixels by averaging the old ones — which is exactly what reads as
@@ -383,7 +438,7 @@ class EditPhotoItemJob implements ShouldQueue
              * "HD" and offers no quality parameter, so the only way to know is
              * to measure what arrives.
              */
-            if ($appliedMode === 'ghost_mannequin') {
+            if (in_array($appliedMode, ['ghost_mannequin', 'ghost_print_kept'], true)) {
                 Log::info('Ghost mannequin resolution', [
                     'item' => $this->itemId,
                     'size' => $this->describeSize($edited),

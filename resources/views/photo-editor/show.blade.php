@@ -297,6 +297,8 @@
                                   mannequin_removed: 'mannequin removed',
                                   segmented:         'mannequin segmented out',
                                   generative:        'redrawn by AI',
+                                  ghost_mannequin:   'redrawn by AI · 1K print',
+                                  ghost_print_kept:  'redrawn by AI · real print kept',
                               }[item.apparel_mode_applied] || 'cutout only')"></span>
                     </template>
 

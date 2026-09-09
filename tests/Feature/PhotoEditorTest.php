@@ -677,6 +677,7 @@ class PhotoEditorTest extends TestCase
             app(ImageProcessingService::class),
             app(PhotoroomService::class),
             app(\App\Services\GeminiService::class),
+            app(\App\Services\GhostPrintTransplantService::class),
         );
 
         $this->assertSame('edited', $item->fresh()->status, $item->fresh()->error_message ?? '');
@@ -1388,6 +1389,7 @@ class PhotoEditorTest extends TestCase
             app(ImageProcessingService::class),
             app(PhotoroomService::class),
             $gemini,
+            app(\App\Services\GhostPrintTransplantService::class),
         );
 
         return $item->fresh();
