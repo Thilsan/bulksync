@@ -570,8 +570,14 @@ function photoReview(sessionId) {
              * which garment goes on top of a set, so it has to be the
              * operator's own sequence rather than the order the shoot happened
              * to save the files in.
+             *
+             * Only pieces that actually have an edited file join it. Ticking is
+             * allowed on more than that — a skipped or failed item is tickable
+             * so it can be pushed once its Shopify product exists — but there
+             * is nothing to lay out until a cutout has been made, and offering
+             * the button on one is a click that can only end in a refusal.
              */
-            if (this.selectedIds[item.id]) {
+            if (this.selectedIds[item.id] && item.full_url) {
                 this.comboOrder.push(item.id);
             } else {
                 this.comboOrder = this.comboOrder.filter(id => id !== item.id);
