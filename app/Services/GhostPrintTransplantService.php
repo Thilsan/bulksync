@@ -130,6 +130,60 @@ class GhostPrintTransplantService
      */
     private const NOISE_SHARE = 0.00004;
 
+    /*
+     * ── The woven label ───────────────────────────────────────────────────
+     *
+     * The redraw fabricates the neck label as surely as it fabricates the
+     * print: measured on the Aigner tee, it reproduces the label's colour
+     * almost exactly — rgb(105,53,57) against rgb(104,51,49) — and then writes
+     * gibberish on it where the brand name should be, losing the size tab's
+     * text entirely.
+     *
+     * It cannot be found the way the print is. The label is dark, and so is the
+     * hanger sitting directly above it — about twelve proxy pixels away on the
+     * photograph, close enough that any region grown from the label would drag
+     * the hanger back into a picture Photoroom had just cleared of it. That is
+     * the worst outcome available here, so darkness is not usable.
+     *
+     * Hue is. The label is maroon and the hanger is brown, and the two part
+     * cleanly on how far red sits above green:
+     *
+     *   maroon label — red-green 52, green-blue  4
+     *   brown hanger — red-green 23, green-blue 33
+     *
+     * A threshold of 30 excludes the hanger outright.
+     */
+
+    /** How far red must sit above green for a pixel to be label rather than stand. */
+    private const LABEL_RED_OVER_GREEN = 30;
+
+    /** How near green and blue must be, which is what makes maroon not brown. */
+    private const LABEL_GREEN_BLUE_SPREAD = 20;
+
+    /** Above this a pixel is too bright to be a woven label in shadow at the collar. */
+    private const LABEL_MAX_RED = 200;
+
+    /**
+     * Smallest share of the analysis proxy a label may cover.
+     *
+     * Small: on the redraw the label is a nine-hundredth of the frame. Anything
+     * under this is a stray warm pixel — a JPEG artefact at the collar's edge,
+     * or a speck of the stand.
+     */
+    private const MIN_LABEL_SHARE = 0.0004;
+
+    /**
+     * How far the label's angle may differ between the two images before the
+     * transplant is refused.
+     *
+     * The redraw rebuilds the collar, so the label lands on it at its own
+     * angle — measured at 7 degrees against a level original. Rotating the
+     * patch to match is the point. But a large disagreement means the two
+     * labels are not the same object, and rotating a patch that far would
+     * smear the lettering it exists to preserve.
+     */
+    private const MAX_LABEL_TILT = 20.0;
+
     /**
      * How much of the print's own size to feather around the transplanted
      * patch.
@@ -189,6 +243,14 @@ class GhostPrintTransplantService
                 [$accepted, $reason] = $this->judge($metrics);
 
                 $this->paste($canvas, $photo, $photoPrint, $target, $metrics['level_shift']);
+
+                /*
+                 * The label, if both images have one. Kept entirely separate
+                 * from the print's verdict: a garment with no label, or a label
+                 * the redraw put at an impossible angle, must not cost the
+                 * print transplant that already succeeded.
+                 */
+                $metrics += $this->pasteTag($canvas, $photo, $redraw, $scale);
 
                 return [
                     'image'    => $this->encode($canvas),
@@ -493,6 +555,202 @@ class GhostPrintTransplantService
         return $out;
     }
 
+    /**
+     * Put the photograph's label over the redraw's, turned to match, and
+     * report what happened.
+     *
+     * Never throws and never refuses the whole job: every way out of here
+     * leaves the redraw's own label in place, which is what it looks like
+     * today.
+     *
+     * @return array<string,mixed>  metrics, prefixed so they cannot collide
+     */
+    private function pasteTag(\GdImage $canvas, \GdImage $photo, \GdImage $redraw, float $scale): array
+    {
+        $photoTag  = $this->findTag($photo);
+        $redrawTag = $this->findTag($redraw);
+
+        if ($photoTag === null || $redrawTag === null) {
+            return ['tag' => 'no label found in ' . ($photoTag === null ? 'the photograph' : 'the redraw')];
+        }
+
+        $turn = $redrawTag['angle'] - $photoTag['angle'];
+
+        if (abs($turn) > self::MAX_LABEL_TILT) {
+            return ['tag' => sprintf(
+                'left alone: the redraw put the label %.1f degrees off the photograph\'s (limit %.0f)',
+                $turn,
+                self::MAX_LABEL_TILT,
+            )];
+        }
+
+        $target = $this->scaleBox($redrawTag['box'], $scale);
+
+        $tw = $target[2] - $target[0] + 1;
+        $th = $target[3] - $target[1] + 1;
+
+        $pw = $photoTag['box'][2] - $photoTag['box'][0] + 1;
+        $ph = $photoTag['box'][3] - $photoTag['box'][1] + 1;
+
+        // Nothing to gain if the redraw already renders the label from more
+        // pixels than the photograph can supply.
+        $gain = ($pw * $ph) / max(1, $tw * $th);
+
+        if ($gain < 1.05) {
+            return ['tag' => sprintf('left alone: only %.2fx the redraw\'s label pixels', $gain)];
+        }
+
+        try {
+            $this->paste(
+                $canvas,
+                $photo,
+                $photoTag['box'],
+                $target,
+                $this->levelShift($photo, $photoTag['box'], $canvas, $target),
+                $turn,
+            );
+        } catch (\Throwable $e) {
+            return ['tag' => 'left alone: ' . $e->getMessage()];
+        }
+
+        return [
+            'tag'        => sprintf('real label kept, turned %+.1f degrees to match', $turn),
+            'tag_gain'   => round($gain, 2),
+            'tag_turn'   => round($turn, 2),
+        ];
+    }
+
+    /**
+     * The woven label's box and the angle it lies at, or null when there is no
+     * label to be found.
+     *
+     * Keyed on hue rather than darkness — see LABEL_RED_OVER_GREEN — and the
+     * angle comes from the second moments of the keyed pixels, which for a
+     * rectangular label is the direction of its long side. Null rather than an
+     * exception: a garment with no label is ordinary, and losing the print
+     * transplant over it would be a poor trade.
+     *
+     * @return array{box: array{0:int,1:int,2:int,3:int}, angle: float, pixels: int}|null
+     */
+    private function findTag(\GdImage $img): ?array
+    {
+        $proxy = $this->proxy($img, self::DETECT_EDGE);
+
+        $w = imagesx($proxy);
+        $h = imagesy($proxy);
+
+        $keyed = [];
+
+        for ($y = 0; $y < $h; $y++) {
+            for ($x = 0; $x < $w; $x++) {
+                $c = imagecolorat($proxy, $x, $y);
+
+                $r = ($c >> 16) & 0xFF;
+                $g = ($c >> 8) & 0xFF;
+                $b = $c & 0xFF;
+
+                $keyed[$y * $w + $x] = ($r < self::LABEL_MAX_RED
+                    && $r - $g >= self::LABEL_RED_OVER_GREEN
+                    && abs($g - $b) <= self::LABEL_GREEN_BLUE_SPREAD) ? 1 : 0;
+            }
+        }
+
+        $components = $this->components($keyed, $w, $h);
+
+        imagedestroy($proxy);
+
+        // The largest run of label-coloured pixels. Unlike the print, a label
+        // is one solid patch, so there is nothing to cluster.
+        $best = null;
+
+        foreach ($components as $c) {
+            if ($best === null || $c['area'] > $best['area']) {
+                $best = $c;
+            }
+        }
+
+        if ($best === null || $best['area'] / ($w * $h) < self::MIN_LABEL_SHARE) {
+            return null;
+        }
+
+        $sx = imagesx($img) / $w;
+        $sy = imagesy($img) / $h;
+
+        return [
+            'box' => [
+                (int) floor($best['minX'] * $sx),
+                (int) floor($best['minY'] * $sy),
+                (int) min(imagesx($img) - 1, ceil(($best['maxX'] + 1) * $sx)),
+                (int) min(imagesy($img) - 1, ceil(($best['maxY'] + 1) * $sy)),
+            ],
+            'angle'  => $this->tagAngle($img),
+            'pixels' => (int) round($best['area'] * $sx * $sy),
+        ];
+    }
+
+    /**
+     * Which way the label lies, in degrees, from the spread of its own pixels.
+     *
+     * Measured at full size rather than on the proxy: the label is small, and a
+     * few pixels of quantisation on a short axis move the angle more than they
+     * would move a box.
+     */
+    private function tagAngle(\GdImage $img): float
+    {
+        $w = imagesx($img);
+        $h = imagesy($img);
+
+        $n = 0;
+        $mx = 0.0;
+        $my = 0.0;
+        $pts = [];
+
+        $step = max(1, (int) floor(max($w, $h) / 600));
+
+        for ($y = 0; $y < $h; $y += $step) {
+            for ($x = 0; $x < $w; $x += $step) {
+                $c = imagecolorat($img, $x, $y);
+
+                $r = ($c >> 16) & 0xFF;
+                $g = ($c >> 8) & 0xFF;
+                $b = $c & 0xFF;
+
+                if ($r >= self::LABEL_MAX_RED
+                    || $r - $g < self::LABEL_RED_OVER_GREEN
+                    || abs($g - $b) > self::LABEL_GREEN_BLUE_SPREAD) {
+                    continue;
+                }
+
+                $pts[] = [$x, $y];
+                $mx += $x;
+                $my += $y;
+                $n++;
+            }
+        }
+
+        if ($n < 20) {
+            return 0.0;
+        }
+
+        $mx /= $n;
+        $my /= $n;
+
+        $sxx = 0.0;
+        $syy = 0.0;
+        $sxy = 0.0;
+
+        foreach ($pts as [$x, $y]) {
+            $dx = $x - $mx;
+            $dy = $y - $my;
+
+            $sxx += $dx * $dx;
+            $syy += $dy * $dy;
+            $sxy += $dx * $dy;
+        }
+
+        return 0.5 * atan2(2 * $sxy, $sxx - $syy) * 180 / M_PI;
+    }
+
     // ── Measuring ──────────────────────────────────────────────────────────
 
     private function measure(
@@ -636,6 +894,7 @@ class GhostPrintTransplantService
         array $from,
         array $to,
         int $levelShift,
+        float $turn = 0.0,
     ): void {
         [$sx0, $sy0, $sx1, $sy1] = $from;
         [$dx0, $dy0, $dx1, $dy1] = $to;
@@ -659,18 +918,84 @@ class GhostPrintTransplantService
         $ratio = $dw / max(1, $sw);
         $sPad  = (int) round($pad / max(0.0001, $ratio));
 
-        imagecopyresampled(
-            $patch,
-            $photo,
-            0,
-            0,
-            $sx0 - $sPad,
-            $sy0 - $sPad,
-            $dw + 2 * $pad,
-            $dh + 2 * $pad,
-            $sw + 2 * $sPad,
-            $sh + 2 * $sPad,
-        );
+        if (abs($turn) < 0.5) {
+            imagecopyresampled(
+                $patch,
+                $photo,
+                0,
+                0,
+                $sx0 - $sPad,
+                $sy0 - $sPad,
+                $dw + 2 * $pad,
+                $dh + 2 * $pad,
+                $sw + 2 * $sPad,
+                $sh + 2 * $sPad,
+            );
+        } else {
+            /*
+             * A label has to be turned to lie the way the redraw's collar does,
+             * and turning brings two problems that decide the order of work
+             * here.
+             *
+             * A rotation leaves fill colour in the corners, and the corners are
+             * exactly where the shading is measured from — so the turn happens
+             * on a deliberately oversized crop, and the padded patch is cut
+             * from the middle of the result. Everything the ramp and the field
+             * touch is then real fabric.
+             *
+             * And the turn happens after the resample, not before: rotating the
+             * photograph's own pixels first and resampling the result would
+             * interpolate the lettering twice.
+             */
+            imagedestroy($patch);
+
+            $margin = 1.6;
+
+            $bigW = (int) round(($dw + 2 * $pad) * $margin);
+            $bigH = (int) round(($dh + 2 * $pad) * $margin);
+
+            $big = imagecreatetruecolor($bigW, $bigH);
+
+            $srcW = (int) round(($sw + 2 * $sPad) * $margin);
+            $srcH = (int) round(($sh + 2 * $sPad) * $margin);
+
+            imagecopyresampled(
+                $big,
+                $photo,
+                0,
+                0,
+                (int) round($sx0 - $sPad - ($srcW - ($sw + 2 * $sPad)) / 2),
+                (int) round($sy0 - $sPad - ($srcH - ($sh + 2 * $sPad)) / 2),
+                $bigW,
+                $bigH,
+                $srcW,
+                $srcH,
+            );
+
+            // GD turns anticlockwise for a positive angle; the field of view
+            // here is measured clockwise-positive, so the sign flips.
+            $turned = imagerotate($big, -$turn, imagecolorallocate($big, 255, 255, 255));
+            imagedestroy($big);
+
+            if ($turned === false) {
+                throw new \RuntimeException('Could not turn the label to match the redraw.');
+            }
+
+            $patch = imagecreatetruecolor($dw + 2 * $pad, $dh + 2 * $pad);
+
+            imagecopy(
+                $patch,
+                $turned,
+                0,
+                0,
+                (int) round((imagesx($turned) - ($dw + 2 * $pad)) / 2),
+                (int) round((imagesy($turned) - ($dh + 2 * $pad)) / 2),
+                $dw + 2 * $pad,
+                $dh + 2 * $pad,
+            );
+
+            imagedestroy($turned);
+        }
 
         $pw = imagesx($patch);
         $ph = imagesy($patch);

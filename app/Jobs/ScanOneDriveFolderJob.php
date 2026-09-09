@@ -100,7 +100,8 @@ class ScanOneDriveFolderJob implements ShouldQueue
             // No SKU cache warm here any more. ProcessUploadItemJob asks Shopify
             // live for every item, so warming bought the upload nothing while
             // costing it up to an hour of dead wait before the first image moved.
-            // The SKU Checker still uses the cache; the schedule keeps it warm.
+            // Nothing warms a SKU cache now — the SKU Checker also asks Shopify
+            // live, and the cache itself is gone.
 
             // Dispatch a ProcessUploadItemJob for every pending item in chunks
             // to avoid loading all 30k models at once.

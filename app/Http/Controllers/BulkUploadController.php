@@ -244,8 +244,8 @@ class BulkUploadController extends Controller
             'scan_status'        => 'pending',
         ]);
 
-        // Pre-warm Shopify SKU cache (synchronous here — takes ~60s for large stores)
-        // Dispatched as part of the scan job chain
+        // The scan queues a ProcessUploadItemJob per file; each asks Shopify for
+        // its own SKU. No cache is warmed first — there isn't one.
         ScanOneDriveFolderJob::dispatch($session->id)
             ->onQueue('bulkupload');
 

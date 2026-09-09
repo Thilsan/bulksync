@@ -322,9 +322,9 @@ class ProcessUploadItemJob implements ShouldQueue
     /**
      * Ask Shopify what this identifier names, live.
      *
-     * Never against the warm SKU cache: that snapshot is rebuilt four times a
-     * day, so a product added since the last warm is absent from it and would
-     * be recorded as No Match though the SKU is sitting right there in the admin.
+     * Live is the only way this is ever done. A cached snapshot of the catalogue
+     * is stale the moment a product is added, and that product then reads back as
+     * No Match though the SKU is sitting right there in the admin.
      *
      * throwOnFailure: a transient API/network error (DNS blip, timeout) must
      * surface as a retryable failure, NOT be mistaken for "no match" and

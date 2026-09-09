@@ -28,6 +28,8 @@ class GhostPrintTransplantServiceTest extends TestCase
 
     /** Ink, fabric and the backdrop — all three near each other, as they are in life. */
     private const INK     = [26, 26, 30];
+    private const LABEL   = [105, 53, 57];  // maroon: red well above green, green near blue
+    private const HANGER  = [138, 115, 82]; // brown: red only just above green
     private const FABRIC  = [238, 238, 240];
     private const BACKDROP = [239, 240, 244];
 
@@ -135,6 +137,48 @@ class GhostPrintTransplantServiceTest extends TestCase
         );
     }
 
+    /**
+     * The woven neck label is fabricated as surely as the print — measured on
+     * a real redraw, the brand name came back as gibberish and the size tab's
+     * text was gone — so it is transplanted too.
+     *
+     * It cannot be found the way the print is: the label is dark and so is the
+     * hanger right above it, and a region grown from the label would drag the
+     * hanger back into a picture that had just been cleared of it. Hue is what
+     * separates them, so the fixture gives the two the colours they really
+     * have — a maroon label and a brown hanger — and asserts the hanger stayed
+     * out.
+     */
+    public function test_it_keeps_the_real_neck_label_and_leaves_the_hanger_out(): void
+    {
+        $result = $this->service->transplant($this->photo(), $this->redraw(), 2000);
+
+        $this->assertStringContainsString(
+            'real label kept',
+            $result['metrics']['tag'] ?? '',
+            'the label was not transplanted',
+        );
+
+        // The hanger is brown; nothing that colour may appear on the result.
+        $this->assertFalse(
+            $this->hasBrown($result['image']),
+            'the hanger came back with the label',
+        );
+    }
+
+    /** A garment with no label must cost the print transplant nothing. */
+    public function test_no_label_does_not_spoil_the_print_transplant(): void
+    {
+        $result = $this->service->transplant(
+            $this->photo(withLabel: false),
+            $this->redraw(withLabel: false),
+            2000,
+        );
+
+        $this->assertTrue($result['accepted'], $result['reason']);
+        $this->assertStringContainsString('no label found', $result['metrics']['tag'] ?? '');
+    }
+
     public function test_it_refuses_a_garment_with_no_print(): void
     {
         $this->expectException(\RuntimeException::class);
@@ -157,15 +201,22 @@ class GhostPrintTransplantServiceTest extends TestCase
      * The photograph: a cream garment on a backdrop one level away from it,
      * a dark hanger across the shoulders, and a chest print of fine bars.
      */
-    private function photo(): string
+    private function photo(bool $withLabel = true): string
     {
         $img = $this->canvas(2400, 3000, self::BACKDROP);
 
         // Garment.
         $this->box($img, [500, 600, 1900, 2600], self::FABRIC);
 
-        // The hanger: a solid slab, darker than the print and wider than tall.
-        $this->box($img, [1050, 380, 1350, 640], [64, 48, 40]);
+        // The hanger: a solid slab, darker than the print and wider than tall,
+        // in the brown a real one is — close enough to the label's maroon that
+        // only the hue test parts them.
+        $this->box($img, [1050, 380, 1350, 640], self::HANGER);
+
+        if ($withLabel) {
+            // Level, and sitting just below the hanger the way it really does.
+            $this->box($img, [1080, 660, 1330, 730], self::LABEL);
+        }
 
         /*
          * The print: fine bars in two rows, drawn as separate marks so the
@@ -195,7 +246,7 @@ class GhostPrintTransplantServiceTest extends TestCase
      * hanger gone — and the print replaced with a coarse checker, which is
      * what it actually does rather than blurring the real one.
      */
-    private function redraw(): string
+    private function redraw(bool $withLabel = true): string
     {
         $img = $this->canvas(1024, 1024, self::BACKDROP);
 
@@ -203,18 +254,33 @@ class GhostPrintTransplantServiceTest extends TestCase
         // photograph's would be.
         $this->box($img, [260, 180, 780, 900], self::FABRIC);
 
+        if ($withLabel) {
+            /*
+             * The redraw's own label: the right colour and the wrong size —
+             * a fifth of the photograph's area, which is what there is to gain
+             * by moving the real one over it.
+             */
+            $this->box($img, [455, 212, 570, 244], self::LABEL);
+        }
+
         /*
-         * The forged print: coarse blocks, and deliberately at the same
-         * proportions as the photograph's print (1.37 against 1.35). A print is
+         * The forged print: the same striped artwork drawn coarsely, at the
+         * same proportions as the photograph's (1.35 against 1.35). A print is
          * flat artwork on a flat chest, so the redraw keeps its shape even
          * while re-cutting the garment around it — measured at 3.5% on the
-         * Aigner tee. A fixture that got this wrong would only ever exercise
-         * the rejection path.
+         * Aigner tee. A fixture that got the proportions wrong would only ever
+         * exercise the rejection path.
+         *
+         * Stripes rather than square blocks, and that is not cosmetic. The
+         * print is picked out by edge against area, which favours anything thin
+         * — so blocks scored 4.0 where the neck label, a solid rectangle,
+         * scored 4.8, and the moment the label was added to this fixture the
+         * detector started calling the label the print. Real artwork is line
+         * work and out-scores a plain label comfortably; a fixture whose
+         * forgery was chunkier than a label did not model that.
          */
         for ($x = 380; $x <= 620; $x += 40) {
-            for ($y = 430; $y <= 600; $y += 40) {
-                $this->box($img, [$x, $y, $x + 19, $y + 19], self::INK);
-            }
+            $this->box($img, [$x, 430, $x + 11, 608], self::INK);
         }
 
         return $this->png($img);
@@ -297,6 +363,40 @@ class GhostPrintTransplantServiceTest extends TestCase
      * the row that crosses most, so it does not depend on the print landing at
      * one exact height.
      */
+    /**
+     * Whether any of the hanger's brown appears in the image.
+     *
+     * A tolerance rather than an exact match, because the patch is resampled
+     * and its edges blend — tight enough that the garment's cream and the
+     * label's maroon both stay well outside it.
+     */
+    private function hasBrown(string $bytes): bool
+    {
+        $img = @imagecreatefromstring($bytes);
+        $w   = imagesx($img);
+        $h   = imagesy($img);
+
+        [$hr, $hg, $hb] = self::HANGER;
+
+        for ($y = 0; $y < $h; $y += 3) {
+            for ($x = 0; $x < $w; $x += 3) {
+                $c = imagecolorat($img, $x, $y);
+
+                if (abs((($c >> 16) & 0xFF) - $hr) <= 14
+                    && abs((($c >> 8) & 0xFF) - $hg) <= 14
+                    && abs(($c & 0xFF) - $hb) <= 14) {
+                    imagedestroy($img);
+
+                    return true;
+                }
+            }
+        }
+
+        imagedestroy($img);
+
+        return false;
+    }
+
     private function crossings(string $bytes, float $centre): int
     {
         $img = @imagecreatefromstring($bytes);

@@ -67,6 +67,7 @@ class PhotoroomGhostTransplant extends Command
         $this->line('  fabric level shift      : ' . $m['level_shift'] . ' levels');
         $this->line('  print detail vs redraw  : ' . $m['print_detail_gain'] . 'x');
         $this->line('  output                  : ' . $m['output_size']);
+        $this->line('  neck label              : ' . ($m['tag'] ?? 'not looked for'));
         $this->line('');
 
         $result['accepted']

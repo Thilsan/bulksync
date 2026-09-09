@@ -67,8 +67,8 @@ class PushEditedPhotoJob implements ShouldQueue
         $matchingMode = $session->matching_mode ?? 'sku_barcode';
 
         try {
-            // Live lookup, not the warm SKU cache — see ProcessUploadItemJob:
-            // a snapshot older than the product records a false No Match.
+            // Live lookup — see ProcessUploadItemJob: any snapshot older than
+            // the product records a false No Match.
             //
             // throwOnFailure: a network blip must surface as a retryable failure
             // rather than being recorded as "this SKU does not exist".

@@ -17,10 +17,10 @@ use Illuminate\Support\Facades\Log;
 /**
  * Read a OneDrive folder and queue one Photoroom edit per image found.
  *
- * Deliberately separate from ScanOneDriveFolderJob: that one warms the Shopify
- * SKU cache and dispatches straight to upload, because a bulk upload always
- * ends at Shopify. This one ends at a review screen, and every image it queues
- * costs money, so the shape of the work is different enough not to share.
+ * Deliberately separate from ScanOneDriveFolderJob: that one dispatches straight
+ * to upload, because a bulk upload always ends at Shopify. This one ends at a
+ * review screen, and every image it queues costs money, so the shape of the work
+ * is different enough not to share.
  */
 class ScanPhotoEditFolderJob implements ShouldQueue
 {

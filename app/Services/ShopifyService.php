@@ -1402,19 +1402,4 @@ class ShopifyService
 
         return null;
     }
-
-    private function skuWarmSentinel(): string
-    {
-        return 'shopify_sku_warmed_' . md5($this->shop);
-    }
-
-    private function skuEntryKey(string $sku, int $gen): string
-    {
-        return 'shopify_sku_' . md5($this->shop) . '_v' . $gen . '_' . md5($sku);
-    }
-
-    private function barcodeEntryKey(string $barcode, int $gen): string
-    {
-        return 'shopify_barcode_' . md5($this->shop) . '_v' . $gen . '_' . md5($barcode);
-    }
 }
