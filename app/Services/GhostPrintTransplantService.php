@@ -58,8 +58,26 @@ class GhostPrintTransplantService
      * measures rgb(239,240,244) and the cream fabric rgb(238,238,240), one to
      * four levels apart. An absolute threshold that works on one shoot is
      * wrong on the next; the distance down from the light level is stable.
+     *
+     * The size of the drop is what took two goes to get right, and the first
+     * value silently ruined the detection rather than failing it. At 70 the
+     * threshold landed at 185 on a redraw whose background Photoroom returns as
+     * pure white, and a redraw carries shading the flat photograph does not:
+     * measured on one, the shirt's own sleeve and hem shadows reach luma 160,
+     * so they read as ink, chained into one run across the whole garment, and
+     * the "print" came out as 52% of the frame.
+     *
+     * The two populations are far apart once measured, so the threshold sits
+     * between them with room on both sides:
+     *
+     *   ink      — the print 23..37, the neck label 38
+     *   shading  — sleeve 160, hem 169, lit body 246
+     *
+     * 130 puts the line near 125 on a white-backed redraw and near 110 on the
+     * photograph. Both leave a margin of about 90 levels either way, which is
+     * what makes this safe across shoots rather than tuned to one.
      */
-    private const INK_DROP = 70;
+    private const INK_DROP = 130;
 
     /**
      * Smallest and largest share of the frame a print may occupy.
@@ -126,13 +144,17 @@ class GhostPrintTransplantService
     /**
      * How far the patch may be pushed to match the redraw's local brightness.
      *
-     * The join is between real fabric and invented fabric, and the invented
-     * side decides what "cream" means in this picture. Matching is what stops
-     * the transplant reading as a pale rectangle — but past this much the patch
-     * is being distorted to hide a mismatch that means the two images do not
-     * belong together, and the caller should be told rather than fooled.
+     * No longer what corrects the join — that is done locally now, in paste(),
+     * by taking the redraw's own shading and carrying the photograph's detail
+     * on it. This survives as a sanity check on the pair: a large gap means the
+     * two images were lit so differently that they probably are not the same
+     * garment, or the redraw invented a colour.
+     *
+     * Loosened from 18 accordingly. At 18 it was doing double duty as both the
+     * correction's limit and the pair's sanity check, and a real pair measured
+     * -12 with no visible join at all once the correction was local.
      */
-    private const MAX_LEVEL_SHIFT = 18;
+    private const MAX_LEVEL_SHIFT = 45;
 
     /**
      * @param  string  $original    the photograph, stand and all
@@ -659,6 +681,38 @@ class GhostPrintTransplantService
         $cw = imagesx($canvas);
         $ch = imagesy($canvas);
 
+        /*
+         * ── Matching the redraw's shading ──────────────────────────────────
+         *
+         * A single brightness offset for the whole patch is not enough, and the
+         * first version proved it on a real pair: the redraw models the shirt
+         * with sleeve and hem shading, while the photograph's chest is evenly
+         * lit, so a flat patch of real fabric left a faint rectangle visible
+         * around the print however well its average was matched.
+         *
+         * The fix is to keep the patch's fine detail — which is the artwork,
+         * the only reason any of this exists — and take its *low* frequencies
+         * from the redraw underneath. Where the two agree by construction at
+         * every scale coarser than the print's own marks, there is no edge left
+         * to see.
+         */
+        $under = imagecreatetruecolor($pw, $ph);
+        imagefilledrectangle($under, 0, 0, $pw - 1, $ph - 1, imagecolorallocate($under, 255, 255, 255));
+
+        $sx = max(0, $ox);
+        $sy = max(0, $oy);
+
+        $copyW = min($pw - ($sx - $ox), $cw - $sx);
+        $copyH = min($ph - ($sy - $oy), $ch - $sy);
+
+        if ($copyW > 0 && $copyH > 0) {
+            imagecopy($under, $canvas, $sx - $ox, $sy - $oy, $sx, $sy, $copyW, $copyH);
+        }
+
+        $field = $this->shadingField($patch, $under);
+
+        imagedestroy($under);
+
         for ($y = 0; $y < $ph; $y++) {
             $cy = $oy + $y;
 
@@ -682,11 +736,12 @@ class GhostPrintTransplantService
                 $p = imagecolorat($patch, $x, $y);
                 $q = imagecolorat($canvas, $cx, $cy);
 
-                // Brought onto the redraw's own light level before blending,
-                // or the ramp fades between two different creams.
-                $pr = $this->clamp((($p >> 16) & 0xFF) + $levelShift);
-                $pg = $this->clamp((($p >> 8) & 0xFF) + $levelShift);
-                $pb = $this->clamp(($p & 0xFF) + $levelShift);
+                // The patch's detail, carried on the redraw's own shading.
+                [$dr, $dg, $db] = $this->shadingAt($field, $x, $y, $pw, $ph);
+
+                $pr = $this->clamp((($p >> 16) & 0xFF) + $dr);
+                $pg = $this->clamp((($p >> 8) & 0xFF) + $dg);
+                $pb = $this->clamp(($p & 0xFF) + $db);
 
                 if ($a >= 1.0) {
                     imagesetpixel($canvas, $cx, $cy, ($pr << 16) | ($pg << 8) | $pb);
@@ -703,6 +758,124 @@ class GhostPrintTransplantService
         }
 
         imagedestroy($patch);
+    }
+
+    /**
+     * How far the photograph's fabric sits from the redraw's, measured at the
+     * patch's four corners: the field the print is carried on.
+     *
+     * ── Why corners and not a blur ─────────────────────────────────────────
+     *
+     * Blurring both sides and taking the difference was the obvious answer and
+     * it was wrong. A blur of the patch includes the print, a blur of the
+     * redraw includes the redraw's own differently-placed print, and where the
+     * two disagree the correction blooms: on a real pair it put a white halo
+     * around every bear and every letter. The very thing being corrected must
+     * not be part of the measurement.
+     *
+     * The corners of the padded patch are the feather margin — plain fabric in
+     * both images by construction, since the print is what the padding was
+     * placed around. Measured there and interpolated across, the field can
+     * describe a gradient without ever seeing a mark of ink.
+     *
+     * Light pixels only, and a corner with too little fabric in it borrows the
+     * average of the others, so a print that runs close to one edge cannot drag
+     * that corner.
+     *
+     * @return array{0:array{0:float,1:float,2:float},1:array{0:float,1:float,2:float},2:array{0:float,1:float,2:float},3:array{0:float,1:float,2:float}}
+     *         top-left, top-right, bottom-left, bottom-right
+     */
+    private function shadingField(\GdImage $patch, \GdImage $under): array
+    {
+        $w = imagesx($patch);
+        $h = imagesy($patch);
+
+        // A fifth of each side: inside the feather margin on a typical print,
+        // and large enough to average the fabric's own grain away.
+        $bw = max(2, (int) round($w * 0.20));
+        $bh = max(2, (int) round($h * 0.20));
+
+        $corners = [
+            [0, 0],
+            [$w - $bw, 0],
+            [0, $h - $bh],
+            [$w - $bw, $h - $bh],
+        ];
+
+        $found = [];
+        $sum   = [0.0, 0.0, 0.0];
+        $seen  = 0;
+
+        foreach ($corners as $k => [$x0, $y0]) {
+            $acc = [0.0, 0.0, 0.0];
+            $n   = 0;
+
+            for ($y = $y0; $y < $y0 + $bh; $y += 2) {
+                for ($x = $x0; $x < $x0 + $bw; $x += 2) {
+                    $p = imagecolorat($patch, $x, $y);
+
+                    $pr = ($p >> 16) & 0xFF;
+                    $pg = ($p >> 8) & 0xFF;
+                    $pb = $p & 0xFF;
+
+                    // Fabric only. Ink here would measure the print, not the light.
+                    if (0.299 * $pr + 0.587 * $pg + 0.114 * $pb < 150) {
+                        continue;
+                    }
+
+                    $u = imagecolorat($under, $x, $y);
+
+                    $acc[0] += (($u >> 16) & 0xFF) - $pr;
+                    $acc[1] += (($u >> 8) & 0xFF) - $pg;
+                    $acc[2] += ($u & 0xFF) - $pb;
+                    $n++;
+                }
+            }
+
+            if ($n > 8) {
+                $found[$k] = [$acc[0] / $n, $acc[1] / $n, $acc[2] / $n];
+
+                foreach ([0, 1, 2] as $c) {
+                    $sum[$c] += $found[$k][$c];
+                }
+
+                $seen++;
+            }
+        }
+
+        $fallback = $seen > 0
+            ? [$sum[0] / $seen, $sum[1] / $seen, $sum[2] / $seen]
+            : [0.0, 0.0, 0.0];
+
+        return [
+            $found[0] ?? $fallback,
+            $found[1] ?? $fallback,
+            $found[2] ?? $fallback,
+            $found[3] ?? $fallback,
+        ];
+    }
+
+    /**
+     * The shading field at one pixel, interpolated between the four corners.
+     *
+     * @param  array{0:array{0:float,1:float,2:float},1:array{0:float,1:float,2:float},2:array{0:float,1:float,2:float},3:array{0:float,1:float,2:float}}  $field
+     * @return array{0:int,1:int,2:int}
+     */
+    private function shadingAt(array $field, int $x, int $y, int $w, int $h): array
+    {
+        $u = $w > 1 ? $x / ($w - 1) : 0.0;
+        $v = $h > 1 ? $y / ($h - 1) : 0.0;
+
+        $out = [];
+
+        foreach ([0, 1, 2] as $c) {
+            $top    = $field[0][$c] * (1 - $u) + $field[1][$c] * $u;
+            $bottom = $field[2][$c] * (1 - $u) + $field[3][$c] * $u;
+
+            $out[$c] = (int) round($top * (1 - $v) + $bottom * $v);
+        }
+
+        return $out;
     }
 
     /**

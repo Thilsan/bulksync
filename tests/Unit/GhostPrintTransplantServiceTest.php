@@ -107,6 +107,34 @@ class GhostPrintTransplantServiceTest extends TestCase
         );
     }
 
+    /**
+     * A redraw models the garment with shading the flat photograph does not
+     * have, and that shading nearly broke this.
+     *
+     * With the ink threshold set only 70 levels below the frame's light level,
+     * the shadows down the sleeve and along the hem — measured at luma 160 on a
+     * real redraw — read as ink, chained into one run across the whole garment,
+     * and the "print" came out as 52% of the frame. It did not throw; it found
+     * the wrong thing and would have transplanted a garment-sized patch.
+     *
+     * So the fixture carries shading of its own, and the assertion is on the
+     * size of what was found rather than merely on success.
+     */
+    public function test_shading_on_the_redraw_is_not_mistaken_for_the_print(): void
+    {
+        $result = $this->service->transplant($this->photo(), $this->shadedRedraw(), 2000);
+
+        $this->assertTrue($result['accepted'], $result['reason']);
+
+        [$w, $h] = array_map('intval', explode('x', $result['metrics']['target_print']));
+
+        $this->assertLessThan(
+            0.25 * 2000 * 2000,
+            $w * $h,
+            'the print found covers a quarter of the canvas — shading was gathered in with it',
+        );
+    }
+
     public function test_it_refuses_a_garment_with_no_print(): void
     {
         $this->expectException(\RuntimeException::class);
@@ -183,6 +211,31 @@ class GhostPrintTransplantServiceTest extends TestCase
          * Aigner tee. A fixture that got this wrong would only ever exercise
          * the rejection path.
          */
+        for ($x = 380; $x <= 620; $x += 40) {
+            for ($y = 430; $y <= 600; $y += 40) {
+                $this->box($img, [$x, $y, $x + 19, $y + 19], self::INK);
+            }
+        }
+
+        return $this->png($img);
+    }
+
+    /**
+     * The same redraw, modelled with shading: a pure-white ground, a shaded
+     * sleeve and a shaded hem at the levels a real one carries.
+     */
+    private function shadedRedraw(): string
+    {
+        // Photoroom hands the redraw back on white, which is what pushes the
+        // frame's light level to 255 and makes a relative threshold generous.
+        $img = $this->canvas(1024, 1024, [255, 255, 255]);
+
+        $this->box($img, [260, 180, 780, 900], self::FABRIC);
+
+        // Sleeve and hem shadows, at the luma a real redraw measured.
+        $this->box($img, [260, 180, 330, 900], [160, 160, 162]);
+        $this->box($img, [260, 830, 780, 900], [169, 169, 171]);
+
         for ($x = 380; $x <= 620; $x += 40) {
             for ($y = 430; $y <= 600; $y += 40) {
                 $this->box($img, [$x, $y, $x + 19, $y + 19], self::INK);
