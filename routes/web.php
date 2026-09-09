@@ -101,6 +101,13 @@ Route::middleware('auth')->group(function () {
         ->whereIn('variant', ['before', 'after', 'full'])
         ->name('photo-editor.preview');
 
+    /*
+     * Two selected pieces, laid out as one set image. A POST because the two
+     * ids and their order are the request, and the answer is a file.
+     */
+    Route::post('/photo-editor/{session}/combo', [PhotoEditorController::class, 'combo'])
+        ->name('photo-editor.combo');
+
     Route::post('/photo-editor/{session}/download', [PhotoEditorController::class, 'downloadSelected'])
         ->name('photo-editor.download-selected');
 

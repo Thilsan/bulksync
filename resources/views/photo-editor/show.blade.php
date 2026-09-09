@@ -130,6 +130,24 @@
                       :class="pushResult.error ? 'text-red-600' : 'text-emerald-700'"
                       x-text="pushResult.error ? pushResult.error : pushResult.queued + ' queued for Shopify'"></span>
             </template>
+            {{-- A two-piece set. Photoroom cannot make one — every endpoint of
+                 its API takes a single image — so the two cut-out pieces are
+                 laid out here instead, on the same baseline the single garments
+                 are framed to.
+
+                 Which piece goes on top is the order they were ticked, not the
+                 order they were shot, so the label names both. Clicking a piece
+                 again and re-ticking it is how the two are swapped. --}}
+            <template x-if="comboOrder.length">
+                <button type="button" @click="makeCombo()" :disabled="comboOrder.length !== 2 || composing"
+                    class="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 transition-colors hover:border-gray-400 disabled:cursor-not-allowed disabled:opacity-50">
+                    <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.8">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M4 5.25h16M4 12h16M4 18.75h16"/>
+                    </svg>
+                    <span x-text="comboLabel"></span>
+                </button>
+            </template>
+
             {{-- Saving what Shopify will not take yet. A run where nothing
                  matched is finished work, already paid for, and it should not
                  have to be re-run once the products exist. --}}
@@ -478,6 +496,14 @@ function photoReview(sessionId) {
         selectedIds: {},
         known:       {},
 
+        /*
+         * Which pieces were ticked, in the order they were ticked. selectedIds
+         * answers "is this one picked" and cannot answer "which of these two
+         * goes on top", which is the only question a set layout asks.
+         */
+        comboOrder: [],
+        composing:  false,
+
         pushing:    false,
         pushResult: null,
 
@@ -535,15 +561,84 @@ function photoReview(sessionId) {
 
         toggle(item) {
             if (!item.pushable) return;
+
             this.selectedIds[item.id] = !this.selectedIds[item.id];
+
+            /*
+             * The order pieces were ticked in, kept separately because
+             * selectedIds is a map and a map has no order. It is what decides
+             * which garment goes on top of a set, so it has to be the
+             * operator's own sequence rather than the order the shoot happened
+             * to save the files in.
+             */
+            if (this.selectedIds[item.id]) {
+                this.comboOrder.push(item.id);
+            } else {
+                this.comboOrder = this.comboOrder.filter(id => id !== item.id);
+            }
+        },
+
+        get comboLabel() {
+            if (this.comboOrder.length !== 2) {
+                return `Make a set (pick 2, ${this.comboOrder.length} picked)`;
+            }
+
+            const name = id => {
+                const item = this.items.find(i => i.id === id);
+                return item ? item.filename : id;
+            };
+
+            return this.composing
+                ? 'Composing…'
+                : `Make a set — ${name(this.comboOrder[0])} on top`;
+        },
+
+        /*
+         * Sent as a form rather than fetched, for the same reason as the
+         * download: the answer is a file, and letting the browser save it is
+         * simpler and more reliable than assembling a blob to click.
+         */
+        makeCombo() {
+            if (this.comboOrder.length !== 2 || this.composing) return;
+
+            this.composing = true;
+
+            const form = document.createElement('form');
+            form.method = 'POST';
+            form.action = `/photo-editor/${sessionId}/combo`;
+            form.style.display = 'none';
+
+            const field = (name, value) => {
+                const input = document.createElement('input');
+                input.type  = 'hidden';
+                input.name  = name;
+                input.value = value;
+                form.appendChild(input);
+            };
+
+            field('_token', document.querySelector('meta[name=csrf-token]').content);
+            this.comboOrder.forEach(id => field('item_ids[]', id));
+
+            document.body.appendChild(form);
+            form.submit();
+            form.remove();
+
+            // The page stays where it is while the file downloads, so the
+            // button has to be released by hand.
+            setTimeout(() => { this.composing = false; }, 2500);
         },
 
         selectAll() {
             this.items.filter(i => i.pushable).forEach(i => { this.selectedIds[i.id] = true; });
+
+            // Selecting everything says nothing about which piece is the top,
+            // so the set button stands down rather than guessing.
+            this.comboOrder = [];
         },
 
         selectNone() {
             this.items.forEach(i => { this.selectedIds[i.id] = false; });
+            this.comboOrder = [];
         },
 
         async poll() {

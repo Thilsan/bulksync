@@ -15,10 +15,12 @@ use App\Models\User;
 use App\Services\OneDriveService;
 use App\Services\ImageProcessingService;
 use App\Services\PhotoroomService;
+use App\Services\SetLayoutService;
 use App\Support\PhotoroomAllowance;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response;
 use Illuminate\Support\Str;
 use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
@@ -776,6 +778,72 @@ class PhotoEditorController extends Controller implements HasMiddleware
      * than overwritten — a product with three photos would otherwise arrive as
      * one.
      */
+    /**
+     * Two picked pieces, laid out as one two-piece set image.
+     *
+     * The order the ids arrive in is the order they were ticked on the review
+     * screen, and it is the only thing that says which garment goes on top —
+     * nothing in the files themselves does. So they are used as sent rather
+     * than sorted into display order, which is the one place in this
+     * controller where the request's own order carries meaning.
+     *
+     * Answered as a download rather than kept as a new item. A set is a
+     * composed asset with no SKU of its own and no OneDrive source, and giving
+     * it a row in the session would hand the push path an item that looks
+     * editable and is not.
+     */
+    public function combo(Request $request, PhotoEditSession $session, SetLayoutService $layout): Response
+    {
+        $this->authorizeSession($session);
+
+        $data = $request->validate([
+            'item_ids'   => ['required', 'array', 'size:2'],
+            'item_ids.*' => ['integer'],
+        ]);
+
+        $items = PhotoEditItem::where('photo_edit_session_id', $session->id)
+            ->whereIn('id', $data['item_ids'])
+            ->whereNotNull('edited_path')
+            ->get()
+            ->keyBy('id');
+
+        // Looked up by the ids in the order they were sent, so the first tick
+        // is the top piece.
+        $ordered = array_map(fn ($id) => $items->get($id), $data['item_ids']);
+
+        abort_if(in_array(null, $ordered, true), 404, 'Both pieces need an edited file before they can be set together.');
+
+        $bytes = [];
+
+        foreach ($ordered as $item) {
+            $absolute = storage_path('app/' . $item->edited_path);
+
+            abort_unless(is_file($absolute), 404, "The edited file for {$item->filename} is no longer on disk.");
+
+            $bytes[] = (string) file_get_contents($absolute);
+        }
+
+        try {
+            $result = $layout->compose($bytes[0], $bytes[1]);
+        } catch (\Throwable $e) {
+            return back()->with('info', 'Could not make the set: ' . $e->getMessage());
+        }
+
+        /*
+         * Named from both pieces so the pair is readable in a download folder,
+         * and from the SKUs when they are known — a filename is what somebody
+         * matches this back to a product with.
+         */
+        $name = collect($ordered)
+            ->map(fn ($item) => $item->sku_detected ?: pathinfo($item->filename, PATHINFO_FILENAME))
+            ->implode('-');
+
+        return response($result['image'], 200, [
+            'Content-Type'        => 'image/png',
+            'Content-Disposition' => 'attachment; filename="' . ($name ?: 'set') . '-set.png"',
+        ]);
+    }
+
     public function downloadSelected(Request $request, PhotoEditSession $session): BinaryFileResponse
     {
         $this->authorizeSession($session);
