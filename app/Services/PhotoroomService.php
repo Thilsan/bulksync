@@ -364,6 +364,7 @@ class PhotoroomService
             'subcategories' => [
                 'dresses'  => ['label' => 'Dresses',  'note' => 'Measured: 10.1% and 10.2% top, 9.9% and 10.0% bottom, both filling exactly 80% of the height. No baseline override needed — a dress is always taller than it is wide, so the height binds and the 10% is the baseline. Framed like a dress, not like a small dress: the tile is the same size whoever the garment is for.', 'edits' => ['width' => 2000, 'height' => 2000, 'padding' => 0.10]],
                 'tops'     => ['label' => 'Tops',     'note' => 'House rule, unmeasured: 10% around a 2000 square, centred.', 'edits' => ['width' => 2000, 'height' => 2000, 'padding' => 0.10]],
+                'trousers' => ['label' => 'Trousers', 'note' => 'Measured, and it comes out as the dresses do: a Moschino legging on a 2000 square sits 9.8% down, ends 90.1% down and fills 80.3% of the height. Against 10.08/90.00/79.92 and 10.00/90.17/80.17 for the two dresses, so the same 10% baseline rather than a rule of its own — the spread across all three is half a per cent, which is ten pixels. Side padding is left to the garment: this legging centred itself at 21.2% either side where the dresses took 11.1% and 22.3%, because it is the height that is held.', 'edits' => ['width' => 2000, 'height' => 2000, 'padding' => 0.10]],
                 'footwear' => ['label' => 'Footwear', 'note' => 'House rule, unmeasured, bottom-aligned as womenswear footwear measured.', 'edits' => ['width' => 2000, 'height' => 2000, 'padding' => 0.10, 'v_align' => 'bottom']],
             ],
         ],
@@ -980,6 +981,7 @@ class PhotoroomService
 
         'kids/dresses'    => 'the dress',
         'kids/tops'       => 'the top',
+        'kids/trousers'   => 'the trousers',
         'kids/footwear'   => 'the shoes',
 
         'perfume'                     => 'the perfume bottle',
