@@ -154,6 +154,7 @@ class ImageProcessingService
         float $tolerance = 0.015,
         ?float $paddingTop = null,
         ?float $bodyFill = null,
+        bool $heightBinds = false,
     ): string {
         try {
             if ($canvasEdge < 100 || $padding < 0 || $padding >= 0.5) {
@@ -264,6 +265,35 @@ class ImageProcessingService
                     }
                 }
             } elseif ($paddingTop !== null && $paddingBottom !== null) {
+                $scale = $availableH / $boxH;
+
+                if ($boxW * $scale > $canvasEdge) {
+                    $scale = $canvasEdge / $boxW;
+                }
+            } elseif ($heightBinds) {
+                /*
+                 * The height is the standard and the sides are a consequence.
+                 *
+                 * Same arithmetic as the declared-edges branch above, asked
+                 * for by a different intent — that one anchors a product to an
+                 * edge, this one only says the height decides the size. A
+                 * garment has no edge that means anything, so it stays centred;
+                 * what it has is a line every other garment shares.
+                 *
+                 * Measured on the catalogue's own finished frames: a womens
+                 * t-shirt at 80.33% of the height with 18.33% sides, a cami at
+                 * 80.67% with 22.00%, a kids legging at 80.30% with 21.20%, a
+                 * kids dress at 80.08% with 11.08%. The height is 80% in every
+                 * one and the sides are anything from 11% to 22% — so fitting
+                 * to whichever runs out first was measuring the wrong thing. A
+                 * kids tee under that rule came back at 66.70% of the height,
+                 * sitting 16.70% down instead of 10%.
+                 *
+                 * The canvas is the one limit it will not cross. A garment
+                 * wider than it is tall now reaches close to the full width —
+                 * that tee lands at 95.8% — which is the price of the shared
+                 * line and is cheaper than being six per cent high.
+                 */
                 $scale = $availableH / $boxH;
 
                 if ($boxW * $scale > $canvasEdge) {
