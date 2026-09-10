@@ -522,6 +522,7 @@ class PhotoroomService
             'subcategories' => [
                 'watches'   => ['label' => 'Watches',   'note' => 'House rule, unmeasured: 10% around a 2000 square. A small product may want the canvas filled harder — worth sampling before it is trusted.', 'edits' => ['width' => 2000, 'height' => 2000, 'padding' => 0.10]],
                 'jewellery' => ['label' => 'Jewellery', 'note' => 'House rule, unmeasured: 10% around a 2000 square. A small product may want the canvas filled harder — worth sampling before it is trusted.', 'edits' => ['width' => 2000, 'height' => 2000, 'padding' => 0.10]],
+                'bracelets' => ['label' => 'Bracelets', 'note' => 'Measured off a finished frame on a 1000 square: the bangle fills 88.50% of the width at 6.40% and 5.10% side padding, stands 23.60% tall and sits centred, its middle 50.95% down. The opposite of a garment, and deliberately not given a height rule — a bracelet is a wide flat object at an aspect of 3.75, so what makes a row of them read as a row is filling the same width, and the height is the consequence. Fitting to whichever edge runs out first does exactly that here, which is why no override is declared: 5.7% padding on a shape this wide is reached on the sides long before the top. One sample, so this is the entry to re-measure once there are three.', 'edits' => ['width' => 2000, 'height' => 2000, 'padding' => 0.057]],
                 'necklaces' => [
                     'label' => 'Necklaces',
                     'note'  => 'Measured: the chain runs edge to edge at the top — no space above it at all — the necklace filling 90% of a 2000 square and ending on a line 10% up from the bottom. Two catalogue shots agree to a tenth of a percent. Every necklace ends on that same line whatever the chain: height decides the size, so a heavy curb and a fine cable finish together rather than the wide one stopping short.',
@@ -1064,6 +1065,7 @@ class PhotoroomService
 
         'watches_jewellery/watches'   => 'the watch',
         'watches_jewellery/jewellery' => 'the jewellery',
+        'watches_jewellery/bracelets' => 'the bracelet',
         'watches_jewellery/rings'     => 'the ring',
         'watches_jewellery/necklaces' => 'the necklace',
     ];
