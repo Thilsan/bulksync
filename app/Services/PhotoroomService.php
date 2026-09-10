@@ -690,6 +690,31 @@ class PhotoroomService
         . 'do not drape or crumple it, do not move it up, down or sideways, do not enlarge or shrink it. '
         . 'Do not redraw the garment. Do not add a person, a hanger, a surface or any other object.';
 
+    /**
+     * What the erase pass is told when a price tag is in shot.
+     *
+     * A swing ticket is a physical object, so text removal cannot touch it —
+     * and two of that feature's three modes would strip the brand name off the
+     * garment instead. Photoroom's only object removal is editWithAI, which
+     * regenerates the whole picture, so the wording matters more here than
+     * anywhere else: everything not named as the thing to remove is named as a
+     * thing to leave exactly alone.
+     *
+     * The woven label is called out by name because it is the trap. A neck
+     * label and a swing ticket are both "tags", both hang at the collar, and
+     * one of them is part of the product — the transplant work exists partly to
+     * put a rewritten one back.
+     */
+    public const PRICE_TAG_REMOVAL_PROMPT = 'Remove only the paper price tag, the barcode ticket, the hang tag '
+        . 'and the string or thread they hang from. '
+        . 'Change nothing else whatsoever. '
+        . 'Keep the garment exactly as it is: the same position, the same angle, the same size, the same shape, '
+        . 'the same folds and creases, the same colours. '
+        . 'Do not redraw the print, the pattern, the embroidery, the logo or any lettering on the garment. '
+        . 'Keep the sewn-in woven brand label and size label at the collar exactly as they are — they are part '
+        . 'of the garment, not the price tag. '
+        . 'Do not add anything.';
+
     private string $apiKey;
 
     /**
@@ -836,13 +861,34 @@ class PhotoroomService
      */
     public function removeMannequin(string $imageContent, string $filename = 'image.jpg', ?int $seed = null): string
     {
+        return $this->eraseObject($imageContent, self::MANNEQUIN_REMOVAL_PROMPT, $filename, $seed);
+    }
+
+    /**
+     * Erase a named object with Photoroom's generative pass.
+     *
+     * The stand and the price tag are the same request with different wording,
+     * so they are the same method — and the cost is the same too. This pass
+     * regenerates the whole picture: measured on an Aigner tee it reinvented a
+     * horseshoe monogram as rings at 4% of the original's print detail. It is
+     * the only object removal the API has, so where it is used the result has
+     * to be checked rather than assumed.
+     *
+     * @throws \RuntimeException  when Photoroom refuses the image outright
+     */
+    public function eraseObject(
+        string $imageContent,
+        string $prompt,
+        string $filename = 'image.jpg',
+        ?int $seed = null,
+    ): string {
         if (!$this->isConfigured()) {
             throw new \RuntimeException('No Photoroom API key is configured. Add PHOTOROOM_API_KEY to the environment.');
         }
 
         $fields = [
             'editWithAI.mode'   => 'ai.auto',
-            'editWithAI.prompt' => self::MANNEQUIN_REMOVAL_PROMPT,
+            'editWithAI.prompt' => $prompt,
             // Left unset, Photoroom defaults to removing the background on
             // its own — which then collides with the forced jpg export below
             // (JPEG can't hold transparency). Background removal is this
@@ -925,6 +971,13 @@ class PhotoroomService
              * without it the segmentation does not run at all, which is the
              * safe way round.
              */
+            /*
+             * Off by default, and deliberately so: it costs a credit and it
+             * runs the generative pass, which redraws the whole picture. It is
+             * worth that only on folders shot with the tickets still on.
+             */
+            'remove_price_tag'             => false,
+
             'segmentation_prompt'          => null,
             'segmentation_negative_prompt' => 'the mannequin, dress form, clothes rail, hanger and stand',
 

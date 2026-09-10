@@ -482,7 +482,8 @@
         @foreach ([
             'upscale' => ['Upscale small photos', 'Already automatic for photos smaller than the canvas — tick only to force it'],
             'expand'  => ['Extend the background', 'Invents canvas beyond the edges of the photo'],
-            'ironing' => ['Ironing', "Photoroom's apparel model — smooths creases in fabric, nothing to do on jewellery or a bottle"],
+            'ironing' => ['Ironing', 'Costs most of your resolution — measured, the same photo came back 3333x5000 without it and 832x1248 with it, a sixteenth of the pixels. Steam the garment before the shoot instead'],
+            'remove_price_tag' => ['Remove price tags', 'Erases paper swing tickets and their string. Costs a second credit and redraws the whole photo, so check the print afterwards — tick it only on folders shot with the tickets still on'],
         ] as $field => [$label, $hint])
             <label class="flex cursor-pointer items-start gap-2 text-xs text-gray-700" title="{{ $hint }}">
                 <input type="checkbox" name="{{ $name($field) }}" value="1" @checked($val($field))

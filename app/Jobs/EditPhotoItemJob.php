@@ -110,6 +110,35 @@ class EditPhotoItemJob implements ShouldQueue
                 (float) ($edits['trim_bottom'] ?? 0),
             );
 
+            /*
+             * The price tag comes off before anything else looks at the photo.
+             *
+             * Before the cutout, because a swing ticket is otherwise measured
+             * as part of the subject — the framing then sizes garment-plus-
+             * ticket to the canvas, so the garment lands smaller and lower than
+             * the baseline and the space the ticket occupied stays in frame.
+             *
+             * Its own request rather than a field on the edit, for the reason
+             * removeMannequin is: Photoroom warns that mixing editWithAI with
+             * removeBackground in one call gives unpredictable results.
+             *
+             * A failure here is not fatal. The tag is a blemish; losing the
+             * whole edit over it would be the worse outcome, so it is logged
+             * and the photo goes on without it.
+             */
+            if (!empty($edits['remove_price_tag'])) {
+                try {
+                    $raw = $photoroom->eraseObject(
+                        $raw,
+                        PhotoroomService::PRICE_TAG_REMOVAL_PROMPT,
+                        $item->filename,
+                        filled($edits['edit_seed'] ?? null) ? (int) $edits['edit_seed'] : null,
+                    );
+                } catch (\Throwable $e) {
+                    Log::warning("EditPhotoItemJob item {$this->itemId} price tag removal failed: " . $e->getMessage());
+                }
+            }
+
             // Ghost mannequin / flat lay / virtual model regenerate the
             // garment from scratch — useful for the "floating garment" look,
             // but generative reconstruction carries no guarantee of matching
@@ -444,6 +473,36 @@ class EditPhotoItemJob implements ShouldQueue
             }
 
             unset($input);
+
+            /*
+             * Any generative option can hand back a fraction of the resolution
+             * it was sent, and none of them say so.
+             *
+             * Measured on one photograph, same request but for the one field:
+             * a cutout alone came back 3333x5000, and the same cutout with
+             * ironing came back 832x1248 — a quarter of the size on each edge,
+             * a sixteenth of the pixels. The framing then enlarges that to the
+             * canvas, which is what "the quality broke" looks like from the
+             * outside.
+             *
+             * Ghost mannequin's 1K ceiling is the documented case; ironing's is
+             * not documented at all. So rather than name the features, this
+             * measures what arrived against what was sent and says so — which
+             * also catches the next option that does it.
+             */
+            $sentEdge = max((int) (@getimagesizefromstring($input)[0] ?? 0), (int) (@getimagesizefromstring($input)[1] ?? 0));
+            $gotEdge  = max((int) (@getimagesizefromstring($edited)[0] ?? 0), (int) (@getimagesizefromstring($edited)[1] ?? 0));
+
+            if ($sentEdge > 0 && $gotEdge > 0 && $gotEdge < $sentEdge * 0.6) {
+                Log::warning('Photoroom returned far fewer pixels than it was sent', [
+                    'item'    => $this->itemId,
+                    'sent'    => $this->describeSize($input),
+                    'got'     => $this->describeSize($edited),
+                    'shrunk'  => round($sentEdge / max(1, $gotEdge), 2) . 'x on the longest edge',
+                    'ironing' => !empty($itemEdits['ironing']),
+                    'apparel' => $appliedMode,
+                ]);
+            }
 
             /*
              * Which tier Photoroom actually gave us. Its app calls 1024, 2048
