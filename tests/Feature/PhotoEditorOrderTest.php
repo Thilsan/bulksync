@@ -169,6 +169,53 @@ class PhotoEditorOrderTest extends TestCase
         $this->assertFalse($leads->invoke($job, $second), 'a later photo must not overwrite it');
     }
 
+    /**
+     * The regression this file did not catch the first time.
+     *
+     * leadsItsSku was correct and tested, and the variant still ended up
+     * showing the back view — because uploading an image with variant_ids in
+     * the payload is itself an assignment, and the upload was being handed the
+     * variant for every photo. Testing the helper in isolation could never see
+     * that; this tests what the caller actually passes.
+     */
+    public function test_only_the_leading_photo_is_linked_to_the_variant_on_upload(): void
+    {
+        $session = $this->makeSession();
+
+        $first  = $this->photo($session, 'BTM-1', '0_0.jpg', ['position' => 1, 'edited_path' => 'a.jpg']);
+        $second = $this->photo($session, 'BTM-1', '1_0.jpg', ['position' => 2, 'edited_path' => 'b.jpg']);
+
+        $link = new \ReflectionMethod(\App\Jobs\PushEditedPhotoJob::class, 'variantToLink');
+        $link->setAccessible(true);
+
+        $job = new \App\Jobs\PushEditedPhotoJob($first->id);
+
+        $this->assertSame(
+            'gid://shopify/ProductVariant/42',
+            $link->invoke($job, $first, 'gid://shopify/ProductVariant/42'),
+            'the first photo must be linked, or the variant gets no image at all',
+        );
+
+        $this->assertNull(
+            $link->invoke($job, $second, 'gid://shopify/ProductVariant/42'),
+            'a later photo was linked to the variant, so it will overwrite the first',
+        );
+    }
+
+    /** A gallery-only push has no variant to link to in the first place. */
+    public function test_a_style_code_push_links_nothing(): void
+    {
+        $session = $this->makeSession();
+        $photo   = $this->photo($session, 'BTM-1', '0_0.jpg', ['position' => 1, 'edited_path' => 'a.jpg']);
+
+        $link = new \ReflectionMethod(\App\Jobs\PushEditedPhotoJob::class, 'variantToLink');
+        $link->setAccessible(true);
+
+        $this->assertNull(
+            $link->invoke(new \App\Jobs\PushEditedPhotoJob($photo->id), $photo, null),
+        );
+    }
+
     /** Reordering moves the variant image with it. */
     public function test_dragging_a_photo_first_makes_it_the_variant_image(): void
     {

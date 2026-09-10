@@ -114,7 +114,7 @@ class PushEditedPhotoJob implements ShouldQueue
                 $content,
                 $filename,
                 $item->sku_detected,
-                $variantId,
+                $this->variantToLink($item, $variantId),
                 $this->galleryPosition($item),
             );
 
@@ -134,6 +134,15 @@ class PushEditedPhotoJob implements ShouldQueue
              * complete, because the queue gives no guarantee about the second
              * and the operator has already expressed the first by dragging the
              * tiles.
+             *
+             * Guarding this call alone was not enough, and the same symptom came
+             * back: a trouser pushed front-then-back showed the back view on the
+             * variant. Uploading an image with variant_ids in the payload is
+             * itself an assignment — Shopify's variant holds one image_id, so
+             * the last photo linked to it wins — and every upload was passing
+             * the variant. So the decision is made once, above, and the upload
+             * is given the variant only for the photo that leads. See
+             * variantToLink().
              */
             if ($variantId && $imageId && $this->leadsItsSku($item)) {
                 $shopify->setVariantImage($variantId, $imageId);
@@ -254,6 +263,26 @@ class PushEditedPhotoJob implements ShouldQueue
      * generated from one of them and belongs in the gallery, never on the
      * variant.
      */
+    /**
+     * The variant to link this upload to, which is none unless the photo leads.
+     *
+     * Separate from leadsItsSku so the caller cannot forget it again. Linking
+     * an image to a variant is not a label, it is an assignment: a Shopify
+     * variant holds a single image_id, so linking every photo of a SKU leaves
+     * the variant showing whichever upload finished last — the bug this guards
+     * against, found on a trouser whose back view reached the variant.
+     *
+     * The other photos still land in the product's gallery, just unlinked.
+     */
+    private function variantToLink(PhotoEditItem $item, ?string $variantId): ?string
+    {
+        if ($variantId === null) {
+            return null;
+        }
+
+        return $this->leadsItsSku($item) ? $variantId : null;
+    }
+
     private function leadsItsSku(PhotoEditItem $item): bool
     {
         $first = PhotoEditItem::where('photo_edit_session_id', $item->photo_edit_session_id)
