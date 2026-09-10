@@ -154,7 +154,7 @@ class ImageProcessingService
         float $tolerance = 0.015,
         ?float $paddingTop = null,
         ?float $bodyFill = null,
-        bool $heightBinds = false,
+        ?float $heightFill = null,
     ): string {
         try {
             if ($canvasEdge < 100 || $padding < 0 || $padding >= 0.5) {
@@ -270,7 +270,7 @@ class ImageProcessingService
                 if ($boxW * $scale > $canvasEdge) {
                     $scale = $canvasEdge / $boxW;
                 }
-            } elseif ($heightBinds) {
+            } elseif ($heightFill !== null && $heightFill > 0) {
                 /*
                  * The height is the standard and the sides are a consequence.
                  *
@@ -293,8 +293,16 @@ class ImageProcessingService
                  * wider than it is tall now reaches close to the full width —
                  * that tee lands at 95.8% — which is the price of the shared
                  * line and is cheaper than being six per cent high.
+                 *
+                 * A fraction rather than a flag, because categories do not all
+                 * want the same one: a kids dress fills 80% of the height and a
+                 * long dress 84.47%, measured off finished frames of each. The
+                 * padding is then the consequence — (1 - fill) / 2 above and
+                 * below, which the centring below already works out to — so
+                 * there is one number to measure and change instead of two that
+                 * have to agree.
                  */
-                $scale = $availableH / $boxH;
+                $scale = ($canvasEdge * $heightFill) / $boxH;
 
                 if ($boxW * $scale > $canvasEdge) {
                     $scale = $canvasEdge / $boxW;

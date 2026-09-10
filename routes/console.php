@@ -1,6 +1,7 @@
 <?php
 
 use App\Jobs\RecheckProductRequestMappingsJob;
+use App\Jobs\SyncProductRequestsFromSheetJob;
 use App\Models\PhotoEditItem;
 use App\Models\PhotoEditSession;
 use App\Models\ProductRequest;
@@ -216,6 +217,16 @@ Schedule::call($prunePhotoEditorFiles)->daily()->name('prune-photo-editor-files'
 Schedule::job(new RecheckProductRequestMappingsJob, 'maintenance')
     ->hourly()
     ->name('recheck-product-request-mappings')
+    ->withoutOverlapping();
+
+// New rows on the shared tracking sheet become requests on their own, every two
+// hours. The "Sync from Sheet" button stays for anyone who has just filed a row
+// and wants it now, but the sheet should not sit unread because nobody thought
+// to press it. On 'maintenance': the run reads every category tab and takes
+// minutes, which must not sit in front of a user's upload.
+Schedule::job(new SyncProductRequestsFromSheetJob, 'maintenance')
+    ->everyTwoHours()
+    ->name('sync-product-requests-from-sheet')
     ->withoutOverlapping();
 
 // Reference images and read notifications are never deleted otherwise. Attachments

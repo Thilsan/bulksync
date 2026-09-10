@@ -1160,6 +1160,50 @@ class ProductRequestSheetSyncTest extends TestCase
         $page->assertDontSee('onsubmit="return confirm', false);
     }
 
+    // ── The same sync, unattended ──────────────────────────────────────
+
+    /** The sheet should not sit unread because nobody thought to press a button. */
+    public function test_the_sheet_sync_is_scheduled_every_two_hours(): void
+    {
+        $events = collect(app(\Illuminate\Console\Scheduling\Schedule::class)->events())
+            ->filter(fn ($event) => $event->description === 'sync-product-requests-from-sheet');
+
+        $this->assertCount(1, $events, 'The sheet sync is not on the schedule.');
+        $this->assertSame('0 */2 * * *', $events->first()->expression);
+    }
+
+    /** The unattended run creates the same requests the button does. */
+    public function test_the_scheduled_job_creates_requests_from_the_sheet(): void
+    {
+        Queue::fake();
+        Notification::fake();
+
+        $this->syncUser();
+        $this->store();
+        $this->fakeSheet();
+
+        app()->call([new \App\Jobs\SyncProductRequestsFromSheetJob, 'handle']);
+
+        $this->assertSame(1, ProductRequest::count());
+    }
+
+    /** And it stands aside rather than reading the workbook alongside a person's run. */
+    public function test_the_scheduled_job_skips_its_slot_while_a_sync_is_running(): void
+    {
+        Queue::fake();
+        Notification::fake();
+
+        $this->syncUser();
+        $this->store();
+        $this->fakeSheet();
+
+        \Illuminate\Support\Facades\Cache::lock('product-request-sheet-sync', 600)->get();
+
+        app()->call([new \App\Jobs\SyncProductRequestsFromSheetJob, 'handle']);
+
+        $this->assertSame(0, ProductRequest::count());
+    }
+
     /** Reading the whole workbook twice at once helps nobody. */
     public function test_a_second_sync_waits_rather_than_running_alongside_the_first(): void
     {

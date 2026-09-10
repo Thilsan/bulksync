@@ -397,6 +397,10 @@
                     <span class="text-gray-400">&bull;</span>
                     <span>It reads every category tab, so it usually takes <span class="font-medium text-gray-800">a few minutes</span>.</span>
                 </p>
+                <p class="flex gap-2">
+                    <span class="text-gray-400">&bull;</span>
+                    <span>This also runs <span class="font-medium text-gray-800">automatically every 2 hours</span> — press it only when you need a row picked up right now.</span>
+                </p>
             </div>
 
             <div class="px-5 py-3.5 border-t border-gray-100 flex items-center justify-end gap-2">

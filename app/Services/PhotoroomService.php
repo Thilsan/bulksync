@@ -200,12 +200,12 @@ class PhotoroomService
         'snap_cropped_sides' => false,
 
         /*
-         * Whether the height decides the size. See
-         * ImageProcessingService::frameToStandard — without it a garment wider
-         * than it is tall is limited by its width and lands off the line every
-         * other garment shares.
+         * What fraction of the canvas height the product fills, when the height
+         * is what decides the size. See ImageProcessingService::frameToStandard
+         * — without it a garment wider than it is tall is limited by its width
+         * and lands off the line every other garment shares.
          */
-        'height_binds'       => false,
+        'height_fill'        => null,
 
         /*
          * Listed so a preset switch clears it. It was not, which meant a run
@@ -378,9 +378,10 @@ class PhotoroomService
         'kids' => [
             'label'         => 'Kids & Baby',
             'subcategories' => [
-                'dresses'  => ['label' => 'Dresses',  'note' => 'Measured: 10.1% and 10.2% top, 9.9% and 10.0% bottom, both filling exactly 80% of the height. No baseline override needed — a dress is always taller than it is wide, so the height binds and the 10% is the baseline. Framed like a dress, not like a small dress: the tile is the same size whoever the garment is for. The height is declared to bind so it holds whatever the shape: the old note assumed a dress is always taller than it is wide, and a kids tee framed under these settings came back at 66.7% of the height, sitting 16.7% down instead of 10%.', 'edits' => ['width' => 2000, 'height' => 2000, 'padding' => 0.10, 'height_binds' => true]],
-                'tops'     => ['label' => 'Tops',     'note' => 'House rule, unmeasured: 10% around a 2000 square, centred. The height is declared to bind — a top is the shape most likely to be wider than it is tall, and that is exactly the case fitting-to-whichever-runs-out-first gets wrong.', 'edits' => ['width' => 2000, 'height' => 2000, 'padding' => 0.10, 'height_binds' => true]],
-                'trousers' => ['label' => 'Trousers', 'note' => 'Measured, and it comes out as the dresses do: a Moschino legging on a 2000 square sits 9.8% down, ends 90.1% down and fills 80.3% of the height. Against 10.08/90.00/79.92 and 10.00/90.17/80.17 for the two dresses, so the same 10% baseline rather than a rule of its own — the spread across all three is half a per cent, which is ten pixels. Side padding is left to the garment: this legging centred itself at 21.2% either side where the dresses took 11.1% and 22.3%, because it is the height that is held. The height is declared to bind so it holds whatever the shape.', 'edits' => ['width' => 2000, 'height' => 2000, 'padding' => 0.10, 'height_binds' => true]],
+                'dresses'  => ['label' => 'Dresses',  'note' => 'Measured: 10.1% and 10.2% top, 9.9% and 10.0% bottom, both filling exactly 80% of the height. No baseline override needed — a dress is always taller than it is wide, so the height binds and the 10% is the baseline. Framed like a dress, not like a small dress: the tile is the same size whoever the garment is for. The height is declared to bind so it holds whatever the shape: the old note assumed a dress is always taller than it is wide, and a kids tee framed under these settings came back at 66.7% of the height, sitting 16.7% down instead of 10%.', 'edits' => ['width' => 2000, 'height' => 2000, 'padding' => 0.10, 'height_fill' => 0.80]],
+                'long-dresses' => ['label' => 'Long dresses', 'note' => 'Measured off one finished frame on a 3000 square: the dress sits 7.73% down, ends 92.20% down and fills 84.47% of the height, with 9.73% either side. A longer dress is framed larger than a short one — 84.47% against the 80% the dresses hold — which is why it is its own category rather than a note on that one. One sample, so this is the entry to re-measure when there are three; the perfume preset was set from one live shot too and has held. Side padding is left to the garment: at this height the sample landed on 9.73% by itself, because its shape and the frame\'s happen to agree.', 'edits' => ['width' => 2000, 'height' => 2000, 'padding' => 0.097, 'height_fill' => 0.8447]],
+                'tops'     => ['label' => 'Tops',     'note' => 'House rule, unmeasured: 10% around a 2000 square, centred. The height is declared to bind — a top is the shape most likely to be wider than it is tall, and that is exactly the case fitting-to-whichever-runs-out-first gets wrong.', 'edits' => ['width' => 2000, 'height' => 2000, 'padding' => 0.10, 'height_fill' => 0.80]],
+                'trousers' => ['label' => 'Trousers', 'note' => 'Measured, and it comes out as the dresses do: a Moschino legging on a 2000 square sits 9.8% down, ends 90.1% down and fills 80.3% of the height. Against 10.08/90.00/79.92 and 10.00/90.17/80.17 for the two dresses, so the same 10% baseline rather than a rule of its own — the spread across all three is half a per cent, which is ten pixels. Side padding is left to the garment: this legging centred itself at 21.2% either side where the dresses took 11.1% and 22.3%, because it is the height that is held. The height is declared to bind so it holds whatever the shape.', 'edits' => ['width' => 2000, 'height' => 2000, 'padding' => 0.10, 'height_fill' => 0.80]],
                 'footwear' => ['label' => 'Footwear', 'note' => 'House rule, unmeasured, bottom-aligned as womenswear footwear measured.', 'edits' => ['width' => 2000, 'height' => 2000, 'padding' => 0.10, 'v_align' => 'bottom']],
             ],
         ],
@@ -996,6 +997,7 @@ class PhotoroomService
         'men/footwear'    => 'the shoes',
 
         'kids/dresses'    => 'the dress',
+        'kids/long-dresses' => 'the dress',
         'kids/tops'       => 'the top',
         'kids/trousers'   => 'the trousers',
         'kids/footwear'   => 'the shoes',
