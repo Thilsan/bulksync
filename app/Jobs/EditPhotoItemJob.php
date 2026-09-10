@@ -489,6 +489,19 @@ class EditPhotoItemJob implements ShouldQueue
              * not documented at all. So rather than name the features, this
              * measures what arrived against what was sent and says so — which
              * also catches the next option that does it.
+             *
+             * One hypothesis tested and ruled out, so nobody spends the credit
+             * again: it is not the interaction with removeBackground, which
+             * Photoroom does warn about elsewhere and whose own ironing example
+             * passes removeBackground=false. Ironing alone came back at exactly
+             * the same 832x1248 as ironing with the cutout.
+             *
+             * That size is the tell. 832x1248 is 1.04 megapixels at the input's
+             * own aspect ratio, and ghost mannequin's documented 1K is 1024x1024
+             * — 1.05 megapixels. The apparel models share a one-megapixel
+             * budget, and only one of them says so. Whether a higher plan lifts
+             * it, as it does for ghost mannequin's 2K and 4K, is a question for
+             * Photoroom rather than something measurable from here.
              */
             $sentEdge = max((int) (@getimagesizefromstring($input)[0] ?? 0), (int) (@getimagesizefromstring($input)[1] ?? 0));
             $gotEdge  = max((int) (@getimagesizefromstring($edited)[0] ?? 0), (int) (@getimagesizefromstring($edited)[1] ?? 0));
