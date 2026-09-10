@@ -36,6 +36,11 @@ Route::middleware('auth')->group(function () {
     // app whose numbers come from the ecommerce server rather than this one.
     Route::get('/orders', [OrdersDashboardController::class, 'index'])->name('orders.dashboard');
 
+    // Who owns what in the e-commerce department. A static org chart rather
+    // than a module: the table is written into the view, so there is nothing
+    // to query and nothing to keep in sync but the sheet it mirrors.
+    Route::view('/team', 'team.index')->name('team.index');
+
     // Bulk upload
     Route::get('/upload',           [BulkUploadController::class, 'dashboard'])->name('upload.dashboard');
     Route::get('/upload/history',   [BulkUploadController::class, 'history'])->name('upload.history');
