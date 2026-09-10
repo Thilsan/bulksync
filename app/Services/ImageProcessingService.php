@@ -867,6 +867,43 @@ class ImageProcessingService
      * Was this image enlarged on its way to the canvas, and therefore worth
      * sharpening? Compares what went out with what came back.
      */
+    /**
+     * Did the picture change size enough for the resampling to have softened it?
+     *
+     * Either direction, which is the whole point. wasEnlarged answers a
+     * narrower question and was the only gate on sharpening, so an image that
+     * came *down* — which is every photograph in a catalogue run, from a 5568
+     * px camera file to a 2000 px canvas — was never sharpened at all.
+     *
+     * Measured on a real edit: a garment photographed at 3730 px across
+     * arrives at 1264 px, a 2.5x reduction. Interpolation makes the surviving
+     * pixels by averaging, which is exactly what reads as a loss of weave, and
+     * sharpening restores the local contrast that averaging flattened. It adds
+     * no detail, because nothing can.
+     *
+     * The threshold keeps it off images that were only nudged. A 2% change is
+     * rounding on a canvas fit, and sharpening for that would be amplifying
+     * JPEG noise for no visible gain.
+     */
+    public function wasResized(string $before, string $after, float $threshold = 0.05): bool
+    {
+        $in  = @getimagesizefromstring($before);
+        $out = @getimagesizefromstring($after);
+
+        if (!$in || !$out) {
+            return false;
+        }
+
+        $from = max((int) $in[0], (int) $in[1]);
+        $to   = max((int) $out[0], (int) $out[1]);
+
+        if ($from < 1 || $to < 1) {
+            return false;
+        }
+
+        return abs(($to / $from) - 1.0) > $threshold;
+    }
+
     public function wasEnlarged(string $before, string $after): bool
     {
         $in  = @getimagesizefromstring($before);

@@ -18,6 +18,36 @@ class ImageProcessingServiceTest extends TestCase
         $this->service = new ImageProcessingService();
     }
 
+    /**
+     * Every photograph in a catalogue run comes down in size, and the gate on
+     * sharpening used to answer "did it grow?" — so the step that restores what
+     * a reduction costs never ran on a single real image.
+     */
+    public function test_a_reduced_image_counts_as_resized_so_it_gets_sharpened(): void
+    {
+        $big   = $this->jpeg(4000, 4000, 95);
+        $small = $this->jpeg(2000, 2000, 95);
+
+        $this->assertTrue(
+            $this->service->wasResized($big, $small),
+            'a 2x reduction must count as resized, or it is never sharpened',
+        );
+
+        $this->assertTrue(
+            $this->service->wasResized($small, $big),
+            'an enlargement must still count, as it always did',
+        );
+    }
+
+    /** A canvas fit that moves the edge by a rounding is not worth sharpening. */
+    public function test_a_negligible_size_change_is_not_treated_as_a_resize(): void
+    {
+        $this->assertFalse(
+            $this->service->wasResized($this->jpeg(2000, 2000, 95), $this->jpeg(2020, 2020, 95)),
+            'a 1% change is rounding; sharpening for it only amplifies noise',
+        );
+    }
+
     public function test_compress_only_shrinks_an_image_past_the_shopify_pixel_limit(): void
     {
         // 24 MP but only ~360 KB — under any byte limit, yet Shopify refuses it.
