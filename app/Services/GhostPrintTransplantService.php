@@ -600,8 +600,26 @@ class GhostPrintTransplantService
 
         imagedestroy($proxy);
 
-        $best      = null;
-        $bestScore = -1.0;
+        /*
+         * ── Why the best score is not enough ───────────────────────────────
+         *
+         * Edge over root area distinguishes artwork from a slab, and a barcode
+         * beats real artwork at it — a barcode is nothing but parallel edges.
+         * Sourcing a print from a photograph that still has its price ticket
+         * on, the ticket won: measured on one, the barcode scored 9.90 against
+         * 6.20 for the garment's own print, and the transplant went looking for
+         * a 101 px square on the chest.
+         *
+         * So every qualifying run is grown into its cluster first, and the
+         * largest cluster wins rather than the sharpest seed. A chest print is
+         * chains and flowers and charms spanning the garment; a barcode is a
+         * stamp beside it. Size is what separates them once both are gathered,
+         * and unlike position it does not assume where on the garment anything
+         * sits.
+         */
+        $best       = null;
+        $bestScore  = -1.0;
+        $candidates = [];
 
         foreach ($components as $c) {
             $share = $c['area'] / ($w * $h);
@@ -637,6 +655,8 @@ class GhostPrintTransplantService
                 $bestScore = $score;
                 $best      = $c;
             }
+
+            $candidates[] = $c;
         }
 
         if ($best === null) {
@@ -647,7 +667,27 @@ class GhostPrintTransplantService
             );
         }
 
-        $box = $this->grow($best, $components, $w, $h);
+        /*
+         * Grow each candidate and keep the biggest cluster. Ties on area go to
+         * the sharper seed, which is the old behaviour and the right
+         * tie-break — between two clusters of a size, artwork is the edgier.
+         */
+        $box  = $this->grow($best, $components, $w, $h);
+        $area = ($box[2] - $box[0] + 1) * ($box[3] - $box[1] + 1);
+
+        foreach ($candidates as $c) {
+            if ($c === $best) {
+                continue;
+            }
+
+            $grown = $this->grow($c, $components, $w, $h);
+            $a     = ($grown[2] - $grown[0] + 1) * ($grown[3] - $grown[1] + 1);
+
+            if ($a > $area && $a / ($w * $h) <= self::MAX_PRINT_SHARE) {
+                $box  = $grown;
+                $area = $a;
+            }
+        }
 
         // Now that the whole print is gathered, its size can be judged. A
         // cluster below the floor is a stitch or a speck; one above the ceiling
