@@ -160,7 +160,12 @@ class ProcessUploadItemJob implements ShouldQueue
                         // one delete what the previous had just uploaded, leaving
                         // only the last file of the folder standing.
                         if ($hasImage && $duplicateHandling === 'replace') {
-                            $this->purgeOwnImages($shopify, $variant['product_id'], $item->sku_detected);
+                            $this->purgeSkuImages(
+                                $shopify,
+                                (string) $variant['product_id'],
+                                $item->sku_detected,
+                                $scope === UploadBaselineResolver::SCOPE_VARIANT ? $scopeId : null,
+                            );
 
                             // Cleared — so as far as the rest of the batch is
                             // concerned this SKU now has no photo and every file
@@ -338,27 +343,84 @@ class ProcessUploadItemJob implements ShouldQueue
     }
 
     /**
-     * Delete the photos THIS tool previously uploaded for one identifier.
+     * Delete the photos that currently stand in for one SKU, so the incoming
+     * file replaces them instead of stacking up beside them.
      *
-     * Scoped by alt text on purpose: an image only carries the SKU as alt text
-     * when this job wrote it, so a supplier's or a photographer's own gallery
-     * shots are never touched. Deleting those on a filename or position match is
-     * not a call this job should make on its own.
+     * Two things count as this SKU's photo:
+     *   - an image this tool wrote, recognised by the SKU in its alt text;
+     *   - in SKU/barcode mode, whatever image is attached to the variant,
+     *     however it got there. Leaving a hand-added admin photo in place would
+     *     make "overwrite" a lie — that is the picture the customer sees.
+     *
+     * Style-code mode has no variant to ask about, so only the first rule
+     * applies there: that gallery is shared by every SKU of the product, and
+     * emptying it would destroy siblings this run was never handed.
+     *
+     * An image a sibling variant also uses is kept and logged, for the same
+     * reason — it is that colour's photo too.
      */
-    private function purgeOwnImages(ShopifyService $shopify, string $productId, string $identifier): void
-    {
-        $deleted = 0;
+    private function purgeSkuImages(
+        ShopifyService $shopify,
+        string $productId,
+        string $identifier,
+        ?string $variantId,
+    ): void {
+        // Variant media — Shopify's newer attachment — is invisible to the REST
+        // images endpoint's variant_ids field, so the two views are reconciled
+        // on the CDN path: one picture addressed two ways.
+        $variantSrcs = [];
 
-        foreach ($shopify->getProductImages($productId) as $img) {
-            if (($img['alt'] ?? '') === $identifier) {
-                $shopify->deleteProductImage($productId, (string) $img['id']);
-                $deleted++;
+        if ($variantId !== null) {
+            foreach ($shopify->getVariantMedia($variantId) as $media) {
+                $key = $this->imagePathKey((string) ($media['src'] ?? ''));
+                if ($key !== '') {
+                    $variantSrcs[$key] = true;
+                }
             }
         }
 
-        if ($deleted) {
-            Log::info("ProcessUploadItemJob: replaced {$deleted} existing image(s) for {$identifier} on product {$productId}");
+        $deleted = 0;
+        $kept    = 0;
+
+        foreach ($shopify->getProductImages($productId) as $img) {
+            $variantIds = array_map('strval', $img['variant_ids'] ?? []);
+
+            $isOurs      = ($img['alt'] ?? '') === $identifier;
+            $isOnVariant = $variantId !== null && (
+                in_array($variantId, $variantIds, true)
+                || isset($variantSrcs[$this->imagePathKey((string) ($img['src'] ?? ''))])
+            );
+
+            if (!$isOurs && !$isOnVariant) {
+                continue;
+            }
+
+            // Carried by another colour as well — not this SKU's to delete.
+            if (array_diff($variantIds, $variantId === null ? [] : [$variantId])) {
+                $kept++;
+                continue;
+            }
+
+            $shopify->deleteProductImage($productId, (string) $img['id']);
+            $deleted++;
         }
+
+        if ($deleted || $kept) {
+            Log::info(
+                "ProcessUploadItemJob: overwrite for {$identifier} on product {$productId} — "
+                . "deleted {$deleted} image(s), kept {$kept} shared with other variants"
+            );
+        }
+    }
+
+    /**
+     * The stable half of a Shopify CDN URL. The ?v= cache-buster differs
+     * between the REST and GraphQL views of the very same file, so only the
+     * path can decide whether two records name one picture.
+     */
+    private function imagePathKey(string $src): string
+    {
+        return $src === '' ? '' : (string) (parse_url($src, PHP_URL_PATH) ?: '');
     }
 
     /**

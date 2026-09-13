@@ -216,8 +216,63 @@
                 </div>
             </div>
 
-            {{-- Duplicate handling: don't re-upload if the SKU/barcode already has an image on Shopify --}}
-            <input type="hidden" name="duplicate_handling" value="skip">
+            {{-- What to do when the SKU already has a photo on Shopify --}}
+            <fieldset class="border-t border-gray-100 px-6 py-5">
+                <legend class="text-sm font-semibold text-gray-800">If the SKU already has an image</legend>
+                <p class="mt-1 text-sm text-gray-500">Only applies to SKUs Shopify already shows a photo for.</p>
+
+                <div class="mt-4 grid gap-3 sm:grid-cols-2">
+                    <label class="mode-card relative cursor-pointer rounded-xl border p-4 transition-colors"
+                           :class="duplicateHandling === 'replace'
+                               ? 'border-brand-500 bg-brand-50/60 ring-1 ring-brand-500'
+                               : 'border-gray-200 hover:border-gray-300'">
+                        {{-- @checked keeps a choice selected even before Alpine boots --}}
+                        <input type="radio" name="duplicate_handling" value="replace" x-model="duplicateHandling" class="sr-only"
+                               @checked(old('duplicate_handling', 'replace') === 'replace')>
+                        <div class="flex items-start justify-between gap-2">
+                            <span class="text-sm font-semibold text-gray-800">Overwrite it</span>
+                            <svg class="h-4 w-4 shrink-0 text-brand-600" x-show="duplicateHandling === 'replace'" x-cloak
+                                 fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
+                            </svg>
+                        </div>
+                        <p class="mt-1 text-xs leading-relaxed text-gray-500">
+                            The old photo is deleted and the new one takes its place.
+                            A photo shared with another colour is left alone.
+                        </p>
+                    </label>
+
+                    <label class="mode-card relative cursor-pointer rounded-xl border p-4 transition-colors"
+                           :class="duplicateHandling === 'skip'
+                               ? 'border-brand-500 bg-brand-50/60 ring-1 ring-brand-500'
+                               : 'border-gray-200 hover:border-gray-300'">
+                        <input type="radio" name="duplicate_handling" value="skip" x-model="duplicateHandling" class="sr-only"
+                               @checked(old('duplicate_handling') === 'skip')>
+                        <div class="flex items-start justify-between gap-2">
+                            <span class="text-sm font-semibold text-gray-800">Leave it alone</span>
+                            <svg class="h-4 w-4 shrink-0 text-brand-600" x-show="duplicateHandling === 'skip'" x-cloak
+                                 fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
+                            </svg>
+                        </div>
+                        <p class="mt-1 text-xs leading-relaxed text-gray-500">
+                            The file is reported as <em>Already Has Image</em> and nothing on Shopify changes.
+                        </p>
+                    </label>
+                </div>
+
+                <div x-show="duplicateHandling === 'replace'" x-cloak
+                     class="mt-3 flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
+                    <svg class="mt-px h-4 w-4 shrink-0 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+                    </svg>
+                    <p class="text-xs leading-relaxed text-amber-800">
+                        Deleting a photo on Shopify cannot be undone from here — including photos added
+                        by hand in the Shopify admin. Re-running this folder would only bring back the
+                        files it contains.
+                    </p>
+                </div>
+            </fieldset>
 
             {{-- Actions --}}
             <div class="flex items-center justify-between gap-3 border-t border-gray-100 bg-gray-50 px-6 py-4">
@@ -289,7 +344,7 @@
                         <svg class="mt-px h-3.5 w-3.5 shrink-0 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
                         </svg>
-                        <span class="text-gray-600">Products that already have an image are skipped, so a re-run is safe.</span>
+                        <span class="text-gray-600">SKUs that already have an image are overwritten by default — switch to <em>leave it alone</em> above if a re-run should change nothing.</span>
                     </li>
                     <li class="flex gap-2.5 px-4 py-3">
                         <svg class="mt-px h-3.5 w-3.5 shrink-0 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5">
@@ -317,6 +372,7 @@ function uploadForm() {
         customMode:  false,
         loading:     false,
         matchingMode: '{{ old('matching_mode', 'sku_barcode') }}',
+        duplicateHandling: '{{ old('duplicate_handling', 'replace') }}',
 
         setDimensions(w, h) {
             this.width      = w;
