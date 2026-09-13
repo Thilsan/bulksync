@@ -114,7 +114,8 @@ class PhotoEditorOrderTest extends TestCase
         $first  = $this->photo($session, 'BAG-1', 'front.jpg', ['position' => 1, 'selected' => true]);
         $second = $this->photo($session, 'BAG-1', 'side.jpg',  ['position' => 2, 'selected' => true]);
 
-        // A different SKU must not shift these along.
+        // A SKU that sorts after these must not shift them along. One sorting
+        // before them deliberately would — see the colourway test below.
         $this->photo($session, 'BAG-2', 'other.jpg', ['position' => 1, 'selected' => true]);
 
         $position = function (PhotoEditItem $item) {
@@ -128,6 +129,53 @@ class PhotoEditorOrderTest extends TestCase
         $this->assertSame(3, $position($third));
         $this->assertSame(1, $position($first));
         $this->assertSame(2, $position($second));
+    }
+
+    /**
+     * Two colourways of one product must not interleave in its gallery.
+     *
+     * This is the bug the SKU scope hid. A grey case and a black case are
+     * different SKUs on the same Shopify product, and each was numbering its
+     * photos from 1 — so Shopify got two images claiming position 1, two
+     * claiming 2, and laid the gallery out grey, black, grey, black.
+     *
+     * Asserted as "every grey before every black" rather than on exact numbers,
+     * because it is the ordering that matters and the numbers depend on how
+     * many SKUs a run happens to hold.
+     */
+    public function test_two_colourways_of_one_product_do_not_interleave(): void
+    {
+        $session = $this->makeSession();
+
+        $grey = [];
+        $black = [];
+
+        foreach (['front.jpg', 'side.jpg', 'back.jpg'] as $i => $name) {
+            $grey[]  = $this->photo($session, 'LUG-GREY',  $name, ['position' => $i + 1, 'selected' => true]);
+            $black[] = $this->photo($session, 'LUG-BLACK', $name, ['position' => $i + 1, 'selected' => true]);
+        }
+
+        $method = new \ReflectionMethod(\App\Jobs\PushEditedPhotoJob::class, 'galleryPosition');
+        $method->setAccessible(true);
+
+        $at = fn (PhotoEditItem $i) => $method->invoke(new \App\Jobs\PushEditedPhotoJob($i->id), $i);
+
+        // LUG-BLACK sorts before LUG-GREY, so black takes the first block.
+        $blackPositions = array_map($at, $black);
+        $greyPositions  = array_map($at, $grey);
+
+        $this->assertSame([1, 2, 3], $blackPositions, 'the first colourway is not a contiguous block');
+
+        $this->assertGreaterThan(
+            max($blackPositions),
+            min($greyPositions),
+            'the two colourways interleave — every photo of one colour must come before the other starts',
+        );
+
+        // And no two photos may claim the same slot, which is what Shopify
+        // resolves by interleaving them.
+        $all = array_merge($blackPositions, $greyPositions);
+        $this->assertSame(count($all), count(array_unique($all)), 'two photos claim the same gallery position');
     }
 
     /** A photo left out of the push does not leave a hole in the gallery. */

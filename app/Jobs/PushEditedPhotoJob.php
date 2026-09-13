@@ -238,17 +238,39 @@ class PushEditedPhotoJob implements ShouldQueue
      */
     private function galleryPosition(PhotoEditItem $item): int
     {
+        /*
+         * Counted across the whole run, not within the SKU.
+         *
+         * Scoping it to the item's own SKU was the obvious reading and it is
+         * wrong wherever two SKUs share a Shopify product — which is every
+         * colourway. A grey case and a black case are different SKUs on one
+         * luggage product, and each was numbering its photos from 1, so Shopify
+         * received two images at position 1, two at position 2, and laid the
+         * gallery out grey, black, grey, black all the way down.
+         *
+         * Ordering by SKU first puts every photo of one colour together before
+         * the next begins. The numbers can run past a single product's image
+         * count when a run holds several products — Shopify clamps those to the
+         * end of the gallery, and the order within each product is what
+         * survives, which is the thing being fixed.
+         */
         $ahead = PhotoEditItem::where('photo_edit_session_id', $item->photo_edit_session_id)
-            ->where('sku_detected', $item->sku_detected)
             ->where('selected', true)
             ->whereKeyNot($item->getKey())
             ->where(function ($q) use ($item) {
-                $q->where('position', '<', $item->position)
+                $q->where('sku_detected', '<', $item->sku_detected)
                     ->orWhere(function ($q) use ($item) {
-                        // Same position, so the filename breaks the tie — the
-                        // same tiebreak the screens sort by.
-                        $q->where('position', $item->position)
-                            ->where('filename', '<', $item->filename);
+                        // Within one SKU, the order the operator dragged the
+                        // tiles into, with the filename breaking a tie — the
+                        // same sort the review grid shows.
+                        $q->where('sku_detected', $item->sku_detected)
+                            ->where(function ($q) use ($item) {
+                                $q->where('position', '<', $item->position)
+                                    ->orWhere(function ($q) use ($item) {
+                                        $q->where('position', $item->position)
+                                            ->where('filename', '<', $item->filename);
+                                    });
+                            });
                     });
             })
             ->count();
