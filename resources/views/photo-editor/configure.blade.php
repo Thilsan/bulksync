@@ -173,6 +173,57 @@
                          product's main image. --}}
                     <div class="px-5 py-4"
                          x-data="photoOrder(@js($groupPhotos->pluck('id')->all()))">
+                        {{-- ── Case size ──────────────────────────────────
+                             Here rather than in the settings panel below,
+                             because a luggage run arrives with every size mixed
+                             together under one set of settings, so this is
+                             decided SKU by SKU against the photographs — which
+                             are on this screen.
+
+                             Chosen, never inferred. An earlier version read the
+                             size out of the filenames; the names are wrong often
+                             enough that a silently wrong size is worse than no
+                             size, because nothing downstream looks wrong until
+                             the cases are side by side in a gallery.
+
+                             Measured off four reference cases: a suitcase fills
+                             the same percentage of the canvas as its height in
+                             centimetres, so the list stores centimetres and the
+                             number is the whole rule.
+
+                             Shown on every SKU rather than only luggage: a run
+                             holds whatever the folder held, and "not a suitcase"
+                             changes nothing for a dress. --}}
+                        <div class="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+                            <label for="case-size-{{ $group->id }}"
+                                   class="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                                Case size
+                            </label>
+                            <select id="case-size-{{ $group->id }}"
+                                    name="groups[{{ $group->id }}][case_height_cm]"
+                                    class="rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs focus:border-brand-500 focus:outline-none">
+                                <option value="">Not a suitcase</option>
+                                @foreach ([55 => 'Cabin', 65 => 'Medium', 80 => 'Large'] as $sizeCm => $sizeLabel)
+                                    <option value="{{ $sizeCm }}" @selected($group->case_height_cm === $sizeCm)>
+                                        {{ $sizeLabel }} — {{ $sizeCm }} cm
+                                    </option>
+                                @endforeach
+
+                                {{-- A height typed before this became a list, or
+                                     set by someone else, stays selectable rather
+                                     than silently resetting to "not a suitcase"
+                                     the next time this page is saved. --}}
+                                @if ($group->case_height_cm && !in_array($group->case_height_cm, [55, 65, 80], true))
+                                    <option value="{{ $group->case_height_cm }}" selected>
+                                        {{ $group->case_height_cm }} cm
+                                    </option>
+                                @endif
+                            </select>
+                            <span class="text-[11px] text-gray-400">
+                                Makes a large case look large. Leave it alone for anything that is not luggage.
+                            </span>
+                        </div>
+
                         <div class="mb-3 flex flex-wrap items-baseline justify-between gap-2">
                             <p class="text-xs text-gray-500">
                                 Drag to reorder — photo 1 becomes the product's main image on Shopify.

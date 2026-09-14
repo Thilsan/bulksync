@@ -98,7 +98,20 @@ class PhotoEditItem extends Model
             ->where('sku', $this->sku_detected)
             ->first();
 
-        return $group?->edits ?? $this->session?->edits ?? [];
+        $edits = $group?->edits ?? $this->session?->edits ?? [];
+
+        /*
+         * The case height is the group's own column, not one of its edits, so
+         * it is merged on here rather than read from $edits by the caller. A
+         * group that follows the run stores no edits at all, and a luggage run
+         * is exactly that: one set of settings, every size mixed together,
+         * the size picked SKU by SKU.
+         */
+        if ($group?->case_height_cm) {
+            $edits['case_height_cm'] = $group->case_height_cm;
+        }
+
+        return $edits;
     }
 
     public function isLifestyle(): bool

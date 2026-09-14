@@ -276,6 +276,7 @@ class PhotoEditorController extends Controller implements HasMiddleware
             'groups.*.as_is'           => ['nullable', 'array'],
             'groups.*.as_is.*'         => ['integer'],
             'groups.*.pendant_closeup' => ['nullable', 'boolean'],
+            'groups.*.case_height_cm'  => ['nullable', 'integer', 'min:10', 'max:120'],
             'groups.*.keep_bg'         => ['nullable', 'array'],
             'groups.*.keep_bg.*'       => ['integer'],
             'groups.*.no_handle'       => ['nullable', 'array'],
@@ -317,7 +318,17 @@ class PhotoEditorController extends Controller implements HasMiddleware
             $this->saveUntouched($session, $group->sku, (array) ($input['as_is'] ?? []));
             $this->saveKeptBackgrounds($session, $group->sku, (array) ($input['keep_bg'] ?? []), (array) ($input['as_is'] ?? []));
             $this->saveRemovedHandles($session, $group->sku, (array) ($input['no_handle'] ?? []));
-            $group->update(['pendant_closeup' => (bool) ($input['pendant_closeup'] ?? false)]);
+            $group->update([
+                'pendant_closeup' => (bool) ($input['pendant_closeup'] ?? false),
+
+                // Saved whether or not this SKU's settings differ from the
+                // run's: a luggage run is one set of settings over three
+                // sizes, so tying the size to the settings would lose it on
+                // every SKU that follows the run — which is most of them.
+                'case_height_cm'  => filled($input['case_height_cm'] ?? null)
+                    ? max(10, min(120, (int) $input['case_height_cm']))
+                    : null,
+            ]);
 
             // A count without a photo to build from would queue work that can
             // only fail, so it is refused here rather than at the API.
