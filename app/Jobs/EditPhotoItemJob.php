@@ -195,90 +195,43 @@ class EditPhotoItemJob implements ShouldQueue
                     // separate erase pass would only be a wasted request.
                     $appliedMode = 'on_model';
                 } else {
+                    [$appliedMode, $itemEdits] = $this->chooseApparelRoute(
+                        $itemEdits,
+                        (bool) ($classification && !empty($classification['mannequin_visible'])),
+                    );
+
                     /*
-                     * Three questions decide the route, so all three are
-                     * settled before any of them is acted on: is a stand
-                     * actually in shot, did anyone name the product, and was a
-                     * redraw asked for.
+                     * The one route that costs a request of its own before the
+                     * edit even starts, so it is made here rather than in the
+                     * decision. It is also the pass that reinvents prints, which
+                     * is why it is the last resort: reached only when nothing
+                     * names the product and no redraw was asked for.
                      */
-                    $standVisible = $classification && !empty($classification['mannequin_visible']);
-                    $named        = filled($edits['segmentation_prompt'] ?? null);
-                    $wantsRedraw  = !empty($edits['ghost_mannequin']);
+                    if ($appliedMode === 'needs_erase') {
+                        $appliedMode = 'none';
 
-                    if ($wantsRedraw && $standVisible && !$named) {
-                        /*
-                         * Photoroom's own Ghost Mannequin. This used to be
-                         * switched off here and replaced with a generic
-                         * editWithAI pass, on the grounds that generative
-                         * reconstruction could not be trusted with a garment's
-                         * colour or orientation — a fair call, made against the
-                         * wrong feature.
-                         *
-                         * Side by side on one shirt: editWithAI reinvented an
-                         * Aigner horseshoe monogram as rings, at 4% of the
-                         * original's print detail. Ghost Mannequin reproduced
-                         * the horseshoes. One is apparel-aware; the other is a
-                         * general image editor being asked to understand a
-                         * garment.
-                         *
-                         * The size is named rather than left open, because
-                         * Photoroom's app exposes quality tiers that turn out to
-                         * be resolutions — 1024, 2048, 4096 — and 1024 is the
-                         * tier that destroys a print, at 7% of the original's
-                         * detail.
-                         */
-                        $itemEdits['apparel_size']   ??= 'SQUARE_HD';
-                        $itemEdits['apparel_prompt']   = filled($edits['apparel_prompt'] ?? null)
-                            ? $edits['apparel_prompt']
-                            : PhotoroomService::GHOST_MANNEQUIN_PROMPT;
-                        $itemEdits['remove_background'] = true;
+                        try {
+                            $before = $this->describeSize($raw);
 
-                        $appliedMode = 'ghost_mannequin';
-                    } else {
-                        /*
-                         * Everything else is a plain cutout. Nothing to erase,
-                         * or no redraw was asked for, or the product was named —
-                         * and naming it is the better route anyway: one request
-                         * rather than two, cutting the stand out of the real
-                         * photograph rather than redrawing round it.
-                         */
-                        $itemEdits['ghost_mannequin']   = false;
-                        $itemEdits['flat_lay']          = false;
-                        $itemEdits['virtual_model']     = false;
-                        $itemEdits['remove_background'] = true;
+                            $raw = $photoroom->removeMannequin(
+                                $raw,
+                                $item->filename,
+                                filled($edits['edit_seed'] ?? null) ? (int) $edits['edit_seed'] : null,
+                            );
 
-                        if ($standVisible && $named) {
-                            $appliedMode = 'segmented';
-                        } elseif ($standVisible) {
-                            /*
-                             * A stand is in shot, nobody named the product, and
-                             * no redraw was asked for. The generic erase is all
-                             * that is left — and it is the pass that reinvents
-                             * prints, so it stays the last resort it always was.
-                             */
-                            try {
-                                $before = $this->describeSize($raw);
+                            $appliedMode = 'mannequin_removed';
 
-                                $raw = $photoroom->removeMannequin(
-                                    $raw,
-                                    $item->filename,
-                                    filled($edits['edit_seed'] ?? null) ? (int) $edits['edit_seed'] : null,
-                                );
+                            $after = $this->describeSize($raw);
 
-                                $appliedMode = 'mannequin_removed';
-
-                                $after = $this->describeSize($raw);
-
-                                if ($before !== $after) {
-                                    Log::warning('Photoroom erase changed the resolution', [
-                                        'item' => $this->itemId,
-                                        'in'   => $before,
-                                        'out'  => $after,
-                                    ]);
-                                }
-                            } catch (\Throwable $e) {
-                                Log::warning("EditPhotoItemJob item {$this->itemId} mannequin removal failed: " . $e->getMessage());
+                            if ($before !== $after) {
+                                Log::warning('Photoroom erase changed the resolution', [
+                                    'item' => $this->itemId,
+                                    'in'   => $before,
+                                    'out'  => $after,
+                                ]);
                             }
+                        } catch (\Throwable $e) {
+                            Log::warning("EditPhotoItemJob item {$this->itemId} mannequin removal failed: " . $e->getMessage());
                         }
                     }
                 }
@@ -667,6 +620,102 @@ class EditPhotoItemJob implements ShouldQueue
      * correctly, and visibly. Shoot the larger cases handle-down, as the
      * reference set is.
      */
+    /**
+     * Which apparel route a photo takes, and the edits that go with it.
+     *
+     * Three questions decide it, so all three are settled before any of them is
+     * acted on: is a stand actually in shot, is the product named, and was a
+     * redraw asked for. Separated from the job's own work because it is a
+     * decision with no request in it — the thing most worth testing here, and
+     * the thing that needed an API and a queue to reach.
+     *
+     * @return array{0:string,1:array} the mode, and the edits to send.
+     *         'needs_erase' is the caller's to act on: it costs a request.
+     */
+    private function chooseApparelRoute(array $edits, bool $standVisible): array
+    {
+        $itemEdits   = $edits;
+        $named       = filled($edits['segmentation_prompt'] ?? null);
+        $wantsRedraw = !empty($edits['ghost_mannequin']);
+
+        /*
+         * Nobody typed a product, but the category knows one.
+         *
+         * PRODUCT_NOUNS has said as much since it was written — "a category has
+         * already been told what the product is, so there is no reason to make
+         * anyone type it" — and nothing ever read it. So a categorised run with
+         * the redraw ticked went to Ghost Mannequin, which does not erase a
+         * mannequin from a photograph: it generates a new garment from what it
+         * sees. On a draped poncho it read a wide sheet of sequinned fabric as
+         * sleeves and hung them straight down, and the back view came back a
+         * different garment from its own front view.
+         *
+         * Naming the product instead cuts the mannequin out of the real
+         * photograph, in one request rather than two, and the pixels that come
+         * back are the ones the camera recorded. That is the point rather than a
+         * saving: nothing downstream can tell a confident redraw from a
+         * photograph, so the only safe moment to refuse one is before it is
+         * asked for.
+         *
+         * Only where a mannequin is actually in shot. A cutout with nothing to
+         * erase is working already, and swapping its matting for a text prompt
+         * would be changing what is not broken.
+         */
+        if (!$named && $standVisible) {
+            $noun = PhotoroomService::productNoun($edits['framing_preset'] ?? null);
+
+            if (filled($noun)) {
+                $itemEdits['segmentation_prompt'] = $noun;
+                $named = true;
+            }
+        }
+
+        if ($wantsRedraw && $standVisible && !$named) {
+            /*
+             * Photoroom's own Ghost Mannequin, for a category nobody has given a
+             * word to. This used to be switched off here and replaced with a
+             * generic editWithAI pass, on the grounds that generative
+             * reconstruction could not be trusted with a garment's colour or
+             * orientation — a fair call, made against the wrong feature.
+             *
+             * Side by side on one shirt: editWithAI reinvented an Aigner
+             * horseshoe monogram as rings, at 4% of the original's print detail.
+             * Ghost Mannequin reproduced the horseshoes. One is apparel-aware;
+             * the other is a general image editor being asked to understand a
+             * garment.
+             *
+             * The size is named rather than left open, because Photoroom's app
+             * exposes quality tiers that turn out to be resolutions — 1024,
+             * 2048, 4096 — and 1024 is the tier that destroys a print, at 7% of
+             * the original's detail.
+             */
+            $itemEdits['apparel_size']   ??= 'SQUARE_HD';
+            $itemEdits['apparel_prompt']   = filled($edits['apparel_prompt'] ?? null)
+                ? $edits['apparel_prompt']
+                : PhotoroomService::GHOST_MANNEQUIN_PROMPT;
+            $itemEdits['remove_background'] = true;
+
+            return ['ghost_mannequin', $itemEdits];
+        }
+
+        /*
+         * Everything else is a plain cutout. Nothing to erase, or no redraw was
+         * asked for, or the product is named — and naming it is the better route
+         * anyway: one request rather than two, cutting the stand out of the real
+         * photograph rather than redrawing round it.
+         */
+        $itemEdits['ghost_mannequin']   = false;
+        $itemEdits['flat_lay']          = false;
+        $itemEdits['virtual_model']     = false;
+        $itemEdits['remove_background'] = true;
+
+        if ($standVisible && $named) {
+            return ['segmented', $itemEdits];
+        }
+
+        return [$standVisible ? 'needs_erase' : 'none', $itemEdits];
+    }
+
     private function caseFill(array $edits): ?float
     {
         $cm = $edits['case_height_cm'] ?? null;
