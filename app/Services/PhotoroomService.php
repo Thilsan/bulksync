@@ -270,8 +270,8 @@ class PhotoroomService
             'subcategories' => [
                 'dresses' => [
                     'label' => 'Dresses',
-                    'note'  => 'Measured: 7.7% top, 5.0% bottom — tighter than the rest of the catalogue, which is what a full-length dress on a square canvas comes to. Rounded to 6% and evened up; the sample was 2.7% lower at the hem than the shoulder.',
-                    'edits' => ['width' => 2000, 'height' => 2000, 'padding' => 0.06],
+                    'note'  => 'Measured: 9.95% top and 9.95% bottom, the dress filling 80.10% of the height, on a 2000-square frame — the same standard as every other category. Re-baselined: an earlier sample read 7.4% and 4.3% with the dress at 88.3%, and the tighter figure was taken to be what a full-length dress comes to on a square canvas. It was not. That file was 1200 square from an older convention; this one matches the skirt and top samples, canvas, naming and all. Six categories now read 80% of the height and dresses were the only one that did not.',
+                    'edits' => ['width' => 2000, 'height' => 2000, 'padding' => 0.10],
                 ],
                 'gown' => [
                     'label' => 'Gowns',

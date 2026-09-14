@@ -97,7 +97,7 @@ class PhotoEditorFramingTest extends TestCase
         $this->assertSame('women/dresses', $edits['framing_preset']);
         $this->assertEquals(2000, $edits['width']);
         $this->assertEquals(2000, $edits['height']);
-        $this->assertEquals(0.06, $edits['padding']);
+        $this->assertEquals(0.10, $edits['padding']);
         $this->assertSame('center', $edits['h_align']);
         $this->assertSame('center', $edits['v_align']);
         $this->assertSame('fit', $edits['scaling']);
@@ -136,7 +136,7 @@ class PhotoEditorFramingTest extends TestCase
         // And the framing is the standard's, not either SKU's old one.
         $this->assertSame([
             'outputSize'          => '2000x2000',
-            'padding'             => '0.06',
+            'padding'             => '0.1',
             'horizontalAlignment' => 'center',
             'verticalAlignment'   => 'center',
             'scaling'             => 'fit',
@@ -168,7 +168,7 @@ class PhotoEditorFramingTest extends TestCase
     {
         Queue::fake();
 
-        $session = $this->makeSession(['framing_preset' => 'women/dresses', 'padding' => 0.06]);
+        $session = $this->makeSession(['framing_preset' => 'women/dresses', 'padding' => 0.10]);
         $group   = $this->group($session, 'DRESS-1');
 
         $this->actingAs($session->user)->post(route('photo-editor.start', $session), [
@@ -195,7 +195,18 @@ class PhotoEditorFramingTest extends TestCase
     public function test_each_category_keeps_the_padding_its_sample_measured(): void
     {
         $measured = [
-            'women/dresses'   => ['0.06', 'center'],
+            /*
+             * Re-baselined off Momon…OMN204DRZ00133_0.webp: 9.95% top and
+             * bottom, the dress filling 80.10% of the height on a 2000 square.
+             *
+             * It was 0.06, from a 1200-square sample reading 7.4% and 4.3% with
+             * the dress at 88.3%. That was believed to be what a full-length
+             * dress comes to on a square canvas; the newer file, which matches
+             * the skirt and top samples in canvas and naming, says it was one
+             * supplier's crop. Dresses were the only category in the table not
+             * reading 80% of the height.
+             */
+            'women/dresses'   => ['0.1',  'center'],
             'women/gown'      => ['0.08', 'center'],
             'women/top'       => ['0.1',  'center'],
             'women/t-shirt'   => ['0.1',  'center'],
