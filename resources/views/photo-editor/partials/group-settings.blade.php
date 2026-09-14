@@ -497,6 +497,31 @@
     </div>
 </details>
 
+{{-- Luggage only in practice, but offered on every group rather than tied to
+     the category: a run holds all the sizes together and the operator picks
+     SKU by SKU, which is how the folders actually arrive. Left blank it
+     changes nothing. --}}
+<div class="rounded-lg border border-gray-200 px-3 py-2">
+    <label for="case-cm-{{ $uid }}" class="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">
+        Case height
+        <span class="ml-1 font-normal normal-case tracking-normal text-gray-400">suitcases only — in centimetres</span>
+    </label>
+    <div class="flex items-center gap-2">
+        <input id="case-cm-{{ $uid }}" type="number" step="1" min="10" max="120"
+               name="{{ $name('case_height_cm') }}" value="{{ $val('case_height_cm') }}" placeholder="e.g. 55"
+               class="w-32 rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none">
+        <span class="text-xs text-gray-500">cm, including the wheels</span>
+    </div>
+    <p class="mt-1 text-xs text-gray-500">
+        Makes a large case look large. Measured off four reference cases, a case fills the same
+        percentage of the canvas as its height in centimetres — 55&nbsp;cm fills 55%, 80&nbsp;cm fills 80% —
+        so this one number sets the size. Left blank, every case is framed to one size and a large one
+        looks like a cabin. Shoot the bigger sizes with the handle down: a raised handle is about
+        0.87&times; the case, and an 80&nbsp;cm case with one up cannot fit the canvas, so it gets shrunk to
+        make room.
+    </p>
+</div>
+
 <details class="rounded-lg border border-gray-200 px-3 py-2">
     <summary class="cursor-pointer text-xs font-semibold uppercase tracking-wide text-gray-500">
         Trim before editing

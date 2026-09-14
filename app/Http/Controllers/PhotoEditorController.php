@@ -481,6 +481,26 @@ class PhotoEditorController extends Controller implements HasMiddleware
             }
         }
 
+        /*
+         * The case's real height in centimetres, typed per SKU because nothing
+         * in a photograph says how big a suitcase is — a cabin case and a large
+         * one are both shot to fill their own frame, so the pixels are the same
+         * and the product is not.
+         *
+         * Measured off a reference set of four: a case fills a percentage of
+         * the canvas equal to its height in centimetres. 43 cm fills 43.0%,
+         * 55 fills 55.0%, 65 fills 65.0%, 80 fills 80.0%. So the number typed
+         * here is the whole rule, and body_fill below is arithmetic on it.
+         *
+         * Capped at 120 because that is past any case sold, and a typo of 550
+         * for 55 would otherwise ask for a product five times the canvas.
+         */
+        if (array_key_exists('case_height_cm', $input)) {
+            $input['case_height_cm'] = filled($input['case_height_cm'])
+                ? max(10, min(120, (int) round((float) $input['case_height_cm'])))
+                : null;
+        }
+
         foreach (['padding', 'trim_top', 'trim_bottom'] as $key) {
             if (array_key_exists($key, $input)) {
                 $input[$key] = filled($input[$key]) ? (float) $input[$key] : null;

@@ -451,7 +451,24 @@ class EditPhotoItemJob implements ShouldQueue
                     isset($itemEdits['padding_bottom']) ? (float) $itemEdits['padding_bottom'] : null,
                     (string) ($itemEdits['v_align'] ?? 'center'),
                     paddingTop: isset($itemEdits['padding_top']) ? (float) $itemEdits['padding_top'] : null,
-                    bodyFill: isset($itemEdits['body_fill']) ? (float) $itemEdits['body_fill'] : null,
+                    /*
+                     * A typed case height wins over the preset's fixed fill.
+                     *
+                     * The preset gives every case 0.48 so that one product
+                     * cannot appear at two sizes depending on whether its
+                     * handle was up — which worked, and made a cabin case and a
+                     * large one identical. On luggage that is the wrong trade:
+                     * size is the attribute the customer is shopping for.
+                     *
+                     * Measured off a reference set, a case fills a percentage
+                     * of the canvas equal to its height in centimetres, so the
+                     * number the operator types is divided by a hundred and
+                     * nothing else is needed. It drives body_fill rather than
+                     * height_fill because the rule is about the case, and
+                     * body_fill is the one that measures the case rather than
+                     * the case plus a raised handle.
+                     */
+                    bodyFill: $this->caseFill($itemEdits),
                     heightFill: isset($itemEdits['height_fill']) ? (float) $itemEdits['height_fill'] : null,
                 );
             }
@@ -612,6 +629,29 @@ class EditPhotoItemJob implements ShouldQueue
      * returns the original bytes untouched when it already fits.
      */
     /** "1628x2022", or "unreadable" — for log lines, not for decisions. */
+    /**
+     * What fraction of the canvas the case body should fill.
+     *
+     * The typed height if there is one, the preset's own figure otherwise.
+     *
+     * Note what this cannot promise on a handle-up photograph: a raised handle
+     * measures about 0.87x its case, so an 80 cm case at 80% would need 150% of
+     * the canvas. frameToStandard shrinks the whole product to fit rather than
+     * slicing the handle off, so such a shot comes out smaller than asked for —
+     * correctly, and visibly. Shoot the larger cases handle-down, as the
+     * reference set is.
+     */
+    private function caseFill(array $edits): ?float
+    {
+        $cm = $edits['case_height_cm'] ?? null;
+
+        if (filled($cm) && (float) $cm > 0) {
+            return min(0.95, (float) $cm / 100);
+        }
+
+        return isset($edits['body_fill']) ? (float) $edits['body_fill'] : null;
+    }
+
     private function describeSize(string $imageContent): string
     {
         $info = @getimagesizefromstring($imageContent);

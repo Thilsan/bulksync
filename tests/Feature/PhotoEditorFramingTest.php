@@ -313,6 +313,46 @@ class PhotoEditorFramingTest extends TestCase
             'rings have quietly been given the house rule they were measured away from');
     }
 
+    /**
+     * A suitcase is sized by the height typed against its SKU, not by the
+     * category.
+     *
+     * Measured off four reference cases: a case fills the same percentage of
+     * the canvas as its height in centimetres. Every case used to be framed to
+     * one figure, so a cabin case and a large one came out identical — which is
+     * right for a shelf that lines up and wrong for luggage, where size is the
+     * attribute being shopped for.
+     */
+    public function test_a_typed_case_height_sets_the_fill_and_beats_the_preset(): void
+    {
+        $fill = new \ReflectionMethod(\App\Jobs\EditPhotoItemJob::class, 'caseFill');
+        $fill->setAccessible(true);
+
+        $job = new \App\Jobs\EditPhotoItemJob(1);
+
+        foreach ([43 => 0.43, 55 => 0.55, 65 => 0.65, 80 => 0.80] as $cm => $expected) {
+            $this->assertEqualsWithDelta(
+                $expected,
+                $fill->invoke($job, ['case_height_cm' => $cm, 'body_fill' => 0.48]),
+                0.0001,
+                "a {$cm} cm case should fill {$expected} of the canvas",
+            );
+        }
+    }
+
+    /** Blank leaves the category's own figure alone. */
+    public function test_no_typed_height_falls_back_to_the_preset(): void
+    {
+        $fill = new \ReflectionMethod(\App\Jobs\EditPhotoItemJob::class, 'caseFill');
+        $fill->setAccessible(true);
+
+        $job = new \App\Jobs\EditPhotoItemJob(1);
+
+        $this->assertSame(0.48, $fill->invoke($job, ['body_fill' => 0.48]));
+        $this->assertNull($fill->invoke($job, []));
+        $this->assertSame(0.48, $fill->invoke($job, ['case_height_cm' => null, 'body_fill' => 0.48]));
+    }
+
     /** Its own noun cuts out better than the category's. */
     public function test_a_ring_is_named_as_a_ring_for_segmentation(): void
     {
