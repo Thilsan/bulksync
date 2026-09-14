@@ -332,14 +332,40 @@ class EditPhotoItemJob implements ShouldQueue
              * A raised trolley handle, cut off before anything measures the
              * product. Left on, it is half the picture: the framing sizes the
              * case against a chrome pole and every suitcase comes out small.
+             *
+             * Done for every photo of a SKU that has a case height typed against
+             * it, not only the ones ticked by hand, because a raised handle and
+             * a typed size cannot both be honoured and the operator should not
+             * have to know that. A handle runs about 0.87x its case, so a 55 cm
+             * case asked to fill 55% of the canvas needs 103% of it with the
+             * handle up. Rather than slice the handle, frameToStandard shrinks
+             * the whole product — silently, and only on the photos that have a
+             * handle in them. Measured, a handle-up photo cannot pass 47.8%
+             * however large a case is typed, so ticking one photo and leaving
+             * its siblings produced exactly what was reported: the cropped one
+             * at 55% beside three at 47.8%.
+             *
+             * Safe to apply unasked because cropAboveBody refuses anything that
+             * is not a distinctly thin part standing more than a tenth of the
+             * product above its body. A case photographed handle-down, a lid, a
+             * clasp, a detail shot — all come back null and are left alone.
              */
-            if ($item->remove_handle) {
+            $sized = filled($itemEdits['case_height_cm'] ?? null);
+
+            if ($item->remove_handle || $sized) {
                 $withoutHandle = $imageService->cropAboveBody($raw);
 
                 if ($withoutHandle === null) {
                     Log::info('EditPhotoItemJob: nothing above the body to crop', ['item' => $this->itemId]);
                 } else {
                     $raw = $withoutHandle;
+
+                    if (!$item->remove_handle) {
+                        Log::info('EditPhotoItemJob: handle cropped to reach the typed case height', [
+                            'item' => $this->itemId,
+                            'cm'   => $itemEdits['case_height_cm'],
+                        ]);
+                    }
                 }
             }
 

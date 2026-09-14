@@ -206,6 +206,20 @@ class PhotoEditorFramingTest extends TestCase
             'women/bras'      => ['0.17', 'center'],
             'women/bags'      => ['0.18', 'bottom'],
             'women/belts'     => ['0.11', 'center'],
+
+            /*
+             * 11.1% and 11.7% left and right on the one sample, the pair
+             * filling 77% of the width and 27% of the height — the width is
+             * what holds a pair of sunglasses, as it holds a belt, and the two
+             * landed on the same figure from unrelated samples.
+             *
+             * Centred, though the sample was not: it sat 53.3% down from the
+             * top with 20.1% below. Nothing in the photograph explains the drop
+             * — it is no floor line, the way footwear's is — and one supplier's
+             * crop is not a house rule. If sunglasses are meant to hang low,
+             * this pair of numbers is what to change.
+             */
+            'women/sunglasses' => ['0.11', 'center'],
             'women/footwear'  => ['0.07', 'bottom'],
         ];
 

@@ -113,6 +113,9 @@
                 <thead class="bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
                     <tr>
                         <th class="px-6 py-3 text-left">Session</th>
+                        @if ($showOwner)
+                            <th class="px-6 py-3 text-left">Run by</th>
+                        @endif
                         <th class="px-6 py-3 text-center">Found</th>
                         <th class="px-6 py-3 text-center">Edited</th>
                         <th class="px-6 py-3 text-center">Pushed</th>
@@ -141,6 +144,19 @@
                                 {{ $s->store?->name ?? 'No store' }} &middot; {{ $s->editSummary() }}
                             </p>
                         </td>
+                        {{-- Only for a super admin, whose history is everybody's
+                             runs in one list. For anyone else every row is their
+                             own and the column would be their name sixty times. --}}
+                        @if ($showOwner)
+                            <td class="px-6 py-3">
+                                <p class="max-w-[12rem] truncate text-sm text-gray-700">
+                                    {{ $s->user?->name ?? 'Deleted user' }}
+                                </p>
+                                @if ($s->user?->email)
+                                    <p class="max-w-[12rem] truncate text-xs text-gray-400">{{ $s->user->email }}</p>
+                                @endif
+                            </td>
+                        @endif
                         <td class="px-6 py-3 text-center tabular-nums text-gray-700">{{ $s->total_files }}</td>
                         <td class="px-6 py-3 text-center font-semibold tabular-nums text-emerald-700">{{ $s->edited_files }}</td>
                         <td class="px-6 py-3 text-center font-semibold tabular-nums {{ $s->pushed_files > 0 ? 'text-brand-700' : 'text-gray-300' }}">{{ $s->pushed_files }}</td>

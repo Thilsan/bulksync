@@ -115,10 +115,23 @@ class PhotoEditorController extends Controller implements HasMiddleware
             ->selectRaw('COALESCE(SUM(failed_files), 0) AS failed')
             ->first();
 
+        /*
+         * Who ran it, eagerly, and only where it can be shown. A super admin's
+         * history is everybody's runs in one list with nothing saying whose,
+         * which is fine until two people are editing the same brand and a run
+         * has to be asked about. Everyone else sees only their own, so the
+         * column would be their own name sixty times.
+         */
+        $isSuperAdmin = (bool) auth()->user()->is_super_admin;
+
         return view('photo-editor.history', [
-            'sessions'  => $this->scope()->with('store')->latest()->paginate(20),
-            'totals'    => $totals,
-            'allowance' => $this->allowance->report(),
+            'sessions'     => $this->scope()
+                ->with($isSuperAdmin ? ['store', 'user'] : ['store'])
+                ->latest()
+                ->paginate(20),
+            'totals'       => $totals,
+            'allowance'    => $this->allowance->report(),
+            'showOwner'    => $isSuperAdmin,
         ]);
     }
 

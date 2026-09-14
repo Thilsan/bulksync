@@ -220,7 +220,9 @@
                                 @endif
                             </select>
                             <span class="text-[11px] text-gray-400">
-                                Makes a large case look large. Leave it alone for anything that is not luggage.
+                                Makes a large case look large. Raised trolley handles are cropped on this SKU
+                                &mdash; a handle and a typed size cannot both fit. Leave it alone for anything
+                                that is not luggage.
                             </span>
                         </div>
 

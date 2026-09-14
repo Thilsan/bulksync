@@ -640,6 +640,18 @@ class ImageProcessingService
      * case, the height of a case photographed from the wheels up is whatever
      * the photographer chose to include.
      *
+     * Two edges, not one. A detail shot is tight on the frame in more than one
+     * direction — a close-up of a zip or a lining runs off both sides — whereas
+     * a photograph this app has itself cropped along one edge is still a
+     * picture of the whole product.
+     *
+     * That distinction is load-bearing rather than fastidious. Cutting a raised
+     * trolley handle off leaves the case flush against the top by construction,
+     * and counting a single edge classed every one of those as a detail shot,
+     * switched the case-size rule off, and framed them by plain fit instead —
+     * so the one photo whose handle was cropped came out visibly larger than
+     * its siblings. Which is the complaint that found this.
+     *
      * The slack is one per cent of the shorter side, not an exact touch. A
      * cutout leaves a soft edge a few pixels wide and the subject box is found
      * on a small proxy and rounded outwards, so a product genuinely framed
@@ -654,10 +666,12 @@ class ImageProcessingService
 
         $slack = max(2, (int) round(min($width, $height) * 0.01));
 
-        return $minX <= $slack
-            || $minY <= $slack
-            || $maxX >= $width - 1 - $slack
-            || $maxY >= $height - 1 - $slack;
+        $touching = (int) ($minX <= $slack)
+            + (int) ($minY <= $slack)
+            + (int) ($maxX >= $width - 1 - $slack)
+            + (int) ($maxY >= $height - 1 - $slack);
+
+        return $touching >= 2;
     }
 
     private function bodyHeight(string $imageContent, int $height): ?int

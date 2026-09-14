@@ -351,6 +351,11 @@ class PhotoroomService
                     'note'  => 'Measured: 11.0% and 10.8% left and right. A belt is wider than it is tall, so the width is what holds it.',
                     'edits' => ['width' => 2000, 'height' => 2000, 'padding' => 0.11],
                 ],
+                'sunglasses' => [
+                    'label' => 'Sunglasses',
+                    'note'  => 'Measured: 11.1% and 11.7% left and right, the product filling 77% of the width and 27% of the height. The width is what holds a pair of sunglasses, as it holds a belt — and belts measured 11.0% and 10.8% independently, which is the same number twice from two unrelated samples. Centred vertically: the one sample sat low, 53.3% above and 20.1% below, but nothing in it explains why and a single supplier crop is not a house rule. If sunglasses are meant to hang low, this is the entry to correct.',
+                    'edits' => ['width' => 2000, 'height' => 2000, 'padding' => 0.11],
+                ],
                 'footwear' => [
                     'label' => 'Footwear',
                     'note'  => 'Measured: 7.3% and 7.7% left and right, sitting 47% low rather than centred. Bottom-aligned on purpose — a shoe on a line reads as standing, a centred one reads as floating.',
@@ -1043,6 +1048,7 @@ class PhotoroomService
         'women/bras'      => 'the bra',
         'women/bags'      => 'the bag',
         'women/belts'     => 'the belt',
+        'women/sunglasses' => 'the sunglasses',
         'women/footwear'  => 'the shoes',
 
         'men/shirts'      => 'the shirt',

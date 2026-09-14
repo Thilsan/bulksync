@@ -741,6 +741,79 @@ class ImageProcessingServiceTest extends TestCase
         return [$minX / $w, ($w - 1 - $maxX) / $w];
     }
 
+    /**
+     * Every photo of a sized suitcase comes out the same size.
+     *
+     * The complaint: one photo ticked "no handle" came back noticeably larger
+     * than its three siblings. Nothing was broken — two rules were in conflict.
+     * A raised handle runs about 0.87x its case, so a 55 cm case asked to fill
+     * 55% of the canvas needs 103% of it with the handle up; rather than slice
+     * the handle off, the framing shrinks the whole product. Measured, that
+     * pins a handle-up photo at 47.8% however large a case is typed, so the
+     * cropped one stood at 55% beside three at 47.8%.
+     *
+     * The handle is now cropped on every photo of a SKU with a height typed
+     * against it, which is what this asserts: at the preset's own 48% the two
+     * always agreed, so the size that matters here is a larger one.
+     */
+    public function test_a_handle_up_photo_matches_a_cropped_one_once_the_handle_is_gone(): void
+    {
+        $sizes = [];
+
+        foreach ([true, false] as $handleUp) {
+            $shot = $this->caseWithHandle($handleUp);
+
+            /*
+             * The job's own order, and both steps matter. cropAboveBody cuts
+             * exactly at the top of the body, which leaves the case flush
+             * against the edge — and a subject touching its frame is how a
+             * detail shot is recognised, which would switch the size rule off
+             * on precisely the photos this is trying to make match.
+             * cropToSubject puts the margin back, and the job runs it next.
+             */
+            $cropped = $this->service->cropToSubject(
+                $this->service->cropAboveBody($shot) ?? $shot,
+            );
+
+            $framed = $this->service->frameToStandard($cropped, 2000, 0.10, 0.10, 'bottom', 0.015, null, 0.55);
+
+            $im     = imagecreatefromstring($framed);
+            $widest = 0;
+
+            for ($y = 0; $y < imagesy($im); $y++) {
+                $n = 0;
+
+                for ($x = 0; $x < imagesx($im); $x++) {
+                    if (((imagecolorat($im, $x, $y) >> 16) & 0xFF) < 200) {
+                        $n++;
+                    }
+                }
+
+                $widest = max($widest, $n);
+            }
+
+            $sizes[] = $widest;
+        }
+
+        $this->assertGreaterThan(0, $sizes[0], 'nothing was drawn');
+
+        $this->assertEqualsWithDelta(
+            $sizes[0],
+            $sizes[1],
+            $sizes[0] * 0.03,
+            'a case photographed with its handle up still comes out a different size from one without',
+        );
+    }
+
+    /** A photo with no raised handle is left exactly as it came. */
+    public function test_cropping_the_handle_leaves_a_handle_down_photo_alone(): void
+    {
+        $this->assertNull(
+            $this->service->cropAboveBody($this->caseWithHandle(false)),
+            'a case shot handle-down would have had its top cropped off',
+        );
+    }
+
     /** A close-up: the subject runs off both sides of the photograph. */
     private function detailShot(): string
     {
