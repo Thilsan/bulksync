@@ -68,6 +68,11 @@ class SettleGalleryOrderJob implements ShouldQueue
          * product and several SKUs, and a run of mixed folders is several
          * products. Each gallery is settled on its own.
          */
+        /*
+         * The products this run touched. Each one's gallery is then settled
+         * across every run that has ever fed it, not only this one — see
+         * desiredOrder(). A run is the trigger, never the scope.
+         */
         $products = PhotoEditItem::where('photo_edit_session_id', $session->id)
             ->whereNotNull('product_id')
             ->whereNotNull('shopify_image_id')
@@ -82,29 +87,61 @@ class SettleGalleryOrderJob implements ShouldQueue
     /**
      * The sequence one product's photos should end up in.
      *
-     * SKU first, then the order the operator dragged the tiles into, then the
-     * filename to break a tie — the same sort the review grid shows, and the
-     * same one galleryPosition() uses while uploading.
+     * Across every run that has sent a photo to this product, not only the run
+     * doing the asking. That is the whole correction here, and it is the same
+     * mistake as the colourway one a level up: a product is not owned by a run.
+     * Nineteen photos went up at 10:17 and eleven more at 10:39, each run
+     * numbering its own from one, so the second run's images claimed positions
+     * the first run's were already in and the gallery came out interleaved.
      *
-     * SKU first is what keeps colourways apart. A grey case and a black case
-     * are two SKUs on one Shopify product, and each numbering its own photos
-     * from one is what laid a gallery out grey, black, grey, black.
+     * Earlier run first, then the later one after it. Which is both what the
+     * operator expects of a second push and the only rule that survives a
+     * third: ordering runs by when they were created cannot depend on which of
+     * them happens to be finishing now.
+     *
+     * Within a run: SKU, then the order the tiles were dragged into, then the
+     * filename to break a tie — the review grid's own sort. SKU first is what
+     * keeps a grey case and a black case from alternating down the page.
+     *
+     * Scoped to the store, because a product id means nothing without one and
+     * two stores can easily both have a product 900.
      *
      * Public and static so the ordering can be tested without a Shopify store
-     * behind it: it is the part that has been wrong twice, and it is the part
-     * that needs no network to check.
+     * behind it: it is the part that has been wrong twice, and it needs no
+     * network to check.
      *
      * @return list<string>
      */
     public static function desiredOrder(int $sessionId, string $productId): array
     {
-        return PhotoEditItem::where('product_id', $productId)
-            ->where('photo_edit_session_id', $sessionId)
-            ->whereNotNull('shopify_image_id')
-            ->orderBy('sku_detected')
-            ->orderBy('position')
-            ->orderBy('filename')
-            ->pluck('shopify_image_id')
+        $session = PhotoEditSession::find($sessionId);
+
+        if (!$session) {
+            return [];
+        }
+
+        return PhotoEditItem::query()
+            ->join(
+                'photo_edit_sessions',
+                'photo_edit_sessions.id',
+                '=',
+                'photo_edit_items.photo_edit_session_id',
+            )
+            ->where('photo_edit_items.product_id', $productId)
+            ->whereNotNull('photo_edit_items.shopify_image_id')
+            ->when(
+                $session->store_id,
+                fn ($q) => $q->where('photo_edit_sessions.store_id', $session->store_id),
+                // An older run saved before store_id was recorded would drop out
+                // of its own gallery if this matched on null, so it is left in.
+                fn ($q) => $q,
+            )
+            ->orderBy('photo_edit_sessions.created_at')
+            ->orderBy('photo_edit_sessions.id')
+            ->orderBy('photo_edit_items.sku_detected')
+            ->orderBy('photo_edit_items.position')
+            ->orderBy('photo_edit_items.filename')
+            ->pluck('photo_edit_items.shopify_image_id')
             ->map(fn ($id) => (string) $id)
             ->values()
             ->all();

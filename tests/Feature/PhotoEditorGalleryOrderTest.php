@@ -75,6 +75,69 @@ class PhotoEditorGalleryOrderTest extends TestCase
         );
     }
 
+    /**
+     * Two runs, one product — the case that was reported.
+     *
+     * Nineteen photos went up at 10:17 and eleven more at 10:39, onto the same
+     * luggage product. Each run ordered only its own, numbering from one, so
+     * the later run's images claimed positions the earlier run's were already
+     * occupying and the gallery came out interleaved: photos pushed last
+     * appearing in the middle of photos pushed first.
+     *
+     * The earlier run comes first and the later one follows it. Ordering runs
+     * by when they were created rather than by which is finishing now is what
+     * makes this survive a third run, and a re-push of either.
+     */
+    public function test_a_later_run_lands_after_an_earlier_one_on_the_same_product(): void
+    {
+        $user  = User::factory()->create(['is_active' => true, 'perm_photo_editor' => true]);
+        $first = $this->makeSession($user);
+
+        $this->travel(1)->hours();
+
+        $second = $this->makeSession($user);
+
+        // The later run created first in the table, so row order cannot be what
+        // produces the right answer.
+        $this->item($second, ['filename' => 'z1.jpg', 'sku_detected' => 'LUG-1', 'position' => 1, 'product_id' => '900', 'shopify_image_id' => 'img-late-1']);
+        $this->item($second, ['filename' => 'z2.jpg', 'sku_detected' => 'LUG-1', 'position' => 2, 'product_id' => '900', 'shopify_image_id' => 'img-late-2']);
+        $this->item($first,  ['filename' => 'a1.jpg', 'sku_detected' => 'LUG-1', 'position' => 1, 'product_id' => '900', 'shopify_image_id' => 'img-early-1']);
+        $this->item($first,  ['filename' => 'a2.jpg', 'sku_detected' => 'LUG-1', 'position' => 2, 'product_id' => '900', 'shopify_image_id' => 'img-early-2']);
+
+        $expected = ['img-early-1', 'img-early-2', 'img-late-1', 'img-late-2'];
+
+        $this->assertSame(
+            $expected,
+            SettleGalleryOrderJob::desiredOrder($first->id, '900'),
+            'the earlier run does not see the later run\'s photos',
+        );
+
+        // And whichever run asks, the answer is the same — otherwise the last
+        // one to finish would win and the gallery would depend on the race.
+        $this->assertSame(
+            $expected,
+            SettleGalleryOrderJob::desiredOrder($second->id, '900'),
+            'the two runs disagree about the order',
+        );
+    }
+
+    /** Another store's product 900 is not this one. */
+    public function test_another_stores_product_is_not_pulled_in(): void
+    {
+        $user = User::factory()->create(['is_active' => true, 'perm_photo_editor' => true]);
+
+        $mine   = $this->makeSession($user);
+        $theirs = $this->makeSession($user);
+
+        $mine->update(['store_id' => 1]);
+        $theirs->update(['store_id' => 2]);
+
+        $this->item($mine,   ['filename' => 'a.jpg', 'sku_detected' => 'S', 'position' => 1, 'product_id' => '900', 'shopify_image_id' => 'img-mine']);
+        $this->item($theirs, ['filename' => 'b.jpg', 'sku_detected' => 'S', 'position' => 1, 'product_id' => '900', 'shopify_image_id' => 'img-theirs']);
+
+        $this->assertSame(['img-mine'], SettleGalleryOrderJob::desiredOrder($mine->id, '900'));
+    }
+
     /** A second product in the same run is ordered on its own. */
     public function test_another_product_in_the_run_is_not_mixed_in(): void
     {

@@ -88,12 +88,11 @@ class PhotoGalleryOrder extends Command
         // Named by what a person can recognise. An image id says nothing about
         // which photograph it is, and the whole question here is which photo
         // ended up where.
-        $names = PhotoEditItem::where('photo_edit_session_id', $session->id)
-            ->where('product_id', $productId)
+        $names = PhotoEditItem::where('product_id', $productId)
             ->whereNotNull('shopify_image_id')
             ->get()
             ->keyBy(fn ($i) => (string) $i->shopify_image_id)
-            ->map(fn ($i) => "{$i->sku_detected}  {$i->filename}");
+            ->map(fn ($i) => "run {$i->photo_edit_session_id}  {$i->sku_detected}  {$i->filename}");
 
         $actual = collect($shopify->getProductImages($productId))
             ->pluck('id')
