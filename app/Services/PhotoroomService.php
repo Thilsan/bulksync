@@ -1490,16 +1490,29 @@ class PhotoroomService
         }
 
         /*
-         * Left to itself, the segmentation model protects whatever it judges to
-         * be the salient object — and on a garment hanging up, that judgement
-         * takes in the hanger. The negative prompt then loses the argument and
-         * the stand survives the cutout, which is the one thing naming the
-         * product was meant to prevent.
+         * A word somebody chose, and a word a category supplied, are not the
+         * same kind of claim — so they do not get the same mode.
          *
-         * Naming the product is a statement about what the subject is, so once
-         * that has been said there is nothing left for saliency to decide.
+         * Typed: left to itself the model protects whatever it judges to be the
+         * salient object, and on a garment hanging up that judgement takes in
+         * the hanger. The negative prompt then loses the argument and the stand
+         * survives, which is the one thing naming the product was meant to
+         * prevent. Somebody who looked at the photo and typed "the bag" has
+         * settled what the subject is, so there is nothing left for saliency to
+         * decide and ignoreSalientObject is right.
+         *
+         * Auto-filled: the category's word is a fair guess about a folder, not
+         * a statement about this photograph. A scarf folder filed under tops is
+         * described as "the top", and with saliency switched off a word that
+         * matches nothing selects nothing — so the whole frame comes back, the
+         * mannequin and the studio floor with it, labelled as though it had been
+         * cut out. That happened. Leaving the mode unset keeps Photoroom's own
+         * matting in play and makes the word a hint rather than the only thing
+         * standing between the product and the room it was shot in.
          */
-        $fields['segmentation.mode'] = 'ignoreSalientObject';
+        if (empty($edits['segmentation_prompt_is_a_guess'])) {
+            $fields['segmentation.mode'] = 'ignoreSalientObject';
+        }
     }
 
     /** Seeds are what make a re-edit reproduce the run being re-edited. */

@@ -814,6 +814,87 @@ class ImageProcessingServiceTest extends TestCase
         );
     }
 
+    /**
+     * A cutout that kept the whole frame is not a cutout.
+     *
+     * The failure that arrives looking like a success: smaller file, ready
+     * status, a badge saying the mannequin was segmented out, and a picture of
+     * a mannequin standing in a studio. It happens when a text-guided
+     * segmentation is handed a word that matches nothing — "the top", on a
+     * photograph of a draped scarf — and the model returns what it was given.
+     * Nothing later in the pipeline reads the pixels, so this is the last point
+     * at which it can be noticed at all.
+     */
+    public function test_an_uncut_photograph_is_not_mistaken_for_a_cutout(): void
+    {
+        $this->assertTrue(
+            $this->service->looksUncut($this->fullFrame()),
+            'a photograph with its background still on passed as a cutout',
+        );
+    }
+
+    /**
+     * And a real cutout is not refused — including one cropped tight to the
+     * product, which is what an ordinary background removal returns and what an
+     * earlier version of this check condemned.
+     */
+    public function test_a_real_cutout_passes(): void
+    {
+        $this->assertFalse(
+            $this->service->looksUncut($this->garmentCutout()),
+            'a genuine cutout was called an uncut photograph',
+        );
+    }
+
+    /** Unreadable bytes are let through rather than stopping the run. */
+    public function test_bytes_it_cannot_read_are_let_through(): void
+    {
+        $this->assertFalse($this->service->looksUncut('not an image'));
+    }
+
+    /** A photograph edge to edge: the studio, the floor, everything. */
+    private function fullFrame(): string
+    {
+        $im = imagecreatetruecolor(1000, 1000);
+
+        for ($y = 0; $y < 1000; $y += 10) {
+            for ($x = 0; $x < 1000; $x += 10) {
+                imagefilledrectangle($im, $x, $y, $x + 9, $y + 9,
+                    imagecolorallocate($im, 120 + ($x % 60), 110 + ($y % 60), 130));
+            }
+        }
+
+        ob_start();
+        imagepng($im);
+
+        return ob_get_clean();
+    }
+
+    /**
+     * A garment on transparency, cropped tight: body with sleeves, so the
+     * bounding box has real holes in it under the arms.
+     */
+    private function garmentCutout(): string
+    {
+        $im = imagecreatetruecolor(1000, 1000);
+
+        imagesavealpha($im, true);
+        imagealphablending($im, false);
+        imagefill($im, 0, 0, imagecolorallocatealpha($im, 0, 0, 0, 127));
+        imagealphablending($im, true);
+
+        $c = imagecolorallocate($im, 150, 150, 152);
+
+        imagefilledrectangle($im, 300, 0, 700, 999, $c);   // body
+        imagefilledrectangle($im, 0, 0, 300, 350, $c);     // left sleeve
+        imagefilledrectangle($im, 700, 0, 999, 350, $c);   // right sleeve
+
+        ob_start();
+        imagepng($im);
+
+        return ob_get_clean();
+    }
+
     /** A close-up: the subject runs off both sides of the photograph. */
     private function detailShot(): string
     {

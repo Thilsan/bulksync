@@ -348,6 +348,49 @@ class EditPhotoItemJob implements ShouldQueue
             $edited = $photoroom->edit($input, $itemEdits, $item->filename);
 
             /*
+             * A cutout that kept the whole frame is not a cutout.
+             *
+             * This is the failure that arrives looking like a success — the
+             * file is smaller, the status reads ready, the badge says the
+             * mannequin was segmented out, and the picture is a mannequin
+             * standing in a studio. Nothing after this point looks at the
+             * pixels, so nothing after this point can tell, and it goes to
+             * Shopify on a real product.
+             *
+             * Failed rather than fixed, because there is no honest fix here.
+             * The request was made and the credit is spent; what is left to
+             * decide is whether a studio photograph is published, and that is
+             * not a decision to take silently. The message names the likely
+             * cause, since the operator is the one who can act on it.
+             *
+             * Checked only where the product was named by guesswork, which is
+             * the risk this app introduced. A cutout that ran on Photoroom's own
+             * matting, or on a word somebody typed after looking at the photo,
+             * is left alone: it has been working, and a check that fails good
+             * edits costs a credit each time it is wrong.
+             */
+            if (!empty($itemEdits['segmentation_prompt_is_a_guess']) && $imageService->looksUncut($edited)) {
+                $named = $itemEdits['segmentation_prompt'] ?? null;
+
+                Log::warning('EditPhotoItemJob: the cutout kept the whole frame', [
+                    'item'   => $this->itemId,
+                    'named'  => $named,
+                    'guess'  => !empty($itemEdits['segmentation_prompt_is_a_guess']),
+                ]);
+
+                $item->update([
+                    'status'        => 'failed',
+                    'error_message' => filled($named)
+                        ? "Nothing was cut out — \"{$named}\" does not seem to match what is in this photo. Name the product yourself on this SKU and re-edit."
+                        : 'Nothing was cut out — the background removal kept the whole frame.',
+                ]);
+
+                $this->syncSessionCounts($session->id);
+
+                return;
+            }
+
+            /*
              * Ghost Mannequin comes back at 1K whatever canvas was asked for —
              * Photoroom's own documentation reserves 2K and 4K for Enterprise
              * plans — and at that size it does not merely soften a print, it
@@ -666,6 +709,12 @@ class EditPhotoItemJob implements ShouldQueue
 
             if (filled($noun)) {
                 $itemEdits['segmentation_prompt'] = $noun;
+
+                // A guess about a folder, not a statement about this photograph.
+                // applySegmentation() reads this and keeps Photoroom's own
+                // matting in play rather than betting the cutout on one word.
+                $itemEdits['segmentation_prompt_is_a_guess'] = true;
+
                 $named = true;
             }
         }

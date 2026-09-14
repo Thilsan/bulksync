@@ -844,6 +844,76 @@ class ImageProcessingService
      *
      * @return array{0:int,1:int,2:int,3:int}|null
      */
+    /**
+     * Did the background removal hand back an uncut photograph?
+     *
+     * The failure that arrives looking like a success: the file is smaller, the
+     * status reads ready, the badge says the mannequin was segmented out, and
+     * the picture is a mannequin standing in a studio. Nothing later reads the
+     * pixels, so this is the last point at which it can be noticed.
+     *
+     * Not "does it fill the frame" — a plain cutout is cropped tight to the
+     * product and fills its frame by design, so that test condemns the ordinary
+     * case. What separates them is what is inside the outline: a garment has
+     * transparent holes all through its bounding box — under the arms, between
+     * the legs, around a drape — while an uncut photograph is a solid rectangle
+     * of opaque pixels, because it is a rectangle.
+     *
+     * 99% rather than 100%, and the corners are why: a rectangle that has been
+     * resampled has a few soft pixels at its edge. Even a suitcase, the most
+     * rectangular thing in this catalogue, leaves more than a hundredth of its
+     * box transparent at the corners and between the wheels.
+     *
+     * False when it cannot tell. Refusing an image it failed to read would stop
+     * work over a decoding hiccup.
+     */
+    public function looksUncut(string $imageContent): bool
+    {
+        try {
+            $img = @imagecreatefromstring($imageContent);
+
+            if (!$img) {
+                return false;
+            }
+
+            $w = imagesx($img);
+            $h = imagesy($img);
+
+            // Sampled rather than walked: a 2000-square is four million pixels
+            // and the answer here is a proportion, not a count.
+            $step = max(1, (int) floor(min($w, $h) / 300));
+
+            $opaque = 0;
+            $minX = $w; $minY = $h; $maxX = -1; $maxY = -1;
+
+            for ($y = 0; $y < $h; $y += $step) {
+                for ($x = 0; $x < $w; $x += $step) {
+                    if ((((imagecolorat($img, $x, $y) >> 24) & 0x7F)) > 100) {
+                        continue;
+                    }
+
+                    $opaque++;
+                    $minX = min($minX, $x); $maxX = max($maxX, $x);
+                    $minY = min($minY, $y); $maxY = max($maxY, $y);
+                }
+            }
+
+            imagedestroy($img);
+
+            if ($maxX < 0) {
+                return false; // Nothing opaque at all: a different failure.
+            }
+
+            $boxSamples = (int) ((($maxX - $minX) / $step + 1) * (($maxY - $minY) / $step + 1));
+
+            return $boxSamples > 0 && ($opaque / $boxSamples) > 0.99;
+        } catch (\Throwable $e) {
+            Log::warning('ImageProcessingService: could not check the cutout: ' . $e->getMessage());
+
+            return false;
+        }
+    }
+
     private function subjectBox(string $imageContent, int $width, int $height): ?array
     {
         $proxyEdge = 240;
