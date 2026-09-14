@@ -96,6 +96,11 @@ Route::middleware('auth')->group(function () {
     Route::get('/photo-editor/{session}/item/{item}/onedrive-thumb', [PhotoEditorController::class, 'onedriveThumb'])
         ->name('photo-editor.onedrive-thumb');
     Route::post('/photo-editor/{session}/push',  [PhotoEditorController::class, 'push'])->name('photo-editor.push');
+
+    // Which storefront the run's photos are destined for. Separate from the
+    // header's store picker, which only decides what a new run starts against:
+    // a run already holds its own, and the images were matched to SKUs in it.
+    Route::post('/photo-editor/{session}/store', [PhotoEditorController::class, 'changeStore'])->name('photo-editor.change-store');
     Route::delete('/photo-editor/{session}',     [PhotoEditorController::class, 'destroy'])->name('photo-editor.destroy');
 
     Route::post('/photo-editor/{session}/item/{item}/reedit', [PhotoEditorController::class, 'reedit'])

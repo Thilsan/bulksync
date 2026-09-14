@@ -45,6 +45,24 @@ class PhotoEditSession extends Model
         return $this->belongsTo(Store::class);
     }
 
+    /**
+     * How many of this run's photos are on Shopify already.
+     *
+     * Asked before letting the run be re-pointed at another store: an image id
+     * belongs to the store that made it, so once anything is out there the
+     * destination is settled. Counts the image id as well as the status, since
+     * a push that succeeded and then failed at a later step still left a
+     * picture behind.
+     */
+    public function pushedItemCount(): int
+    {
+        return PhotoEditItem::where('photo_edit_session_id', $this->id)
+            ->where(function ($q) {
+                $q->whereNotNull('shopify_image_id')->orWhere('status', 'pushed');
+            })
+            ->count();
+    }
+
     public function items(): HasMany
     {
         return $this->hasMany(PhotoEditItem::class);

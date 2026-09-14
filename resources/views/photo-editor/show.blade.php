@@ -25,9 +25,47 @@
             <h2 class="truncate text-lg font-semibold text-gray-900">{{ $session->name }}</h2>
             <p class="mt-0.5 text-sm text-gray-500">
                 {{ $session->editSummary() }}
-                &middot; {{ $session->store?->name ?? 'No store' }}
                 &middot; {{ $session->created_at->format('d M Y H:i') }}
             </p>
+
+            {{-- Which storefront these photos are going to.
+                 Shown here rather than left to the picker in the header,
+                 because they are not the same thing and look as though they
+                 are: the header decides what the next new run starts against,
+                 while a run already holds its own from the day it was fetched.
+                 A folder fetched with one store selected pushes there however
+                 the header is set afterwards, and the only remedy was to fetch
+                 the whole folder again.
+
+                 It becomes plain text the moment anything has been sent. A
+                 Shopify image id belongs to the store it was made in, so a run
+                 with images out there cannot be re-pointed without this side
+                 believing it can reorder pictures it can no longer reach. --}}
+            <div class="mt-1.5">
+                @if ($session->pushedItemCount() > 0)
+                    <p class="text-sm text-gray-500">
+                        Pushing to <span class="font-medium text-gray-700">{{ $session->store?->name ?? 'no store' }}</span>
+                        <span class="text-gray-400">— fixed, {{ $session->pushedItemCount() }} already sent</span>
+                    </p>
+                @else
+                    <form method="POST" action="{{ route('photo-editor.change-store', $session) }}"
+                          class="flex flex-wrap items-center gap-2">
+                        @csrf
+                        <label for="run-store" class="text-sm text-gray-500">Pushing to</label>
+                        <select id="run-store" name="store_id" onchange="this.form.requestSubmit()"
+                                class="rounded-lg border border-gray-300 bg-white px-2 py-1 text-sm focus:border-brand-500 focus:outline-none">
+                            @foreach ($stores as $store)
+                                <option value="{{ $store->id }}" @selected($store->id === $session->store_id)>
+                                    {{ $store->name }}
+                                </option>
+                            @endforeach
+                        </select>
+                        <noscript>
+                            <button type="submit" class="rounded-lg border border-gray-300 px-2 py-1 text-sm">Change</button>
+                        </noscript>
+                    </form>
+                @endif
+            </div>
         </div>
         <div class="flex items-center gap-2">
             <a href="{{ route('photo-editor.index') }}"

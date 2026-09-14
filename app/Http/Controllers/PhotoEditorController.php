@@ -130,6 +130,10 @@ class PhotoEditorController extends Controller implements HasMiddleware
             'session'       => $session,
             'isSandbox'     => $this->photoroom->isSandbox(),
             'retentionDays' => (int) config('services.photoroom.retention_days', 7),
+
+            // So the run's destination can be corrected without fetching the
+            // whole folder again. See changeStore().
+            'stores'        => Store::accessibleBy(auth()->user())->orderBy('name')->get(),
         ]);
     }
 
@@ -1104,6 +1108,69 @@ class PhotoEditorController extends Controller implements HasMiddleware
         return $user->is_super_admin
             ? PhotoEditSession::query()
             : PhotoEditSession::where('user_id', $user->id);
+    }
+
+    /**
+     * Send this run's photos to a different storefront.
+     *
+     * The run holds its own store, decided when it was created, and the push
+     * reads it from there — not from the picker in the header, which only says
+     * what the next new run starts against. So a folder fetched while Bluesalon
+     * was selected goes to Bluesalon however the header is set afterwards, and
+     * the only way to change that was to fetch the whole folder again.
+     *
+     * Refused once anything has been sent. A Shopify image id belongs to the
+     * store it was created in: re-pointing a run afterwards would leave this
+     * side believing it can replace or reorder images it can no longer reach,
+     * and the gallery it thinks it is fixing would be on the other store.
+     * Nothing is un-pushed, so the honest answer is to start a new run.
+     */
+    public function changeStore(Request $request, PhotoEditSession $session): RedirectResponse
+    {
+        $this->authorizeSession($session);
+
+        $validated = $request->validate([
+            'store_id' => ['required', 'integer'],
+        ]);
+
+        $store = Store::accessibleBy(auth()->user())->whereKey($validated['store_id'])->first();
+
+        if (!$store) {
+            return back()->with('error', 'That store is not one you can push to.');
+        }
+
+        $alreadySent = PhotoEditItem::where('photo_edit_session_id', $session->id)
+            ->where(function ($q) {
+                $q->whereNotNull('shopify_image_id')->orWhere('status', 'pushed');
+            })
+            ->count();
+
+        if ($alreadySent) {
+            return back()->with(
+                'error',
+                "{$alreadySent} photo(s) are already on {$session->store?->name}. "
+                . 'Those images belong to that store, so this run stays with it — start a new edit for another store.',
+            );
+        }
+
+        $session->update(['store_id' => $store->id]);
+
+        /*
+         * The SKU match was made against the old store and is now meaningless:
+         * the same code is a different product, or no product, on the new one.
+         * Cleared rather than left to look convincing until the push lands
+         * somewhere unexpected. The edited files are untouched — the expensive
+         * part is the editing, and none of that has to happen again.
+         */
+        PhotoEditItem::where('photo_edit_session_id', $session->id)->update([
+            'product_id'    => null,
+            'product_title' => null,
+            'variant_id'    => null,
+            'variant_sku'   => null,
+            'error_message' => null,
+        ]);
+
+        return back()->with('success', "This run will now push to {$store->name}.");
     }
 
     private function authorizeSession(PhotoEditSession $session): void
