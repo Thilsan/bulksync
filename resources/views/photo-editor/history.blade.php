@@ -41,8 +41,17 @@
                 <p class="text-xs text-gray-500">Left</p>
             </div>
             <div>
-                <p class="text-2xl font-semibold tabular-nums text-gray-400">{{ number_format($allowance['quota']) }}</p>
-                <p class="text-xs text-gray-500">Total</p>
+                {{-- Titled rather than left bare: this is the one figure on the
+                     card that nothing measures. Photoroom publishes no balance
+                     this app can read, so the total is whatever PHOTOROOM_MONTHLY_QUOTA
+                     was set to — which means a top-up bought this morning is
+                     invisible here until somebody raises it. That looked like a
+                     stale reading rather than an unasked question. --}}
+                <p class="text-2xl font-semibold tabular-nums text-gray-400"
+                   title="Set by hand in PHOTOROOM_MONTHLY_QUOTA. Photoroom is never asked, so a top-up has to be added here.">
+                    {{ number_format($allowance['quota']) }}
+                </p>
+                <p class="text-xs text-gray-500">Total <span class="text-gray-400">&mdash; set by hand</span></p>
             </div>
         </div>
 
@@ -53,6 +62,8 @@
 
         <p class="mt-2 text-xs text-gray-400">
             Counted from this app's own edits, so treat it as a minimum.
+            The total is the figure in PHOTOROOM_MONTHLY_QUOTA &mdash; top-ups are not read
+            from Photoroom, so raise it there after buying credits.
             @if ($allowance['charged_failures'])
                 Includes {{ $allowance['charged_failures'] }} failed {{ Str::plural('edit', $allowance['charged_failures']) }} that still cost a request.
             @endif
