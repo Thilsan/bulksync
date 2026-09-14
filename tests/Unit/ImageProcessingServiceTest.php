@@ -634,6 +634,126 @@ class ImageProcessingServiceTest extends TestCase
             'a case with its handle up and one without come out different sizes');
     }
 
+    /**
+     * A detail shot is not a small case, and must not be framed as one.
+     *
+     * A luggage folder is one photograph of the case and nine of its parts —
+     * the wheels, the zip, the open lining — each framed tight in camera so the
+     * subject runs off its own edges. What the body measurement reads on those
+     * is a band of the case, not the case, and asked to make that band 65% of
+     * the canvas the arithmetic enlarges until the width stops it: the product
+     * lands edge to edge with no margin, which reads as a cropping fault and
+     * was reported as one.
+     *
+     * So the assertion is on the margin rather than the size. A detail shot has
+     * no right answer for how big it should be; it has a right answer for how
+     * close to the edge it may come, which is the same as every other photo.
+     */
+    public function test_a_detail_shot_is_not_driven_to_the_canvas_edge(): void
+    {
+        $framed = $this->service->frameToStandard(
+            $this->detailShot(),
+            2000,
+            0.10,
+            null,
+            'center',
+            0.015,
+            null,
+            0.65,
+        );
+
+        [$left, $right] = $this->sideMarginsOf($framed);
+
+        // The padding it was given, less the rounding of a box found on a proxy.
+        foreach (['left' => $left, 'right' => $right] as $side => $margin) {
+            $this->assertGreaterThan(
+                0.09,
+                $margin,
+                "the {$side} edge of a detail shot was pushed to the canvas edge",
+            );
+        }
+    }
+
+    /**
+     * And the rule still applies where it means something: a case photographed
+     * whole, with room round it, is still sized by the height typed for it.
+     */
+    public function test_a_whole_case_still_gets_the_size_it_was_given(): void
+    {
+        $framed = $this->service->frameToStandard(
+            $this->caseWithHandle(false),
+            2000,
+            0.10,
+            null,
+            'center',
+            0.015,
+            null,
+            0.65,
+        );
+
+        $im   = imagecreatefromstring($framed);
+        $rows = 0;
+
+        for ($y = 0; $y < imagesy($im); $y++) {
+            for ($x = 0; $x < imagesx($im); $x++) {
+                $c = imagecolorat($im, $x, $y);
+
+                if ((($c >> 16) & 0xFF) < 200) {
+                    $rows++;
+                    break;
+                }
+            }
+        }
+
+        $this->assertEqualsWithDelta(
+            0.65,
+            $rows / imagesy($im),
+            0.02,
+            'a whole case no longer fills the height it was told to',
+        );
+    }
+
+    /** How much clear canvas is left either side, as a fraction of the width. */
+    private function sideMarginsOf(string $bytes): array
+    {
+        $im = imagecreatefromstring($bytes);
+        $w  = imagesx($im);
+        $h  = imagesy($im);
+
+        $minX = $w;
+        $maxX = -1;
+
+        for ($y = 0; $y < $h; $y++) {
+            for ($x = 0; $x < $w; $x++) {
+                $c = imagecolorat($im, $x, $y);
+
+                if ((($c >> 24) & 0x7F) > 100 || (($c >> 16) & 0xFF) > 250) {
+                    continue;
+                }
+
+                $minX = min($minX, $x);
+                $maxX = max($maxX, $x);
+            }
+        }
+
+        $this->assertGreaterThanOrEqual(0, $maxX, 'nothing was drawn');
+
+        return [$minX / $w, ($w - 1 - $maxX) / $w];
+    }
+
+    /** A close-up: the subject runs off both sides of the photograph. */
+    private function detailShot(): string
+    {
+        $im = imagecreatetruecolor(1600, 1200);
+        imagefilledrectangle($im, 0, 0, 1600, 1200, imagecolorallocate($im, 255, 255, 255));
+        imagefilledrectangle($im, 0, 500, 1599, 1150, imagecolorallocate($im, 40, 40, 45));
+
+        ob_start();
+        imagepng($im);
+
+        return ob_get_clean();
+    }
+
     /** A wide block, optionally with a tall narrow pole standing on it. */
     private function caseWithHandle(bool $handleUp): string
     {

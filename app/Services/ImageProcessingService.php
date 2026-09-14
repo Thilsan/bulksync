@@ -247,7 +247,27 @@ class ImageProcessingService
                  * one image slightly small beats one with its handle sliced
                  * through.
                  */
-                $bodyHeight = $this->bodyHeight($imageContent, $h);
+                /*
+                 * Only a shot with the whole case in it has a case height.
+                 *
+                 * A luggage folder is not ten photographs of the case — it is
+                 * one of the case and nine details: the wheels, the zip, the
+                 * lining, the open interior. Those are framed tight in camera
+                 * and run off their own edges, so what is measured on them is a
+                 * band of the case, not the case. Asked to make that band 65%
+                 * of the canvas, the arithmetic enlarges until the width cap
+                 * stops it, and the cap lands the product edge to edge with no
+                 * margin at all — which is the cut-off look, and it is this
+                 * doing it rather than the photograph.
+                 *
+                 * So a subject touching its source frame is framed the ordinary
+                 * way, fitted inside its padding. Nothing is lost by that: the
+                 * size rule exists so cabin, medium and large can be told apart
+                 * in a gallery, and a gallery shows the case shot, not the zip.
+                 */
+                $bodyHeight = $this->isCropped($box, $w, $h)
+                    ? null
+                    : $this->bodyHeight($imageContent, $h);
 
                 if ($bodyHeight === null || $bodyHeight <= 0) {
                     $scale = min($availableW / $boxW, $availableH / $boxH);
@@ -260,8 +280,15 @@ class ImageProcessingService
                         $scale = $ceiling / $boxH;
                     }
 
-                    if ($boxW * $scale > $canvasEdge) {
-                        $scale = $canvasEdge / $boxW;
+                    /*
+                     * The side margin is kept, unlike the necklace branches
+                     * below which spend it to hold a shared baseline. A case
+                     * has no baseline to share — its rule is its height — so
+                     * there is nothing to buy with the margin, and running to
+                     * the canvas edge only reads as a cropping mistake.
+                     */
+                    if ($boxW * $scale > $availableW) {
+                        $scale = $availableW / $boxW;
                     }
                 }
             } elseif ($paddingTop !== null && $paddingBottom !== null) {
@@ -604,6 +631,35 @@ class ImageProcessingService
      * of a suitcase, not the trolley handle standing on it. Returns null when
      * the profile cannot be read.
      */
+    /**
+     * Does the product run off the edge of the photograph it was shot in?
+     *
+     * Which is to say: is this a detail shot rather than a picture of the whole
+     * product. It is the difference between a measurement that means something
+     * and one that does not — the height of a case photographed whole is the
+     * case, the height of a case photographed from the wheels up is whatever
+     * the photographer chose to include.
+     *
+     * The slack is one per cent of the shorter side, not an exact touch. A
+     * cutout leaves a soft edge a few pixels wide and the subject box is found
+     * on a small proxy and rounded outwards, so a product genuinely framed
+     * against the edge lands a pixel or two inside it often enough that testing
+     * for zero would miss half of them.
+     *
+     * @param array{0:int,1:int,2:int,3:int} $box
+     */
+    private function isCropped(array $box, int $width, int $height): bool
+    {
+        [$minX, $minY, $maxX, $maxY] = $box;
+
+        $slack = max(2, (int) round(min($width, $height) * 0.01));
+
+        return $minX <= $slack
+            || $minY <= $slack
+            || $maxX >= $width - 1 - $slack
+            || $maxY >= $height - 1 - $slack;
+    }
+
     private function bodyHeight(string $imageContent, int $height): ?int
     {
         $rows = $this->productPerRow($imageContent);
