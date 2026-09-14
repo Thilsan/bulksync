@@ -322,5 +322,41 @@ class PushEditedPhotoJob implements ShouldQueue
             'pushed_files' => PhotoEditItem::where('photo_edit_session_id', $sessionId)
                 ->where('status', 'pushed')->count(),
         ]);
+
+        $this->settleGalleryOrder($sessionId);
+    }
+
+    /**
+     * Once nothing is still on its way, put the galleries in order.
+     *
+     * It cannot be done while uploading. A position named on an upload is
+     * clamped to the gallery as it stands at that instant, so with several
+     * workers running the sequence that survives is the order things finished
+     * in, not the order that was asked for. The numbers only mean what they say
+     * against a complete gallery, which is here.
+     *
+     * Called from syncPushedCount so it runs on the last push whether that push
+     * succeeded, was skipped for a missing file, or failed outright — an item
+     * that never arrives must not leave the others out of order for ever.
+     *
+     * Every worker that finishes asks the same question and only the last one
+     * gets "none left", so this dispatches once per run under ordinary racing.
+     * Two answering at once would only reorder the same gallery to the same
+     * sequence, which is why the settling job is written to be repeatable.
+     */
+    private function settleGalleryOrder(int $sessionId): void
+    {
+        $stillGoing = PhotoEditItem::where('photo_edit_session_id', $sessionId)
+            ->where('status', 'pushing')
+            // A worker killed mid-flight leaves a row marked in flight for
+            // ever, and waiting on it would mean never ordering the gallery.
+            ->where('updated_at', '>', now()->subMinutes(30))
+            ->exists();
+
+        if ($stillGoing) {
+            return;
+        }
+
+        SettleGalleryOrderJob::dispatch($sessionId)->onQueue('bulkupload');
     }
 }

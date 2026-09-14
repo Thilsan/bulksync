@@ -522,6 +522,37 @@ class ShopifyService
     }
 
     /**
+     * Move one image to a given place in a product's gallery.
+     *
+     * Needed because naming a position on upload does not settle the order.
+     * Shopify clamps a position to the gallery as it stands at that moment, so
+     * asking for position 7 of an eventual 27 lands the image at the end if
+     * only six are up yet — and with several workers uploading at once, "as it
+     * stands at that moment" is just whichever job finished first. Positions
+     * set afterwards, against a complete gallery, are the only ones that hold.
+     *
+     * Images are renumbered around the one that moves, so a caller setting a
+     * whole sequence has to walk it in ascending order. See SettleGalleryOrderJob.
+     */
+    public function setImagePosition(string $productId, string $imageId, int $position): bool
+    {
+        $this->throttle();
+
+        try {
+            $this->http->put(
+                "admin/api/{$this->apiVersion}/products/{$productId}/images/{$imageId}.json",
+                ['json' => ['image' => ['id' => (int) $imageId, 'position' => max(1, $position)]]],
+            );
+
+            return true;
+        } catch (\Throwable $e) {
+            Log::warning("Shopify setImagePosition({$productId}, {$imageId}): " . $e->getMessage());
+
+            return false;
+        }
+    }
+
+    /**
      * Return all images for a product, fields: id, alt, position.
      * Results are sorted by position (Shopify's natural order).
      */

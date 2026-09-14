@@ -1017,6 +1017,15 @@ class PhotoEditorController extends Controller implements HasMiddleware
             ->whereNotNull('edited_path')
             ->pluck('id');
 
+        /*
+         * Marked in flight here rather than when each job starts, so that the
+         * set of outstanding pushes is known from the moment they are queued.
+         * The last job to finish is the one that puts the gallery in order, and
+         * it can only recognise itself as last if the ones still waiting in the
+         * queue are already distinguishable from the ones nobody asked for.
+         */
+        PhotoEditItem::whereIn('id', $pushable)->update(['status' => 'pushing']);
+
         foreach ($pushable as $id) {
             PushEditedPhotoJob::dispatch($id)->onQueue('bulkupload');
         }
