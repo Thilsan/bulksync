@@ -1337,13 +1337,38 @@ class PhotoEditorTest extends TestCase
      * options are additions beside it, not a replacement for it.
      */
 
+    /**
+     * What Photoroom hands back from a successful cutout: a garment with
+     * transparency around it.
+     *
+     * It used to be a solid rectangle, which was fine while nothing read the
+     * pixels. The uncut check reads them now — a cutout that kept the whole
+     * frame is a failed cutout — so a fixture with no transparency in it is
+     * indistinguishable from the studio photograph that check exists to catch.
+     */
     private function fakeGarment(): string
     {
-        $img = imagecreatetruecolor(60, 90);
-        imagefill($img, 0, 0, imagecolorallocate($img, 200, 180, 160));
+        $img = imagecreatetruecolor(300, 450);
+
+        imagesavealpha($img, true);
+        imagealphablending($img, false);
+        imagefill($img, 0, 0, imagecolorallocatealpha($img, 0, 0, 0, 127));
+        imagealphablending($img, true);
+
+        /*
+         * A T, not a block. The uncut check asks whether the opaque area fills
+         * its own bounding box — a rectangle does, which is exactly what an
+         * uncut studio photograph looks like — so the fixture needs the
+         * transparent corners a real garment leaves.
+         */
+        $c = imagecolorallocate($img, 200, 180, 160);
+
+        imagefilledrectangle($img, 110, 60, 190, 390, $c);  // body
+        imagefilledrectangle($img,  40, 60, 110, 170, $c);  // left sleeve
+        imagefilledrectangle($img, 190, 60, 260, 170, $c);  // right sleeve
 
         ob_start();
-        imagejpeg($img, null, 90);
+        imagepng($img);
         imagedestroy($img);
 
         return (string) ob_get_clean();

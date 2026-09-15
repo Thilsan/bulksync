@@ -426,4 +426,38 @@ class PhotoEditorNoRedrawTest extends TestCase
 
         $this->assertSame('ghost_mannequin', $mode);
     }
+
+    /**
+     * A word the operator typed is checked too, and failed rather than retried.
+     *
+     * The check used to run only on the app's own guesses, on the reasoning
+     * that somebody looking at the photograph could be trusted to name it. A
+     * typed "the skirt" then came back as a mannequin standing in a studio,
+     * marked ready, and nothing looked. Whether a cutout worked is a fact about
+     * the pixels; who chose the word has no bearing on it.
+     *
+     * It is failed rather than retried because the operator has already made
+     * the judgement a retry would be overruling, and it is their credit.
+     */
+    public function test_a_typed_name_that_cuts_nothing_out_fails_instead_of_publishing(): void
+    {
+        Http::fake([
+            'image-api.photoroom.com/*' => Http::response($this->solidRectangle(), 200),
+        ]);
+
+        $item = $this->runItem([
+            'framing_preset'      => 'women/skirts',
+            'segmentation_prompt' => 'the skirt',   // typed, so never a guess
+        ]);
+
+        $this->assertSame('failed', $item->status,
+            'a studio photograph went out as ready because the operator typed the word');
+
+        $this->assertStringContainsString('the skirt', (string) $item->error_message,
+            'the message should name the word that found nothing');
+
+        // One request, not two: a typed word is not second-guessed with another
+        // credit.
+        Http::assertSentCount(1);
+    }
 }

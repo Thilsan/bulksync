@@ -378,14 +378,21 @@ class EditPhotoItemJob implements ShouldQueue
              * not a decision to take silently. The message names the likely
              * cause, since the operator is the one who can act on it.
              *
-             * Checked only where the product was named by guesswork, which is
-             * the risk this app introduced. A cutout that ran on Photoroom's own
-             * matting, or on a word somebody typed after looking at the photo,
-             * is left alone: it has been working, and a check that fails good
-             * edits costs a credit each time it is wrong.
+             * Checked wherever the product was named, however it was named.
+             *
+             * It used to run only on the app's own guesses, on the reasoning
+             * that a word typed by somebody looking at the photograph could be
+             * trusted. That reasoning was wrong in a way the pictures showed: a
+             * typed "the skirt" came back as a mannequin in a studio, marked
+             * ready, and nothing looked. Whether the cutout worked is a fact
+             * about the pixels; who chose the word has no bearing on it.
+             *
+             * A cutout that ran on Photoroom's own matting is still left alone —
+             * there is no prompt to blame and nothing to retry without.
              */
-            if (!empty($itemEdits['segmentation_prompt_is_a_guess']) && $imageService->looksUncut($edited)) {
-                $guess = (string) ($itemEdits['segmentation_prompt'] ?? '');
+            if (filled($itemEdits['segmentation_prompt'] ?? null) && $imageService->looksUncut($edited)) {
+                $guess     = (string) $itemEdits['segmentation_prompt'];
+                $wasGuess  = !empty($itemEdits['segmentation_prompt_is_a_guess']);
 
                 /*
                  * Asked again, without the word.
@@ -413,10 +420,36 @@ class EditPhotoItemJob implements ShouldQueue
                  *
                  * One credit, spent only where the first was wasted anyway.
                  */
-                Log::warning('EditPhotoItemJob: the named cutout kept the whole frame, retrying unnamed', [
-                    'item'  => $this->itemId,
-                    'named' => $guess,
+                Log::warning('EditPhotoItemJob: the named cutout kept the whole frame', [
+                    'item'    => $this->itemId,
+                    'named'   => $guess,
+                    'guessed' => $wasGuess,
                 ]);
+
+                /*
+                 * Retried only where the app chose the word.
+                 *
+                 * A guess can be wrong in ways nothing here can anticipate, so
+                 * dropping it and falling back to Photoroom's own matting is
+                 * worth a credit. A word the operator typed after looking at
+                 * the photograph is different: they have already made the
+                 * judgement this retry would be second-guessing, and spending
+                 * their credit to overrule them is not ours to do. Failing and
+                 * saying why leaves the next move with the person who can make
+                 * it.
+                 */
+                if (!$wasGuess) {
+                    $item->update([
+                        'status'        => 'failed',
+                        'error_message' => "Nothing was cut out — \"{$guess}\" found no product in this photo, "
+                            . 'so the whole studio came back. Try clearing the "Keep" box to use Photoroom\'s own '
+                            . 'background removal, or a different description.',
+                    ]);
+
+                    $this->syncSessionCounts($session->id);
+
+                    return;
+                }
 
                 $retry = $itemEdits;
                 unset(
