@@ -111,6 +111,11 @@ class PhotoEditorNoRedrawTest extends TestCase
             'view_type'         => 'front',
             'mannequin_visible' => true,
             'product'           => 'the cropped top',
+            'support'           => 'the hanger',
+
+            // Held, not worn — the case where naming the product is offered at
+            // all, and therefore the case where a bad guess has to be caught.
+            'support_type'      => 'held',
         ]);
 
         (new EditPhotoItemJob($item->id))->handle(
@@ -170,11 +175,14 @@ class PhotoEditorNoRedrawTest extends TestCase
         bool $mannequinVisible,
         ?string $seen = null,
         ?string $support = null,
+        ?string $supportType = 'held',
     ): array {
         $method = new \ReflectionMethod(EditPhotoItemJob::class, 'chooseApparelRoute');
         $method->setAccessible(true);
 
-        return $method->invoke(new EditPhotoItemJob(1), $edits, $mannequinVisible, $seen, $support);
+        return $method->invoke(
+            new EditPhotoItemJob(1), $edits, $mannequinVisible, $seen, $support, $supportType,
+        );
     }
 
     /**
@@ -193,8 +201,11 @@ class PhotoEditorNoRedrawTest extends TestCase
         $this->assertFalse((bool) ($itemEdits['ghost_mannequin'] ?? false));
     }
 
-    /** Every category with a product noun refuses the redraw, not just tops. */
-    public function test_no_category_with_a_named_product_is_ever_redrawn(): void
+    /**
+     * Every category with a product noun names it, not just tops — so no run
+     * that left the redraw alone can reach a generative pass by accident.
+     */
+    public function test_every_named_category_is_cut_out_rather_than_erased(): void
     {
         foreach (PhotoroomService::PRODUCT_NOUNS as $key => $noun) {
             [$mode, $itemEdits] = $this->route(
@@ -311,8 +322,50 @@ class PhotoEditorNoRedrawTest extends TestCase
     }
 
     /**
-     * The redraw is still reachable. A category nobody has given a word to has
-     * nothing better to offer, and the operator did ask for it.
+     * A dress form cannot be cut out of a photograph, so naming is not offered.
+     *
+     * It is inside the garment: it shows through the neck, it is what the
+     * garment takes its shape from, and what is behind it is the inside of the
+     * garment, which the photograph does not contain. Asked to try, the cutout
+     * keeps it — a mannequin returned still wearing the poncho after the
+     * background came away cleanly, which is what was reported.
+     *
+     * The operator asked for the stand to go, and only a redraw can do it.
+     */
+    public function test_a_worn_dress_form_goes_to_the_redraw_rather_than_a_cutout(): void
+    {
+        [$mode] = $this->route(
+            ['framing_preset' => 'women/top', 'ghost_mannequin' => true],
+            true,
+            'the scarf',
+            'the mannequin',
+            'worn',
+        );
+
+        $this->assertSame('ghost_mannequin', $mode,
+            'a garment on a dress form was sent to a cutout that cannot remove one');
+    }
+
+    /**
+     * And an unrecognised support falls through to the redraw, because that is
+     * the route that can always remove one and the operator did ask.
+     */
+    public function test_an_unknown_support_falls_through_to_the_redraw(): void
+    {
+        [$mode] = $this->route(
+            ['framing_preset' => 'women/top', 'ghost_mannequin' => true],
+            true,
+            'the scarf',
+            'the mannequin',
+            null,
+        );
+
+        $this->assertSame('ghost_mannequin', $mode);
+    }
+
+    /**
+     * The redraw is still reachable for a category nobody has given a word to,
+     * which is what it was always for.
      */
     public function test_an_unnamed_category_can_still_be_redrawn(): void
     {

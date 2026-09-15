@@ -347,6 +347,7 @@ Return a JSON object with exactly these fields:
 - \"mannequin_visible\": true if ANY support the item is displayed on is visible in the frame — a mannequin, dress form, bust, headless body, clothes rail, garment rack, hanger, hook, or stand. False only when the item is alone in the frame.
 - \"product\": the garment itself in two or three plain words, beginning with \"the\" — \"the scarf\", \"the poncho\", \"the cami top\", \"the suitcase\". Name what the thing IS, as a shopper would say it, not what it is made of, what colour it is, or how it is displayed. Never name the mannequin, the hanger or the background.
 - \"support\": what is holding the item up, in two or three plain words beginning with \"the\" — \"the mannequin\", \"the dress form\", \"the hanger\", \"the clothes rail\", \"the stand\". Null when nothing is holding it. Name only the support itself, never the product on it.
+- \"support_type\": \"worn\" if the item is worn ON the support so that the support is inside or underneath it — a mannequin, dress form, bust or body the garment is dressed onto. \"held\" if the support only holds the item up from outside — a hanger, hook, rail, or a stand the product rests on or leans against. Null when there is no support.
 
 Return only valid JSON. No markdown, no code blocks, no extra text.";
 
@@ -410,6 +411,22 @@ Return only valid JSON. No markdown, no code blocks, no extra text.";
              * is worse than none.
              */
             'support' => $this->cleanProductNoun($data['support'] ?? null),
+
+            /*
+             * And whether the support can be cut away at all.
+             *
+             * A hanger holds a garment from outside: it can be cut out of the
+             * real photograph, leaving every pixel of the product. A dress form
+             * is inside the garment and shows through it — cutting it away leaves
+             * a hole where the product's own inside should be, so the only way to
+             * remove one is to redraw the garment around where it stood.
+             *
+             * Which is a genuine choice between two losses, and the routing needs
+             * to know which one it is looking at before it can offer either.
+             */
+            'support_type' => in_array($data['support_type'] ?? null, ['worn', 'held'], true)
+                ? $data['support_type']
+                : null,
         ];
     }
 

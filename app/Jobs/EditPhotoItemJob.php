@@ -200,6 +200,7 @@ class EditPhotoItemJob implements ShouldQueue
                         (bool) ($classification && !empty($classification['mannequin_visible'])),
                         $classification['product'] ?? null,
                         $classification['support'] ?? null,
+                        $classification['support_type'] ?? null,
                     );
 
                     /*
@@ -751,6 +752,7 @@ class EditPhotoItemJob implements ShouldQueue
         bool $standVisible,
         ?string $seen = null,
         ?string $support = null,
+        ?string $supportType = null,
     ): array {
         $itemEdits   = $edits;
         $named       = filled($edits['segmentation_prompt'] ?? null);
@@ -779,7 +781,31 @@ class EditPhotoItemJob implements ShouldQueue
          * erase is working already, and swapping its matting for a text prompt
          * would be changing what is not broken.
          */
-        if (!$named && $standVisible) {
+        /*
+         * Whether naming the product can work at all depends on what is holding
+         * it up, and the two cases are not alike.
+         *
+         * A hanger, a rail, a bag stand — these hold the product from outside.
+         * Naming the product cuts them out of the real photograph and every
+         * pixel of the product survives, which is strictly better than any
+         * generative route and is what the naming was built for.
+         *
+         * A dress form is inside the garment. It shows through the neck and
+         * below the hem, and it is what the garment takes its shape from. There
+         * is no cutting that away: what is behind it is the inside of the
+         * garment, which the photograph does not contain. Asked to try, the
+         * cutout keeps the form — which is what was reported, a mannequin
+         * returned still wearing the poncho after the background came away
+         * cleanly. Only a redraw removes one, and a redraw is a redraw.
+         *
+         * So the guess is offered where it can succeed and withheld where it
+         * cannot. An unknown support falls through to the redraw, because the
+         * operator asked for the stand to go and that is the route that can
+         * always do it.
+         */
+        $canBeCutAway = $supportType === 'held';
+
+        if (!$named && $standVisible && $canBeCutAway) {
             /*
              * What the classifier saw, before what the folder is called.
              *
