@@ -243,6 +243,39 @@ class PhotoEditorTest extends TestCase
         $this->assertStringNotContainsString('floating', $prompt);
     }
 
+    /**
+     * The redraw instruction forbids them too, and has more riding on it.
+     *
+     * Ghost Mannequin builds its own picture, and GhostCompositeService then
+     * lines that picture up against the photograph so the print, colour and
+     * drape stay the camera's — only the hole the stand left comes from the
+     * redraw. A tilted garment breaks the registration, the composite refuses,
+     * and the feature falls back to a plain cutout with the stand still in it.
+     *
+     * So a tilt here does not cost some accuracy, it costs the whole feature.
+     * This prompt carried a summary — "the same position, the same angle" —
+     * while the erase prompt beside it refused each movement separately; the
+     * shirts that arrived tilted came from the summary.
+     */
+    public function test_the_redraw_instruction_forbids_moving_the_garment(): void
+    {
+        $prompt = strtolower(PhotoroomService::GHOST_MANNEQUIN_PROMPT);
+
+        foreach ([
+            'do not rotate', 'do not tilt', 'lay it flat', 'up, down or sideways',
+            'same angle', 'same position', 'same size',
+        ] as $rule) {
+            $this->assertStringContainsString($rule, $prompt, "the redraw instruction stopped forbidding: {$rule}");
+        }
+
+        // What it is for, and the one thing it must still ask for.
+        $this->assertStringContainsString('remove the stand', $prompt);
+
+        // The print is the part a redraw is most liable to reinvent.
+        $this->assertStringContainsString('print, logo and lettering', $prompt);
+        $this->assertStringNotContainsString('floating', $prompt);
+    }
+
     /** A transparent cutout is a PNG wherever the setting was chosen. */
     public function test_a_transparent_background_is_saved_as_png(): void
     {

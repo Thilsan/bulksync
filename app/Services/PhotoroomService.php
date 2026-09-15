@@ -681,11 +681,30 @@ class PhotoroomService
      * it is one it may take — an earlier instruction that asked for the garment
      * "floating in its place" got shirts back tilted.
      */
+    /*
+     * Every way a garment can move, refused one at a time.
+     *
+     * "The same position, the same angle" was already here and was not enough:
+     * the tilted shirts GhostCompositeService measures came back from a prompt
+     * that had asked for neither a tilt nor a move. A redraw builds a new
+     * picture, and a summary leaves it room to decide what counts as the same.
+     *
+     * The wording below is MANNEQUIN_REMOVAL_PROMPT's, which refuses each way
+     * of moving separately and has been the more reliable of the two. It
+     * matters more here than there: a tilted garment does not merely look
+     * wrong, it stops the composite lining redrawn pixels up with the
+     * photograph, and a composite that cannot line up is rejected — so the tilt
+     * costs the whole feature, not just some accuracy.
+     */
     public const GHOST_MANNEQUIN_PROMPT = 'Remove only the hanger, hook, clothes rail, garment rack, mannequin, '
         . 'dress form, headless body or stand that this garment is displayed on. '
-        . 'Do not change the image or the direction of the image. Keep the garment exactly as it is: the same '
-        . 'position, the same angle, the same size, the same shape, the same colours, and the same print, logo '
-        . 'and lettering, unchanged and unredrawn. Just remove the stand.';
+        . 'Change nothing else whatsoever. '
+        . 'The garment must stay in exactly the same position, at exactly the same angle, at the same size and in '
+        . 'the same shape, with the same folds, creases and shadows. '
+        . 'Keep it upright and square to the frame: do not rotate it, do not tilt or lean it, do not lay it flat, '
+        . 'do not drape or crumple it, do not move it up, down or sideways, do not enlarge or shrink it. '
+        . 'Keep the same colours, and the same print, logo and lettering, unchanged and unredrawn. '
+        . 'Do not redraw the garment. Just remove the stand.';
 
     private const MANNEQUIN_REMOVAL_PROMPT = 'Remove only the hanger, hook, clothes rail, garment rack, mannequin, '
         . 'dress form, headless body or stand that this garment is displayed on. '
