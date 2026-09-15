@@ -75,6 +75,7 @@ class PhotoEditorUpscaleTest extends TestCase
             app(PhotoroomService::class),
             app(\App\Services\GeminiService::class),
             app(\App\Services\GhostPrintTransplantService::class),
+            app(\App\Services\GhostCompositeService::class),
         );
 
         $this->assertSame('edited', $item->fresh()->status, $item->fresh()->error_message ?? '');

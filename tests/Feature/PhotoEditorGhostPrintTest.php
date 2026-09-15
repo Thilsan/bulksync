@@ -91,6 +91,7 @@ class PhotoEditorGhostPrintTest extends TestCase
             app(PhotoroomService::class),
             $gemini,
             app(GhostPrintTransplantService::class),
+            app(\App\Services\GhostCompositeService::class),
         );
 
         return $item->fresh();

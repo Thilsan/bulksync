@@ -678,6 +678,7 @@ class PhotoEditorTest extends TestCase
             app(PhotoroomService::class),
             app(\App\Services\GeminiService::class),
             app(\App\Services\GhostPrintTransplantService::class),
+            app(\App\Services\GhostCompositeService::class),
         );
 
         $this->assertSame('edited', $item->fresh()->status, $item->fresh()->error_message ?? '');
@@ -1390,6 +1391,7 @@ class PhotoEditorTest extends TestCase
             app(PhotoroomService::class),
             $gemini,
             app(\App\Services\GhostPrintTransplantService::class),
+            app(\App\Services\GhostCompositeService::class),
         );
 
         return $item->fresh();
@@ -1400,8 +1402,16 @@ class PhotoEditorTest extends TestCase
     {
         $item = $this->runCleanupItem([], ['view_type' => 'front', 'mannequin_visible' => true]);
 
-        $this->assertSame('edited', $item->status, $item->error_message ?? '');
-        $this->assertSame('ghost_mannequin', $item->apparel_mode_applied);
+        $this->assertSame('edited', $item->status);
+
+        /*
+         * The redraw ran, and the composite then kept the photograph: this
+         * fixture's garment comes back exactly where it went in, so the redraw
+         * is only consulted for the hole the stand left. That is the good
+         * outcome and the reason the mode is not plain 'ghost_mannequin' —
+         * which now means the composite looked and refused.
+         */
+        $this->assertSame('ghost_photo_kept', $item->apparel_mode_applied);
 
         /*
          * One request, not two. The generic erase needed its own generative
@@ -1469,7 +1479,9 @@ class PhotoEditorTest extends TestCase
     {
         $item = $this->runCleanupItem([], ['view_type' => 'front', 'mannequin_visible' => true]);
 
-        $this->assertSame('ghost_mannequin', $item->apparel_mode_applied);
+        // The redraw ran; the composite then kept the photograph over it. What
+        // this test is about is the request that went out, asserted below.
+        $this->assertSame('ghost_photo_kept', $item->apparel_mode_applied);
 
         $sent = [];
         \Illuminate\Support\Facades\Http::recorded(function ($request) use (&$sent) {

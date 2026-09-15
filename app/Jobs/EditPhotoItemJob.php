@@ -6,6 +6,7 @@ use App\Models\PhotoEditItem;
 use App\Models\PhotoEditSession;
 use App\Models\User;
 use App\Services\GeminiService;
+use App\Services\GhostCompositeService;
 use App\Services\GhostPrintTransplantService;
 use App\Services\ImageProcessingService;
 use App\Services\OneDriveService;
@@ -51,6 +52,7 @@ class EditPhotoItemJob implements ShouldQueue
         PhotoroomService       $photoroom,
         GeminiService          $gemini,
         GhostPrintTransplantService $transplant,
+        GhostCompositeService $composite,
     ): void {
 
         $item = PhotoEditItem::find($this->itemId);
@@ -169,6 +171,10 @@ class EditPhotoItemJob implements ShouldQueue
 
             $itemEdits   = $edits;
             $appliedMode = 'none';
+
+            // Set when a redraw changed the garment rather than merely lifting
+            // it off the stand, so the screen can say which way it went wrong.
+            $redrawNote  = null;
 
             /*
              * This photo is here for the framing, not the cutout. Its
@@ -472,6 +478,59 @@ class EditPhotoItemJob implements ShouldQueue
             if ($appliedMode === 'ghost_mannequin') {
                 $canvasEdge = ((int) ($itemEdits['width'] ?? 0)) ?: 2000;
 
+                /*
+                 * First, try to keep the photograph outright.
+                 *
+                 * Where the redraw put the garment back exactly where it stood,
+                 * the only thing it knows that the photograph does not is what
+                 * belongs in the hole the mannequin left. Borrowing just that
+                 * and keeping every other pixel gives the stand removed at full
+                 * resolution with the drape, the direction and the fabric all
+                 * untouched — which is the thing that has been asked for over
+                 * and over, and the thing neither route alone can deliver.
+                 *
+                 * It only works when the redraw held still, and often it does
+                 * not: a draped or irregular garment gives the model room to
+                 * guess and it comes back hanging differently. So the composite
+                 * measures before it commits — how much of the redraw lands
+                 * where the garment actually was, whether the proportions moved,
+                 * how much of the garment differs — and refuses rather than
+                 * seaming two different garments together. A refusal costs
+                 * nothing but arithmetic: no request, no credit.
+                 *
+                 * The print transplant below is the fallback for exactly that
+                 * refusal. It asks for less — the print only, over the redraw's
+                 * geometry — and so it can succeed where this cannot.
+                 */
+                try {
+                    $whole = $composite->composite($input, $edited);
+
+                    if ($whole['accepted']) {
+                        $edited      = $whole['image'];
+                        $appliedMode = 'ghost_photo_kept';
+                    }
+
+                    Log::info('Ghost mannequin composite', [
+                        'item'     => $this->itemId,
+                        'accepted' => $whole['accepted'],
+                        'verdict'  => $whole['verdict'],
+                        'reason'   => $whole['reason'],
+                    ]);
+
+                    // Carried to the screen, because "the redraw moved the
+                    // garment" is the operator's decision to make and they
+                    // cannot make it from a badge alone.
+                    if (!$whole['accepted']) {
+                        $redrawNote = $whole['reason'];
+                    }
+                } catch (\Throwable $e) {
+                    Log::info(
+                        "EditPhotoItemJob item {$this->itemId} composite skipped: " . $e->getMessage()
+                    );
+                }
+            }
+
+            if ($appliedMode === 'ghost_mannequin') {
                 try {
                     $swap = $transplant->transplant($input, $edited, $canvasEdge);
 
@@ -656,7 +715,6 @@ class EditPhotoItemJob implements ShouldQueue
                 'edited_path'          => $editedRel,
                 'edited_thumb_path'    => $thumbRel,
                 'edited_size_kb'       => (int) round(strlen($edited) / 1024),
-                'error_message'        => null,
                 'view_type'            => $classification['view_type'] ?? null,
                 'mannequin_visible'    => $classification['mannequin_visible'] ?? null,
                 'apparel_mode_applied' => $appliedMode,
@@ -677,6 +735,15 @@ class EditPhotoItemJob implements ShouldQueue
                  * switched the key over.
                  */
                 'sandbox'              => $photoroom->isSandbox(),
+
+                /*
+                 * Not a failure — the image is usable and the mannequin is gone.
+                 * It is a caveat the operator needs before publishing: the
+                 * redraw moved, reshaped or reworked the garment rather than
+                 * lifting it off the stand, so the drape on screen is not the
+                 * drape that was photographed.
+                 */
+                'error_message'        => $redrawNote,
 
                 // Read straight after the edit it belongs to — the service
                 // keeps only the most recent call's score.

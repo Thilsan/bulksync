@@ -365,6 +365,13 @@
                                   generative:        'redrawn by AI',
                                   ghost_mannequin:   'redrawn by AI · 1K print',
                                   ghost_print_kept:  'redrawn by AI · real print kept',
+
+                                  {{-- The best outcome there is: the stand gone
+                                       and the photograph otherwise untouched,
+                                       because the redraw put the garment back
+                                       where it stood and only the hole it left
+                                       was borrowed. --}}
+                                  ghost_photo_kept:  'stand removed · photo kept',
                               }[item.apparel_mode_applied] || 'cutout only')"></span>
                     </template>
 

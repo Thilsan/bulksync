@@ -124,6 +124,7 @@ class PhotoEditorNoRedrawTest extends TestCase
             app(PhotoroomService::class),
             $gemini,
             app(\App\Services\GhostPrintTransplantService::class),
+            app(\App\Services\GhostCompositeService::class),
         );
 
         return $item->fresh();
