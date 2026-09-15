@@ -497,7 +497,7 @@ class PhotoEditorController extends Controller implements HasMiddleware
     private function editsFromRequest(array $input, array $existing): array
     {
         $booleans = ['remove_background', 'upscale', 'expand', 'ironing', 'remove_price_tag', 'rotate_wide_only',
-            'snap_cropped_sides'];
+            'snap_cropped_sides', 'accept_recut_redraw'];
 
         foreach ($booleans as $key) {
             $input[$key] = !empty($input[$key]);

@@ -983,6 +983,17 @@ class PhotoroomService
             'background_mode'   => 'white',
 
             'ghost_mannequin' => false,
+
+            /*
+             * Publish a redraw that reworked the garment, rather than falling
+             * back to the photograph with the stand still in it. Off by
+             * default: a recut garment is a picture of a product that does not
+             * exist, and that is not a thing to do quietly. It is here because
+             * on some garments — a dress form inside a floor-length skirt is
+             * the one that forced it — the redraw is refused every time and the
+             * operator has no way through.
+             */
+            'accept_recut_redraw' => false,
             'flat_lay'        => false,
             'virtual_model'   => false,
             'ironing'         => false,

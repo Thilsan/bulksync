@@ -544,6 +544,35 @@ class EditPhotoItemJob implements ShouldQueue
                     if ($verified) {
                         $edited      = $whole['image'];
                         $appliedMode = 'ghost_photo_kept';
+                    } elseif ($this->keepsARecutRedraw($edits, $whole['verdict'])) {
+                        /*
+                         * Asked for, and narrowly.
+                         *
+                         * The refusal above is the right default and stays the
+                         * default: a redraw that reworked the garment is a
+                         * picture of a product that does not exist. But on a
+                         * dress form inside a floor-length skirt the redraw is
+                         * refused every time — measured at 41%, 35% and 32% on
+                         * three runs of the same two photographs — and the
+                         * operator is then handed back a mannequin they asked
+                         * to have removed, with no way through. Where they have
+                         * looked at that and decided the recut is acceptable
+                         * for their catalogue, that is their call to make.
+                         *
+                         * Only where the garment stayed put. A 'moved' verdict
+                         * means the redraw shifted, tilted or resized it, and
+                         * keeping the position and direction of the photograph
+                         * was the one thing asked for in exchange — so that
+                         * refusal is not negotiable and still falls back.
+                         *
+                         * The whole redraw is kept, not the composite: a
+                         * composite of two garments that do not line up is the
+                         * torn seam this was all written to avoid.
+                         */
+                        $appliedMode = 'ghost_redraw_kept';
+                        $redrawNote  = 'The stand was removed by redrawing the garment, which you allowed for '
+                            . 'this run. ' . $whole['reason'] . ' The photograph was not used — check the '
+                            . 'print, the colour and the drape before pushing.';
                     } else {
                         $redrawNote = 'The stand could not be removed without altering the garment, '
                             . 'so the photo was kept as shot. ' . $whole['reason'];
@@ -865,6 +894,20 @@ class EditPhotoItemJob implements ShouldQueue
      * having this at all. Locking a row to save a penny would be the more
      * expensive mistake.
      */
+    /**
+     * May a redraw that reworked the garment be published anyway?
+     *
+     * Off unless the operator turned it on for the run, and refused outright
+     * for a 'moved' verdict however it is set. A recut garment is a different
+     * product and that is a judgement somebody can make about their own
+     * catalogue; a moved one breaks the promise the redraw prompt exists to
+     * keep, which is that the photograph's position and direction survive.
+     */
+    private function keepsARecutRedraw(array $edits, string $verdict): bool
+    {
+        return !empty($edits['accept_recut_redraw']) && $verdict !== 'moved';
+    }
+
     private function skuAlreadyRefusedARedraw(): bool
     {
         $item = PhotoEditItem::find($this->itemId);

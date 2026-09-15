@@ -123,10 +123,31 @@
                     <span class="block text-xs text-gray-500">{{ $help }}</span>
                 </span>
             </label>
+
+
         @endforeach
 
         {{-- The flag the job reads, derived from the choice above. --}}
         <input type="hidden" name="{{ $name('ghost_mannequin') }}" :value="treatment === 'ghost' ? '1' : ''">
+
+        {{-- Shown only with the redraw selected, because it means nothing
+             otherwise. A recut garment is a picture of a product that does not
+             exist, so it is never on by default and the wording says what is
+             being agreed to. --}}
+        <label x-show="treatment === 'ghost'" x-cloak
+               class="flex cursor-pointer items-start gap-2 sm:col-span-2">
+            <input type="checkbox" name="{{ $name('accept_recut_redraw') }}" value="1"
+                   @checked($val('accept_recut_redraw'))
+                   class="mt-0.5 h-3.5 w-3.5 shrink-0 rounded border-gray-300 text-brand-600 focus:ring-brand-500">
+            <span class="text-xs text-gray-600">
+                Keep the redraw even if the garment comes back recut
+                <span class="block text-[11px] leading-snug text-gray-400">
+                    Normally a redraw that changed the garment is thrown away and your photo is kept, stand and
+                    all. Tick this to publish the redraw instead — the stand goes, but the garment is
+                    Photoroom's, not yours. A redraw that moved or tilted the garment is still refused.
+                </span>
+            </span>
+        </label>
     </div>
 
     <div class="mt-3 grid gap-3 sm:grid-cols-2">
