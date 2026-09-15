@@ -83,7 +83,7 @@ class PhotoEditorNoRedrawTest extends TestCase
     }
 
     /** One item through the real job, with OneDrive and Gemini stood in for. */
-    private function runItem(array $edits): PhotoEditItem
+    private function runItem(array $edits, array $classification = []): PhotoEditItem
     {
         $user = User::factory()->create(['is_active' => true, 'perm_photo_editor' => true]);
 
@@ -107,7 +107,7 @@ class PhotoEditorNoRedrawTest extends TestCase
         $oneDrive->shouldReceive('downloadFileById')->andReturn($this->garmentCutout());
 
         $gemini = \Mockery::mock(\App\Services\GeminiService::class);
-        $gemini->shouldReceive('classifyGarmentView')->andReturn([
+        $gemini->shouldReceive('classifyGarmentView')->andReturn(array_merge([
             'view_type'         => 'front',
             'mannequin_visible' => true,
             'product'           => 'the cropped top',
@@ -116,7 +116,7 @@ class PhotoEditorNoRedrawTest extends TestCase
             // Held, not worn — the case where naming the product is offered at
             // all, and therefore the case where a bad guess has to be caught.
             'support_type'      => 'held',
-        ]);
+        ], $classification));
 
         (new EditPhotoItemJob($item->id))->handle(
             $oneDrive,
@@ -128,6 +128,38 @@ class PhotoEditorNoRedrawTest extends TestCase
         );
 
         return $item->fresh();
+    }
+
+    /**
+     * The redraw Photoroom sends back for a garment it has reworked: the same
+     * subject, narrower and shorter, so the proportions no longer match the
+     * photograph and the composite has nothing to line up against.
+     */
+    private function recutGarment(): string
+    {
+        $im = imagecreatetruecolor(900, 1200);
+
+        imagesavealpha($im, true);
+        imagealphablending($im, false);
+        imagefill($im, 0, 0, imagecolorallocatealpha($im, 0, 0, 0, 127));
+        imagealphablending($im, true);
+
+        $c = imagecolorallocate($im, 150, 150, 152);
+
+        /*
+         * Same top and bottom, and inside the original's silhouette, so it has
+         * not moved — but a good deal narrower, so its proportions have
+         * changed. That is the verdict this is for: 'reshaped', not 'moved'.
+         */
+        imagefilledrectangle($im, 330, 150, 570, 1050, $c);
+        imagefilledrectangle($im, 220, 150, 330, 520, $c);
+        imagefilledrectangle($im, 570, 150, 680, 520, $c);
+
+        ob_start();
+        imagepng($im);
+        imagedestroy($im);
+
+        return (string) ob_get_clean();
     }
 
     /** An uncut photograph: a solid opaque rectangle, studio and all. */
@@ -459,5 +491,50 @@ class PhotoEditorNoRedrawTest extends TestCase
         // One request, not two: a typed word is not second-guessed with another
         // credit.
         Http::assertSentCount(1);
+    }
+
+    /**
+     * A redraw kept on purpose must actually reach the file.
+     *
+     * The first version of this set the label and the note and left the image
+     * alone, so the fallback below ran anyway: it overwrote the redraw with a
+     * plain cutout, spent a second credit doing it, and recorded the SKU as one
+     * whose redraw had been refused. The item then said the stand had been
+     * removed by redrawing while showing a photograph of the stand.
+     */
+    public function test_an_allowed_recut_redraw_is_the_image_that_is_kept(): void
+    {
+        $calls = 0;
+
+        Http::fake([
+            'image-api.photoroom.com/*' => function () use (&$calls) {
+                $calls++;
+
+                // A redraw of a different cut — which is the whole case: the
+                // stand is gone and the garment is not the one photographed.
+                return Http::response($this->recutGarment(), 200);
+            },
+        ]);
+
+        $item = $this->runItem(
+            [
+                'framing_preset'      => 'women/skirts',
+                'accept_recut_redraw' => true,
+            ],
+            /*
+             * Nothing named and worn rather than held: the route that actually
+             * redraws. A named product goes to text-guided segmentation
+             * instead, which is a different failure with a different answer.
+             */
+            ['product' => null, 'support_type' => 'worn'],
+        );
+
+        $this->assertSame('edited', $item->status, (string) $item->error_message);
+
+        $this->assertSame('ghost_redraw_kept', $item->apparel_mode_applied,
+            'the fallback overwrote the redraw the operator asked to keep');
+
+        // One request. The fallback cutout would have been a second.
+        $this->assertSame(1, $calls, 'a second credit was spent undoing the choice');
     }
 }

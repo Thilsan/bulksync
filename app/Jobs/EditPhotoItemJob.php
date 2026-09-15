@@ -534,7 +534,8 @@ class EditPhotoItemJob implements ShouldQueue
                  * been asked for. It costs one more credit, and the operator can
                  * see the stand and decide.
                  */
-                $verified = false;
+                $verified   = false;
+                $keptRedraw = false;
 
                 try {
                     $whole = $composite->composite($input, $edited);
@@ -569,6 +570,16 @@ class EditPhotoItemJob implements ShouldQueue
                          * composite of two garments that do not line up is the
                          * torn seam this was all written to avoid.
                          */
+                        /*
+                         * $edited already holds the redraw — it is what came
+                         * back from Photoroom and what the composite has just
+                         * measured — so keeping it is a matter of not replacing
+                         * it. The flag exists because the fallback below is
+                         * driven by $verified, which is honestly false: the
+                         * composite did refuse. What changed is whether that
+                         * refusal ends the matter.
+                         */
+                        $keptRedraw  = true;
                         $appliedMode = 'ghost_redraw_kept';
                         $redrawNote  = 'The stand was removed by redrawing the garment, which you allowed for '
                             . 'this run. ' . $whole['reason'] . ' The photograph was not used — check the '
@@ -593,7 +604,14 @@ class EditPhotoItemJob implements ShouldQueue
                     );
                 }
 
-                if (!$verified) {
+                /*
+                 * Not reached when the redraw was kept on purpose. The fallback
+                 * would overwrite it with a plain cutout, spend a second credit
+                 * doing so, and record the SKU as one whose redraw was refused —
+                 * undoing the choice and stopping the next photo of the same
+                 * product from redrawing at all.
+                 */
+                if (!$verified && !$keptRedraw) {
                     $this->rememberTheRedrawWasRefused();
 
                     /*
