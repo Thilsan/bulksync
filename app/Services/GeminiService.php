@@ -345,6 +345,7 @@ Return a JSON object with exactly these fields:
   - \"flat_lay\": the item is laid flat or hung against a plain background with nothing holding it up in frame at all.
   - \"unknown\": you cannot confidently tell from this image.
 - \"mannequin_visible\": true if ANY support the item is displayed on is visible in the frame — a mannequin, dress form, bust, headless body, clothes rail, garment rack, hanger, hook, or stand. False only when the item is alone in the frame.
+- \"product\": the garment itself in two or three plain words, beginning with \"the\" — \"the scarf\", \"the poncho\", \"the cami top\", \"the suitcase\". Name what the thing IS, as a shopper would say it, not what it is made of, what colour it is, or how it is displayed. Never name the mannequin, the hanger or the background.
 
 Return only valid JSON. No markdown, no code blocks, no extra text.";
 
@@ -375,7 +376,53 @@ Return only valid JSON. No markdown, no code blocks, no extra text.";
         return [
             'view_type'         => in_array($viewType, ['front', 'back', 'side', 'flat_lay', 'unknown'], true) ? $viewType : 'unknown',
             'mannequin_visible' => (bool) ($data['mannequin_visible'] ?? false),
+
+            /*
+             * What the thing is, for the cutout to be told.
+             *
+             * Asked for here rather than in a call of its own because this one
+             * is already made, already paid for, and already looking at the
+             * photograph that has the answer in it.
+             *
+             * It is wanted because a category is a folder, not a description. A
+             * scarf worn as a cape, filed under tops because that is how it is
+             * merchandised, was described to the cutout as "the top" — and a
+             * text-guided segmentation given a word that matches nothing selects
+             * nothing, so the mannequin and the studio floor came back with it.
+             * This names the garment in front of the camera instead.
+             *
+             * Trimmed and length-capped: it is going into an API field, and a
+             * model that decides to explain itself must not be able to send a
+             * paragraph.
+             */
+            'product' => $this->cleanProductNoun($data['product'] ?? null),
         ];
+    }
+
+    /**
+     * A product name fit to hand to a segmentation prompt.
+     *
+     * Null unless it is short, plain and actually a noun phrase. Anything else
+     * is a model having a conversation, and the caller falls back to the
+     * category's own word — which is a guess, but a short predictable one.
+     */
+    private function cleanProductNoun(mixed $value): ?string
+    {
+        if (!is_string($value)) {
+            return null;
+        }
+
+        $noun = trim(preg_replace('/\s+/', ' ', $value));
+
+        // Three or four words at most. "the sequinned brown poncho scarf worn
+        // over a mannequin" is a description of the photograph, not the subject.
+        if ($noun === '' || mb_strlen($noun) > 40 || str_word_count($noun) > 4) {
+            return null;
+        }
+
+        // Letters, spaces and hyphens only: no punctuation to confuse a prompt,
+        // and nothing that could carry an instruction into the request.
+        return preg_match('/^[\p{L}\s\-]+$/u', $noun) ? mb_strtolower($noun) : null;
     }
 
     private function downloadImage(string $url): ?string

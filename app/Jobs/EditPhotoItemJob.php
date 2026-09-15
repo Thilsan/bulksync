@@ -198,6 +198,7 @@ class EditPhotoItemJob implements ShouldQueue
                     [$appliedMode, $itemEdits] = $this->chooseApparelRoute(
                         $itemEdits,
                         (bool) ($classification && !empty($classification['mannequin_visible'])),
+                        $classification['product'] ?? null,
                     );
 
                     /*
@@ -675,7 +676,7 @@ class EditPhotoItemJob implements ShouldQueue
      * @return array{0:string,1:array} the mode, and the edits to send.
      *         'needs_erase' is the caller's to act on: it costs a request.
      */
-    private function chooseApparelRoute(array $edits, bool $standVisible): array
+    private function chooseApparelRoute(array $edits, bool $standVisible, ?string $seen = null): array
     {
         $itemEdits   = $edits;
         $named       = filled($edits['segmentation_prompt'] ?? null);
@@ -705,7 +706,22 @@ class EditPhotoItemJob implements ShouldQueue
          * would be changing what is not broken.
          */
         if (!$named && $standVisible) {
-            $noun = PhotoroomService::productNoun($edits['framing_preset'] ?? null);
+            /*
+             * What the classifier saw, before what the folder is called.
+             *
+             * The classifier looked at this photograph; the category describes
+             * a folder. A scarf worn as a cape, filed under tops because that is
+             * how it is merchandised, is "the top" to the category and "the
+             * scarf" to anything with eyes — and the cutout is being told what
+             * to find in this picture, not which folder it came from.
+             *
+             * The category stays as the fallback. It is a guess too, but a short
+             * predictable one, and it is there when the classifier fails or is
+             * never called.
+             */
+            $noun = filled($seen)
+                ? $seen
+                : PhotoroomService::productNoun($edits['framing_preset'] ?? null);
 
             if (filled($noun)) {
                 $itemEdits['segmentation_prompt'] = $noun;
