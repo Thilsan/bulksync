@@ -3,7 +3,12 @@
 namespace Tests\Feature;
 
 use App\Jobs\EditPhotoItemJob;
+use App\Models\PhotoEditItem;
+use App\Models\PhotoEditSession;
+use App\Models\User;
 use App\Services\PhotoroomService;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
 /**
@@ -23,6 +28,142 @@ use Tests\TestCase;
  */
 class PhotoEditorNoRedrawTest extends TestCase
 {
+    use RefreshDatabase;
+
+    /**
+     * The whole pipeline, when the named cutout comes back uncut.
+     *
+     * Two accurate descriptions of one photograph — "the top" and "the cropped
+     * top" — both returned the entire studio, which says the word was never the
+     * problem: a text-guided segmentation found nothing, and having been told to
+     * decide the subject from the prompt it had no second opinion to fall back
+     * on. So it asks again without the word, on Photoroom's own matting, which
+     * is what every other photo in the catalogue already runs on.
+     */
+    public function test_a_named_cutout_that_finds_nothing_is_retried_without_the_name(): void
+    {
+        $uncut  = $this->solidRectangle();
+        $cutout = $this->garmentCutout();
+        $calls  = 0;
+
+        // Uncut first, a real cutout second: the retry is the only thing that
+        // can turn this item into a success.
+        Http::fake([
+            'image-api.photoroom.com/*' => function () use (&$calls, $uncut, $cutout) {
+                return Http::response(++$calls === 1 ? $uncut : $cutout, 200);
+            },
+        ]);
+
+        $item = $this->runItem(['framing_preset' => 'women/top']);
+
+        $this->assertSame('edited', $item->status, (string) $item->error_message);
+        $this->assertSame('cutout_unnamed', $item->apparel_mode_applied,
+            'the retry did not happen, or was not recorded for the operator to see');
+
+        Http::assertSentCount(2);
+    }
+
+    /**
+     * When neither route cuts anything out there is nothing left to try that
+     * would not be a guess, and a studio photograph must not be published as a
+     * product because nothing downstream reads the pixels.
+     */
+    public function test_an_item_no_route_can_cut_out_is_failed_rather_than_published(): void
+    {
+        Http::fake([
+            'image-api.photoroom.com/*' => Http::response($this->solidRectangle(), 200),
+        ]);
+
+        $item = $this->runItem(['framing_preset' => 'women/top']);
+
+        $this->assertSame('failed', $item->status);
+        $this->assertStringContainsString('with or without naming the product', (string) $item->error_message);
+
+        Http::assertSentCount(2);
+    }
+
+    /** One item through the real job, with OneDrive and Gemini stood in for. */
+    private function runItem(array $edits): PhotoEditItem
+    {
+        $user = User::factory()->create(['is_active' => true, 'perm_photo_editor' => true]);
+
+        $session = PhotoEditSession::create([
+            'user_id'       => $user->id,
+            'name'          => 'Run',
+            'onedrive_link' => 'https://example.com',
+            'edits'         => array_merge(['remove_background' => true, 'ghost_mannequin' => true], $edits),
+        ]);
+
+        $item = PhotoEditItem::create([
+            'photo_edit_session_id' => $session->id,
+            'filename'              => 'a.jpg',
+            'status'                => 'pending',
+            'onedrive_drive_id'     => 'drive-1',
+            'onedrive_item_id'      => 'item-1',
+        ]);
+
+        $oneDrive = \Mockery::mock(\App\Services\OneDriveService::class);
+        $oneDrive->shouldReceive('setUser')->andReturnSelf();
+        $oneDrive->shouldReceive('downloadFileById')->andReturn($this->garmentCutout());
+
+        $gemini = \Mockery::mock(\App\Services\GeminiService::class);
+        $gemini->shouldReceive('classifyGarmentView')->andReturn([
+            'view_type'         => 'front',
+            'mannequin_visible' => true,
+            'product'           => 'the cropped top',
+        ]);
+
+        (new EditPhotoItemJob($item->id))->handle(
+            $oneDrive,
+            app(\App\Services\ImageProcessingService::class),
+            app(PhotoroomService::class),
+            $gemini,
+            app(\App\Services\GhostPrintTransplantService::class),
+        );
+
+        return $item->fresh();
+    }
+
+    /** An uncut photograph: a solid opaque rectangle, studio and all. */
+    private function solidRectangle(): string
+    {
+        $im = imagecreatetruecolor(900, 1200);
+
+        for ($y = 0; $y < 1200; $y += 10) {
+            for ($x = 0; $x < 900; $x += 10) {
+                imagefilledrectangle($im, $x, $y, $x + 9, $y + 9,
+                    imagecolorallocate($im, 120 + ($x % 60), 110 + ($y % 60), 130));
+            }
+        }
+
+        ob_start();
+        imagepng($im);
+
+        return ob_get_clean();
+    }
+
+    /** A garment on transparency, with real holes under the sleeves. */
+    private function garmentCutout(): string
+    {
+        $im = imagecreatetruecolor(900, 1200);
+
+        imagesavealpha($im, true);
+        imagealphablending($im, false);
+        imagefill($im, 0, 0, imagecolorallocatealpha($im, 0, 0, 0, 127));
+        imagealphablending($im, true);
+
+        $c = imagecolorallocate($im, 150, 150, 152);
+
+        imagefilledrectangle($im, 280, 150, 620, 1050, $c);
+        imagefilledrectangle($im, 60, 150, 280, 520, $c);
+        imagefilledrectangle($im, 620, 150, 840, 520, $c);
+
+        ob_start();
+        imagepng($im);
+
+        return ob_get_clean();
+    }
+
     /** The decision under test, run without a queue or an API behind it. */
     private function route(array $edits, bool $mannequinVisible, ?string $seen = null): array
     {

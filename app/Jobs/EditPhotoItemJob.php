@@ -371,24 +371,72 @@ class EditPhotoItemJob implements ShouldQueue
              * edits costs a credit each time it is wrong.
              */
             if (!empty($itemEdits['segmentation_prompt_is_a_guess']) && $imageService->looksUncut($edited)) {
-                $named = $itemEdits['segmentation_prompt'] ?? null;
+                $guess = (string) ($itemEdits['segmentation_prompt'] ?? '');
 
-                Log::warning('EditPhotoItemJob: the cutout kept the whole frame', [
-                    'item'   => $this->itemId,
-                    'named'  => $named,
-                    'guess'  => !empty($itemEdits['segmentation_prompt_is_a_guess']),
+                /*
+                 * Asked again, without the word.
+                 *
+                 * Two accurate descriptions of the same photograph — "the top"
+                 * and "the cropped top" — both came back as the entire studio,
+                 * which says the word was never the problem: a text-guided
+                 * segmentation found nothing on this picture and, having been
+                 * told to decide the subject from the prompt, had no second
+                 * opinion to fall back on. Photoroom's own matting is that
+                 * second opinion, and it is what every other photo in the
+                 * catalogue already runs on.
+                 *
+                 * The retry is unguarded by design. A guessed word can be wrong
+                 * in ways nothing here can anticipate, so the fallback is the
+                 * route with no guess in it at all rather than another guess.
+                 *
+                 * It does not touch the photograph — the pixels are still the
+                 * camera's — so it cannot reintroduce the redraw this was all
+                 * meant to avoid. What it can leave behind is the mannequin,
+                 * which is visible in the result and is the operator's to judge:
+                 * a cutout with a stand still in it can be looked at and fixed
+                 * with a typed word. A studio photograph published as a product
+                 * cannot be seen at all until a customer sees it.
+                 *
+                 * One credit, spent only where the first was wasted anyway.
+                 */
+                Log::warning('EditPhotoItemJob: the named cutout kept the whole frame, retrying unnamed', [
+                    'item'  => $this->itemId,
+                    'named' => $guess,
                 ]);
 
-                $item->update([
-                    'status'        => 'failed',
-                    'error_message' => filled($named)
-                        ? "Nothing was cut out — \"{$named}\" does not seem to match what is in this photo. Name the product yourself on this SKU and re-edit."
-                        : 'Nothing was cut out — the background removal kept the whole frame.',
-                ]);
+                $retry = $itemEdits;
+                unset($retry['segmentation_prompt'], $retry['segmentation_prompt_is_a_guess']);
 
-                $this->syncSessionCounts($session->id);
+                try {
+                    $plain = $photoroom->edit($input, $retry, $item->filename);
 
-                return;
+                    if (!$imageService->looksUncut($plain)) {
+                        $edited      = $plain;
+                        $itemEdits   = $retry;
+                        $appliedMode = 'cutout_unnamed';
+                    }
+                } catch (\Throwable $e) {
+                    Log::warning("EditPhotoItemJob item {$this->itemId} unnamed retry failed: " . $e->getMessage());
+                }
+
+                /*
+                 * Both routes kept the whole frame. There is nothing left to
+                 * try that would not be a guess, and the credits are spent
+                 * either way; what remains to decide is whether a studio
+                 * photograph is published, which is not a decision to take
+                 * silently.
+                 */
+                if ($appliedMode !== 'cutout_unnamed') {
+                    $item->update([
+                        'status'        => 'failed',
+                        'error_message' => "Nothing was cut out, with or without naming the product (tried \"{$guess}\"). "
+                            . 'This photo may need the background removed by hand.',
+                    ]);
+
+                    $this->syncSessionCounts($session->id);
+
+                    return;
+                }
             }
 
             /*

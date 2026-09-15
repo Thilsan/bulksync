@@ -348,10 +348,18 @@
                          and the status badge, so nothing overlaps on hover. --}}
                     <template x-if="item.view_type">
                         <span class="pointer-events-none absolute bottom-2 left-2 rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
-                              :class="item.apparel_mode_applied === 'none' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'"
+                              :class="['none', 'cutout_unnamed'].includes(item.apparel_mode_applied) ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'"
                               x-text="item.view_type.replace('_', ' ') + ' view · ' + ({
                                   mannequin_removed: 'mannequin removed',
                                   segmented:         'mannequin segmented out',
+
+                                  {{-- Named its way to nothing, so it was cut
+                                       out on Photoroom's own matting instead.
+                                       Flagged rather than left to read as an
+                                       ordinary cutout, because the mannequin may
+                                       well have survived it and somebody has to
+                                       look. --}}
+                                  cutout_unnamed:    'plain cutout · check the stand',
                                   generative:        'redrawn by AI',
                                   ghost_mannequin:   'redrawn by AI · 1K print',
                                   ghost_print_kept:  'redrawn by AI · real print kept',
