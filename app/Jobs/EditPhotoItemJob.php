@@ -51,6 +51,11 @@ class EditPhotoItemJob implements ShouldQueue
         ImageProcessingService $imageService,
         PhotoroomService       $photoroom,
         GeminiService          $gemini,
+        // Kept in the signature rather than removed: the container resolves it,
+        // several tests and the photoroom:ghost-transplant command still use the
+        // service, and dropping the parameter would rewrite every caller for no
+        // behavioural gain. See the composite block below for why it is no
+        // longer called from here.
         GhostPrintTransplantService $transplant,
         GhostCompositeService $composite,
     ): void {
@@ -462,52 +467,52 @@ class EditPhotoItemJob implements ShouldQueue
              * the product, so a higher tier would buy a crisp forgery — on a
              * licensed brand, worse than a soft one.
              *
-             * The photograph still holds the real artwork, so it is put back.
-             * Each image supplies only what it can: the redraw keeps the
-             * geometry nothing else could produce — a collar rebuilt from
-             * behind a hanger that was covering it — and the print comes from
-             * the pixels that actually photographed it.
-             *
-             * Fails open in every direction. A plain garment has no print to
-             * move and is refused; so is a redraw that re-proportioned the
-             * artwork, or lit the fabric too differently to join. In each case
-             * the redraw goes out exactly as it does today, which is what makes
-             * this safe to run on every ghost edit: it can improve an item or
-             * leave it alone, never spoil one.
+             * The photograph still holds the real product, so the redraw is
+             * used only to the extent it can be shown to agree with it.
              */
             if ($appliedMode === 'ghost_mannequin') {
-                $canvasEdge = ((int) ($itemEdits['width'] ?? 0)) ?: 2000;
-
                 /*
-                 * First, try to keep the photograph outright.
+                 * A redraw is not published unless it can be shown not to have
+                 * changed the garment.
                  *
-                 * Where the redraw put the garment back exactly where it stood,
-                 * the only thing it knows that the photograph does not is what
-                 * belongs in the hole the mannequin left. Borrowing just that
-                 * and keeping every other pixel gives the stand removed at full
-                 * resolution with the drape, the direction and the fabric all
-                 * untouched — which is the thing that has been asked for over
-                 * and over, and the thing neither route alone can deliver.
+                 * The composite is the check and the repair at once. Where the
+                 * redraw put the garment back exactly where it stood, the only
+                 * thing it knows that the photograph does not is what belongs in
+                 * the hole the mannequin left; borrowing that and keeping every
+                 * other pixel gives the stand removed at full resolution with
+                 * the drape, the direction and the fabric untouched.
                  *
-                 * It only works when the redraw held still, and often it does
-                 * not: a draped or irregular garment gives the model room to
-                 * guess and it comes back hanging differently. So the composite
-                 * measures before it commits — how much of the redraw lands
-                 * where the garment actually was, whether the proportions moved,
-                 * how much of the garment differs — and refuses rather than
-                 * seaming two different garments together. A refusal costs
-                 * nothing but arithmetic: no request, no credit.
+                 * Where it did not, the redraw is refused outright rather than
+                 * published with a caveat. This was the other way round and was
+                 * wrong: the measurement said "the redraw reworked the garment"
+                 * and the image went out anyway with the reason underneath it.
+                 * Observed on a sequinned poncho, the redraw returned a cropped
+                 * top — the long panel simply gone. A note under a picture of a
+                 * garment that does not exist is not a safeguard.
                  *
-                 * The print transplant below is the fallback for exactly that
-                 * refusal. It asks for less — the print only, over the redraw's
-                 * geometry — and so it can succeed where this cannot.
+                 * A refusal it cannot explain counts as a refusal. Unverifiable
+                 * and wrong look identical from here, and only one of them is
+                 * safe to publish.
+                 *
+                 * The fallback is the plain cutout: the photograph, with
+                 * whatever is holding the garment up still in it. That is a
+                 * picture of the real product, which is the whole of what has
+                 * been asked for. It costs one more credit, and the operator can
+                 * see the stand and decide.
                  */
+                $verified = false;
+
                 try {
                     $whole = $composite->composite($input, $edited);
 
-                    if ($whole['accepted']) {
+                    $verified = $whole['accepted'];
+
+                    if ($verified) {
                         $edited      = $whole['image'];
                         $appliedMode = 'ghost_photo_kept';
+                    } else {
+                        $redrawNote = 'The stand could not be removed without altering the garment, '
+                            . 'so the photo was kept as shot. ' . $whole['reason'];
                     }
 
                     Log::info('Ghost mannequin composite', [
@@ -516,44 +521,43 @@ class EditPhotoItemJob implements ShouldQueue
                         'verdict'  => $whole['verdict'],
                         'reason'   => $whole['reason'],
                     ]);
-
-                    // Carried to the screen, because "the redraw moved the
-                    // garment" is the operator's decision to make and they
-                    // cannot make it from a badge alone.
-                    if (!$whole['accepted']) {
-                        $redrawNote = $whole['reason'];
-                    }
                 } catch (\Throwable $e) {
-                    Log::info(
-                        "EditPhotoItemJob item {$this->itemId} composite skipped: " . $e->getMessage()
+                    $redrawNote = 'The stand could not be removed without altering the garment, '
+                        . 'so the photo was kept as shot.';
+
+                    Log::warning(
+                        "EditPhotoItemJob item {$this->itemId} composite could not run: " . $e->getMessage()
                     );
                 }
-            }
 
-            if ($appliedMode === 'ghost_mannequin') {
-                try {
-                    $swap = $transplant->transplant($input, $edited, $canvasEdge);
-
-                    if ($swap['accepted']) {
-                        $edited      = $swap['image'];
-                        $appliedMode = 'ghost_print_kept';
-                    }
-
-                    Log::info('Ghost mannequin print transplant', [
-                        'item'     => $this->itemId,
-                        'accepted' => $swap['accepted'],
-                        'reason'   => $swap['reason'],
-                    ] + $swap['metrics']);
-                } catch (\Throwable $e) {
+                if (!$verified) {
                     /*
-                     * Nothing to transplant is the ordinary case, not a fault —
-                     * most garments carry no print. Logged at info for that
-                     * reason, so a batch of plain dresses does not read as a
-                     * batch of failures.
+                     * Back to a plain cutout. The redraw's own bytes are thrown
+                     * away: it is a picture of a garment that was not
+                     * photographed, and there is nothing to salvage from one.
+                     *
+                     * The print transplant used to sit here, putting the real
+                     * print over the redraw's shape. It is not reached any more
+                     * and that is deliberate — it rescues the fabric, not the
+                     * shape, and it was the shape that was wrong. The service
+                     * and its command remain for work where the geometry is the
+                     * thing being bought.
                      */
-                    Log::info(
-                        "EditPhotoItemJob item {$this->itemId} print transplant skipped: " . $e->getMessage()
-                    );
+                    $plain = $itemEdits;
+                    $plain['ghost_mannequin'] = false;
+                    $plain['flat_lay']        = false;
+                    $plain['virtual_model']   = false;
+                    $plain['remove_background'] = true;
+
+                    try {
+                        $edited      = $photoroom->edit($input, $plain, $item->filename);
+                        $itemEdits   = $plain;
+                        $appliedMode = 'cutout_unnamed';
+                    } catch (\Throwable $e) {
+                        Log::warning(
+                            "EditPhotoItemJob item {$this->itemId} fallback cutout failed: " . $e->getMessage()
+                        );
+                    }
                 }
             }
 

@@ -14,19 +14,24 @@ use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
 /**
- * A Ghost Mannequin edit should keep the garment's real print.
+ * A Ghost Mannequin edit publishes the photograph, or it publishes nothing.
  *
- * Photoroom's redraw is capped at 1K below an Enterprise plan, and at that
- * size it does not soften a print so much as replace it: an Aigner monogram
- * came back as a dotted grid at 1K, and at 4K as a sharp motif that still was
- * not the monogram. So the job puts the photograph's own artwork back over the
- * redraw, and this is the test that it does.
+ * Photoroom's redraw is capped at 1K below an Enterprise plan, and at that size
+ * it does not merely soften a garment — it reinvents one. An Aigner monogram
+ * came back as a dotted grid; a sequinned poncho came back as a cropped top
+ * with its long panel simply gone.
  *
- * The second test is the one that matters more. Most garments carry no print at
- * all, and for those the transplant has nothing to do — it must leave the
- * redraw exactly as it found it rather than fail the item. A step that can only
- * improve an image or do nothing is safe to run on every edit; one that can
- * spoil an image is not, whatever it does for the rest.
+ * This file used to test the print transplant, which put the photograph's own
+ * artwork back over the redraw's shape. That is no longer what the job does,
+ * and the reason is the poncho: the transplant rescues the fabric, not the
+ * shape, and it was the shape that was wrong. The job now checks whether the
+ * redraw agrees with the photograph at all, keeps the photograph and borrows
+ * only the hole the stand left when it does, and throws the redraw away when it
+ * does not. The transplant service and its command survive, with their own unit
+ * tests, for work where the geometry is the thing being bought.
+ *
+ * So what is asserted here is the refusal. A redraw that cannot be shown to
+ * match the photograph must not reach a product page, however good it looks.
  */
 class PhotoEditorGhostPrintTest extends TestCase
 {
@@ -97,41 +102,50 @@ class PhotoEditorGhostPrintTest extends TestCase
         return $item->fresh();
     }
 
-    public function test_a_printed_garment_keeps_its_real_print(): void
+    /**
+     * The redraw here is Photoroom's own square, unrelated to the photograph it
+     * was sent — which is how the real thing behaves and is exactly the case
+     * that must not be published.
+     */
+    public function test_a_redraw_that_does_not_match_the_photograph_is_not_published(): void
     {
         $item = $this->edit($this->photo(withPrint: true), $this->redraw(withPrint: true));
 
-        $this->assertSame('edited', $item->status, $item->error_message ?? '');
+        $this->assertSame('edited', $item->status);
 
         $this->assertSame(
-            'ghost_print_kept',
+            'cutout_unnamed',
             $item->apparel_mode_applied,
-            'the print was not transplanted onto the redraw',
+            'an unverified redraw was published',
         );
 
-        // The output must carry the photograph's fine bars, which the redraw's
-        // coarse forgery cannot produce at its own resolution.
-        $this->assertGreaterThan(
-            14,
-            $this->crossings((string) file_get_contents(storage_path('app/' . $item->edited_path))),
-            'the result does not carry the photograph\'s artwork',
+        // And the operator is told why, rather than being left to notice that a
+        // garment came back a different shape.
+        $this->assertStringContainsString(
+            'without altering the garment',
+            (string) $item->error_message,
+            'nothing explained why the stand is still in the picture',
         );
     }
 
     /**
-     * The safety property: nothing to transplant must mean nothing changed.
+     * The redraw's own bytes are thrown away, not kept as a fallback.
+     *
+     * A picture of a garment that was not photographed has nothing to salvage
+     * in it, and the tempting half-measure — keep the redraw, note the problem —
+     * is the one that put a cropped top on a product page.
      */
-    public function test_a_plain_garment_is_left_exactly_as_the_redraw_made_it(): void
+    public function test_the_redraws_pixels_do_not_survive_the_refusal(): void
     {
-        $item = $this->edit($this->photo(withPrint: false), $this->redraw(withPrint: false));
+        $redraw = $this->redraw(withPrint: false);
 
-        $this->assertSame('edited', $item->status, $item->error_message ?? '');
+        $item = $this->edit($this->photo(withPrint: false), $redraw);
 
-        $this->assertSame(
-            'ghost_mannequin',
-            $item->apparel_mode_applied,
-            'a garment with no print should have been left to the redraw',
-        );
+        $this->assertSame('edited', $item->status);
+
+        $written = (string) file_get_contents(storage_path('app/' . $item->edited_path));
+
+        $this->assertNotSame($redraw, $written, 'the refused redraw was written out anyway');
     }
 
     // ── Fixtures ───────────────────────────────────────────────────────────
