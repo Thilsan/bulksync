@@ -165,12 +165,16 @@ class PhotoEditorNoRedrawTest extends TestCase
     }
 
     /** The decision under test, run without a queue or an API behind it. */
-    private function route(array $edits, bool $mannequinVisible, ?string $seen = null): array
-    {
+    private function route(
+        array $edits,
+        bool $mannequinVisible,
+        ?string $seen = null,
+        ?string $support = null,
+    ): array {
         $method = new \ReflectionMethod(EditPhotoItemJob::class, 'chooseApparelRoute');
         $method->setAccessible(true);
 
-        return $method->invoke(new EditPhotoItemJob(1), $edits, $mannequinVisible, $seen);
+        return $method->invoke(new EditPhotoItemJob(1), $edits, $mannequinVisible, $seen, $support);
     }
 
     /**
@@ -236,6 +240,45 @@ class PhotoEditorNoRedrawTest extends TestCase
         );
 
         $this->assertSame('the top', $itemEdits['segmentation_prompt'] ?? null);
+    }
+
+    /**
+     * What is holding the garment up is named too, so it can be dropped.
+     *
+     * Naming the product alone was not enough on a poncho draped over a dress
+     * form: the background came away cleanly and the mannequin was left
+     * standing in it, wearing the garment, because nothing had said the form was
+     * not part of the product.
+     */
+    public function test_the_thing_holding_the_garment_up_is_named_as_well(): void
+    {
+        [, $itemEdits] = $this->route(
+            ['framing_preset' => 'women/top', 'ghost_mannequin' => true],
+            true,
+            'the scarf',
+            'the mannequin',
+        );
+
+        $this->assertSame('the scarf', $itemEdits['segmentation_prompt'] ?? null);
+        $this->assertSame('the mannequin', $itemEdits['segmentation_negative_prompt'] ?? null,
+            'nothing told the cutout that the dress form was not the product');
+    }
+
+    /**
+     * And only what was seen. "The mannequin" is wrong for a garment on a
+     * hanger, and a negative prompt naming something that is not in the picture
+     * gives the model a second thing to fail to find.
+     */
+    public function test_no_support_is_invented_when_none_was_seen(): void
+    {
+        [, $itemEdits] = $this->route(
+            ['framing_preset' => 'women/top', 'ghost_mannequin' => true],
+            true,
+            'the scarf',
+            null,
+        );
+
+        $this->assertArrayNotHasKey('segmentation_negative_prompt', $itemEdits);
     }
 
     /** What somebody typed themselves wins over both. */

@@ -346,6 +346,7 @@ Return a JSON object with exactly these fields:
   - \"unknown\": you cannot confidently tell from this image.
 - \"mannequin_visible\": true if ANY support the item is displayed on is visible in the frame — a mannequin, dress form, bust, headless body, clothes rail, garment rack, hanger, hook, or stand. False only when the item is alone in the frame.
 - \"product\": the garment itself in two or three plain words, beginning with \"the\" — \"the scarf\", \"the poncho\", \"the cami top\", \"the suitcase\". Name what the thing IS, as a shopper would say it, not what it is made of, what colour it is, or how it is displayed. Never name the mannequin, the hanger or the background.
+- \"support\": what is holding the item up, in two or three plain words beginning with \"the\" — \"the mannequin\", \"the dress form\", \"the hanger\", \"the clothes rail\", \"the stand\". Null when nothing is holding it. Name only the support itself, never the product on it.
 
 Return only valid JSON. No markdown, no code blocks, no extra text.";
 
@@ -396,6 +397,19 @@ Return only valid JSON. No markdown, no code blocks, no extra text.";
              * paragraph.
              */
             'product' => $this->cleanProductNoun($data['product'] ?? null),
+
+            /*
+             * And what is holding it up, so the cutout can be told what to drop
+             * as well as what to keep.
+             *
+             * Naming the product alone was not enough on a garment draped over a
+             * dress form: the cutout took the background off and kept the form,
+             * because nothing had said the form was not part of the product.
+             * Seen rather than assumed, because "the mannequin" is wrong for a
+             * garment on a hanger and a negative prompt naming the wrong thing
+             * is worse than none.
+             */
+            'support' => $this->cleanProductNoun($data['support'] ?? null),
         ];
     }
 

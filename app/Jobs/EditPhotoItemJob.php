@@ -199,6 +199,7 @@ class EditPhotoItemJob implements ShouldQueue
                         $itemEdits,
                         (bool) ($classification && !empty($classification['mannequin_visible'])),
                         $classification['product'] ?? null,
+                        $classification['support'] ?? null,
                     );
 
                     /*
@@ -405,7 +406,11 @@ class EditPhotoItemJob implements ShouldQueue
                 ]);
 
                 $retry = $itemEdits;
-                unset($retry['segmentation_prompt'], $retry['segmentation_prompt_is_a_guess']);
+                unset(
+                    $retry['segmentation_prompt'],
+                    $retry['segmentation_prompt_is_a_guess'],
+                    $retry['segmentation_negative_prompt'],
+                );
 
                 try {
                     $plain = $photoroom->edit($input, $retry, $item->filename);
@@ -741,8 +746,12 @@ class EditPhotoItemJob implements ShouldQueue
      * @return array{0:string,1:array} the mode, and the edits to send.
      *         'needs_erase' is the caller's to act on: it costs a request.
      */
-    private function chooseApparelRoute(array $edits, bool $standVisible, ?string $seen = null): array
-    {
+    private function chooseApparelRoute(
+        array $edits,
+        bool $standVisible,
+        ?string $seen = null,
+        ?string $support = null,
+    ): array {
         $itemEdits   = $edits;
         $named       = filled($edits['segmentation_prompt'] ?? null);
         $wantsRedraw = !empty($edits['ghost_mannequin']);
@@ -795,6 +804,26 @@ class EditPhotoItemJob implements ShouldQueue
                 // applySegmentation() reads this and keeps Photoroom's own
                 // matting in play rather than betting the cutout on one word.
                 $itemEdits['segmentation_prompt_is_a_guess'] = true;
+
+                /*
+                 * And what to drop, where the classifier saw it.
+                 *
+                 * Naming the product alone was not enough on a garment draped
+                 * over a dress form: the background came off and the form
+                 * stayed, because nothing had said the form was not part of the
+                 * product. Saying so is what the negative prompt is for.
+                 *
+                 * Only what was actually seen. "The mannequin" is wrong for a
+                 * garment on a hanger, and a negative prompt naming something
+                 * that is not in the picture is worse than no negative prompt at
+                 * all — it gives the model a second thing to fail to find.
+                 *
+                 * A typed one is never overwritten, for the same reason a typed
+                 * product is not: somebody looked.
+                 */
+                if (filled($support) && !filled($edits['segmentation_negative_prompt'] ?? null)) {
+                    $itemEdits['segmentation_negative_prompt'] = $support;
+                }
 
                 $named = true;
             }
