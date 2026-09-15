@@ -53,6 +53,35 @@ class PushEditedPhotoJob implements ShouldQueue
             return;
         }
 
+        /*
+         * A watermarked image is not a product photo.
+         *
+         * A sandbox key returns the picture largely unedited with "Photoroom"
+         * written across it, and nothing between here and the edit can see that:
+         * the file is on disk, the status reads edited, the badge says the
+         * mannequin was segmented out. Published, it is a watermark on a live
+         * product page — the kind of mistake nobody notices until a customer
+         * does, which is exactly the class of thing worth refusing outright
+         * rather than warning about.
+         *
+         * The banner on the review screen has always said the results are
+         * watermarked. A banner is a thing you read once and stop seeing, and
+         * the run that reaches this point is the run where it was not read.
+         */
+        if ($item->sandbox) {
+            $item->update([
+                'status'        => 'failed',
+                'error_message' => 'Edited with the Photoroom sandbox key, so this image carries a watermark. '
+                    . 'Switch to the live key and re-edit before pushing.',
+            ]);
+
+            Log::warning('PushEditedPhotoJob: refused a sandbox image', ['item' => $item->id]);
+
+            $this->syncPushedCount($item->photo_edit_session_id);
+
+            return;
+        }
+
         $session = PhotoEditSession::find($item->photo_edit_session_id);
 
         if (!$session) {

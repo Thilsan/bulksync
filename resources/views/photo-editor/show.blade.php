@@ -89,8 +89,10 @@
 
     @if ($isSandbox)
     <div class="rounded-xl border border-brand-200 bg-brand-50 px-5 py-3 text-sm text-brand-800">
-        <strong>Sandbox key</strong> — these results carry a Photoroom watermark. Switch to the live key before
-        pushing anything you intend customers to see.
+        <strong>Sandbox key — these are not real edits.</strong>
+        A sandbox key hands the photo back with a Photoroom watermark across it and the work largely not done:
+        the background is still there and the mannequin is still standing in it, whatever the badges below say.
+        Pushing is refused for anything edited this way. Switch to the live key and re-edit.
     </div>
     @endif
 

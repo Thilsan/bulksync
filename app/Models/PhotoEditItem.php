@@ -29,6 +29,7 @@ class PhotoEditItem extends Model
         'view_type',
         'mannequin_visible',
         'apparel_mode_applied',
+        'sandbox',
         'uncertainty_score',
         'selected',
         'product_id',
@@ -42,6 +43,7 @@ class PhotoEditItem extends Model
     protected function casts(): array
     {
         return [
+            'sandbox' => 'boolean',
             'position'          => 'integer',
             'skip_edit'         => 'boolean',
             'keep_background'   => 'boolean',

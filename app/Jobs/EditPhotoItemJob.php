@@ -655,6 +655,23 @@ class EditPhotoItemJob implements ShouldQueue
                 'mannequin_visible'    => $classification['mannequin_visible'] ?? null,
                 'apparel_mode_applied' => $appliedMode,
 
+                /*
+                 * Which key made this picture, recorded with the picture.
+                 *
+                 * A sandbox key hands back a watermarked image that has not
+                 * really been edited: the background is still there, the
+                 * mannequin is still standing in it, and "Photoroom" is written
+                 * across the frame. Nothing else here can tell — the status
+                 * reads ready and the badge says the mannequin was segmented
+                 * out — so the push is stopped by this instead.
+                 *
+                 * Stored rather than read from the key when pushing, because
+                 * those happen on different days: an image made on the sandbox
+                 * key does not become safe to publish because somebody has since
+                 * switched the key over.
+                 */
+                'sandbox'              => $photoroom->isSandbox(),
+
                 // Read straight after the edit it belongs to — the service
                 // keeps only the most recent call's score.
                 'uncertainty_score'    => $photoroom->lastUncertaintyScore(),
