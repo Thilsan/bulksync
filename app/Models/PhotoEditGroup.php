@@ -26,6 +26,7 @@ class PhotoEditGroup extends Model
         'lifestyle_source_item_id',
         'pendant_closeup',
         'case_height_cm',
+        'redraw_refused',
     ];
 
     protected function casts(): array
@@ -35,6 +36,7 @@ class PhotoEditGroup extends Model
             'lifestyle_count' => 'integer',
             'pendant_closeup' => 'boolean',
             'case_height_cm'  => 'integer',
+            'redraw_refused'  => 'boolean',
         ];
     }
 

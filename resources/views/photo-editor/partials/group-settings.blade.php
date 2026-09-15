@@ -149,8 +149,10 @@
         </div>
     </div>
     <p class="mt-1 text-xs text-gray-500">
-        Filling in <em>Keep</em> is what removes a mannequin from the real photograph — nothing is redrawn, and it
-        costs half what the AI cleanup does.
+        Filled in from the category, and yours to change. <em>Keep</em> cuts the stand out of the real photograph —
+        nothing is redrawn, so the drape and the direction are the ones that were shot, and it costs one credit
+        rather than two. Clear it if the stand survives: a dress form <em>inside</em> a garment cannot be cut away,
+        and only <em>Remove the stand</em> above can take one of those out.
         <span class="cursor-help border-b border-dotted border-gray-400"
               title="Naming the product cuts the stand out of the photograph itself, inside the single cutout request, so the garment cannot shift or change shape. Leave Keep blank and the AI cleanup pass runs instead.">Why?</span>
     </p>
@@ -211,20 +213,36 @@
         },
 
         /*
-         * Suggest what the product is called, without filling it in.
+         * Fill in what the product is called, from the category.
          *
-         * Filling it in was worse than leaving it blank. Naming the product
-         * switches Photoroom from the generative erase to text-guided
-         * segmentation, and on a garment hanging up the segmentation keeps the
-         * hanger — so auto-filling this quietly turned a route that removed the
-         * stand into one that did not. The suggestion is worth having; making
-         * the choice on somebody's behalf was not.
+         * This used to set the placeholder only, on the grounds that naming the
+         * product switched Photoroom from the generative erase to text-guided
+         * segmentation and the segmentation then kept the hanger — so filling it
+         * in quietly turned a route that removed the stand into one that did
+         * not. That was true and is no longer: the request now carries
+         * ignoreSalientObject, so saliency cannot protect the stand; it names
+         * the stand as the thing to drop; and an edit that comes back uncut is
+         * noticed and retried rather than published. The reason for withholding
+         * the word has gone, and a grey hint nobody types out is not a feature.
+         *
+         * Only over a value this put here. data-auto marks that; anything typed
+         * is left alone, because a word somebody chose after looking at the
+         * photograph beats a word derived from the folder it sits in — and it is
+         * the one thing on this screen that can override every guess the job
+         * would otherwise make.
          */
         nameTheProduct(key) {
-            const box = document.getElementById('seg-keep-{{ $uid }}');
+            const box  = document.getElementById('seg-keep-{{ $uid }}');
+            const noun = this.nouns[key] || '';
 
-            if (box) {
-                box.placeholder = this.nouns[key] || 'the dress';
+            if (!box) {
+                return;
+            }
+
+            box.placeholder = noun || 'the dress';
+
+            if (box.dataset.auto === '1') {
+                box.value = noun;
             }
         },
      }">

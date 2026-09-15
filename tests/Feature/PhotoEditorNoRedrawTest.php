@@ -365,6 +365,55 @@ class PhotoEditorNoRedrawTest extends TestCase
     }
 
     /**
+     * A SKU only pays for one refused redraw, not one per photograph.
+     *
+     * A refusal costs a credit and produces nothing — the published image is the
+     * cutout bought afterwards — so every photo of that SKU was charged twice.
+     * Once is the price of finding out; ten times on a folder of ten photographs
+     * of the same garment on the same stand is waste.
+     */
+    public function test_a_sku_that_has_refused_one_redraw_does_not_buy_another(): void
+    {
+        $user = User::factory()->create(['is_active' => true, 'perm_photo_editor' => true]);
+
+        $session = PhotoEditSession::create([
+            'user_id'       => $user->id,
+            'name'          => 'Run',
+            'onedrive_link' => 'https://example.com',
+            'edits'         => ['remove_background' => true, 'ghost_mannequin' => true],
+        ]);
+
+        \App\Models\PhotoEditGroup::create([
+            'photo_edit_session_id' => $session->id,
+            'sku'                   => 'AFP204BTM00057',
+            'edits'                 => null,
+            'redraw_refused'        => true,
+        ]);
+
+        $item = PhotoEditItem::create([
+            'photo_edit_session_id' => $session->id,
+            'filename'              => 'b.jpg',
+            'sku_detected'          => 'AFP204BTM00057',
+            'status'                => 'pending',
+        ]);
+
+        $method = new \ReflectionMethod(EditPhotoItemJob::class, 'chooseApparelRoute');
+        $method->setAccessible(true);
+
+        [$mode, $itemEdits] = $method->invoke(
+            new EditPhotoItemJob($item->id),
+            ['framing_preset' => 'women/skirts', 'ghost_mannequin' => true],
+            true,
+            null,
+            'the mannequin',
+            'worn',
+        );
+
+        $this->assertSame('cutout_unnamed', $mode, 'the SKU was charged for a second refused redraw');
+        $this->assertFalse((bool) ($itemEdits['ghost_mannequin'] ?? false));
+    }
+
+    /**
      * The redraw is still reachable for a category nobody has given a word to,
      * which is what it was always for.
      */

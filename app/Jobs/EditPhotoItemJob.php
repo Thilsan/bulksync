@@ -2,6 +2,7 @@
 
 namespace App\Jobs;
 
+use App\Models\PhotoEditGroup;
 use App\Models\PhotoEditItem;
 use App\Models\PhotoEditSession;
 use App\Models\User;
@@ -531,6 +532,8 @@ class EditPhotoItemJob implements ShouldQueue
                 }
 
                 if (!$verified) {
+                    $this->rememberTheRedrawWasRefused();
+
                     /*
                      * Back to a plain cutout. The redraw's own bytes are thrown
                      * away: it is a picture of a garment that was not
@@ -818,6 +821,43 @@ class EditPhotoItemJob implements ShouldQueue
      * @return array{0:string,1:array} the mode, and the edits to send.
      *         'needs_erase' is the caller's to act on: it costs a request.
      */
+    /**
+     * Has this photo's SKU already had a redraw measured and thrown away?
+     *
+     * Read per item rather than passed in, because the items of one SKU are
+     * edited by separate jobs on separate workers and only the database is
+     * shared between them. The first to finish writes it; the rest read it.
+     *
+     * A race is possible and costs one wasted credit, which is the same as not
+     * having this at all. Locking a row to save a penny would be the more
+     * expensive mistake.
+     */
+    private function skuAlreadyRefusedARedraw(): bool
+    {
+        $item = PhotoEditItem::find($this->itemId);
+
+        if (!$item || !filled($item->sku_detected)) {
+            return false;
+        }
+
+        return PhotoEditGroup::where('photo_edit_session_id', $item->photo_edit_session_id)
+            ->where('sku', $item->sku_detected)
+            ->value('redraw_refused') ? true : false;
+    }
+
+    private function rememberTheRedrawWasRefused(): void
+    {
+        $item = PhotoEditItem::find($this->itemId);
+
+        if (!$item || !filled($item->sku_detected)) {
+            return;
+        }
+
+        PhotoEditGroup::where('photo_edit_session_id', $item->photo_edit_session_id)
+            ->where('sku', $item->sku_detected)
+            ->update(['redraw_refused' => true]);
+    }
+
     private function chooseApparelRoute(
         array $edits,
         bool $standVisible,
@@ -924,6 +964,25 @@ class EditPhotoItemJob implements ShouldQueue
 
                 $named = true;
             }
+        }
+
+        /*
+         * Already tried on this SKU, already thrown away.
+         *
+         * A refused redraw costs a credit and produces nothing — the image that
+         * gets published is the cutout bought afterwards — so the SKU pays twice
+         * for every photo. Once is the price of finding out. Ten times on one
+         * folder is waste, and a folder is ten photographs of the same garment
+         * on the same stand: whatever the redraw did to the first is what it
+         * will do to the rest.
+         */
+        if ($wantsRedraw && $standVisible && !$named && $this->skuAlreadyRefusedARedraw()) {
+            $itemEdits['ghost_mannequin']   = false;
+            $itemEdits['flat_lay']          = false;
+            $itemEdits['virtual_model']     = false;
+            $itemEdits['remove_background'] = true;
+
+            return ['cutout_unnamed', $itemEdits];
         }
 
         if ($wantsRedraw && $standVisible && !$named) {
