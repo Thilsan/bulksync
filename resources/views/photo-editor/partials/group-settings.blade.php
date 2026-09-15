@@ -159,8 +159,19 @@
             <input id="seg-keep-{{ $uid }}" type="text" name="{{ $name('segmentation_prompt') }}"
                    value="{{ $val('segmentation_prompt') }}" placeholder="the dress" maxlength="500"
                    data-auto="{{ filled($val('segmentation_prompt')) ? '0' : '1' }}"
-                   @input="$el.dataset.auto = '0'"
+                   @input="$el.dataset.auto = '0'; $refs.keepIsAGuess.value = '0'"
                    class="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none">
+
+            {{-- Whether that word came from the category or from a person.
+                 The job treats the two differently and cannot tell them apart
+                 on its own: a guess that cuts nothing out is retried without
+                 it, while a typed word is failed and reported, on the grounds
+                 that somebody looked at the photograph. Left unsent, an
+                 auto-filled word was being failed as though it had been
+                 chosen — which is a category's guess killing the run. --}}
+            <input type="hidden" x-ref="keepIsAGuess"
+                   name="{{ $name('segmentation_prompt_is_a_guess') }}"
+                   value="{{ filled($val('segmentation_prompt')) ? '0' : '1' }}">
         </div>
         <div>
             <label for="seg-drop-{{ $uid }}" class="mb-1 block text-xs text-gray-600">Remove</label>
@@ -264,6 +275,11 @@
 
             if (box.dataset.auto === '1') {
                 box.value = noun;
+
+                // Still the category's word, not a person's.
+                if (this.$refs.keepIsAGuess) {
+                    this.$refs.keepIsAGuess.value = '1';
+                }
             }
         },
      }">
