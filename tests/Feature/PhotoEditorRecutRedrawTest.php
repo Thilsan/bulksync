@@ -6,7 +6,8 @@ use App\Jobs\EditPhotoItemJob;
 use Tests\TestCase;
 
 /**
- * Publishing a redraw that reworked the garment, when the operator has asked to.
+ * Publishing a redraw that changed the garment's proportions, when the operator
+ * has asked to — and only that, not any redraw that reworked the garment.
  *
  * The default — refuse it and keep the photograph — is right and stays right: a
  * recut garment is a picture of a product that does not exist. But on a dress
@@ -14,6 +15,13 @@ use Tests\TestCase;
  * 41%, 35% and 32% across three runs of the same two photographs, and the
  * operator is handed back a mannequin they asked to have removed with no way
  * through. Where they have looked at that and decided, it is their catalogue.
+ *
+ * The first version of this let through anything that was not 'moved',
+ * including 'redrawn' — proportions fine, but the garment's own surface
+ * differing by more than a third. Measured at 87.8% on a smocked blouse: not a
+ * recut, a different garment wearing the right silhouette, published because a
+ * checkbox meant for one bounded trade also covered a worse failure standing
+ * next to it. Only 'reshaped' is kept now.
  *
  * What is not negotiable is the position. Keeping the photograph's own placement
  * and direction is the one thing the redraw prompt exists to secure, so a
@@ -39,10 +47,24 @@ class PhotoEditorRecutRedrawTest extends TestCase
     }
 
     /** The case it was built for: the garment held still but came back recut. */
-    public function test_a_recut_redraw_is_kept_when_the_run_allows_it(): void
+    public function test_a_reshaped_redraw_is_kept_when_the_run_allows_it(): void
     {
         $this->assertTrue($this->keeps(['accept_recut_redraw' => true], 'reshaped'));
-        $this->assertTrue($this->keeps(['accept_recut_redraw' => true], 'redrawn'));
+    }
+
+    /**
+     * A redrawn garment is refused even when recuts are allowed.
+     *
+     * 'redrawn' means proportions were fine but the surface itself differs by
+     * more than a third — a smocked blouse came back 87.8% different, its
+     * pattern reworked rather than reproduced. That is not the bounded "cut is
+     * slightly different" trade the checkbox describes; it is a different
+     * garment in the right silhouette, and no setting here publishes that.
+     */
+    public function test_a_redrawn_garment_is_refused_even_when_recuts_are_allowed(): void
+    {
+        $this->assertFalse($this->keeps(['accept_recut_redraw' => true], 'redrawn'),
+            'a redraw that reworked the garment\'s own surface was published anyway');
     }
 
     /**

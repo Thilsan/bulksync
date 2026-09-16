@@ -142,9 +142,10 @@
             <span class="text-xs text-gray-600">
                 Keep the redraw even if the garment comes back recut
                 <span class="block text-[11px] leading-snug text-gray-400">
-                    Normally a redraw that changed the garment is thrown away and your photo is kept, stand and
-                    all. Tick this to publish the redraw instead — the stand goes, but the garment is
-                    Photoroom's, not yours. A redraw that moved or tilted the garment is still refused.
+                    Normally a redraw that changed the garment's proportions is thrown away and your photo is
+                    kept, stand and all. Tick this to publish it instead — the stand goes, but the shape is
+                    Photoroom's, not yours. A redraw that moved or tilted the garment, or reworked its surface
+                    rather than just its cut, is still refused either way.
                 </span>
             </span>
         </label>

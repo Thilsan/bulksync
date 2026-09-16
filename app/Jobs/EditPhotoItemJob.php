@@ -921,9 +921,32 @@ class EditPhotoItemJob implements ShouldQueue
      * catalogue; a moved one breaks the promise the redraw prompt exists to
      * keep, which is that the photograph's position and direction survive.
      */
+    /**
+     * May a redraw that changed the garment be published anyway?
+     *
+     * Only for 'reshaped' — proportions off, everything else about the
+     * garment intact — which is what the checkbox was built for and named
+     * after: a dress form inside a floor-length skirt that always came back
+     * recut, refused every time, with the operator handed back the mannequin
+     * they had explicitly asked to have removed.
+     *
+     * Not for 'redrawn'. That verdict means proportions were fine but the
+     * garment's own surface differs by more than a third — measured at 87.8%
+     * on a smocked blouse the model reworked rather than reproduced. That is
+     * not a recut, it is a different garment wearing the right silhouette,
+     * and "the garment is Photoroom's, not yours" — the checkbox's own
+     * warning — undersold what that actually meant until a real print showed
+     * it. A checkbox for one specific, bounded trade should not also cover
+     * the more severe failure next to it just because they share a verdict
+     * type this method used to lump together.
+     *
+     * Not for 'moved' either, and that one is still not negotiable: keeping
+     * the photograph's position and direction is the one thing asked for in
+     * exchange for being allowed to redraw at all.
+     */
     private function keepsARecutRedraw(array $edits, string $verdict): bool
     {
-        return !empty($edits['accept_recut_redraw']) && $verdict !== 'moved';
+        return !empty($edits['accept_recut_redraw']) && $verdict === 'reshaped';
     }
 
     private function skuAlreadyRefusedARedraw(): bool
