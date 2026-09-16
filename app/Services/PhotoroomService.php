@@ -312,9 +312,10 @@ class PhotoroomService
      * being sold. Mixing the two is safe precisely because padding is held as
      * a fraction: 10% of 2000 lands in the same place in a tile as 10% of 1200.
      *
-     * Men, Kids and Watches have not been sampled at all. They carry the house
-     * rule on the grounds that it held everywhere it was checked, and each of
-     * their notes says so.
+     * Most of Men, Kids and Watches has not been sampled. Those entries carry
+     * the house rule on the grounds that it held everywhere it was checked,
+     * and each of their notes says so — men/jeans is the one menswear entry
+     * measured off a real sample rather than assumed.
      */
     public const FRAMING_PRESETS = [
         'women' => [
@@ -418,15 +419,18 @@ class PhotoroomService
 
         /*
          * Men, Kids and Watches carry the house rule on the grounds that it is
-         * a house rule — one theme, one tile, one grid. None of them has been
-         * sampled yet, so the moment any of them is, these are the entries to
-         * correct.
+         * a house rule — one theme, one tile, one grid. Most of them have not
+         * been sampled yet, so the moment any of them is, these are the
+         * entries to correct. Jeans below is the first exception: measured off
+         * a real sample rather than assumed, and it agreed with the house
+         * rule exactly.
          */
         'men' => [
             'label'         => 'Men',
             'subcategories' => [
                 'shirts'   => ['label' => 'Shirts',   'note' => 'House rule, unmeasured: 10% around a 2000 square, centred.', 'edits' => ['width' => 2000, 'height' => 2000, 'padding' => 0.10]],
                 'trousers' => ['label' => 'Trousers', 'note' => 'House rule, unmeasured: 10% around a 2000 square, centred.', 'edits' => ['width' => 2000, 'height' => 2000, 'padding' => 0.10]],
+                'jeans'    => ['label' => 'Jeans',     'note' => 'Measured off a finished catalogue frame (ZLI202BTM01870) on a 2000 square: the jeans sit 10.00% down, end 10.00% up from the bottom, and fill exactly 80.00% of the height. The same house rule five womenswear categories — tops, t-shirts, blazers, jeans and skirts — measured to independently, now confirmed on a menswear sample rather than only assumed for it.', 'edits' => ['width' => 2000, 'height' => 2000, 'padding' => 0.10]],
                 'bags'     => ['label' => 'Bags',     'note' => 'House rule, unmeasured: 10% around a 2000 square, centred.', 'edits' => ['width' => 2000, 'height' => 2000, 'padding' => 0.10]],
                 'footwear' => ['label' => 'Footwear', 'note' => 'House rule, unmeasured, bottom-aligned as womenswear footwear measured.', 'edits' => ['width' => 2000, 'height' => 2000, 'padding' => 0.10, 'v_align' => 'bottom']],
             ],
@@ -1160,6 +1164,7 @@ class PhotoroomService
 
         'men/shirts'      => 'the shirt',
         'men/trousers'    => 'the trousers',
+        'men/jeans'       => 'the jeans',
         'men/bags'        => 'the bag',
         'men/footwear'    => 'the shoes',
 

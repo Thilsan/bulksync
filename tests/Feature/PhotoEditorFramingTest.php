@@ -253,6 +253,25 @@ class PhotoEditorFramingTest extends TestCase
     }
 
     /**
+     * Men's jeans, measured rather than assumed.
+     *
+     * Every other menswear entry carries the house rule unmeasured. This one
+     * was checked against a real finished frame (ZLI202BTM01870, 2000
+     * square) and came back 10.00% top, 10.00% bottom, the jeans filling
+     * exactly 80.00% of the height — the same figure five womenswear
+     * categories, including women/jeans, measured to independently. Pinned
+     * so a future edit to the men catalogue doesn't quietly drop the one
+     * menswear entry that has actual evidence behind it back to a guess.
+     */
+    public function test_mens_jeans_keeps_the_padding_its_sample_measured(): void
+    {
+        $fields = $this->layoutFields(PhotoroomService::applyFramingPreset([], 'men/jeans'));
+
+        $this->assertSame('0.1', $fields['padding']);
+        $this->assertSame('center', $fields['verticalAlignment']);
+    }
+
+    /**
      * Beauty was measured, not inherited.
      *
      * The request was to reuse perfume's framing. The samples say otherwise:
