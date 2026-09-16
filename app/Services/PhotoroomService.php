@@ -772,6 +772,18 @@ class PhotoroomService
      * look — the shoulder, above the collar, through an opening — is the same
      * fix as everything else here: a specific instruction where a general one
      * left room to miss it.
+     *
+     * "Keep the same print, logo and lettering" protected the garment's
+     * surface but not what is stitched onto it: a men's jeans back view, kept
+     * as a whole redraw under "keep the redraw", came back with its leather
+     * brand patch relocated from the back pocket to the waistband — the
+     * pocket, the seams and the stitching all present, just not where the
+     * photograph actually put them. aspect_shift and mask_coverage both judge
+     * the garment's outline and its overall surface; neither one looks at
+     * where a single stitched-on patch sits within a silhouette that measured
+     * as fine. Named now the way the shoulder fragment was: the specific
+     * things a redraw is prone to relocate, not only what it is prone to
+     * redraw.
      */
     public const GHOST_MANNEQUIN_PROMPT = 'Remove only the hanger, hook, clothes rail, garment rack, mannequin, '
         . 'dress form, headless body or stand that this garment is displayed on, including any piece of it still '
@@ -785,6 +797,9 @@ class PhotoroomService
         . 'add any tint, shift its hue, or substitute a different but similar colour. The colour in your output '
         . 'must match the colour in the photograph exactly, the same way a colour-accurate reprint would, not an '
         . 'artist\'s impression of it. Keep the same print, logo and lettering too, unchanged and unredrawn. '
+        . 'Keep every stitched-on patch, badge, tab, rivet, button, pocket and seam in exactly the same place on '
+        . 'the garment as in the photograph — do not move a back-pocket patch to the waistband or anywhere else, '
+        . 'do not move any trim or hardware at all. '
         . 'Do not redraw the garment. Just remove the stand.';
 
     private const MANNEQUIN_REMOVAL_PROMPT = 'Remove only the hanger, hook, clothes rail, garment rack, mannequin, '

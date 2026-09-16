@@ -615,6 +615,14 @@ class PhotoEditorNoRedrawTest extends TestCase
              * instead, which is a different failure with a different answer.
              */
             ['product' => null, 'support_type' => 'worn'],
+            /*
+             * A 'reshaped' verdict within the ceiling is no longer kept on the
+             * ceiling alone — a men's jeans back view showed why: measured
+             * well inside 55% on aspect_shift, and still came back with its
+             * back-pocket patch moved to the waistband. Gemini is asked here
+             * too now, the same question already asked for 'redrawn'.
+             */
+            confirmSameGarment: true,
         );
 
         $this->assertSame('edited', $item->status, (string) $item->error_message);
@@ -624,6 +632,40 @@ class PhotoEditorNoRedrawTest extends TestCase
 
         // One request. The fallback cutout would have been a second.
         $this->assertSame(1, $calls, 'a second credit was spent undoing the choice');
+    }
+
+    /**
+     * A 'reshaped' verdict inside the ceiling is still refused when Gemini
+     * cannot confirm it is the same garment.
+     *
+     * The gap this closes: aspect_shift only measures the garment's outline.
+     * A men's jeans back view measured well inside the 55% ceiling and still
+     * came back with its leather back-pocket patch relocated to the
+     * waistband — the outline recut cleanly, the patch did not travel with
+     * it, and the ceiling alone had no way to see that. The same
+     * confirmation already required for 'redrawn' is required here too.
+     */
+    public function test_a_reshape_inside_the_ceiling_is_still_refused_without_gemini_confirmation(): void
+    {
+        Http::fake([
+            'image-api.photoroom.com/*' => Http::response($this->recutGarment(), 200),
+        ]);
+
+        $item = $this->runItem(
+            [
+                'framing_preset'      => 'women/skirts',
+                'accept_recut_redraw' => true,
+            ],
+            ['product' => null, 'support_type' => 'worn'],
+            confirmSameGarment: false,
+        );
+
+        $this->assertSame('edited', $item->status, (string) $item->error_message);
+
+        $this->assertNotSame('ghost_redraw_kept', $item->apparel_mode_applied,
+            'an unconfirmed reshape was published anyway');
+
+        $this->assertStringContainsString('could not be confirmed', (string) $item->error_message);
     }
 
     /**

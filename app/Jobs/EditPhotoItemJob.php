@@ -549,7 +549,10 @@ class EditPhotoItemJob implements ShouldQueue
                     if ($verified) {
                         $edited      = $whole['image'];
                         $appliedMode = 'ghost_photo_kept';
-                    } elseif ($this->keepsARecutRedraw($edits, $whole['verdict'], $whole['metrics']['aspect_shift'] ?? null)) {
+                    } elseif (
+                        $this->keepsARecutRedraw($edits, $whole['verdict'], $whole['metrics']['aspect_shift'] ?? null)
+                        && $this->confirmsAsSameGarment($gemini, $input, $edited)
+                    ) {
                         /*
                          * Asked for, and narrowly.
                          *
@@ -573,6 +576,20 @@ class EditPhotoItemJob implements ShouldQueue
                          * The whole redraw is kept, not the composite: a
                          * composite of two garments that do not line up is the
                          * torn seam this was all written to avoid.
+                         *
+                         * Gated on Gemini too, not just the ceiling, since a
+                         * batch run of men's jeans showed the gap: a redraw
+                         * measured well inside the 55% ceiling on aspect_shift
+                         * alone, and still came back with its back-pocket
+                         * leather patch relocated to the waistband.
+                         * aspect_shift measures the garment's outline, not
+                         * where a single stitched-on patch sits within it, so
+                         * a silhouette that measures as a fine recut can still
+                         * be carrying a real design change the ceiling cannot
+                         * see. The same question already being asked for
+                         * 'redrawn' — is this actually the same garment — is
+                         * asked here too, rather than trusting a number that
+                         * was never measuring this.
                          */
                         /*
                          * $edited already holds the redraw — it is what came
@@ -620,7 +637,11 @@ class EditPhotoItemJob implements ShouldQueue
                             . 'photograph and confirmed to be the same garment, not a different one in the '
                             . 'right silhouette. The photograph was not used — check the print, the colour '
                             . 'and the drape before pushing.';
-                    } elseif ($whole['verdict'] === 'reshaped' && !empty($edits['accept_recut_redraw'])) {
+                    } elseif (
+                        $whole['verdict'] === 'reshaped'
+                        && !empty($edits['accept_recut_redraw'])
+                        && !$this->keepsARecutRedraw($edits, $whole['verdict'], $whole['metrics']['aspect_shift'] ?? null)
+                    ) {
                         /*
                          * Refused by the ceiling, not by the checkbox — worth
                          * saying differently, since the operator did tick
@@ -632,6 +653,21 @@ class EditPhotoItemJob implements ShouldQueue
                             . 'was kept as shot. ' . $whole['reason'] . ' That is beyond what "keep the redraw" '
                             . 'covers here — past a certain point a recut is a different garment, not a '
                             . 'different cut of the same one.';
+                    } elseif ($whole['verdict'] === 'reshaped' && !empty($edits['accept_recut_redraw'])) {
+                        /*
+                         * Inside the ceiling and still refused — the case the
+                         * ceiling alone cannot see. A men's jeans back view
+                         * measured well within 55% on aspect_shift and still
+                         * came back with its back-pocket patch moved to the
+                         * waistband: the outline recut cleanly, the patch did
+                         * not travel with it. Checked against the original the
+                         * same way a 'redrawn' verdict is, and refused for the
+                         * same reason when it cannot be confirmed.
+                         */
+                        $redrawNote = 'The stand could not be removed without altering the garment, so the photo '
+                            . 'was kept as shot. ' . $whole['reason'] . ' The redraw was checked against the '
+                            . 'original photograph and could not be confirmed as the same garment, so "keep '
+                            . 'the redraw" did not apply here.';
                     } elseif ($whole['verdict'] === 'redrawn' && !empty($edits['accept_recut_redraw'])) {
                         /*
                          * Checked and not confirmed — worth saying
@@ -994,6 +1030,15 @@ class EditPhotoItemJob implements ShouldQueue
      * recut, refused every time, with the operator handed back the mannequin
      * they had explicitly asked to have removed.
      *
+     * A true answer from this method is necessary but not sufficient — the
+     * call site also requires confirmsAsSameGarment() before actually
+     * keeping the redraw. This method only reads aspect_shift, the
+     * garment's outline against the photograph's, and a men's jeans back
+     * view showed what that alone misses: measured well inside the 55%
+     * ceiling, and still came back with its leather back-pocket patch
+     * relocated to the waistband. The outline recut cleanly; the patch did
+     * not travel with it, and nothing here was ever going to notice that.
+     *
      * Not this method for 'redrawn' — that verdict means proportions were
      * fine but the garment's own surface differs by more than a third, which
      * was measured at 87.8% on a smocked blouse the model reworked rather
@@ -1036,9 +1081,18 @@ class EditPhotoItemJob implements ShouldQueue
     }
 
     /**
-     * Ask Gemini whether a 'redrawn' verdict is really a different garment,
-     * or a faithful redraw of a heavily draped or sheer one that the
-     * mask_coverage percentage cannot tell apart from a genuine failure.
+     * Ask Gemini whether a redraw being considered for "keep the redraw" is
+     * really the same garment.
+     *
+     * Called for two different verdicts, for two different blind spots. For
+     * 'redrawn', a faithful redraw of a heavily draped or sheer garment can
+     * measure the same mask_coverage percentage as a genuine failure — the
+     * number cannot tell them apart. For 'reshaped', aspect_shift only
+     * checks the garment's outline; a men's jeans back view measured well
+     * inside the reshape ceiling and still came back with its back-pocket
+     * patch relocated to the waistband, a real design change the outline
+     * never saw. Neither number was ever measuring what this asks about
+     * directly, so both are checked against the actual garment instead.
      *
      * A refusal it cannot explain still counts as a refusal here, the same
      * rule the composite itself follows: a quota exception, a timeout, or an
