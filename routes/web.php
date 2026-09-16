@@ -111,6 +111,12 @@ Route::middleware('auth')->group(function () {
         ->whereIn('variant', ['before', 'after', 'full'])
         ->name('photo-editor.preview');
 
+    // A one-off diagnostic file, for looking at what Photoroom actually
+    // returned when nobody has any other way to reach the server's disk.
+    Route::get('/photo-editor/{session}/debug/{filename}', [PhotoEditorController::class, 'debugFile'])
+        ->where('filename', '[A-Za-z0-9._-]+')
+        ->name('photo-editor.debug-file');
+
     /*
      * Two selected pieces, laid out as one set image. A POST because the two
      * ids and their order are the request, and the answer is a file.

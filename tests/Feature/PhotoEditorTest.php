@@ -476,6 +476,39 @@ class PhotoEditorTest extends TestCase
         $this->assertDatabaseCount('photo_edit_items', 0);
     }
 
+    /**
+     * A subdirectory has to go too, not just the files sitting directly in a
+     * session's own folder.
+     *
+     * deleteDirectory() only unlinked top-level files until a debug/ folder
+     * (dropped there by a diagnostic tool with no other way to reach the
+     * server's disk) exposed the gap: rmdir() refuses a directory that still
+     * has anything in it, so the subfolder — and the session's own folder
+     * around it — were left on disk forever. Invisible to totalBytes() and to
+     * the nightly sweep alike, on a server that has already filled its disk
+     * twice from exactly this kind of untracked leftover.
+     */
+    public function test_deleting_a_session_removes_a_subdirectory_too(): void
+    {
+        $user    = $this->editor();
+        $session = PhotoEditSession::create([
+            'user_id' => $user->id, 'name' => 'Run',
+            'onedrive_link' => 'https://example.com', 'edits' => [],
+        ]);
+
+        $sub = $session->absoluteStorageDir() . '/debug';
+        @mkdir($sub, 0775, true);
+        file_put_contents($sub . '/redraw.png', str_repeat('x', 2048));
+
+        $dir = $session->absoluteStorageDir();
+
+        $this->actingAs($user)
+            ->delete(route('photo-editor.destroy', $session))
+            ->assertRedirect(route('photo-editor.history'));
+
+        $this->assertDirectoryDoesNotExist($dir, 'the subdirectory kept rmdir() from removing the session folder');
+    }
+
     /** What the nightly sweep leans on to reclaim an orphaned directory. */
     public function test_an_orphaned_directory_can_be_reclaimed_and_measured(): void
     {

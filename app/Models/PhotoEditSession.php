@@ -109,7 +109,17 @@ class PhotoEditSession extends Model
         return self::deleteDirectory($this->absoluteStorageDir());
     }
 
-    /** @return int bytes freed */
+    /**
+     * @return int bytes freed
+     *
+     * Recurses into subdirectories rather than only unlinking top-level
+     * files, which is what this did until a debug/ folder exposed the gap:
+     * rmdir() refuses a directory that still has anything in it, so a
+     * session with one subfolder left that folder, and the session's own
+     * directory, on disk forever — invisible to totalBytes() and to the
+     * nightly sweep alike, on a server that has already filled its disk
+     * twice from exactly this kind of untracked leftover.
+     */
     public static function deleteDirectory(string $dir): int
     {
         if (!is_dir($dir)) {
@@ -118,10 +128,12 @@ class PhotoEditSession extends Model
 
         $freed = 0;
 
-        foreach (glob("{$dir}/*") ?: [] as $file) {
-            if (is_file($file)) {
-                $freed += (int) filesize($file);
-                @unlink($file);
+        foreach (glob("{$dir}/*") ?: [] as $path) {
+            if (is_dir($path)) {
+                $freed += self::deleteDirectory($path);
+            } elseif (is_file($path)) {
+                $freed += (int) filesize($path);
+                @unlink($path);
             }
         }
 

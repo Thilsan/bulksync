@@ -773,6 +773,33 @@ class PhotoEditorController extends Controller implements HasMiddleware
     }
 
     /**
+     * View a one-off diagnostic file dropped next to a session's own storage,
+     * in the browser, for whoever cannot reach the server's filesystem any
+     * other way.
+     *
+     * This exists because looking at what Ghost Mannequin actually drew — as
+     * opposed to what the app decided to do with it — sometimes has to happen
+     * outside the normal edit/push flow: a tinker script fetches a redraw,
+     * drops it here, and this is how it gets looked at. Gated the same as
+     * every other file this controller serves — a session's own storage
+     * directory, a session the caller is authorised for, nothing else.
+     */
+    public function debugFile(PhotoEditSession $session, string $filename): BinaryFileResponse
+    {
+        $this->authorizeSession($session);
+
+        abort_if(str_contains($filename, '/') || str_contains($filename, '..'), 404);
+
+        $path = storage_path('app/' . $session->storageDir() . '/debug/' . $filename);
+
+        abort_unless(is_file($path), 404);
+
+        return response()->file($path, [
+            'Cache-Control' => 'private, max-age=60',
+        ]);
+    }
+
+    /**
      * Send the chosen edits to Shopify.
      *
      * The selection is stored as it is acted on, so reopening the page shows
