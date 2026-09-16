@@ -706,9 +706,20 @@ class PhotoroomService
      * to do. GhostCompositeService::colourShift() is the backstop for when the
      * wording still is not enough, the same relationship the composite already
      * has with position.
+     *
+     * The opening line named the stand as a category — "mannequin, dress form"
+     * — and never named a place, which left the model free to treat a piece of
+     * one still showing at an off-shoulder neckline as part of the garment
+     * rather than the rest of the thing it had just been told to erase. Seen
+     * repeatedly on exactly that cut: an otherwise clean redraw with a small
+     * pale corner of the form still visible at the shoulder. Naming where to
+     * look — the shoulder, above the collar, through an opening — is the same
+     * fix as everything else here: a specific instruction where a general one
+     * left room to miss it.
      */
     public const GHOST_MANNEQUIN_PROMPT = 'Remove only the hanger, hook, clothes rail, garment rack, mannequin, '
-        . 'dress form, headless body or stand that this garment is displayed on. '
+        . 'dress form, headless body or stand that this garment is displayed on, including any piece of it still '
+        . 'showing at the shoulder, above the collar, or through the neckline or any other opening in the garment. '
         . 'Change nothing else whatsoever. '
         . 'The garment must stay in exactly the same position, at exactly the same angle, at the same size and in '
         . 'the same shape, with the same folds, creases and shadows. '

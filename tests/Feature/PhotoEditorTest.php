@@ -295,6 +295,25 @@ class PhotoEditorTest extends TestCase
         }
     }
 
+    /**
+     * Where to look for the stand, not just what to call it.
+     *
+     * "Mannequin, dress form" named a category and never a place, which left
+     * a piece of one still showing at an off-shoulder neckline free to be
+     * treated as part of the garment rather than the rest of the thing it had
+     * just been told to remove — seen repeatedly on that exact cut, an
+     * otherwise clean redraw with a small pale corner of the form left at the
+     * shoulder.
+     */
+    public function test_the_redraw_instruction_names_where_the_stand_can_still_show(): void
+    {
+        $prompt = strtolower(PhotoroomService::GHOST_MANNEQUIN_PROMPT);
+
+        foreach (['at the shoulder', 'above the collar', 'through the neckline', 'any other opening'] as $rule) {
+            $this->assertStringContainsString($rule, $prompt, "the redraw instruction stopped naming: {$rule}");
+        }
+    }
+
     /** A transparent cutout is a PNG wherever the setting was chosen. */
     public function test_a_transparent_background_is_saved_as_png(): void
     {
