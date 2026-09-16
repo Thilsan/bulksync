@@ -350,7 +350,7 @@
                          and the status badge, so nothing overlaps on hover. --}}
                     <template x-if="item.view_type">
                         <span class="pointer-events-none absolute bottom-2 left-2 rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
-                              :class="['none', 'cutout_unnamed'].includes(item.apparel_mode_applied) ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'"
+                              :class="['none', 'cutout_unnamed', 'ghost_redraw_kept'].includes(item.apparel_mode_applied) ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'"
                               x-text="item.view_type.replace('_', ' ') + ' view · ' + ({
                                   mannequin_removed: 'mannequin removed',
                                   segmented:         'mannequin segmented out',
@@ -372,6 +372,16 @@
                                        where it stood and only the hole it left
                                        was borrowed. --}}
                                   ghost_photo_kept:  'stand removed · photo kept',
+
+                                  {{-- Missing until now, so this fell through to
+                                       the "cutout only" default — the one label
+                                       on this list that means nothing generative
+                                       happened, on the one mode where the whole
+                                       picture is Photoroom's redraw. Amber, like
+                                       cutout_unnamed, because it is the same
+                                       instruction either way: look before you
+                                       push this one. --}}
+                                  ghost_redraw_kept: 'redrawn · check the print',
                               }[item.apparel_mode_applied] || 'cutout only')"></span>
                     </template>
 

@@ -537,4 +537,40 @@ class PhotoEditorNoRedrawTest extends TestCase
         // One request. The fallback cutout would have been a second.
         $this->assertSame(1, $calls, 'a second credit was spent undoing the choice');
     }
+
+    /**
+     * A kept redraw has to say so on screen.
+     *
+     * ghost_redraw_kept had no entry in the show page's label map, so it fell
+     * through to the same "cutout only" default an ordinary, untouched cutout
+     * gets — on the one mode where the whole picture is Photoroom's redraw and
+     * checking the print actually matters. The operator had no way to tell
+     * this image apart from a real photograph without opening the error text
+     * underneath it.
+     */
+    public function test_a_kept_redraw_is_labelled_as_one_on_the_show_page(): void
+    {
+        $user    = User::factory()->create(['is_active' => true, 'perm_photo_editor' => true]);
+        $session = PhotoEditSession::create([
+            'user_id'       => $user->id,
+            'name'          => 'Run',
+            'onedrive_link' => 'https://example.com',
+            'edits'         => [],
+        ]);
+
+        PhotoEditItem::create([
+            'photo_edit_session_id' => $session->id,
+            'filename'              => 'a.jpg',
+            'status'                => 'edited',
+            'apparel_mode_applied'  => 'ghost_redraw_kept',
+        ]);
+
+        $html = $this->actingAs($user)
+            ->get(route('photo-editor.show', $session))
+            ->assertOk()
+            ->getContent();
+
+        $this->assertStringContainsString('ghost_redraw_kept', $html);
+        $this->assertStringContainsString('redrawn · check the print', $html);
+    }
 }
