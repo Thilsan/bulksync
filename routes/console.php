@@ -267,14 +267,14 @@ Schedule::command('notifications:prune --commit')
     ->name('prune-notifications')
     ->withoutOverlapping();
 
-// Chase requests that have gone quiet. Once each weekday morning: a digest is
-// only useful if it arrives when someone can act on it, and daily-including-
-// weekends would train people to ignore it.
-Schedule::command('product-requests:remind')
-    ->weekdays()
-    ->at('08:30')
-    ->name('product-request-reminders')
-    ->withoutOverlapping();
+// Chase requests that have gone quiet. Disabled: the reminder digest was
+// firing emails at people with no stake in the request, so it's off until
+// that's sorted rather than kept running with a known bad recipient list.
+// Schedule::command('product-requests:remind')
+//     ->weekdays()
+//     ->at('08:30')
+//     ->name('product-request-reminders')
+//     ->withoutOverlapping();
 
 /*
  * Queue history is written by every worker for every job, and a single bulk

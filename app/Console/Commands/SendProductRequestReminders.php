@@ -182,9 +182,13 @@ class SendProductRequestReminders extends Command
     }
 
     /**
-     * Who to chase: whoever owns the current stage. Falls back to everyone
-     * holding that stage's role, then to the requester — a nudge with no
-     * recipient would leave the request exactly as stuck as it already is.
+     * Who to chase: whoever owns the current stage. Falls back to the brand
+     * side for that specific category/brand/store when the stage is brand
+     * manager work (never everyone holding the role — see recipients() for
+     * why that fans out to people with no stake in the request), otherwise
+     * to everyone holding that stage's role, then to the requester — a nudge
+     * with no recipient would leave the request exactly as stuck as it
+     * already is.
      *
      * @return \Illuminate\Support\Collection<int, User>
      */
@@ -196,7 +200,13 @@ class SendProductRequestReminders extends Command
             return collect([$guide['owner']]);
         }
 
-        if ($guide['role_key']) {
+        if ($guide['role_key'] === 'brand_manager') {
+            $brandSide = User::brandManagersForCategory($request->category, $request->brand, $request->store_id);
+
+            if ($brandSide->isNotEmpty()) {
+                return $brandSide;
+            }
+        } elseif ($guide['role_key']) {
             $team = User::where('is_active', true)->where('pcr_role', $guide['role_key'])->get();
 
             if ($team->isNotEmpty()) {
