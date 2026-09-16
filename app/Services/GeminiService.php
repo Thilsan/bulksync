@@ -316,6 +316,88 @@ Return a JSON object: {\"alt_text\": \"...\"}. No markdown, no code blocks, no e
     }
 
     /**
+     * Look at the original photograph and a Ghost Mannequin redraw side by
+     * side, and say whether the redraw still shows the same garment — same
+     * design, cut and pattern, allowed to differ only in the way a stand
+     * coming out from underneath it would naturally change some folds — or
+     * whether it has turned into a different garment wearing the right
+     * silhouette.
+     *
+     * Exists because GhostCompositeService's mask_coverage check, the
+     * pixel-difference measurement behind the 'redrawn' verdict, cannot tell
+     * those two apart on a heavily draped or sheer fabric. A ruffled chiffon
+     * dress, photographed from the front and the back, was measured at 72.0%
+     * and 74.6% different from its own original and refused both times —
+     * not because the redraw had reinvented the dress, but because loose,
+     * translucent, multi-layered fabric moves and re-drapes by a large
+     * margin even when faithfully redrawn, in a way a plain jersey dress
+     * does not. A blind percentage does not know the difference between
+     * that and the actual failure it was built to catch — a smocked blouse
+     * measured at 87.8% because the redraw had reworked its pattern outright.
+     * Only a look at what the garment actually is can tell those apart, which
+     * is what this asks for instead of trusting the number alone.
+     *
+     * Used only where the operator has already opted in to keeping a recut
+     * redraw for this run — never on 'moved', which stays refused however
+     * this answers, since keeping the photograph's own position was the one
+     * thing the redraw prompt promised in exchange for being allowed to run
+     * at all.
+     *
+     * @return bool|null true if the same garment, false if a different one,
+     *                    null if Gemini could not be asked or would not say
+     *                    — treated by the caller as "cannot confirm", the
+     *                    same as false, since a refusal it cannot explain is
+     *                    the safe default here.
+     */
+    public function confirmSameGarment(string $originalBytes, string $redrawBytes): ?bool
+    {
+        $originalBytes = $this->shrinkForApi($originalBytes);
+        $redrawBytes   = $this->shrinkForApi($redrawBytes);
+
+        $prompt = "You will see two photographs of a garment. The FIRST image is the original photograph, showing the garment on a mannequin, dress form, hanger or stand. The SECOND image is a redraw of the same photograph with that stand digitally removed.
+
+Decide whether the SECOND image still shows the same garment as the FIRST — same design, cut, silhouette, pattern, trim and construction — or whether it has become a noticeably different garment.
+
+Judge it the way a shopper comparing the listing photo to the item that arrived would: ordinary differences in how loose or sheer fabric happens to drape, fold or fall once a stand is no longer holding it in place are expected and NOT a reason to say \"different\" — a full skirt, a ruffle, a sheer layer or a train can look substantially reshaped in outline while still being the exact same dress. Only say \"different\" if the actual garment has changed: a different neckline, sleeve, length, pattern, trim, layering or overall design than the first photo shows.
+
+Return a JSON object with exactly one field:
+- \"same_garment\": true if the second image is the same garment as the first, false if it has become a different garment.
+
+Return only valid JSON. No markdown, no code blocks, no extra text.";
+
+        $payload = [
+            'contents' => [[
+                'parts' => [
+                    ['text' => $prompt],
+                    ['inline_data' => [
+                        'mime_type' => $this->detectMimeType($originalBytes),
+                        'data'      => base64_encode($originalBytes),
+                    ]],
+                    ['inline_data' => [
+                        'mime_type' => $this->detectMimeType($redrawBytes),
+                        'data'      => base64_encode($redrawBytes),
+                    ]],
+                ],
+            ]],
+            'generationConfig' => [
+                'responseMimeType' => 'application/json',
+                'temperature'      => 0.1,
+            ],
+        ];
+
+        $response = $this->postWithRetry($payload);
+        if (!$response) return null;
+
+        $text = $response->json('candidates.0.content.parts.0.text') ?? '';
+        if (!$text) return null;
+
+        $data = json_decode($text, true);
+        if (!is_array($data) || !array_key_exists('same_garment', $data)) return null;
+
+        return (bool) $data['same_garment'];
+    }
+
+    /**
      * Look at a product photo and say which side of the garment is showing,
      * so the caller can decide whether a generative apparel mode (which only
      * knows how to build a front view) is appropriate for this specific shot.

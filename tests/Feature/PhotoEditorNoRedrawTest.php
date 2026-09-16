@@ -83,8 +83,11 @@ class PhotoEditorNoRedrawTest extends TestCase
     }
 
     /** One item through the real job, with OneDrive and Gemini stood in for. */
-    private function runItem(array $edits, array $classification = []): PhotoEditItem
-    {
+    private function runItem(
+        array $edits,
+        array $classification = [],
+        ?bool $confirmSameGarment = null,
+    ): PhotoEditItem {
         $user = User::factory()->create(['is_active' => true, 'perm_photo_editor' => true]);
 
         $session = PhotoEditSession::create([
@@ -117,6 +120,16 @@ class PhotoEditorNoRedrawTest extends TestCase
             // all, and therefore the case where a bad guess has to be caught.
             'support_type'      => 'held',
         ], $classification));
+
+        // Left unset for every test that is not exercising the 'redrawn'
+        // branch on purpose. A strict Mockery mock throws loudly if
+        // confirmSameGarment() is called without an expectation, which is
+        // exactly the regression this guards: the checkbox short-circuits to
+        // never asking Gemini at all when it is off, or when the verdict
+        // isn't 'redrawn' in the first place.
+        if ($confirmSameGarment !== null) {
+            $gemini->shouldReceive('confirmSameGarment')->once()->andReturn($confirmSameGarment);
+        }
 
         (new EditPhotoItemJob($item->id))->handle(
             $oneDrive,
@@ -191,6 +204,37 @@ class PhotoEditorNoRedrawTest extends TestCase
         imagealphablending($im, true);
 
         $c = imagecolorallocate($im, 150, 150, 152);
+
+        imagefilledrectangle($im, 280, 150, 620, 1050, $c);
+        imagefilledrectangle($im, 60, 150, 280, 520, $c);
+        imagefilledrectangle($im, 620, 150, 840, 520, $c);
+
+        ob_start();
+        imagepng($im);
+
+        return ob_get_clean();
+    }
+
+    /**
+     * The redraw Photoroom sends back for a garment whose surface it has
+     * reworked: the exact same box as garmentCutout() — same position, same
+     * proportions, so containment and aspect_shift both pass — filled with a
+     * shade far enough from the original that most of it counts as changed
+     * per pixel. Near-neutral on purpose, the same trick as a real near-white
+     * or grey garment: too little chroma for colour_shift to have an opinion,
+     * so this is measured as a 'redrawn' verdict on mask_coverage alone, not
+     * as 'recoloured'.
+     */
+    private function redrawnDifferentSurface(): string
+    {
+        $im = imagecreatetruecolor(900, 1200);
+
+        imagesavealpha($im, true);
+        imagealphablending($im, false);
+        imagefill($im, 0, 0, imagecolorallocatealpha($im, 0, 0, 0, 127));
+        imagealphablending($im, true);
+
+        $c = imagecolorallocate($im, 40, 40, 42);
 
         imagefilledrectangle($im, 280, 150, 620, 1050, $c);
         imagefilledrectangle($im, 60, 150, 280, 520, $c);
@@ -580,6 +624,94 @@ class PhotoEditorNoRedrawTest extends TestCase
 
         // One request. The fallback cutout would have been a second.
         $this->assertSame(1, $calls, 'a second credit was spent undoing the choice');
+    }
+
+    /**
+     * A 'redrawn' verdict — the garment's own surface differs by more than a
+     * third — is still kept when Gemini looks at both photos and confirms it
+     * is the same garment.
+     *
+     * The case this closes: a ruffled chiffon dress, front and back views,
+     * refused at 72.0% and 74.6% surface difference on every run, with the
+     * operator's "keep the redraw" checkbox ticked and doing nothing, because
+     * mask_coverage alone cannot tell a faithfully redrawn sheer garment that
+     * simply re-drapes once nothing is holding its pose from an actually
+     * reworked one. Asked directly, Gemini can.
+     */
+    public function test_a_redrawn_verdict_is_kept_when_gemini_confirms_the_same_garment(): void
+    {
+        Http::fake([
+            'image-api.photoroom.com/*' => Http::response($this->redrawnDifferentSurface(), 200),
+        ]);
+
+        $item = $this->runItem(
+            [
+                'framing_preset'      => 'women/skirts',
+                'accept_recut_redraw' => true,
+            ],
+            ['product' => null, 'support_type' => 'worn'],
+            confirmSameGarment: true,
+        );
+
+        $this->assertSame('edited', $item->status, (string) $item->error_message);
+
+        $this->assertSame('ghost_redraw_kept', $item->apparel_mode_applied,
+            'Gemini confirmed the same garment, but the redraw was still discarded');
+
+        $this->assertStringContainsString('confirmed', (string) $item->error_message,
+            'the note should say the redraw was checked, not just kept');
+    }
+
+    /**
+     * The other half of the same case: Gemini looks and cannot confirm it is
+     * the same garment (or the same for the purposes of this test — cannot be
+     * reached at all), and the redraw is refused exactly as it was before
+     * this existed.
+     */
+    public function test_a_redrawn_verdict_is_refused_when_gemini_cannot_confirm_the_same_garment(): void
+    {
+        Http::fake([
+            'image-api.photoroom.com/*' => Http::response($this->redrawnDifferentSurface(), 200),
+        ]);
+
+        $item = $this->runItem(
+            [
+                'framing_preset'      => 'women/skirts',
+                'accept_recut_redraw' => true,
+            ],
+            ['product' => null, 'support_type' => 'worn'],
+            confirmSameGarment: false,
+        );
+
+        $this->assertSame('edited', $item->status, (string) $item->error_message);
+
+        $this->assertNotSame('ghost_redraw_kept', $item->apparel_mode_applied,
+            'an unconfirmed redraw was published anyway');
+
+        $this->assertStringContainsString('could not be confirmed', (string) $item->error_message);
+    }
+
+    /**
+     * Without the checkbox, a 'redrawn' verdict is refused the old way and
+     * Gemini is never asked at all — asking would be a real API call spent on
+     * a photo that was never a candidate for "keep the redraw" in the first
+     * place. The mocked Gemini in runItem() has no expectation set for
+     * confirmSameGarment() by default, so a call here fails the test loudly
+     * rather than silently passing.
+     */
+    public function test_a_redrawn_verdict_without_the_checkbox_never_asks_gemini(): void
+    {
+        Http::fake([
+            'image-api.photoroom.com/*' => Http::response($this->redrawnDifferentSurface(), 200),
+        ]);
+
+        $item = $this->runItem(
+            ['framing_preset' => 'women/skirts'],
+            ['product' => null, 'support_type' => 'worn'],
+        );
+
+        $this->assertSame('edited', $item->status, (string) $item->error_message);
+        $this->assertNotSame('ghost_redraw_kept', $item->apparel_mode_applied);
     }
 
     /**
