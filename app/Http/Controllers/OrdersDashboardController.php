@@ -69,8 +69,16 @@ class OrdersDashboardController extends Controller
      */
     private const EXCLUDED_PLATFORMS = ['nespresso'];
 
-    /** The three tabs on the screen. Which one is open lives in the URL. */
-    private const TABS = ['orders' => 'Orders', 'analytics' => 'Analytics', 'studio' => 'AI Studio'];
+    /**
+     * The three tabs on the screen. Which one is open lives in the URL, so
+     * the keys are what shared links carry and stay as they are however the
+     * labels beside them get renamed.
+     */
+    private const TABS = [
+        'orders'    => 'Ecom Delivery',
+        'analytics' => 'Ecom Order Analytics',
+        'studio'    => 'AI Studio',
+    ];
 
     public function index(Request $request, OrdersSummaryService $orders, ShopifyAnalyticsService $analytics, #[CurrentUser] User $user): View
     {
