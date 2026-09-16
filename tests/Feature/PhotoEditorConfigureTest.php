@@ -495,19 +495,18 @@ class PhotoEditorConfigureTest extends TestCase
     }
 
     /**
-     * Picking the redraw clears a category's own guess out of Keep, and
-     * picking a category while the redraw is already selected never fills it
-     * in the first place.
+     * Keep never fills itself in — the category's word is a hint in the
+     * placeholder, not a value in the box.
      *
-     * Naming the product, guess or not, routes the request to segmentation
-     * instead of Ghost Mannequin, and Keep fills itself automatically from
-     * the category — so a category chosen before or after the redraw was
-     * ticked left a word sitting there that silently defeated the treatment
-     * the operator had just chosen, in either order, with no visible cause.
-     * Pinned on the markup itself, since the behaviour lives in inline
-     * Alpine wiring that only a browser executes.
+     * Naming the product, however it got there, routes the whole request to
+     * text-guided segmentation instead of whatever treatment was chosen —
+     * Ghost Mannequin included. Auto-filling Keep from the category used to
+     * put a word in the box that silently defeated the redraw the operator
+     * had just selected, in either order they picked things, with nothing on
+     * screen to say why. The fix is not to chase every ordering with more
+     * watchers; it is to never fill the box unless a person types into it.
      */
-    public function test_selecting_the_redraw_is_wired_to_clear_and_withhold_the_guess(): void
+    public function test_keep_shows_the_category_only_as_a_hint_never_as_a_value(): void
     {
         $session = $this->makeSession();
         $this->photo($session, 'SKU-1', 'a.jpg');
@@ -518,15 +517,12 @@ class PhotoEditorConfigureTest extends TestCase
             ->assertOk()
             ->getContent();
 
-        // Category picked first, redraw ticked second: the watcher on the
-        // treatment radio has to reach into the Keep box and clear a guess.
-        $this->assertStringContainsString("\$watch('treatment'", $html);
-        $this->assertStringContainsString("box.dataset.auto === '1'", $html);
-
-        // Redraw ticked first, category picked second: nameTheProduct has to
-        // check the radio before filling Keep in.
-        $this->assertStringContainsString('ghostSelected', $html);
-        $this->assertStringContainsString("!ghostSelected", $html);
+        // The function that runs when a category is picked sets a placeholder
+        // and nothing else — no assignment to the input's value anywhere in
+        // it, under any name a future edit might give that assignment.
+        $this->assertStringContainsString('box.placeholder = this.nouns[key]', $html);
+        $this->assertStringNotContainsString('box.value = noun', $html);
+        $this->assertStringNotContainsString('box.value =', $html);
     }
 
     /**

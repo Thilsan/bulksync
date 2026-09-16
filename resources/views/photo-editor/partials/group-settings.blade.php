@@ -110,36 +110,13 @@
         $treatment = $val('ghost_mannequin') ? 'ghost' : 'none';
     @endphp
 
-    {{-- Watches its own choice and clears a category's guess out of Keep the
-         moment the redraw is selected.
-         Naming the product — even a guess the operator never typed — routes
-         every request to text-guided segmentation instead of Ghost Mannequin,
-         because the job cannot tell "the category filled this in" from
-         "somebody looked at the photo and chose this". Picking a category
-         first and the redraw second used to leave the guess sitting there
-         silently defeating the very treatment just chosen: three photo-editor
-         sessions in a row where the operator ticked Ghost Mannequin, watched
-         it fail to redraw anything, and the cause was a word neither typed nor
-         visible as a problem. A person who types their own word after this is
-         making segmentation their deliberate choice instead, and that is left
-         alone — only the category's own guess is cleared. --}}
-    <div class="grid gap-3 sm:grid-cols-2" x-data="{ treatment: @js($treatment) }"
-         x-init="$watch('treatment', (value) => {
-             if (value !== 'ghost') return;
-
-             const box = document.getElementById('seg-keep-{{ $uid }}');
-
-             if (box && box.dataset.auto === '1' && box.value !== '') {
-                 box.value = '';
-             }
-         })">
+    <div class="grid gap-3 sm:grid-cols-2" x-data="{ treatment: @js($treatment) }">
         @foreach ([
             'none'     => ['Keep the photo', 'Real pixels, exactly as shot. Anything holding the garment up stays in shot.'],
             'ghost'    => ['Remove the stand (Ghost Mannequin)', 'Photoroom\'s apparel model. Removes a hanger or dress form and keeps the print. Costs one credit, same as any edit — check the first few results.'],
         ] as $mode => [$label, $help])
             <label class="flex cursor-pointer items-start gap-2 rounded-lg border border-gray-200 p-3 hover:border-gray-300 has-[:checked]:border-brand-500 has-[:checked]:bg-brand-50/60">
                 <input type="radio" x-model="treatment" value="{{ $mode }}" @checked($treatment === $mode)
-                       id="treat-{{ $mode }}-{{ $uid }}"
                        class="mt-0.5 h-3.5 w-3.5 border-gray-300 text-brand-600 focus:ring-brand-500">
                 <span>
                     <span class="block text-sm font-medium text-gray-800">{{ $label }}</span>
@@ -227,12 +204,13 @@
         </div>
     </div>
     <p class="mt-1 text-xs text-gray-500">
-        Filled in from the category, and yours to change. <em>Keep</em> cuts the stand out of the real photograph —
-        nothing is redrawn, so the drape and the direction are the ones that were shot, and it costs one credit
-        rather than two. Clear it if the stand survives: a dress form <em>inside</em> a garment cannot be cut away,
-        and only <em>Remove the stand</em> above can take one of those out.
+        Empty by default — the category's own word shows only as a hint. Type it in and <em>Keep</em> cuts the
+        stand out of the real photograph — nothing is redrawn, so the drape and the direction are the ones that
+        were shot, and it costs one credit rather than two. It cannot take out a stand the garment is worn
+        <em>on</em> — a dress form <em>inside</em> a garment survives being named, and only
+        <em>Remove the stand</em> above can take one of those out.
         <span class="cursor-help border-b border-dotted border-gray-400"
-              title="Naming the product cuts the stand out of the photograph itself, inside the single cutout request, so the garment cannot shift or change shape. Leave Keep blank and the AI cleanup pass runs instead.">Why?</span>
+              title="Naming the product cuts the stand out of the photograph itself, inside the single cutout request, so the garment cannot shift or change shape. Leave Keep blank and Photoroom's own matting runs instead.">Why?</span>
     </p>
 </div>
 
@@ -310,37 +288,21 @@
          * would otherwise make.
          */
         nameTheProduct(key) {
-            const box  = document.getElementById('seg-keep-{{ $uid }}');
-            const noun = this.nouns[key] || '';
+            const box = document.getElementById('seg-keep-{{ $uid }}');
 
             if (!box) {
                 return;
             }
 
-            box.placeholder = noun || 'the dress';
-
-            // Ghost Mannequin only runs on an unnamed product — naming one,
-            // guess or not, sends the request to segmentation instead. Filling
-            // Keep here would be quietly overriding a treatment the operator
-            // has already chosen, in a category picked either before or after
-            // it, which is exactly the confusion the watcher above unwinds for
-            // the other ordering.
-            const ghostSelected = document.getElementById('treat-ghost-{{ $uid }}')?.checked;
-
-            if (box.dataset.auto === '1' && !ghostSelected) {
-                box.value = noun;
-
-                // Still the category's word, not a person's. By id, not
-                // $refs: this component and the hidden flag are cousins under
-                // the SKU card, not parent and child, and a ref only resolves
-                // within its own nearest x-data — which silently swallowed
-                // this assignment every time a category was re-picked.
-                const guessFlag = document.getElementById('seg-keep-guess-{{ $uid }}');
-
-                if (guessFlag) {
-                    guessFlag.value = '1';
-                }
-            }
+            // A hint in grey, never a value. Auto-filling this used to
+            // silently steer the request away from whatever treatment was
+            // selected — naming a product, guessed or typed, always switches
+            // Photoroom from its own matting to text-guided segmentation, and
+            // a word neither typed nor visibly present was undoing Ghost
+            // Mannequin every time a category was picked. The category's
+            // word is worth showing as a suggestion; it is not worth acting
+            // on until a person actually types it.
+            box.placeholder = this.nouns[key] || 'the dress';
         },
      }">
     <span class="mb-2 block text-xs font-semibold uppercase tracking-wide text-gray-500">Size &amp; framing</span>
