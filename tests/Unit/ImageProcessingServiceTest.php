@@ -926,4 +926,74 @@ class ImageProcessingServiceTest extends TestCase
 
         return ob_get_clean();
     }
+
+    /**
+     * Ironing has no prompt to be told "keep the colour" the way a redraw
+     * does — Photoroom documents a single field for it, ironing.mode, and
+     * nothing else — so the only backstop available is measuring what came
+     * back against what was sent, the same proxy GhostCompositeService
+     * already uses for a redraw, applied here to the whole photograph rather
+     * than a garment box on a mannequin.
+     */
+    public function test_colour_shift_is_null_on_an_identical_photograph(): void
+    {
+        $subject = $this->solidSubject([150, 150, 152]);
+
+        $this->assertSame(0.0, $this->service->colourShift($subject, $subject));
+    }
+
+    public function test_colour_shift_catches_a_real_colour_change(): void
+    {
+        $before = $this->solidSubject([40, 90, 160]);  // navy
+        $after  = $this->solidSubject([120, 20, 50]);  // burgundy
+
+        $shift = $this->service->colourShift($before, $after);
+
+        $this->assertNotNull($shift);
+        $this->assertGreaterThan(0.12, $shift, 'a navy-to-burgundy shift should read as a real colour change');
+    }
+
+    public function test_colour_shift_ignores_the_ordinary_variance_of_a_faithful_edit(): void
+    {
+        $before = $this->solidSubject([150, 150, 152]);
+        $after  = $this->solidSubject([154, 148, 151]); // a few levels either way, not a different colour
+
+        $shift = $this->service->colourShift($before, $after);
+
+        $this->assertNotNull($shift);
+        $this->assertLessThan(0.12, $shift);
+    }
+
+    public function test_colour_shift_is_null_without_enough_subject_on_either_side(): void
+    {
+        $blank = $this->blankCanvas();
+
+        $this->assertNull($this->service->colourShift($blank, $this->solidSubject([40, 90, 160])));
+        $this->assertNull($this->service->colourShift($this->solidSubject([40, 90, 160]), $blank));
+    }
+
+    /** A single-colour subject on a white background, filling most of the frame. */
+    private function solidSubject(array $rgb): string
+    {
+        $im = imagecreatetruecolor(1000, 1000);
+        imagefilledrectangle($im, 0, 0, 1000, 1000, imagecolorallocate($im, 255, 255, 255));
+        imagefilledrectangle($im, 200, 200, 800, 800, imagecolorallocate($im, $rgb[0], $rgb[1], $rgb[2]));
+
+        ob_start();
+        imagepng($im);
+
+        return ob_get_clean();
+    }
+
+    /** Nothing but white — no subject for the average to be taken from. */
+    private function blankCanvas(): string
+    {
+        $im = imagecreatetruecolor(1000, 1000);
+        imagefilledrectangle($im, 0, 0, 1000, 1000, imagecolorallocate($im, 255, 255, 255));
+
+        ob_start();
+        imagepng($im);
+
+        return ob_get_clean();
+    }
 }

@@ -367,6 +367,57 @@ class EditPhotoItemJob implements ShouldQueue
             $edited = $photoroom->edit($input, $itemEdits, $item->filename);
 
             /*
+             * Ironing has no prompt of its own to be told "keep the colour
+             * and the material" — Photoroom's API documents a single field
+             * for it, ironing.mode, and nothing else. Every other generative
+             * option here that changes real pixels (ghost mannequin, the
+             * price-tag erase pass) gets one because it accepts a prompt;
+             * ironing does not accept text at all, so the only thing left is
+             * to measure what came back rather than trust it.
+             *
+             * Checked against $input, not the original download — $input is
+             * exactly what was sent to Photoroom, so this is the same
+             * before-and-after pair the request itself saw, not before-and-
+             * after some other step's changes too.
+             *
+             * Not fatal, the same way a failed price-tag erase is not: the
+             * cutout is still real and still usable. Retried once without
+             * ironing rather than discarded outright, because the wrinkle the
+             * operator asked to have pressed out is a real thing they wanted
+             * and losing it over a threshold that is a judgement call, not a
+             * measurement, would be the more surprising outcome of the two.
+             */
+            if (!empty($itemEdits['ironing'])) {
+                $ironedShift = $imageService->colourShift($input, $edited);
+
+                if ($ironedShift !== null && $ironedShift > self::MAX_IRONING_COLOUR_SHIFT) {
+                    Log::warning('Ironing shifted the subject colour past the limit, retrying without it', [
+                        'item'  => $this->itemId,
+                        'shift' => $ironedShift,
+                    ]);
+
+                    try {
+                        $unironed = $itemEdits;
+                        $unironed['ironing'] = false;
+
+                        $edited = $photoroom->edit($input, $unironed, $item->filename);
+
+                        $redrawNote = sprintf(
+                            'Ironing was skipped: pressing the garment shifted its own colour by %.1f%% '
+                            . '(limit %.0f%%), which is more than steaming out a wrinkle should cost. '
+                            . 'The photo was kept as shot, creases and all.',
+                            $ironedShift * 100,
+                            self::MAX_IRONING_COLOUR_SHIFT * 100,
+                        );
+                    } catch (\Throwable $e) {
+                        Log::warning(
+                            "EditPhotoItemJob item {$this->itemId} un-ironed retry failed: " . $e->getMessage()
+                        );
+                    }
+                }
+            }
+
+            /*
              * A cutout that kept the whole frame is not a cutout.
              *
              * This is the failure that arrives looking like a success — the
@@ -1070,6 +1121,21 @@ class EditPhotoItemJob implements ShouldQueue
      * would.
      */
     private const MAX_ACCEPTABLE_RESHAPE = 0.55;
+
+    /**
+     * How far ironing may shift the subject's own colour before the result
+     * is thrown away and retried without it.
+     *
+     * Not measured — there is no failing photograph behind this number the
+     * way there is behind MAX_ACCEPTABLE_RESHAPE, because ironing has no
+     * prompt to have gone wrong in a way that produced one yet. Set the same
+     * as GhostCompositeService's own colour ceiling, on the same reasoning:
+     * a judgement call at a level that would clearly read as "a different
+     * colour" to a shopper, not a measurement of where ironing itself
+     * actually tends to drift. The number to revisit once a real ironed
+     * photo is caught by it.
+     */
+    private const MAX_IRONING_COLOUR_SHIFT = 0.12;
 
     private function keepsARecutRedraw(array $edits, string $verdict, ?float $aspectShift): bool
     {

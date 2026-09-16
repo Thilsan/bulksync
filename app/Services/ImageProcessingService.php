@@ -1057,6 +1057,96 @@ class ImageProcessingService
     }
 
     /**
+     * How far the subject's own colour moved between two photographs of it,
+     * as a fraction of the largest possible RGB distance — or null when
+     * either side had too little non-background pixel to trust an average
+     * from.
+     *
+     * Built for ironing, which has no prompt of its own to be told "don't
+     * change the material" — Photoroom's Image Editing API documents a single
+     * field, ironing.mode, and nothing else; unlike ghostMannequin or
+     * editWithAI there is no text channel into it at all. GhostCompositeService
+     * already measures this same thing for a redraw, but against a garment box
+     * it has located on a mannequin — ironing runs on every category, worn or
+     * not, so this compares the two photographs as a whole instead: same
+     * background-exclusion rule (near-white or transparent), no attempt to
+     * find a garment inside a support first.
+     *
+     * Not a proof that ironing caused any drift it finds — the same request
+     * usually also removes the background and reframes the canvas, and this
+     * runs across whatever changed between the two. It is a proxy, the same
+     * way GhostCompositeService's version is: cheap to compute, and a real
+     * colour change is the only thing that moves it by much.
+     */
+    public function colourShift(string $before, string $after): ?float
+    {
+        $a = $this->averageSubjectColour($before);
+        $b = $this->averageSubjectColour($after);
+
+        if ($a === null || $b === null) {
+            return null;
+        }
+
+        $distance = sqrt(($a[0] - $b[0]) ** 2 + ($a[1] - $b[1]) ** 2 + ($a[2] - $b[2]) ** 2);
+
+        return round($distance / sqrt(3 * 255 ** 2), 4);
+    }
+
+    /**
+     * @return array{0: float, 1: float, 2: float}|null
+     */
+    private function averageSubjectColour(string $imageContent): ?array
+    {
+        $proxyEdge = 240;
+
+        $proxy = @imagecreatefromstring(
+            $this->decode($imageContent)->scaleDown($proxyEdge, $proxyEdge)->encode(new PngEncoder())->toString(),
+        );
+
+        if (!$proxy) {
+            return null;
+        }
+
+        $w = imagesx($proxy);
+        $h = imagesy($proxy);
+
+        $count = 0;
+        $sumR = 0; $sumG = 0; $sumB = 0;
+
+        for ($y = 0; $y < $h; $y++) {
+            for ($x = 0; $x < $w; $x++) {
+                $rgba = imagecolorat($proxy, $x, $y);
+
+                // Transparent counts as background, the same as white does.
+                if ((($rgba >> 24) & 0x7F) > 100) {
+                    continue;
+                }
+
+                $r = ($rgba >> 16) & 0xFF;
+                $g = ($rgba >> 8) & 0xFF;
+                $b = $rgba & 0xFF;
+
+                if ($r >= self::BACKGROUND_WHITE && $g >= self::BACKGROUND_WHITE && $b >= self::BACKGROUND_WHITE) {
+                    continue;
+                }
+
+                $sumR += $r; $sumG += $g; $sumB += $b;
+                $count++;
+            }
+        }
+
+        imagedestroy($proxy);
+
+        // Too little subject to trust an average from — a near-empty crop, or
+        // a background removal that left almost nothing behind either side.
+        if ($count < 30) {
+            return null;
+        }
+
+        return [$sumR / $count, $sumG / $count, $sumB / $count];
+    }
+
+    /**
      * Bring anything deeper than 8 bits per channel back down to 8.
      *
      * Photoroom refuses more than 8-bit outright: "Images deeper than 8-bit are

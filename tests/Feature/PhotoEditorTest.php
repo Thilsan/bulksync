@@ -1502,6 +1502,87 @@ class PhotoEditorTest extends TestCase
         return (string) ob_get_clean();
     }
 
+    /**
+     * Ironing has no prompt of its own to be told "keep the colour and the
+     * material" — Photoroom documents a single field for it, ironing.mode,
+     * and nothing else, unlike ghost mannequin or the price-tag erase pass,
+     * which both accept text. The only backstop available is measuring what
+     * came back: a request with ironing on that shifts the subject's own
+     * colour past the limit is retried once without ironing, and the photo
+     * that goes out is the un-ironed one.
+     */
+    public function test_ironing_that_shifts_the_colour_is_retried_without_it(): void
+    {
+        $navy      = $this->solidColourPhoto([40, 90, 160]);
+        $burgundy  = $this->solidColourPhoto([120, 20, 50]);
+
+        $user    = $this->editor();
+        $session = PhotoEditSession::create([
+            'user_id'       => $user->id,
+            'name'          => 'Iron',
+            'onedrive_link' => 'https://example.com',
+            'edits'         => [
+                'remove_background' => true,
+                'background_mode'   => 'white',
+                'ironing'           => true,
+            ],
+        ]);
+
+        $item = PhotoEditItem::create([
+            'photo_edit_session_id' => $session->id,
+            'filename'              => 'a.jpg',
+            'status'                => 'pending',
+            'onedrive_drive_id'     => 'drive-1',
+            'onedrive_item_id'      => 'item-1',
+        ]);
+
+        $oneDrive = \Mockery::mock(\App\Services\OneDriveService::class);
+        $oneDrive->shouldReceive('setUser')->andReturnSelf();
+        $oneDrive->shouldReceive('downloadFileById')->andReturn($navy);
+
+        $gemini = \Mockery::mock(\App\Services\GeminiService::class);
+
+        $calls = 0;
+
+        \Illuminate\Support\Facades\Http::fake([
+            'image-api.photoroom.com/*' => function () use (&$calls, $navy, $burgundy) {
+                $calls++;
+
+                // First call: ironed and, in this fixture, recoloured. Second
+                // call — the retry without ironing — comes back faithful.
+                return \Illuminate\Support\Facades\Http::response($calls === 1 ? $burgundy : $navy, 200);
+            },
+        ]);
+
+        (new \App\Jobs\EditPhotoItemJob($item->id))->handle(
+            $oneDrive,
+            app(ImageProcessingService::class),
+            app(PhotoroomService::class),
+            $gemini,
+            app(\App\Services\GhostPrintTransplantService::class),
+            app(\App\Services\GhostCompositeService::class),
+        );
+
+        $item = $item->fresh();
+
+        $this->assertSame('edited', $item->status, (string) $item->error_message);
+        $this->assertSame(2, $calls, 'the un-ironed retry was never sent');
+        $this->assertStringContainsString('Ironing was skipped', (string) $item->error_message);
+    }
+
+    /** A solid-colour subject on a white background, filling most of the frame. */
+    private function solidColourPhoto(array $rgb): string
+    {
+        $im = imagecreatetruecolor(1000, 1000);
+        imagefilledrectangle($im, 0, 0, 1000, 1000, imagecolorallocate($im, 255, 255, 255));
+        imagefilledrectangle($im, 200, 200, 800, 800, imagecolorallocate($im, $rgb[0], $rgb[1], $rgb[2]));
+
+        ob_start();
+        imagepng($im);
+
+        return ob_get_clean();
+    }
+
     private function runCleanupItem(array $editOverrides, array $classification): PhotoEditItem
     {
         \Illuminate\Support\Facades\Cache::flush();

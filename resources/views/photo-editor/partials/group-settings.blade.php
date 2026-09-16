@@ -560,7 +560,7 @@
         @foreach ([
             'upscale' => ['Upscale small photos', 'Already automatic for photos smaller than the canvas — tick only to force it'],
             'expand'  => ['Extend the background', 'Invents canvas beyond the edges of the photo'],
-            'ironing' => ['Ironing', 'Costs most of your resolution — measured, the same photo came back 3333x5000 without it and 832x1248 with it, a sixteenth of the pixels. Steam the garment before the shoot instead'],
+            'ironing' => ['Ironing', 'Costs most of your resolution — measured, the same photo came back 3333x5000 without it and 832x1248 with it, a sixteenth of the pixels. Steam the garment before the shoot instead. Photoroom gives this one no prompt of its own, so it cannot be told to leave the colour and material alone the way other edits here can — a photo whose own colour shifted too far is retried without ironing automatically, but check the fabric anyway'],
             'remove_price_tag' => ['Remove price tags', 'Erases paper swing tickets and their string. Costs a second credit and redraws the whole photo, so check the print afterwards — tick it only on folders shot with the tickets still on'],
         ] as $field => [$label, $hint])
             <label class="flex cursor-pointer items-start gap-2 text-xs text-gray-700" title="{{ $hint }}">
