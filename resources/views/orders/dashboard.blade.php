@@ -39,7 +39,9 @@
          making. Plain links, so each tab is its own shareable URL. --}}
     <div class="border-b border-gray-200 flex items-center gap-1" role="tablist">
         @foreach($tabs as $key => $label)
-            <a href="{{ route('orders.dashboard', $key === 'orders' ? array_merge(request()->query(), ['tab' => 'orders']) : ['tab' => $key]) }}"
+            {{-- Orders and Analytics share the same date range, so switching
+                 between them keeps it; Studio has its own clock and ignores it. --}}
+            <a href="{{ route('orders.dashboard', $key === 'studio' ? ['tab' => $key] : array_merge(request()->query(), ['tab' => $key])) }}"
                role="tab" @if($tab === $key) aria-selected="true" @endif
                class="px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors
                       {{ $tab === $key
@@ -58,7 +60,7 @@
         </div>
     @elseif($tab === 'analytics')
         <div data-tab="analytics">
-            @include('orders.analytics', ['rows' => $analytics])
+            @include('orders.analytics', ['rows' => $analytics, 'totals' => $analyticsTotals])
         </div>
     @else
 

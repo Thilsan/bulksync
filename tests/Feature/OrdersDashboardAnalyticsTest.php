@@ -30,6 +30,31 @@ class OrdersDashboardAnalyticsTest extends TestCase
         ]);
     }
 
+    /** A stand-in for one store's Shopify client, answering whatever a test needs. */
+    private function fake(int $orders = 3, float $revenue = 300.0, array $products = [], array $channels = []): object
+    {
+        return new class($orders, $revenue, $products, $channels) {
+            public function __construct(
+                private int $orders,
+                private float $revenue,
+                private array $products,
+                private array $channels,
+            ) {}
+
+            public function getOrderAnalytics($from, $to): array
+            {
+                return [
+                    'orders'       => $this->orders,
+                    'revenue'      => $this->revenue,
+                    'currency'     => 'QAR',
+                    'top_products' => $this->products,
+                    'by_channel'   => $this->channels,
+                    'capped'       => false,
+                ];
+            }
+        };
+    }
+
     public function test_shows_one_row_per_connected_store_with_its_shopify_totals(): void
     {
         Store::create([
@@ -101,6 +126,48 @@ class OrdersDashboardAnalyticsTest extends TestCase
         $response->assertOk();
         $response->assertSee('Online Store');
         $response->assertSee('Point of Sale');
+    }
+
+    /** The tab is useless without its own dates — it used to borrow the Orders tab's and offer no way to change them. */
+    public function test_the_analytics_tab_carries_its_own_date_filter(): void
+    {
+        Store::create([
+            'name' => 'Blue Salon', 'shopify_domain' => 'bluesalon.myshopify.com',
+            'shopify_access_token' => 'test-token',
+        ]);
+
+        $this->app->instance(ShopifyAnalyticsService::class, new ShopifyAnalyticsService(fn ($s) => $this->fake()));
+
+        $response = $this->actingAs($this->admin)
+            ->get('/management-dashboard?tab=analytics&preset=custom&from=2026-08-01&to=2026-08-31');
+
+        $response->assertOk();
+        // Submitting the filter bar has to land back on this tab, not Orders.
+        $response->assertSee('name="tab" value="analytics"', false);
+        $response->assertSee('value="2026-08-01"', false);
+        $response->assertSee('value="2026-08-31"', false);
+    }
+
+    public function test_the_headline_tiles_total_every_connected_store(): void
+    {
+        Store::create(['name' => 'Alpha Site', 'shopify_domain' => 'a.myshopify.com', 'shopify_access_token' => 't']);
+        Store::create(['name' => 'Beta Site', 'shopify_domain' => 'b.myshopify.com', 'shopify_access_token' => 't']);
+
+        $byStore = [
+            'a.myshopify.com' => $this->fake(orders: 3, revenue: 300.0),
+            'b.myshopify.com' => $this->fake(orders: 2, revenue: 200.0),
+        ];
+
+        $this->app->instance(
+            ShopifyAnalyticsService::class,
+            new ShopifyAnalyticsService(fn ($s) => $byStore[$s->shopify_domain]),
+        );
+
+        $response = $this->actingAs($this->admin)->get('/management-dashboard?tab=analytics');
+
+        $response->assertOk();
+        $response->assertSee('500.00');  // combined revenue
+        $response->assertSee('100.00');  // combined average order value
     }
 
     /** A missing read_orders scope is not a network hiccup — the page has to say so. */

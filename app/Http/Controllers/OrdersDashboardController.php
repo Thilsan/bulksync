@@ -97,6 +97,7 @@ class OrdersDashboardController extends Controller
                 'fallback'  => null,
                 'workspace' => WorkspaceSummary::for($user),
                 'analytics' => null,
+                'analyticsTotals' => null,
             ]);
         }
 
@@ -114,17 +115,18 @@ class OrdersDashboardController extends Controller
                 ->all();
 
             return view('orders.dashboard', [
-                'tab'       => $tab,
-                'tabs'      => self::TABS,
-                'filters'   => $filters,
-                'presets'   => $this->presets(),
-                'bases'     => OrdersSummaryService::BASES,
-                'result'    => ['ok' => true, 'status' => 100, 'message' => '', 'data' => null],
-                'summary'   => null,
-                'platforms' => $this->platformList(null, $filters['platforms']),
-                'fallback'  => null,
-                'workspace' => null,
-                'analytics' => $rows,
+                'tab'             => $tab,
+                'tabs'            => self::TABS,
+                'filters'         => $filters,
+                'presets'         => $this->presets(),
+                'bases'           => OrdersSummaryService::BASES,
+                'result'          => ['ok' => true, 'status' => 100, 'message' => '', 'data' => null],
+                'summary'         => null,
+                'platforms'       => $this->platformList(null, $filters['platforms']),
+                'fallback'        => null,
+                'workspace'       => null,
+                'analytics'       => $rows,
+                'analyticsTotals' => $this->analyticsTotals($rows),
             ]);
         }
 
@@ -157,7 +159,48 @@ class OrdersDashboardController extends Controller
             'fallback'  => $this->fallbackRange($filters),
             'workspace' => null,
             'analytics' => null,
+            'analyticsTotals' => null,
         ]);
+    }
+
+    /**
+     * The headline figures above the per-website cards.
+     *
+     * Revenue is summed only across stores sharing the commonest currency.
+     * Every one of these storefronts bills in QAR today, but nothing stops a
+     * store in another currency being added, and quietly adding AED to QAR
+     * would put a wrong number at the top of a management screen. Orders are
+     * a count and carry no currency, so they are summed the same way only to
+     * keep the average order value honest against the revenue beside it.
+     */
+    private function analyticsTotals(array $rows): array
+    {
+        $selling = collect($rows)->where('status', 'ok');
+
+        if ($selling->isEmpty()) {
+            return ['currency' => 'QAR', 'revenue' => 0.0, 'orders' => 0, 'aov' => 0.0,
+                    'selling' => 0, 'connected' => 0, 'other_currencies' => 0];
+        }
+
+        $currency = $selling->groupBy('currency')
+            ->map(fn ($group) => $group->sum('revenue'))
+            ->sortDesc()
+            ->keys()
+            ->first();
+
+        $counted = $selling->where('currency', $currency);
+        $revenue = (float) $counted->sum('revenue');
+        $orders  = (int) $counted->sum('orders');
+
+        return [
+            'currency'         => $currency,
+            'revenue'          => $revenue,
+            'orders'           => $orders,
+            'aov'              => $orders > 0 ? $revenue / $orders : 0.0,
+            'selling'          => $selling->where('orders', '>', 0)->count(),
+            'connected'        => $selling->count(),
+            'other_currencies' => $selling->count() - $counted->count(),
+        ];
     }
 
     /**
