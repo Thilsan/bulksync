@@ -441,6 +441,60 @@ class PhotoEditorConfigureTest extends TestCase
     }
 
     /**
+     * The guess flag has to survive a reload, not just the round trip within
+     * one request.
+     *
+     * It was being re-derived from "is segmentation_prompt filled" on every
+     * render, which is exactly wrong the moment a guess is saved: the first
+     * save makes the field non-empty, so every reload after that read it as
+     * typed — a category's guess turning into a fact about a photograph
+     * nobody had looked at, forever, with no way for the operator to undo it
+     * short of clearing the box and losing the guess entirely.
+     */
+    public function test_the_guess_flag_survives_a_reload_of_the_configure_screen(): void
+    {
+        $session = $this->makeSession();
+        $this->photo($session, 'SKU-1', 'a.jpg');
+        $this->photo($session, 'SKU-2', 'b.jpg');
+
+        $guessed = $this->group($session, 'SKU-1');
+        $guessed->update(['edits' => [
+            'segmentation_prompt'            => 'the skirt',
+            'segmentation_prompt_is_a_guess' => true,
+        ]]);
+
+        $typed = $this->group($session, 'SKU-2');
+        $typed->update(['edits' => [
+            'segmentation_prompt'            => 'the pleated maxi skirt',
+            'segmentation_prompt_is_a_guess' => false,
+        ]]);
+
+        $html = $this->actingAs($session->user)
+            ->get(route('photo-editor.configure', $session))
+            ->assertOk()
+            ->getContent();
+
+        // Each SKU's own box, found by its unique id, then read forward to the
+        // hidden field that follows it in the same card.
+        $guessedBox = substr($html, strpos($html, "seg-keep-{$guessed->id}\""), 1200);
+        $typedBox   = substr($html, strpos($html, "seg-keep-{$typed->id}\""), 1200);
+
+        $this->assertStringContainsString('data-auto="1"', $guessedBox,
+            'a saved guess rendered as though it had been typed');
+        $this->assertMatchesRegularExpression(
+            '/id="seg-keep-guess-' . $guessed->id . '"[^>]*value="1"/s',
+            $guessedBox,
+        );
+
+        $this->assertStringContainsString('data-auto="0"', $typedBox,
+            'a saved typed word rendered as though it were a guess');
+        $this->assertMatchesRegularExpression(
+            '/id="seg-keep-guess-' . $typed->id . '"[^>]*value="0"/s',
+            $typedBox,
+        );
+    }
+
+    /**
      * A garment rail holds a scarf up exactly as a dress form holds a dress.
      * The erase pass only ever named mannequins, so a rail-hung item came back
      * with the rail still in the cutout — and the label said "cutout only",

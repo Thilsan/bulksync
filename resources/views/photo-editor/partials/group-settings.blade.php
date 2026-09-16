@@ -150,6 +150,23 @@
         </label>
     </div>
 
+    @php
+        /*
+         * Whether the word in Keep is a category's guess or a person's choice,
+         * read from what was actually saved rather than re-derived from "is
+         * there a value" every time the page renders.
+         *
+         * Re-deriving it was the bug: the first save of an auto-filled word
+         * stores it as a real value, so on the next page load "is there a
+         * value" is true and the field reads as typed forever after — the
+         * server was overwriting the operator's own stored answer with a
+         * guess on every reload. A session saved before this flag existed has
+         * nothing to read, which is the one case "is there a value" is still
+         * the right fallback for.
+         */
+        $keepIsAGuess = $val('segmentation_prompt_is_a_guess', !filled($val('segmentation_prompt')));
+    @endphp
+
     <div class="mt-3 grid gap-3 sm:grid-cols-2">
         <div>
             <label for="seg-keep-{{ $uid }}" class="mb-1 block text-xs text-gray-600">Keep (describe the product)</label>
@@ -158,8 +175,9 @@
                  anything typed by hand is left alone. --}}
             <input id="seg-keep-{{ $uid }}" type="text" name="{{ $name('segmentation_prompt') }}"
                    value="{{ $val('segmentation_prompt') }}" placeholder="the dress" maxlength="500"
-                   data-auto="{{ filled($val('segmentation_prompt')) ? '0' : '1' }}"
-                   @input="$el.dataset.auto = '0'; $refs.keepIsAGuess.value = '0'"
+                   data-auto="{{ $keepIsAGuess ? '1' : '0' }}"
+                   @input="$el.dataset.auto = '0';
+                           document.getElementById('seg-keep-guess-{{ $uid }}').value = '0'"
                    class="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none">
 
             {{-- Whether that word came from the category or from a person.
@@ -168,10 +186,15 @@
                  it, while a typed word is failed and reported, on the grounds
                  that somebody looked at the photograph. Left unsent, an
                  auto-filled word was being failed as though it had been
-                 chosen — which is a category's guess killing the run. --}}
-            <input type="hidden" x-ref="keepIsAGuess"
+                 chosen — which is a category's guess killing the run.
+                 Addressed by id rather than x-ref: the Keep box and the "Size
+                 & framing" block that also writes this field are cousins, not
+                 parent and child, so a $refs lookup from one cannot see into
+                 the other — every ref is scoped to its own nearest x-data,
+                 not the page. An id has no such scope. --}}
+            <input type="hidden" id="seg-keep-guess-{{ $uid }}"
                    name="{{ $name('segmentation_prompt_is_a_guess') }}"
-                   value="{{ filled($val('segmentation_prompt')) ? '0' : '1' }}">
+                   value="{{ $keepIsAGuess ? '1' : '0' }}">
         </div>
         <div>
             <label for="seg-drop-{{ $uid }}" class="mb-1 block text-xs text-gray-600">Remove</label>
@@ -276,9 +299,15 @@
             if (box.dataset.auto === '1') {
                 box.value = noun;
 
-                // Still the category's word, not a person's.
-                if (this.$refs.keepIsAGuess) {
-                    this.$refs.keepIsAGuess.value = '1';
+                // Still the category's word, not a person's. By id, not
+                // $refs: this component and the hidden flag are cousins under
+                // the SKU card, not parent and child, and a ref only resolves
+                // within its own nearest x-data — which silently swallowed
+                // this assignment every time a category was re-picked.
+                const guessFlag = document.getElementById('seg-keep-guess-{{ $uid }}');
+
+                if (guessFlag) {
+                    guessFlag.value = '1';
                 }
             }
         },
