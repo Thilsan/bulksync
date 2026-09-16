@@ -276,6 +276,25 @@ class PhotoEditorTest extends TestCase
         $this->assertStringNotContainsString('floating', $prompt);
     }
 
+    /**
+     * Colour got the same treatment as position: not a summary, a list of the
+     * specific things not to do — after a navy dress's front-view redraw came
+     * back a visibly different shade from its own back view, with only "keep
+     * the same colours" tacked on at the end where position had a full list.
+     */
+    public function test_the_redraw_instruction_forbids_recolouring_the_garment(): void
+    {
+        $prompt = strtolower(PhotoroomService::GHOST_MANNEQUIN_PROMPT);
+
+        foreach ([
+            'exact same colour', 'do not lighten it', 'darken it',
+            'warm it', 'cool it', 'add any tint', 'shift its hue',
+            'different but similar colour', 'match the colour in the photograph exactly',
+        ] as $rule) {
+            $this->assertStringContainsString($rule, $prompt, "the redraw instruction stopped forbidding: {$rule}");
+        }
+    }
+
     /** A transparent cutout is a PNG wherever the setting was chosen. */
     public function test_a_transparent_background_is_saved_as_png(): void
     {

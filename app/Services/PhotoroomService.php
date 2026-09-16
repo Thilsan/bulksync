@@ -682,7 +682,8 @@ class PhotoroomService
      * "floating in its place" got shirts back tilted.
      */
     /*
-     * Every way a garment can move, refused one at a time.
+     * Every way a garment can move, refused one at a time — and the same
+     * lesson applied a second time to colour.
      *
      * "The same position, the same angle" was already here and was not enough:
      * the tilted shirts GhostCompositeService measures came back from a prompt
@@ -695,6 +696,16 @@ class PhotoroomService
      * wrong, it stops the composite lining redrawn pixels up with the
      * photograph, and a composite that cannot line up is rejected — so the tilt
      * costs the whole feature, not just some accuracy.
+     *
+     * Colour had the identical problem and had not been caught yet: "keep the
+     * same colours" was one clause tacked on at the end, and a navy dress's
+     * front-view redraw came back a visibly different shade from its own back
+     * view — same fabric, same photograph, two different colours, because
+     * nothing had told the model what "the same" excluded. Spelled out now the
+     * same way position was: not a summary, a list of the specific things not
+     * to do. GhostCompositeService::colourShift() is the backstop for when the
+     * wording still is not enough, the same relationship the composite already
+     * has with position.
      */
     public const GHOST_MANNEQUIN_PROMPT = 'Remove only the hanger, hook, clothes rail, garment rack, mannequin, '
         . 'dress form, headless body or stand that this garment is displayed on. '
@@ -703,7 +714,10 @@ class PhotoroomService
         . 'the same shape, with the same folds, creases and shadows. '
         . 'Keep it upright and square to the frame: do not rotate it, do not tilt or lean it, do not lay it flat, '
         . 'do not drape or crumple it, do not move it up, down or sideways, do not enlarge or shrink it. '
-        . 'Keep the same colours, and the same print, logo and lettering, unchanged and unredrawn. '
+        . 'Keep the exact same colour and shade of the fabric — do not lighten it, darken it, warm it, cool it, '
+        . 'add any tint, shift its hue, or substitute a different but similar colour. The colour in your output '
+        . 'must match the colour in the photograph exactly, the same way a colour-accurate reprint would, not an '
+        . 'artist\'s impression of it. Keep the same print, logo and lettering too, unchanged and unredrawn. '
         . 'Do not redraw the garment. Just remove the stand.';
 
     private const MANNEQUIN_REMOVAL_PROMPT = 'Remove only the hanger, hook, clothes rail, garment rack, mannequin, '
