@@ -32,6 +32,19 @@ class StoreController extends Controller
         return view('stores.index', compact('stores', 'activeStoreId'));
     }
 
+    /**
+     * The GA4 property id is all digits. The measurement id (G-XXXXXXX) sits
+     * beside it in the Google Analytics admin and is the one people copy by
+     * mistake — taking it would leave a store looking configured while every
+     * report it answers is empty, so it is refused here with a message that
+     * names the difference.
+     */
+    private const GA4_RULES = ['nullable', 'string', 'regex:/^\d{4,20}$/'];
+
+    private const GA4_MESSAGES = [
+        'ga4_property_id.regex' => 'The GA4 property ID is all digits (e.g. 123456789). A measurement ID like G-AB12CD34EF is a different thing and will not work here.',
+    ];
+
     public function store(Request $request): RedirectResponse
     {
         $validated = $request->validate([
@@ -40,8 +53,9 @@ class StoreController extends Controller
             'shopify_client_id'     => ['nullable', 'string', 'max:255'],
             'shopify_client_secret' => ['nullable', 'string', 'max:500'],
             'shopify_access_token'  => ['nullable', 'string', 'max:500'],
+            'ga4_property_id'       => self::GA4_RULES,
             'requires_sku_mapping'  => ['nullable', 'boolean'],
-        ]);
+        ], self::GA4_MESSAGES);
 
         $validated['requires_sku_mapping'] = $request->boolean('requires_sku_mapping');
 
@@ -65,10 +79,17 @@ class StoreController extends Controller
             'shopify_client_id'     => ['nullable', 'string', 'max:255'],
             'shopify_client_secret' => ['nullable', 'string', 'max:500'],
             'shopify_access_token'  => ['nullable', 'string', 'max:500'],
+            'ga4_property_id'       => self::GA4_RULES,
             'requires_sku_mapping'  => ['nullable', 'boolean'],
-        ]);
+        ], self::GA4_MESSAGES);
 
         $validated['requires_sku_mapping'] = $request->boolean('requires_sku_mapping');
+
+        // An emptied box means "this website has no GA4 property", not "leave
+        // whatever was there" — otherwise one can never be cleared. A request
+        // that never carried the field at all is a different thing again, and
+        // validate() simply omits it, so it is read defensively.
+        $validated['ga4_property_id'] = ($validated['ga4_property_id'] ?? null) ?: null;
 
         $mappingChanged = $store->requires_sku_mapping !== $validated['requires_sku_mapping'];
 

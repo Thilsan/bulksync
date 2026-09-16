@@ -124,6 +124,18 @@
                         </div>
                     </div>
                     <div>
+                        <label class="block text-xs font-medium text-gray-600 mb-1">GA4 Property ID <span class="text-gray-400 font-normal">(for sessions and visitors)</span></label>
+                        <input type="text" name="ga4_property_id" value="{{ $store->ga4_property_id }}"
+                            inputmode="numeric" placeholder="123456789 — digits only, not G-XXXXXXX"
+                            class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent">
+                        <p class="mt-1 text-xs text-gray-400">
+                            Google Analytics → Admin → Property Settings. Leave blank if this website has no GA4 property.
+                        </p>
+                        @error('ga4_property_id')
+                            <p class="mt-1 text-xs text-rose-600">{{ $message }}</p>
+                        @enderror
+                    </div>
+                    <div>
                         <label class="block text-xs font-medium text-gray-600 mb-1">Access Token <span class="text-gray-400 font-normal">(paste directly or use Connect Shopify)</span></label>
                         <input type="password" name="shopify_access_token" value="{{ $store->shopify_access_token }}"
                             placeholder="shpat_xxxxxxxxxxxx — leave blank to keep existing"
@@ -205,6 +217,12 @@
                     <div>
                         <label class="block text-xs font-medium text-gray-600 mb-1">Access Token <span class="text-gray-400 font-normal">(optional — or use Connect Shopify after saving)</span></label>
                         <input type="password" name="shopify_access_token" placeholder="shpat_xxxxxxxxxxxx"
+                            class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-gray-600 mb-1">GA4 Property ID <span class="text-gray-400 font-normal">(optional)</span></label>
+                        <input type="text" name="ga4_property_id" inputmode="numeric"
+                            placeholder="123456789 — digits only, not G-XXXXXXX"
                             class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent">
                     </div>
                     <div class="pt-1 border-t border-gray-100">

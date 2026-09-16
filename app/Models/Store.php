@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 
 class Store extends Model
 {
-    protected $fillable = ['name', 'shopify_domain', 'shopify_client_id', 'shopify_client_secret', 'shopify_access_token', 'requires_sku_mapping', 'user_id'];
+    protected $fillable = ['name', 'shopify_domain', 'shopify_client_id', 'shopify_client_secret', 'shopify_access_token', 'ga4_property_id', 'requires_sku_mapping', 'user_id'];
 
     protected $casts = ['requires_sku_mapping' => 'boolean'];
 
