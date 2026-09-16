@@ -495,6 +495,41 @@ class PhotoEditorConfigureTest extends TestCase
     }
 
     /**
+     * Picking the redraw clears a category's own guess out of Keep, and
+     * picking a category while the redraw is already selected never fills it
+     * in the first place.
+     *
+     * Naming the product, guess or not, routes the request to segmentation
+     * instead of Ghost Mannequin, and Keep fills itself automatically from
+     * the category — so a category chosen before or after the redraw was
+     * ticked left a word sitting there that silently defeated the treatment
+     * the operator had just chosen, in either order, with no visible cause.
+     * Pinned on the markup itself, since the behaviour lives in inline
+     * Alpine wiring that only a browser executes.
+     */
+    public function test_selecting_the_redraw_is_wired_to_clear_and_withhold_the_guess(): void
+    {
+        $session = $this->makeSession();
+        $this->photo($session, 'SKU-1', 'a.jpg');
+        $this->group($session, 'SKU-1');
+
+        $html = $this->actingAs($session->user)
+            ->get(route('photo-editor.configure', $session))
+            ->assertOk()
+            ->getContent();
+
+        // Category picked first, redraw ticked second: the watcher on the
+        // treatment radio has to reach into the Keep box and clear a guess.
+        $this->assertStringContainsString("\$watch('treatment'", $html);
+        $this->assertStringContainsString("box.dataset.auto === '1'", $html);
+
+        // Redraw ticked first, category picked second: nameTheProduct has to
+        // check the radio before filling Keep in.
+        $this->assertStringContainsString('ghostSelected', $html);
+        $this->assertStringContainsString("!ghostSelected", $html);
+    }
+
+    /**
      * A garment rail holds a scarf up exactly as a dress form holds a dress.
      * The erase pass only ever named mannequins, so a rail-hung item came back
      * with the rail still in the cutout — and the label said "cutout only",

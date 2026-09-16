@@ -110,13 +110,36 @@
         $treatment = $val('ghost_mannequin') ? 'ghost' : 'none';
     @endphp
 
-    <div class="grid gap-3 sm:grid-cols-2" x-data="{ treatment: @js($treatment) }">
+    {{-- Watches its own choice and clears a category's guess out of Keep the
+         moment the redraw is selected.
+         Naming the product — even a guess the operator never typed — routes
+         every request to text-guided segmentation instead of Ghost Mannequin,
+         because the job cannot tell "the category filled this in" from
+         "somebody looked at the photo and chose this". Picking a category
+         first and the redraw second used to leave the guess sitting there
+         silently defeating the very treatment just chosen: three photo-editor
+         sessions in a row where the operator ticked Ghost Mannequin, watched
+         it fail to redraw anything, and the cause was a word neither typed nor
+         visible as a problem. A person who types their own word after this is
+         making segmentation their deliberate choice instead, and that is left
+         alone — only the category's own guess is cleared. --}}
+    <div class="grid gap-3 sm:grid-cols-2" x-data="{ treatment: @js($treatment) }"
+         x-init="$watch('treatment', (value) => {
+             if (value !== 'ghost') return;
+
+             const box = document.getElementById('seg-keep-{{ $uid }}');
+
+             if (box && box.dataset.auto === '1' && box.value !== '') {
+                 box.value = '';
+             }
+         })">
         @foreach ([
             'none'     => ['Keep the photo', 'Real pixels, exactly as shot. Anything holding the garment up stays in shot.'],
             'ghost'    => ['Remove the stand (Ghost Mannequin)', 'Photoroom\'s apparel model. Removes a hanger or dress form and keeps the print. Costs one credit, same as any edit — check the first few results.'],
         ] as $mode => [$label, $help])
             <label class="flex cursor-pointer items-start gap-2 rounded-lg border border-gray-200 p-3 hover:border-gray-300 has-[:checked]:border-brand-500 has-[:checked]:bg-brand-50/60">
                 <input type="radio" x-model="treatment" value="{{ $mode }}" @checked($treatment === $mode)
+                       id="treat-{{ $mode }}-{{ $uid }}"
                        class="mt-0.5 h-3.5 w-3.5 border-gray-300 text-brand-600 focus:ring-brand-500">
                 <span>
                     <span class="block text-sm font-medium text-gray-800">{{ $label }}</span>
@@ -296,7 +319,15 @@
 
             box.placeholder = noun || 'the dress';
 
-            if (box.dataset.auto === '1') {
+            // Ghost Mannequin only runs on an unnamed product — naming one,
+            // guess or not, sends the request to segmentation instead. Filling
+            // Keep here would be quietly overriding a treatment the operator
+            // has already chosen, in a category picked either before or after
+            // it, which is exactly the confusion the watcher above unwinds for
+            // the other ordering.
+            const ghostSelected = document.getElementById('treat-ghost-{{ $uid }}')?.checked;
+
+            if (box.dataset.auto === '1' && !ghostSelected) {
                 box.value = noun;
 
                 // Still the category's word, not a person's. By id, not
