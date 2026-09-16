@@ -390,6 +390,57 @@ class PhotoEditorConfigureTest extends TestCase
     }
 
     /**
+     * Whether the segmentation word was typed or auto-filled has to survive
+     * the round trip, because the job treats the two differently: a guess that
+     * cuts nothing out is retried without it, a typed word is failed and
+     * reported. The Keep box refills itself whenever the category changes —
+     * that is a category's guess, not a person's, and it has to say so.
+     */
+    public function test_whether_the_segmentation_word_was_a_guess_is_saved(): void
+    {
+        Queue::fake();
+
+        $session = $this->makeSession();
+        $this->photo($session, 'SKU-1', 'a.jpg');
+        $group = $this->group($session, 'SKU-1');
+
+        $this->actingAs($session->user)->post(route('photo-editor.start', $session), [
+            'groups' => [$group->id => [
+                'differs'                            => '1',
+                'edits'                               => [
+                    'segmentation_prompt'                 => 'the skirt',
+                    'segmentation_prompt_is_a_guess'       => '1', // filled in by the category
+                ],
+            ]],
+        ])->assertRedirect(route('photo-editor.show', $session));
+
+        $this->assertTrue((bool) $group->fresh()->edits['segmentation_prompt_is_a_guess'],
+            'an auto-filled word was stored as though a person had typed it');
+    }
+
+    /** A word typed after clearing the box is stored as a person's choice. */
+    public function test_a_typed_segmentation_word_is_not_stored_as_a_guess(): void
+    {
+        Queue::fake();
+
+        $session = $this->makeSession();
+        $this->photo($session, 'SKU-1', 'a.jpg');
+        $group = $this->group($session, 'SKU-1');
+
+        $this->actingAs($session->user)->post(route('photo-editor.start', $session), [
+            'groups' => [$group->id => [
+                'differs' => '1',
+                'edits'   => [
+                    'segmentation_prompt'           => 'the pleated maxi skirt',
+                    'segmentation_prompt_is_a_guess' => '0', // the input handler cleared this on typing
+                ],
+            ]],
+        ]);
+
+        $this->assertFalse((bool) $group->fresh()->edits['segmentation_prompt_is_a_guess']);
+    }
+
+    /**
      * A garment rail holds a scarf up exactly as a dress form holds a dress.
      * The erase pass only ever named mannequins, so a rail-hung item came back
      * with the rail still in the cutout — and the label said "cutout only",
