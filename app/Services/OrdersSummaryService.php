@@ -6,6 +6,7 @@ use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\Pool;
 use Illuminate\Http\Client\Response;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -14,7 +15,9 @@ use Illuminate\Support\Facades\Log;
  *
  * That endpoint pre-aggregates everything server-side, so one call answers a
  * whole screen — totals, six breakdowns and a time series — for any date range
- * in about a second. There is nothing to paginate and nothing to cache.
+ * in about a second. There is nothing to paginate, but a filter bar sitting on
+ * a shared dashboard tends to get reloaded with the same range repeatedly, so
+ * a successful answer is kept for CACHE_TTL_MINUTES and served from there.
  *
  * The token is the reason this class exists rather than the browser calling
  * the endpoint directly. It is a single shared secret with no per-user
@@ -40,6 +43,14 @@ class OrdersSummaryService
     private const OK = 100;
 
     /**
+     * How long a successful answer is trusted before the endpoint is asked
+     * again for the same range. Only a success is ever stored — a failure
+     * caches nothing, so the endpoint recovering is felt on the very next
+     * load rather than up to fifteen minutes later.
+     */
+    private const CACHE_TTL_MINUTES = 15;
+
+    /**
      * One range.
      *
      * @param  array{from:string,to:string,date_basis:string,platform?:string}  $params
@@ -47,11 +58,16 @@ class OrdersSummaryService
      */
     public function fetch(array $params): array
     {
-        try {
-            return $this->interpret($this->configure(Http::createPendingRequest())->get($this->url(), $params));
-        } catch (ConnectionException $e) {
-            return $this->unreachable($e);
+        $key = $this->cacheKey($params);
+
+        if (\is_array($cached = Cache::get($key))) {
+            return $cached;
         }
+
+        $result = $this->request($params);
+        $this->rememberIfOk($key, $result);
+
+        return $result;
     }
 
     /**
@@ -60,12 +76,23 @@ class OrdersSummaryService
      * Every KPI is shown against the preceding period, which is a second call
      * with shifted dates. Run in sequence it doubles the page's wait for a
      * number nobody reads first, so both go out at once and the page waits for
-     * the slower of the two rather than the sum.
+     * the slower of the two rather than the sum. That parallel trip is skipped
+     * entirely once both sides are already cached.
      *
      * @return array{current:array,previous:array}
      */
     public function fetchPair(array $current, array $previous): array
     {
+        $currentKey  = $this->cacheKey($current);
+        $previousKey = $this->cacheKey($previous);
+
+        $cachedCurrent  = Cache::get($currentKey);
+        $cachedPrevious = Cache::get($previousKey);
+
+        if (\is_array($cachedCurrent) && \is_array($cachedPrevious)) {
+            return ['current' => $cachedCurrent, 'previous' => $cachedPrevious];
+        }
+
         try {
             $responses = Http::pool(fn (Pool $pool) => [
                 $this->configure($pool->as('current'))->get($this->url(), $current),
@@ -77,12 +104,41 @@ class OrdersSummaryService
             return ['current' => $failed, 'previous' => $failed];
         }
 
-        return [
+        $result = [
             // A pooled request hands back the exception itself rather than
             // throwing, so a host that is down arrives here as a value.
             'current'  => $this->interpret($responses['current'] ?? null),
             'previous' => $this->interpret($responses['previous'] ?? null),
         ];
+
+        $this->rememberIfOk($currentKey, $result['current']);
+        $this->rememberIfOk($previousKey, $result['previous']);
+
+        return $result;
+    }
+
+    private function request(array $params): array
+    {
+        try {
+            return $this->interpret($this->configure(Http::createPendingRequest())->get($this->url(), $params));
+        } catch (ConnectionException $e) {
+            return $this->unreachable($e);
+        }
+    }
+
+    private function rememberIfOk(string $key, array $result): void
+    {
+        if ($result['ok']) {
+            Cache::put($key, $result, now()->addMinutes(self::CACHE_TTL_MINUTES));
+        }
+    }
+
+    /** Order-independent, so {from,to} and {to,from} in the params array still hit the same entry. */
+    private function cacheKey(array $params): string
+    {
+        ksort($params);
+
+        return 'orders_summary:' . md5(json_encode($params));
     }
 
     /** Is the endpoint configured at all? Answered before any request is made. */

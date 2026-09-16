@@ -2,14 +2,18 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Store;
 use App\Models\User;
 use App\Services\OrdersSummaryService;
+use App\Services\ShopifyAnalyticsService;
 use App\Support\OrdersSummary;
 use App\Support\WorkspaceSummary;
 use Illuminate\Container\Attributes\CurrentUser;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Str;
 use Illuminate\View\View;
 
 /**
@@ -51,10 +55,24 @@ class OrdersDashboardController extends Controller
      */
     private const PLATFORM_CACHE = 'orders_dashboard.platforms';
 
-    /** The two halves of the screen. Which one is open lives in the URL. */
-    private const TABS = ['orders' => 'Orders', 'studio' => 'AI Studio'];
+    /**
+     * Kept off this page entirely — the picker, the breakdown table and the
+     * quiet-platforms line all drop it, and a URL edited to name it directly
+     * is stripped back to nothing rather than honoured.
+     *
+     * The endpoint itself is still asked for every platform it has, unfiltered
+     * by default, so a genuinely new storefront is auto-discovered exactly as
+     * before. Only what this page keeps from that answer is narrower. Because
+     * of that, the headline totals — pre-aggregated on the endpoint's side
+     * across whatever was requested — still include this platform's orders;
+     * only the per-platform breakdown this page computes locally is trimmed.
+     */
+    private const EXCLUDED_PLATFORMS = ['nespresso'];
 
-    public function index(Request $request, OrdersSummaryService $orders, #[CurrentUser] User $user): View
+    /** The three tabs on the screen. Which one is open lives in the URL. */
+    private const TABS = ['orders' => 'Orders', 'analytics' => 'Analytics', 'studio' => 'AI Studio'];
+
+    public function index(Request $request, OrdersSummaryService $orders, ShopifyAnalyticsService $analytics, #[CurrentUser] User $user): View
     {
         abort_unless($user->hasFeature('orders_dashboard'), 403);
 
@@ -78,6 +96,35 @@ class OrdersDashboardController extends Controller
                 'platforms' => $this->platformList(null, $filters['platforms']),
                 'fallback'  => null,
                 'workspace' => WorkspaceSummary::for($user),
+                'analytics' => null,
+            ]);
+        }
+
+        // Each website's own Shopify, not the ecommerce-server endpoint the
+        // Orders tab reads — so this tab is answered without that call either.
+        if ($tab === 'analytics') {
+            $stores = Store::accessibleBy($user)->orderBy('name')->get();
+            $rows   = $analytics->forStores($stores, $filters['from'], $filters['to']);
+
+            // Connected stores lead, sorted by revenue; a not-connected or
+            // unavailable store has no revenue to sort by and falls to the end.
+            $rows = collect($rows)
+                ->sortByDesc(fn ($row) => $row['status'] === 'ok' ? $row['revenue'] : -1)
+                ->values()
+                ->all();
+
+            return view('orders.dashboard', [
+                'tab'       => $tab,
+                'tabs'      => self::TABS,
+                'filters'   => $filters,
+                'presets'   => $this->presets(),
+                'bases'     => OrdersSummaryService::BASES,
+                'result'    => ['ok' => true, 'status' => 100, 'message' => '', 'data' => null],
+                'summary'   => null,
+                'platforms' => $this->platformList(null, $filters['platforms']),
+                'fallback'  => null,
+                'workspace' => null,
+                'analytics' => $rows,
             ]);
         }
 
@@ -109,6 +156,63 @@ class OrdersDashboardController extends Controller
             'platforms' => $this->platformList($result['data'] ?? null, $filters['platforms']),
             'fallback'  => $this->fallbackRange($filters),
             'workspace' => null,
+            'analytics' => null,
+        ]);
+    }
+
+    /**
+     * One platform's own Web/Manual split, for the platform table's expand
+     * control.
+     *
+     * The endpoint answers "orders by platform" and "orders by type" as two
+     * separate breakdowns, never crossed — there is no single number here for
+     * "this platform's manual orders" in the page's one whole-screen call.
+     * Scoping a fresh request to just this platform gets it: filtered that
+     * way, every breakdown the endpoint returns — including this one — comes
+     * back scoped to it, the same mechanism the platform filter already uses.
+     *
+     * Asked for on click rather than for every row on every load, so a table
+     * of twenty-three platforms costs one extra call only for the row someone
+     * actually opens, not twenty-three on a page built around a single one.
+     */
+    public function platformOrderTypes(Request $request, OrdersSummaryService $orders, #[CurrentUser] User $user, string $platform): JsonResponse
+    {
+        abort_unless($user->hasFeature('orders_dashboard'), 403);
+
+        // Never offered in the table, and not answerable by asking directly
+        // either — the same rule the main breakdown holds.
+        abort_if(\in_array($platform, self::EXCLUDED_PLATFORMS, true), 404);
+
+        $from  = $this->date($request->string('from')->toString(), Carbon::today()->subDays(29));
+        $to    = $this->date($request->string('to')->toString(), Carbon::today());
+        $basis = $request->string('basis')->toString();
+        $basis = \array_key_exists($basis, OrdersSummaryService::BASES) ? $basis : 'created';
+
+        $result = $orders->fetch([
+            'from'       => $from->format('Y-m-d'),
+            'to'         => $to->format('Y-m-d'),
+            'date_basis' => $basis,
+            'platform'   => $platform,
+        ]);
+
+        if (! $result['ok']) {
+            $status = $result['status'] >= 100 && $result['status'] <= 599 ? $result['status'] : 500;
+
+            return response()->json(['ok' => false, 'message' => $result['message']], $status);
+        }
+
+        $types = collect($result['data']['by_order_type'] ?? [])
+            ->keyBy(fn ($row) => Str::lower((string) $row['order_type']));
+
+        $side = fn (string $type) => [
+            'orders'  => (int) ($types[$type]['orders'] ?? 0),
+            'revenue' => (float) ($types[$type]['revenue'] ?? 0),
+        ];
+
+        return response()->json([
+            'ok'     => true,
+            'web'    => $side('web'),
+            'manual' => $side('manual'),
         ]);
     }
 
@@ -155,6 +259,9 @@ class OrdersDashboardController extends Controller
             ->filter(fn ($p) => \is_string($p) && $p !== '')
             ->map(fn ($p) => trim($p))
             ->unique()
+            // Never sent to the endpoint, so a bookmarked or hand-edited URL
+            // naming it directly cannot bring it back onto the page.
+            ->reject(fn ($p) => \in_array($p, self::EXCLUDED_PLATFORMS, true))
             ->values()
             ->all();
 
@@ -253,6 +360,17 @@ class OrdersDashboardController extends Controller
 
         $net = OrdersSummary::netRevenue($byStatus);
 
+        // Excluded platforms never had their own row here, so nothing past
+        // this point — the breakdown, its chart and the quiet-platforms line
+        // below it — has to know they exist. The totals above are the one
+        // exception: the endpoint pre-aggregates them across whatever it was
+        // asked for, and by default that is still every platform it has.
+        $byPlatform = array_values(array_filter(
+            $data['by_platform'] ?? [],
+            fn ($row) => ! \in_array($row['platform'] ?? null, self::EXCLUDED_PLATFORMS, true),
+        ));
+        $queried = array_diff($data['filters']['platforms'] ?? [], self::EXCLUDED_PLATFORMS);
+
         return [
             'totals'   => $totals,
             'filters'  => $data['filters'] ?? [],
@@ -286,9 +404,9 @@ class OrdersDashboardController extends Controller
             ),
             'monthly'  => ($data['filters']['granularity'] ?? 'daily') === 'monthly',
 
-            'platforms'     => $data['by_platform'] ?? [],
-            'platform_bars' => OrdersSummary::topN($data['by_platform'] ?? [], 'platform'),
-            'dormant'       => OrdersSummary::dormant($data['by_platform'] ?? [], $data['filters']['platforms'] ?? []),
+            'platforms'     => $byPlatform,
+            'platform_bars' => OrdersSummary::topN($byPlatform, 'platform'),
+            'dormant'       => OrdersSummary::dormant($byPlatform, $queried),
 
             'outcomes' => OrdersSummary::outcomes($byStatus),
             'statuses' => $byStatus,
@@ -309,7 +427,9 @@ class OrdersDashboardController extends Controller
      */
     private function platformList(?array $data, array $selected): array
     {
-        $echoed = $data['filters']['platforms'] ?? [];
+        // Dropped before it ever reaches the cache, so a name excluded today
+        // cannot resurface tomorrow from what an earlier answer remembered.
+        $echoed = array_values(array_diff($data['filters']['platforms'] ?? [], self::EXCLUDED_PLATFORMS));
 
         if ($echoed && ! $selected) {
             Cache::put(self::PLATFORM_CACHE, $echoed, now()->addDay());
@@ -317,7 +437,9 @@ class OrdersDashboardController extends Controller
             return $echoed;
         }
 
-        $known = Cache::get(self::PLATFORM_CACHE, []);
+        // Defensive against a cache entry written before the exclusion existed
+        // — a day-old cache should not outlive the list it was built from.
+        $known = array_diff(Cache::get(self::PLATFORM_CACHE, []), self::EXCLUDED_PLATFORMS);
         $all   = array_values(array_unique([...$known, ...$echoed, ...$selected]));
 
         sort($all);

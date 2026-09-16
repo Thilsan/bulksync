@@ -205,12 +205,14 @@ class OrdersDashboardTest extends TestCase
     {
         $this->fakeOk();
 
+        // wcmq rather than nespresso: the latter is excluded outright, and is
+        // covered on its own below rather than muddying a test about commas.
         $this->actingAs($this->admin)
-            ->get(route('orders.dashboard', ['platforms' => ['bluesalon', 'nespresso']]))
+            ->get(route('orders.dashboard', ['platforms' => ['bluesalon', 'wcmq']]))
             ->assertOk()
             ->assertSee('2 platforms');
 
-        Http::assertSent(fn (Request $r) => str_contains(urldecode($r->url()), 'platform=bluesalon,nespresso'));
+        Http::assertSent(fn (Request $r) => str_contains(urldecode($r->url()), 'platform=bluesalon,wcmq'));
     }
 
     /**
@@ -239,6 +241,43 @@ class OrdersDashboardTest extends TestCase
         Http::assertSentCount(1);
     }
 
+    // ── Caching ──────────────────────────────────────────────────────────────
+
+    /** Reloading the identical range within the cache window shouldn't ask the endpoint twice. */
+    public function test_the_same_range_is_not_refetched_within_the_cache_window(): void
+    {
+        $this->fakeOk();
+
+        $this->actingAs($this->admin)->get(route('orders.dashboard', ['preset' => 'all']))->assertOk();
+        $this->actingAs($this->admin)->get(route('orders.dashboard', ['preset' => 'all']))->assertOk();
+
+        Http::assertSentCount(1);
+    }
+
+    /** Compare mode fetches a pair; reloading it should still cost nothing the second time. */
+    public function test_a_cached_pair_is_served_without_asking_the_endpoint_again(): void
+    {
+        $this->fakeOk();
+
+        $params = ['preset' => 'custom', 'from' => '2026-08-01', 'to' => '2026-08-31'];
+
+        $this->actingAs($this->admin)->get(route('orders.dashboard', $params))->assertOk();
+        $this->actingAs($this->admin)->get(route('orders.dashboard', $params))->assertOk();
+
+        Http::assertSentCount(2);
+    }
+
+    /** A failed answer must not freeze into the cache — the next load has to try again. */
+    public function test_a_failed_response_is_not_cached(): void
+    {
+        Http::fake(['orders.test/*' => Http::response(['status_code' => 401, 'message' => 'Invalid token.'], 401)]);
+
+        $this->actingAs($this->admin)->get(route('orders.dashboard', ['preset' => 'all']))->assertOk();
+        $this->actingAs($this->admin)->get(route('orders.dashboard', ['preset' => 'all']))->assertOk();
+
+        Http::assertSentCount(2);
+    }
+
     // ── Rendering ────────────────────────────────────────────────────────────
 
     public function test_the_headline_numbers_render(): void
@@ -251,6 +290,80 @@ class OrdersDashboardTest extends TestCase
             ->assertSee('1,797')
             ->assertSee('QAR 1,327,150.65')
             ->assertSee('QAR 738.54');
+    }
+
+    /**
+     * A staff-entered order is worth several times a web one, so the two
+     * headline tiles that management actually reads — Orders and Revenue —
+     * carry the split themselves rather than only the smaller card further
+     * down the page.
+     */
+    public function test_the_orders_and_revenue_tiles_split_by_order_type(): void
+    {
+        $this->fakeOk();
+
+        $this->actingAs($this->admin)
+            ->get(route('orders.dashboard'))
+            ->assertOk()
+            ->assertSee('1,608 web · 189 manual')
+            ->assertSee('QAR 1,057,481.35 web · 269,669.30 manual', false);
+    }
+
+    /**
+     * One type sold nothing in range — shown as itself, not paired with a
+     * zero. Set directly on the built payload rather than through fakeOk()'s
+     * override merge: array_replace_recursive matches a list by index and
+     * cannot shrink one, so a shorter override here would leave the default
+     * Manual row still merged in underneath it.
+     */
+    public function test_the_split_shows_only_the_types_that_sold(): void
+    {
+        $payload = $this->payload();
+        $payload['data']['by_order_type'] = [
+            ['order_type' => 'Web', 'orders' => 1797, 'revenue' => 1327150.65, 'average_order_value' => 738.54, 'share_of_orders' => 100, 'share_of_revenue' => 100],
+        ];
+        Http::fake(['orders.test/*' => Http::response($payload)]);
+
+        $tiles = $this->kpiTilesHtml($this->actingAs($this->admin)
+            ->get(route('orders.dashboard'))->assertOk()->getContent());
+
+        $this->assertStringContainsString('1,797 web', $tiles);
+        $this->assertStringNotContainsString('manual', $tiles);
+    }
+
+    /**
+     * No order-type data at all — the tiles render without a stray split
+     * line. Same reason as above: an empty-array override merges as a no-op,
+     * so the default rows have to be cleared on the built payload instead.
+     */
+    public function test_the_split_is_absent_without_order_type_data(): void
+    {
+        $payload = $this->payload();
+        $payload['data']['by_order_type'] = [];
+        Http::fake(['orders.test/*' => Http::response($payload)]);
+
+        $tiles = $this->kpiTilesHtml($this->actingAs($this->admin)
+            ->get(route('orders.dashboard'))->assertOk()->getContent());
+
+        $this->assertStringNotContainsString(' web', $tiles);
+        $this->assertStringNotContainsString(' manual', $tiles);
+    }
+
+    /**
+     * Scoped to the KPI tiles specifically: the platform table further down
+     * the page legitimately says "Web" and "Manual" — a column heading and,
+     * once expanded, JS property names — and a blanket page-wide check would
+     * false-fail against those rather than the tile caption these tests hold.
+     */
+    private function kpiTilesHtml(string $html): string
+    {
+        $start = strpos($html, 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-4');
+        $end   = strpos($html, '>Platforms<');
+
+        $this->assertNotFalse($start, 'Could not find the KPI tiles grid.');
+        $this->assertNotFalse($end, 'Could not find the Platforms heading.');
+
+        return substr($html, $start, $end - $start);
     }
 
     /**
@@ -342,9 +455,83 @@ class OrdersDashboardTest extends TestCase
         $this->actingAs($this->admin)
             ->get(route('orders.dashboard'))
             ->assertOk()
-            ->assertSee('2 selling · 1 quiet', false)
+            // Nespresso sold in this range too, but is dropped from the page
+            // entirely — see the exclusion tests below — leaving bluesalon as
+            // the only one selling and wcmq the only one named as quiet.
+            ->assertSee('1 selling · 1 quiet', false)
             ->assertSee('No orders in this range:')
             ->assertSee('WCMQ');
+    }
+
+    // ── Platform exclusions ──────────────────────────────────────────────────
+
+    /**
+     * Nespresso is dropped from the page entirely rather than only from the
+     * headline totals — a name still offered in the picker, or still counted
+     * as "quiet" once nobody can select it, would be worse than not removing
+     * it at all. The endpoint itself is still asked for every platform, so
+     * discovering a genuinely new storefront still works exactly as before;
+     * only the display and the totals it feeds are trimmed on this end.
+     */
+    public function test_nespresso_never_appears_as_a_platform_option(): void
+    {
+        $this->fakeOk();
+
+        $html = $this->actingAs($this->admin)
+            ->get(route('orders.dashboard'))->assertOk()->getContent();
+
+        $this->assertStringNotContainsString('value="nespresso"', $html);
+        $this->assertStringNotContainsString('Nespresso', $html);
+    }
+
+    /**
+     * The same 397 orders that would otherwise show as a row are why this is
+     * worth its own test: dropping a dormant platform is easy, dropping one
+     * that is actively selling is the case that has to be checked for.
+     */
+    public function test_nespresso_is_dropped_from_the_breakdown_and_the_coverage_count(): void
+    {
+        $this->fakeOk();
+
+        $html = $this->actingAs($this->admin)
+            ->get(route('orders.dashboard'))->assertOk()->getContent();
+
+        // bluesalon sold, wcmq did not — nespresso is neither shown nor
+        // counted as one of the two platforms the range knows about.
+        $this->assertStringContainsString('1 selling · 1 quiet', $html);
+        $this->assertStringContainsString('1 of 2 platforms selling.', $html);
+    }
+
+    /**
+     * A bookmarked or hand-edited URL is the one way nespresso could reach
+     * the endpoint despite never being offered — so the exclusion has to
+     * hold there too, not only in the picker that built the URL to begin
+     * with.
+     */
+    public function test_a_hand_edited_url_cannot_select_nespresso_alone(): void
+    {
+        $this->fakeOk();
+
+        $this->actingAs($this->admin)
+            ->get(route('orders.dashboard', ['platforms' => ['nespresso']]))
+            ->assertOk()
+            ->assertSee('All platforms');
+
+        Http::assertSent(fn (Request $r) => ! str_contains($r->url(), 'platform='));
+    }
+
+    /** Stripped out of a mixed selection, rather than voiding the whole filter. */
+    public function test_nespresso_is_stripped_from_a_mixed_selection(): void
+    {
+        $this->fakeOk();
+
+        $this->actingAs($this->admin)
+            ->get(route('orders.dashboard', ['platforms' => ['bluesalon', 'nespresso']]))
+            ->assertOk()
+            ->assertSee('1 platform');
+
+        Http::assertSent(fn (Request $r) => str_contains(urldecode($r->url()), 'platform=bluesalon')
+            && ! str_contains(urldecode($r->url()), 'nespresso'));
     }
 
     /** Slugs are schema. The table shows what people call the shops. */
@@ -365,6 +552,127 @@ class OrdersDashboardTest extends TestCase
         // The slug stays reachable, so a wrong display name is visible rather
         // than quietly replacing the real one.
         $this->assertStringContainsString('title="billjumlamerchant"', $html);
+    }
+
+    /**
+     * The table itself, not just the endpoint behind it: the two columns are
+     * there, wired to the right per-platform URL, and start unfetched.
+     */
+    public function test_the_platform_table_offers_the_split_per_row(): void
+    {
+        $this->fakeOk();
+
+        $html = $this->actingAs($this->admin)
+            ->get(route('orders.dashboard'))->assertOk()->getContent();
+
+        $this->assertStringContainsString('>Web<', $html);
+        $this->assertStringContainsString('>Manual<', $html);
+        $this->assertStringContainsString(
+            route('orders.dashboard.platform-order-types', 'bluesalon'),
+            $html,
+        );
+
+        // The usual current-plus-previous pair for the page itself and
+        // nothing more: the whole point is one call per row, on click, not
+        // twenty-three extra ones fired for a table nobody has opened yet.
+        Http::assertSentCount(2);
+    }
+
+    // ── Per-platform order-type split ───────────────────────────────────────
+
+    /**
+     * The endpoint has no single number for "Bluesalon's manual orders" — it
+     * answers platform and order-type as two separate breakdowns, never
+     * crossed. Getting one platform's own split means asking again, scoped to
+     * just that platform, and reading that answer's own by_order_type back.
+     */
+    public function test_a_platforms_order_type_split_is_fetched_scoped_to_just_that_platform(): void
+    {
+        Http::fake(['orders.test/*' => Http::response($this->payload([
+            'filters'      => ['platforms' => ['bluesalon'], 'platform_count' => 1],
+            'by_order_type' => [
+                ['order_type' => 'Web', 'orders' => 1250, 'revenue' => 900150.65, 'average_order_value' => 720.12, 'share_of_orders' => 89.29, 'share_of_revenue' => 90.0],
+                ['order_type' => 'Manual', 'orders' => 150, 'revenue' => 100000, 'average_order_value' => 666.67, 'share_of_orders' => 10.71, 'share_of_revenue' => 10.0],
+            ],
+        ]))]);
+
+        $this->actingAs($this->admin)
+            ->get(route('orders.dashboard.platform-order-types', [
+                'platform' => 'bluesalon', 'from' => '2026-08-01', 'to' => '2026-08-31', 'basis' => 'created',
+            ]))
+            ->assertOk()
+            ->assertExactJson([
+                'ok'     => true,
+                'web'    => ['orders' => 1250, 'revenue' => 900150.65],
+                'manual' => ['orders' => 150, 'revenue' => 100000.0],
+            ]);
+
+        Http::assertSent(function (Request $r) {
+            return str_contains($r->url(), 'platform=bluesalon')
+                && str_contains($r->url(), 'from=2026-08-01')
+                && str_contains($r->url(), 'to=2026-08-31')
+                && str_contains($r->url(), 'date_basis=created');
+        });
+    }
+
+    /**
+     * Only one type sold there — reported as itself, zero rather than absent.
+     * Set directly on the built payload rather than through fakeOk()'s
+     * override merge — array_replace_recursive matches a list by index and
+     * cannot shrink one, so a shorter override here would leave the default
+     * Manual row still merged in underneath it.
+     */
+    public function test_the_split_reports_zero_for_a_type_the_platform_never_used(): void
+    {
+        $payload = $this->payload();
+        $payload['data']['by_order_type'] = [
+            ['order_type' => 'Web', 'orders' => 400, 'revenue' => 300000, 'average_order_value' => 750, 'share_of_orders' => 100, 'share_of_revenue' => 100],
+        ];
+        Http::fake(['orders.test/*' => Http::response($payload)]);
+
+        $this->actingAs($this->admin)
+            ->get(route('orders.dashboard.platform-order-types', [
+                'platform' => 'wcmq', 'from' => '2026-08-01', 'to' => '2026-08-31',
+            ]))
+            ->assertOk()
+            ->assertExactJson([
+                'ok'     => true,
+                'web'    => ['orders' => 400, 'revenue' => 300000.0],
+                'manual' => ['orders' => 0, 'revenue' => 0.0],
+            ]);
+    }
+
+    public function test_the_split_endpoint_is_closed_without_the_permission(): void
+    {
+        $staff = User::create([
+            'name' => 'Rui Barbosa', 'email' => 'rui-split@example.test',
+            'password' => 'password', 'is_active' => true,
+        ]);
+
+        $this->actingAs($staff)
+            ->get(route('orders.dashboard.platform-order-types', ['platform' => 'bluesalon', 'from' => '2026-08-01', 'to' => '2026-08-31']))
+            ->assertForbidden();
+    }
+
+    /** Never offered in the table, and not answerable through a direct hit either. */
+    public function test_nespresso_cannot_be_queried_through_the_split_endpoint(): void
+    {
+        $this->actingAs($this->admin)
+            ->get(route('orders.dashboard.platform-order-types', ['platform' => 'nespresso', 'from' => '2026-08-01', 'to' => '2026-08-31']))
+            ->assertNotFound();
+
+        Http::assertNothingSent();
+    }
+
+    /** The upstream failure is reported, not turned into a 500 of our own. */
+    public function test_the_split_reports_an_upstream_failure_rather_than_crashing(): void
+    {
+        Http::fake(['orders.test/*' => Http::response(['status_code' => 401, 'message' => 'Invalid token.'], 401)]);
+
+        $this->actingAs($this->admin)
+            ->get(route('orders.dashboard.platform-order-types', ['platform' => 'bluesalon', 'from' => '2026-08-01', 'to' => '2026-08-31']))
+            ->assertStatus(401)
+            ->assertJson(['ok' => false]);
     }
 
     // ── States ───────────────────────────────────────────────────────────────
@@ -665,5 +973,64 @@ class OrdersDashboardTest extends TestCase
         );
 
         $this->assertStringNotContainsString('Photo Editor', $body);
+    }
+
+    // ── Sidebar ──────────────────────────────────────────────────────────────
+
+    /**
+     * A section of its own rather than a line in the top group: the numbers
+     * here are the company's, not this user's work. The team chart shares the
+     * section and is open to everyone, so what the permission controls is the
+     * link and not the heading — the heading only has to disappear when there
+     * is nothing at all beneath it, which is what the Media check below holds.
+     */
+    public function test_the_sidebar_gives_it_a_section_of_its_own(): void
+    {
+        $viewer = $this->grant(User::create([
+            'name' => 'Mei Lin', 'email' => 'mei-nav@example.test',
+            'password' => 'password', 'is_active' => true,
+        ]));
+
+        // The sidebar is on every page; the team screen is a static view, so
+        // nothing but the layout is under test here.
+        $with = $this->actingAs($viewer)->get(route('team.index'))->assertOk()->getContent();
+
+        // Proves the reader below still finds the headings it is looking for,
+        // so a failed match reads as a missing section and not a changed class.
+        $this->assertContains('Configuration', $this->sidebarSections($with));
+
+        $this->assertContains(
+            'Management',
+            $this->sidebarSections($with),
+            'Expected the management dashboard to sit under a heading of its own.',
+        );
+
+        $staff = User::create([
+            'name' => 'Rui Barbosa', 'email' => 'rui-nav@example.test',
+            'password' => 'password', 'is_active' => true,
+        ]);
+
+        $without = $this->actingAs($staff)->get(route('team.index'))->assertOk()->getContent();
+
+        $this->assertStringNotContainsString(route('orders.dashboard'), $without);
+
+        // The team chart holds the section open; only the revenue screen goes.
+        $this->assertContains('Management', $this->sidebarSections($without));
+
+        // A group with nothing left in it still loses its heading, which is
+        // the rule the management section is no longer able to demonstrate.
+        $this->assertNotContains(
+            'Media',
+            $this->sidebarSections($without),
+            'A heading should go with the last item under it rather than label an empty section.',
+        );
+    }
+
+    /** The uppercase headings down the sidebar, in the order they are shown. */
+    private function sidebarSections(string $html): array
+    {
+        preg_match_all('/tracking-\[\.14em\] text-white\/35">\s*([^<]+?)\s*</', $html, $found);
+
+        return $found[1];
     }
 }

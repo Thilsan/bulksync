@@ -34,7 +34,13 @@ Route::middleware('auth')->group(function () {
 
     // Orders across every storefront. Read-only, and the only screen in the
     // app whose numbers come from the ecommerce server rather than this one.
-    Route::get('/orders', [OrdersDashboardController::class, 'index'])->name('orders.dashboard');
+    Route::get('/management-dashboard', [OrdersDashboardController::class, 'index'])->name('orders.dashboard');
+
+    // The endpoint has no single number for "this platform's manual orders" —
+    // platform and order-type are two separate breakdowns it never crosses —
+    // so the platform table fetches one platform's own split on demand rather
+    // than paying for every platform's on every page load.
+    Route::get('/management-dashboard/platform/{platform}/order-types', [OrdersDashboardController::class, 'platformOrderTypes'])->name('orders.dashboard.platform-order-types');
 
     // Who owns what in the e-commerce department. A static org chart rather
     // than a module: the table is written into the view, so there is nothing

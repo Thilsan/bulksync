@@ -56,6 +56,10 @@
         <div data-tab="studio">
             @include('orders.studio', $workspace)
         </div>
+    @elseif($tab === 'analytics')
+        <div data-tab="analytics">
+            @include('orders.analytics', ['rows' => $analytics])
+        </div>
     @else
 
     {{-- ── Filters ──────────────────────────────────────────────────────────
@@ -173,7 +177,16 @@
     @endif
 
     @if($summary)
-        @php $t = $summary['totals']; $d = $summary['deltas']; $q = $summary['quality']; @endphp
+        @php
+            $t = $summary['totals']; $d = $summary['deltas']; $q = $summary['quality'];
+
+            // Read once, in a fixed Web-then-Manual order rather than
+            // whatever order the endpoint happens to return, so the KPI
+            // tiles and the Web vs Manual card below always agree.
+            $web      = collect($summary['types'])->firstWhere('order_type', 'Web');
+            $manual   = collect($summary['types'])->firstWhere('order_type', 'Manual');
+            $typeRows = collect([$web, $manual])->filter();
+        @endphp
 
         {{-- ── Empty ────────────────────────────────────────────────────── --}}
         @if($summary['empty'])
@@ -210,9 +223,22 @@
                     </div>
                     <p class="mt-3 text-2xl font-semibold text-gray-900 tabular-nums leading-none">{{ $tile['value'] }}</p>
 
+                    {{-- Orders and Revenue split by how the order was placed,
+                         so the two most-read tiles on the page do not blend a
+                         staff-entered order into a website one silently. --}}
+                    @if(($i === 0 || $i === 1) && $typeRows->isNotEmpty())
+                        <p class="text-xs text-gray-400 mt-2">
+                            @if($i === 0)
+                                {{ $typeRows->map(fn ($r) => $num($r['orders']) . ' ' . strtolower($r['order_type']))->join(' · ') }}
+                            @else
+                                {{ $ccy }} {{ $typeRows->map(fn ($r) => $money($r['revenue']) . ' ' . strtolower($r['order_type']))->join(' · ') }}
+                            @endif
+                        </p>
+                    @endif
+
                     {{-- The two numbers that are not what they look like. --}}
                     @if($i === 1 && ($q['suspected_outlier_orders'] ?? 0) > 0)
-                        <p class="text-xs text-amber-700 mt-2">
+                        <p class="text-xs text-amber-700 {{ $typeRows->isNotEmpty() ? 'mt-1' : 'mt-2' }}">
                             {{ $num($q['suspected_outlier_orders']) }} orders above {{ $ccy }} {{ $num($q['outlier_threshold']) }} included — likely typed in error.
                         </p>
                     @elseif($i === 2 && ($q['revenue_coverage_pct'] ?? 100) < 100)
@@ -222,8 +248,11 @@
                             Excludes {{ $num($summary['lost']) }} cancelled, returned or failed.
                         </p>
                     @elseif($i === 0)
-                        <p class="text-xs text-gray-400 mt-2">
-                            {{ $t['platforms_with_orders'] ?? 0 }} of {{ $t['platforms_queried'] ?? 0 }} platforms selling.
+                        {{-- Read off the breakdown below rather than the
+                             endpoint's own count, so an excluded platform
+                             cannot make this line disagree with that table. --}}
+                        <p class="text-xs text-gray-400 {{ $typeRows->isNotEmpty() ? 'mt-1' : 'mt-2' }}">
+                            {{ count($summary['platforms']) }} of {{ count($summary['platforms']) + count($summary['dormant']) }} platforms selling.
                         </p>
                     @endif
                 </div>
@@ -326,6 +355,13 @@
                                             ">{{ $label }}</button>
                                 </th>
                             @endforeach
+
+                            {{-- Not sortable: the endpoint answers platform and
+                                 order-type as two separate breakdowns, so these
+                                 two cells start blank and are fetched per row,
+                                 on click, rather than for all of them upfront. --}}
+                            <th class="px-5 py-2.5 font-medium text-right">Web</th>
+                            <th class="px-5 py-2.5 font-medium text-right">Manual</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-gray-50">
@@ -337,7 +373,19 @@
                             <tr class="hover:bg-gray-50/60"
                                 data-name="{{ $name }}" data-orders="{{ $row['orders'] }}"
                                 data-revenue="{{ $row['revenue'] }}" data-aov="{{ $row['average_order_value'] }}"
-                                data-last="{{ $row['last_order_at'] ?? '' }}">
+                                data-last="{{ $row['last_order_at'] ?? '' }}"
+                                x-data="{
+                                    loading: false, loaded: false, failed: false, web: null, manual: null,
+                                    load() {
+                                        if (this.loaded || this.loading) return;
+                                        this.loading = true; this.failed = false;
+                                        fetch('{{ route('orders.dashboard.platform-order-types', $row['platform']) }}?from={{ $filters['from']->format('Y-m-d') }}&to={{ $filters['to']->format('Y-m-d') }}&basis={{ $filters['basis'] }}', { headers: { 'Accept': 'application/json' } })
+                                            .then(r => r.ok ? r.json() : Promise.reject())
+                                            .then(d => { this.web = d.web; this.manual = d.manual; this.loaded = true; })
+                                            .catch(() => { this.failed = true; })
+                                            .finally(() => { this.loading = false; });
+                                    },
+                                }">
 
                                 <td class="px-5 py-2.5">
                                     {{-- The slug is what the endpoint calls it, kept
@@ -364,6 +412,27 @@
                                     @if($last) title="{{ $row['last_order_at'] }}" @endif>
                                     {{ $last ? $last->diffForHumans(short: true) : '—' }}
                                 </td>
+
+                                {{-- One click fetches both cells at once — they
+                                     come from the same scoped request, so there
+                                     is nothing a second button here would save. --}}
+                                <td class="px-5 py-2.5 text-right tabular-nums text-gray-600">
+                                    <button type="button" x-show="!loaded && !loading" x-cloak
+                                            @click="load()" class="text-brand-600 hover:underline text-xs font-medium">
+                                        <span x-show="!failed">Show</span>
+                                        <span x-show="failed" class="text-rose-600">Retry</span>
+                                    </button>
+                                    <span x-show="loading" x-cloak class="text-gray-300">…</span>
+                                    <template x-if="loaded">
+                                        <span x-text="web.orders.toLocaleString() + ' · {{ $ccy }} ' + web.revenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })"></span>
+                                    </template>
+                                </td>
+                                <td class="px-5 py-2.5 text-right tabular-nums text-gray-600">
+                                    <span x-show="!loaded" x-cloak class="text-gray-300">—</span>
+                                    <template x-if="loaded">
+                                        <span x-text="manual.orders.toLocaleString() + ' · {{ $ccy }} ' + manual.revenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })"></span>
+                                    </template>
+                                </td>
                             </tr>
                         @endforeach
                     </tbody>
@@ -375,7 +444,7 @@
                     @if($summary['dormant'])
                         <tfoot>
                             <tr class="border-t border-gray-100">
-                                <td colspan="5" class="px-5 py-3 text-xs text-gray-400">
+                                <td colspan="7" class="px-5 py-3 text-xs text-gray-400">
                                     No orders in this range:
                                     <span class="text-gray-500">{{ collect($summary['dormant'])->map(fn ($p) => \App\Support\OrdersSummary::platform($p))->join(', ') }}</span>
                                 </td>
@@ -464,11 +533,8 @@
                         @endforeach
                     </div>
                     {{-- Staff-entered orders are worth several times a web one,
-                         which is the only reason this split is on the page. --}}
-                    @php
-                        $web    = collect($summary['types'])->firstWhere('order_type', 'Web');
-                        $manual = collect($summary['types'])->firstWhere('order_type', 'Manual');
-                    @endphp
+                         which is the only reason this split is on the page.
+                         $web/$manual come from the top of the section. --}}
                     @if($web && $manual && $web['average_order_value'] > 0)
                         <p class="mt-4 pt-3 border-t border-gray-100 text-xs text-gray-500">
                             Manual orders average

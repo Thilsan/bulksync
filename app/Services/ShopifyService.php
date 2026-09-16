@@ -6,6 +6,7 @@ use App\Exceptions\ShopifyRequestException;
 use App\Models\Store;
 use GuzzleHttp\Client;
 use GuzzleHttp\Exception\ClientException;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -1190,6 +1191,148 @@ class ShopifyService
         $this->http->put("admin/api/{$this->apiVersion}/products/{$productId}/images/{$imageId}.json", [
             'json' => ['image' => ['id' => (int) $imageId, 'alt' => $altText]],
         ]);
+    }
+
+    // ── Analytics ────────────────────────────────────────────────────────────
+
+    /** Pages fetched before a range is reported capped rather than walked in full. */
+    private const ANALYTICS_MAX_PAGES = 20;
+
+    /** How many of the range's best-selling products the caller sees. */
+    private const ANALYTICS_TOP_PRODUCTS = 20;
+
+    /**
+     * Revenue, order count, sales channel and product breakdowns for this
+     * store, for one date range — read straight from Shopify's own orders
+     * rather than the pre-aggregated ecommerce-server endpoint the Orders tab
+     * uses. `status:any` is asked for explicitly: GraphQL's default order
+     * query mirrors the REST API's "open only" default, which would silently
+     * drop closed and cancelled orders from the total.
+     *
+     * Channel comes from `attribution`, not the deprecated
+     * `channelInformation` — Shopify's own replacement as of the 2026-07
+     * schema. It's an order-level property, so it's tallied once per order
+     * rather than per line item the way product revenue is.
+     *
+     * A store with more than ANALYTICS_MAX_PAGES pages of orders in range stops
+     * there rather than walking the whole history — `capped` tells the caller
+     * the figures are a partial (but honestly labelled) picture.
+     */
+    public function getOrderAnalytics(Carbon $from, Carbon $to): array
+    {
+        $query = sprintf(
+            "created_at:>='%s' AND created_at:<='%s' AND status:any",
+            $from->startOfDay()->toIso8601String(),
+            $to->endOfDay()->toIso8601String(),
+        );
+
+        $orders   = 0;
+        $revenue  = 0.0;
+        $currency = null;
+        $products = [];
+        $channels = [];
+        $cursor   = null;
+        $capped   = false;
+
+        for ($page = 0; $page < self::ANALYTICS_MAX_PAGES; $page++) {
+            $this->throttle();
+
+            $response = $this->http->post("admin/api/{$this->apiVersion}/graphql.json", [
+                'json' => [
+                    'query'     => $this->orderAnalyticsQuery(),
+                    'variables' => ['q' => $query, 'cursor' => $cursor],
+                ],
+            ]);
+
+            $data = json_decode((string) $response->getBody(), true);
+            $this->assertNoGraphQlErrors($data, 'getOrderAnalytics');
+
+            $edges = $data['data']['orders']['edges'] ?? [];
+
+            foreach ($edges as $edge) {
+                $node = $edge['node'] ?? [];
+                $orders++;
+
+                $shopMoney = $node['totalPriceSet']['shopMoney'] ?? [];
+                $orderRevenue = (float) ($shopMoney['amount'] ?? 0);
+                $revenue  += $orderRevenue;
+                $currency ??= $shopMoney['currencyCode'] ?? null;
+
+                // Attribution lives on the order, not the line item — a single
+                // channel name per order, unlike revenue which is split by product.
+                $channel = (string) ($node['attribution']['displayName'] ?? 'Unknown');
+                $channels[$channel]['orders']  ??= 0;
+                $channels[$channel]['revenue'] ??= 0.0;
+                $channels[$channel]['orders']  += 1;
+                $channels[$channel]['revenue'] += $orderRevenue;
+
+                foreach ($node['lineItems']['edges'] ?? [] as $lineEdge) {
+                    $line  = $lineEdge['node'] ?? [];
+                    $title = (string) ($line['title'] ?? '');
+
+                    if ($title === '') {
+                        continue;
+                    }
+
+                    $products[$title]['quantity'] ??= 0;
+                    $products[$title]['revenue']  ??= 0.0;
+                    $products[$title]['quantity'] += (int) ($line['quantity'] ?? 0);
+                    $products[$title]['revenue']  += (float) ($line['discountedTotalSet']['shopMoney']['amount'] ?? 0);
+                }
+            }
+
+            $pageInfo = $data['data']['orders']['pageInfo'] ?? [];
+
+            if (empty($pageInfo['hasNextPage'])) {
+                break;
+            }
+
+            if ($page + 1 >= self::ANALYTICS_MAX_PAGES) {
+                $capped = true;
+                break;
+            }
+
+            $cursor = $edges ? end($edges)['cursor'] ?? null : null;
+
+            if (!$cursor) {
+                break;
+            }
+        }
+
+        $topProducts = collect($products)
+            ->map(fn ($totals, $title) => ['title' => $title, ...$totals])
+            ->sortByDesc('revenue')
+            ->take(self::ANALYTICS_TOP_PRODUCTS)
+            ->values()
+            ->all();
+
+        $byChannel = collect($channels)
+            ->map(fn ($totals, $channel) => ['channel' => $channel, ...$totals])
+            ->sortByDesc('revenue')
+            ->values()
+            ->all();
+
+        return [
+            'orders'       => $orders,
+            'revenue'      => $revenue,
+            'currency'     => $currency ?? 'USD',
+            'top_products' => $topProducts,
+            'by_channel'   => $byChannel,
+            'capped'       => $capped,
+        ];
+    }
+
+    private function orderAnalyticsQuery(): string
+    {
+        return 'query($q:String!,$cursor:String){'
+            . 'orders(first:250,query:$q,after:$cursor,sortKey:CREATED_AT){'
+            . 'edges{cursor node{'
+            . 'totalPriceSet{shopMoney{amount currencyCode}}'
+            . 'attribution{displayName}'
+            . 'lineItems(first:250){edges{node{title quantity discountedTotalSet{shopMoney{amount}}}}}'
+            . '}}'
+            . 'pageInfo{hasNextPage}'
+            . '}}';
     }
 
     // ── Connection test ────────────────────────────────────────────────────
