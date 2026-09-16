@@ -1603,6 +1603,12 @@ class PhotoEditorTest extends TestCase
      * optional. Without the prompt the model is free to reinterpret the pose;
      * without a size, the resolution tier is Photoroom's to choose, and its
      * lowest tier is the one that destroys a print.
+     *
+     * The size asserted is the preset nearest the photo's own shape, not
+     * always SQUARE_HD: forcing a tall garment onto a square canvas is what
+     * was recutting floor-length gowns by 49-69% in a real batch. The fixture
+     * here is 300x450 — 2:3 — so PORTRAIT_HD_3_2 is the one Photoroom is
+     * asked for.
      */
     public function test_ghost_mannequin_runs_and_is_told_what_to_do(): void
     {
@@ -1623,8 +1629,8 @@ class PhotoEditorTest extends TestCase
 
         $this->assertSame('ai.auto', $sent['ghostMannequin.mode'] ?? null,
             'ghost mannequin was chosen and Photoroom was never told');
-        $this->assertSame('SQUARE_HD', $sent['ghostMannequin.size'] ?? null,
-            'no size named, so the resolution tier is left to chance');
+        $this->assertSame('PORTRAIT_HD_3_2', $sent['ghostMannequin.size'] ?? null,
+            'no size named to match the photo\'s own shape, so the resolution tier is left to chance');
         $this->assertStringContainsString('Remove only the hanger',
             $sent['ghostMannequin.prompt'] ?? '',
             'the garment was left to the model to reinterpret');

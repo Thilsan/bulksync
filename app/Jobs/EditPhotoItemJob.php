@@ -207,12 +207,16 @@ class EditPhotoItemJob implements ShouldQueue
                     // separate erase pass would only be a wasted request.
                     $appliedMode = 'on_model';
                 } else {
+                    $rawInfo = @getimagesizefromstring($raw);
+
                     [$appliedMode, $itemEdits] = $this->chooseApparelRoute(
                         $itemEdits,
                         (bool) ($classification && !empty($classification['mannequin_visible'])),
                         $classification['product'] ?? null,
                         $classification['support'] ?? null,
                         $classification['support_type'] ?? null,
+                        (int) ($rawInfo[0] ?? 0),
+                        (int) ($rawInfo[1] ?? 0),
                     );
 
                     /*
@@ -1012,6 +1016,8 @@ class EditPhotoItemJob implements ShouldQueue
         ?string $seen = null,
         ?string $support = null,
         ?string $supportType = null,
+        int $photoWidth = 0,
+        int $photoHeight = 0,
     ): array {
         $itemEdits   = $edits;
         $named       = filled($edits['segmentation_prompt'] ?? null);
@@ -1151,8 +1157,19 @@ class EditPhotoItemJob implements ShouldQueue
              * exposes quality tiers that turn out to be resolutions — 1024,
              * 2048, 4096 — and 1024 is the tier that destroys a print, at 7% of
              * the original's detail.
+             *
+             * Which shape was a hardcoded square until it was measured against
+             * what was actually failing: several floor-length gowns, each
+             * reshaped 49% to 69% on request after request, not the ordinary
+             * spread of a generative redraw but a bias in one direction. A
+             * gown's own proportions are nowhere near square, and asking the
+             * model to fit one onto a square canvas anyway means the model has
+             * to choose what to distort to make it fit. Matched to the
+             * photograph's own shape instead — cheap, and already close to the
+             * garment's own proportions, since a full-length photograph is shot
+             * to fit the garment, not the other way round.
              */
-            $itemEdits['apparel_size']   ??= 'SQUARE_HD';
+            $itemEdits['apparel_size']   ??= PhotoroomService::closestApparelSize($photoWidth, $photoHeight);
             $itemEdits['apparel_prompt']   = filled($edits['apparel_prompt'] ?? null)
                 ? $edits['apparel_prompt']
                 : PhotoroomService::GHOST_MANNEQUIN_PROMPT;

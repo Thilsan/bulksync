@@ -209,12 +209,15 @@ class PhotoEditorNoRedrawTest extends TestCase
         ?string $seen = null,
         ?string $support = null,
         ?string $supportType = 'held',
+        int $photoWidth = 0,
+        int $photoHeight = 0,
     ): array {
         $method = new \ReflectionMethod(EditPhotoItemJob::class, 'chooseApparelRoute');
         $method->setAccessible(true);
 
         return $method->invoke(
             new EditPhotoItemJob(1), $edits, $mannequinVisible, $seen, $support, $supportType,
+            $photoWidth, $photoHeight,
         );
     }
 
@@ -394,6 +397,47 @@ class PhotoEditorNoRedrawTest extends TestCase
         );
 
         $this->assertSame('ghost_mannequin', $mode);
+    }
+
+    /**
+     * The redraw canvas matches the photo's own shape rather than always
+     * being square.
+     *
+     * apparel_size used to default to SQUARE_HD regardless of what was
+     * photographed. A batch of floor-length gowns — naturally tall, not
+     * square — came back recut by 49-69% across several SKUs, which is what
+     * happens when a model is asked to fill a frame shaped differently than
+     * the garment it is drawing. Passing the photo's real dimensions through
+     * now picks the nearest-shaped preset instead.
+     */
+    public function test_the_redraw_canvas_matches_a_tall_photos_own_shape(): void
+    {
+        [, $itemEdits] = $this->route(
+            ['framing_preset' => 'women/top', 'ghost_mannequin' => true],
+            true,
+            'the scarf',
+            'the mannequin',
+            'worn',
+            900,
+            1600,
+        );
+
+        $this->assertSame('PORTRAIT_HD_16_9', $itemEdits['apparel_size'] ?? null,
+            'a tall gown photo was still sent to the square canvas');
+    }
+
+    /** No photo dimensions available — the old, safe default still applies. */
+    public function test_the_redraw_canvas_defaults_to_square_without_photo_dimensions(): void
+    {
+        [, $itemEdits] = $this->route(
+            ['framing_preset' => 'women/top', 'ghost_mannequin' => true],
+            true,
+            'the scarf',
+            'the mannequin',
+            'worn',
+        );
+
+        $this->assertSame('SQUARE_HD', $itemEdits['apparel_size'] ?? null);
     }
 
     /**

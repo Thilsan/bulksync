@@ -78,6 +78,58 @@ class PhotoroomService
         'LANDSCAPE_HD_16_9'  => 'Landscape 16:9',
     ];
 
+    /** Width divided by height for each size above, for matching a photo to one. */
+    private const SIZE_ASPECTS = [
+        'PORTRAIT_HD_16_9'  => 9 / 16,
+        'PORTRAIT_HD_3_2'   => 2 / 3,
+        'PORTRAIT_HD_4_3'   => 3 / 4,
+        'SQUARE_HD'         => 1.0,
+        'LANDSCAPE_HD_4_3'  => 4 / 3,
+        'LANDSCAPE_HD_3_2'  => 3 / 2,
+        'LANDSCAPE_HD_16_9' => 16 / 9,
+    ];
+
+    /**
+     * Which of Photoroom's seven canvas shapes comes closest to a photograph's
+     * own proportions.
+     *
+     * Ghost Mannequin was asking for SQUARE_HD on every apparel photo, chosen
+     * for its resolution tier and never for its shape — reasonable for a top
+     * or a blouse, which are not far from square themselves, and a poor fit
+     * for a floor-length gown, tall and narrow, forced onto a square canvas
+     * with no shape close to its own. Measured across several such gowns: a
+     * garment whose real proportions are roughly 9:16 came back, request after
+     * request, reshaped by 49% to 69% — not the ordinary variation of a
+     * generative redraw, a bias in one direction from asking the model to fit
+     * the wrong-shaped box.
+     *
+     * Matched on the photograph's own aspect ratio as the cheapest available
+     * stand-in for the garment's, since a full-length photograph is already
+     * shot to the garment's own proportions — this does not need to be exact,
+     * only closer than a square is for everything that is not one.
+     */
+    public static function closestApparelSize(int $width, int $height): string
+    {
+        if ($width <= 0 || $height <= 0) {
+            return 'SQUARE_HD';
+        }
+
+        $photoAspect = $width / $height;
+        $best        = 'SQUARE_HD';
+        $bestGap     = INF;
+
+        foreach (self::SIZE_ASPECTS as $preset => $aspect) {
+            $gap = abs(log($photoAspect / $aspect));
+
+            if ($gap < $bestGap) {
+                $bestGap = $gap;
+                $best    = $preset;
+            }
+        }
+
+        return $best;
+    }
+
     public const VIRTUAL_MODEL_PRESETS = [
         'avery', 'sam', 'taylor', 'kendall', 'jordan', 'casey', 'maya', 'reece',
         'lena', 'julia', 'jackson', 'sophia', 'emma', 'ava', 'zoe', 'fiona',
