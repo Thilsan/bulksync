@@ -1209,10 +1209,13 @@ class ShopifyService
      * query mirrors the REST API's "open only" default, which would silently
      * drop closed and cancelled orders from the total.
      *
-     * Channel comes from `attribution`, not the deprecated
-     * `channelInformation` — Shopify's own replacement as of the 2026-07
-     * schema. It's an order-level property, so it's tallied once per order
-     * rather than per line item the way product revenue is.
+     * Channel comes from `channelInformation`, which Shopify marks deprecated
+     * in favour of `attribution` — but `attribution` does not exist before the
+     * 2026-07 schema, and this class pins $apiVersion well behind that. Moving
+     * to it means moving every other call in here to a newer version too, so
+     * the deprecated-but-present field is the correct one for this version.
+     * It's an order-level property, so it's tallied once per order rather than
+     * per line item the way product revenue is.
      *
      * A store with more than ANALYTICS_MAX_PAGES pages of orders in range stops
      * there rather than walking the whole history — `capped` tells the caller
@@ -1260,7 +1263,15 @@ class ShopifyService
 
                 // Attribution lives on the order, not the line item — a single
                 // channel name per order, unlike revenue which is split by product.
-                $channel = (string) ($node['attribution']['displayName'] ?? 'Unknown');
+                // Manual and draft orders carry no channelInformation at all,
+                // and on a real storefront that is a third of them — enough
+                // that "Unknown" would swallow most of the answer. The app
+                // that created the order names it well enough to stand in.
+                $channel = (string) (
+                    $node['channelInformation']['channelDefinition']['channelName']
+                    ?? $node['app']['name']
+                    ?? 'Unknown'
+                );
                 $channels[$channel]['orders']  ??= 0;
                 $channels[$channel]['revenue'] ??= 0.0;
                 $channels[$channel]['orders']  += 1;
@@ -1328,7 +1339,8 @@ class ShopifyService
             . 'orders(first:250,query:$q,after:$cursor,sortKey:CREATED_AT){'
             . 'edges{cursor node{'
             . 'totalPriceSet{shopMoney{amount currencyCode}}'
-            . 'attribution{displayName}'
+            . 'channelInformation{channelDefinition{channelName}}'
+            . 'app{name}'
             . 'lineItems(first:250){edges{node{title quantity discountedTotalSet{shopMoney{amount}}}}}'
             . '}}'
             . 'pageInfo{hasNextPage}'

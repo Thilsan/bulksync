@@ -42,21 +42,35 @@ class ShopifyOrderAnalyticsTest extends TestCase
      */
     private function ordersPage(array $orders, bool $hasNextPage = false): Response
     {
-        $edges = array_map(fn ($o) => [
-            'cursor' => 'cursor-' . $o['id'],
-            'node'   => [
-                'id'            => 'gid://shopify/Order/' . $o['id'],
-                'totalPriceSet' => ['shopMoney' => ['amount' => $o['total'], 'currencyCode' => 'QAR']],
-                'attribution'   => ['displayName' => $o['channel'] ?? 'Online Store'],
-                'lineItems'     => [
-                    'edges' => array_map(fn ($li) => ['node' => [
-                        'title'              => $li['title'],
-                        'quantity'           => $li['quantity'],
-                        'discountedTotalSet' => ['shopMoney' => ['amount' => $li['revenue']]],
-                    ]], $o['line_items']),
+        $edges = array_map(function ($o) {
+            // Shaped as API 2024-01 actually answers — the version this app
+            // pins. `attribution` is a 2026-07 field and does not exist here,
+            // which is what broke this in production. A null
+            // channelInformation is what real manual and draft orders come
+            // back as, so `'channel' => null` reproduces one; note the
+            // array_key_exists, since ?? would read that null as "absent"
+            // and quietly hand back the default instead.
+            $channel = \array_key_exists('channel', $o) ? $o['channel'] : 'Online Store';
+
+            return [
+                'cursor' => 'cursor-' . $o['id'],
+                'node'   => [
+                    'id'            => 'gid://shopify/Order/' . $o['id'],
+                    'totalPriceSet' => ['shopMoney' => ['amount' => $o['total'], 'currencyCode' => 'QAR']],
+                    'channelInformation' => $channel === null
+                        ? null
+                        : ['channelDefinition' => ['channelName' => $channel]],
+                    'app' => \array_key_exists('app', $o) ? ['name' => $o['app']] : null,
+                    'lineItems' => [
+                        'edges' => array_map(fn ($li) => ['node' => [
+                            'title'              => $li['title'],
+                            'quantity'           => $li['quantity'],
+                            'discountedTotalSet' => ['shopMoney' => ['amount' => $li['revenue']]],
+                        ]], $o['line_items']),
+                    ],
                 ],
-            ],
-        ], $orders);
+            ];
+        }, $orders);
 
         return new Response(200, [], json_encode([
             'data' => [
@@ -154,6 +168,30 @@ class ShopifyOrderAnalyticsTest extends TestCase
         $this->assertSame('Point of Sale', $result['by_channel'][1]['channel']);
         $this->assertSame(2, $result['by_channel'][1]['orders']);
         $this->assertEqualsWithDelta(60.00, $result['by_channel'][1]['revenue'], 0.001);
+    }
+
+    /**
+     * A third of one real store's orders carry no channelInformation at all —
+     * manual and draft orders do not have one — and bucketing that much
+     * revenue under "Unknown" throws away most of the answer. The app that
+     * created the order names it well enough to be worth falling back to.
+     */
+    public function test_an_order_with_no_channel_falls_back_to_the_app_that_created_it(): void
+    {
+        $service = $this->service([
+            $this->ordersPage([
+                ['id' => 1, 'total' => '100.00', 'channel' => null, 'app' => 'Draft Orders', 'line_items' => []],
+                ['id' => 2, 'total' => '60.00', 'channel' => 'Online Store', 'line_items' => []],
+            ]),
+        ]);
+
+        $result = $service->getOrderAnalytics(Carbon::parse('2026-01-01'), Carbon::parse('2026-01-31'));
+
+        $channels = collect($result['by_channel'])->keyBy('channel');
+
+        $this->assertTrue($channels->has('Draft Orders'), 'expected the app name to stand in for the missing channel');
+        $this->assertEqualsWithDelta(100.00, $channels['Draft Orders']['revenue'], 0.001);
+        $this->assertFalse($channels->has('Unknown'));
     }
 
     /** "Total sales by product" is a fuller list than the old top-5, but a store with hundreds of SKUs still needs a cap. */
