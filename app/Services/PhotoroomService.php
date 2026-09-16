@@ -810,6 +810,15 @@ class PhotoroomService
      * label and a swing ticket are both "tags", both hang at the collar, and
      * one of them is part of the product — the transplant work exists partly to
      * put a rewritten one back.
+     *
+     * Named by every place it turns up, not only the collar. A pair of jeans
+     * carries no collar at all — its permanent brand mark is a leather patch
+     * stitched to the back pocket or the waistband, sitting right next to
+     * where the removable swing ticket is actually tied on a real sample
+     * (Stefano Ricci jeans, tag on a string through a belt loop, the leather
+     * "STEFANO RICCI" patch stitched to the pocket beside it). A prompt that
+     * only protects "the collar" gives the model nothing to recognise that
+     * patch by, on the one garment shape where the two sit closest together.
      */
     public const PRICE_TAG_REMOVAL_PROMPT = 'Remove only the paper price tag, the barcode ticket, the hang tag '
         . 'and the string or thread they hang from. '
@@ -817,8 +826,9 @@ class PhotoroomService
         . 'Keep the garment exactly as it is: the same position, the same angle, the same size, the same shape, '
         . 'the same folds and creases, the same colours. '
         . 'Do not redraw the print, the pattern, the embroidery, the logo or any lettering on the garment. '
-        . 'Keep the sewn-in woven brand label and size label at the collar exactly as they are — they are part '
-        . 'of the garment, not the price tag. '
+        . 'Keep every sewn-in label exactly as it is — a woven label or size label at the collar, a leather or '
+        . 'fabric brand patch stitched to a back pocket or a waistband, or a leather loop pull tab at the '
+        . 'waistband. These are part of the garment, not the price tag, however close they hang to it. '
         . 'Do not add anything.';
 
     private string $apiKey;

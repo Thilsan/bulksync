@@ -314,6 +314,30 @@ class PhotoEditorTest extends TestCase
         }
     }
 
+    /**
+     * The price-tag erase pass protects the permanent label wherever it
+     * actually sits, not only at the collar.
+     *
+     * A pair of jeans has no collar at all. Its permanent brand mark is a
+     * leather patch stitched to the back pocket or the waistband, sitting
+     * right next to where a real supplier sample (Stefano Ricci jeans) ties
+     * its removable swing ticket — through a belt loop, on a string. A
+     * prompt that only named "the collar" gave the model nothing to
+     * recognise that patch by on the one garment shape where the two sit
+     * closest together, at real risk of erasing the patch as though it were
+     * the ticket, or leaving both alone out of caution.
+     */
+    public function test_the_price_tag_instruction_protects_labels_wherever_they_sit(): void
+    {
+        $prompt = strtolower(PhotoroomService::PRICE_TAG_REMOVAL_PROMPT);
+
+        foreach ([
+            'sewn-in label', 'at the collar', 'back pocket', 'waistband', 'part of the garment',
+        ] as $rule) {
+            $this->assertStringContainsString($rule, $prompt, "the price tag instruction stopped naming: {$rule}");
+        }
+    }
+
     /** A transparent cutout is a PNG wherever the setting was chosen. */
     public function test_a_transparent_background_is_saved_as_png(): void
     {
