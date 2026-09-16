@@ -545,7 +545,7 @@ class EditPhotoItemJob implements ShouldQueue
                     if ($verified) {
                         $edited      = $whole['image'];
                         $appliedMode = 'ghost_photo_kept';
-                    } elseif ($this->keepsARecutRedraw($edits, $whole['verdict'])) {
+                    } elseif ($this->keepsARecutRedraw($edits, $whole['verdict'], $whole['metrics']['aspect_shift'] ?? null)) {
                         /*
                          * Asked for, and narrowly.
                          *
@@ -584,6 +584,18 @@ class EditPhotoItemJob implements ShouldQueue
                         $redrawNote  = 'The stand was removed by redrawing the garment, which you allowed for '
                             . 'this run. ' . $whole['reason'] . ' The photograph was not used — check the '
                             . 'print, the colour and the drape before pushing.';
+                    } elseif ($whole['verdict'] === 'reshaped' && !empty($edits['accept_recut_redraw'])) {
+                        /*
+                         * Refused by the ceiling, not by the checkbox — worth
+                         * saying differently, since the operator did tick
+                         * "keep the redraw" and the generic reason ("limit 7%")
+                         * reads as though that had no effect. This is the one
+                         * place that number is 55%, not 7%.
+                         */
+                        $redrawNote = 'The stand could not be removed without altering the garment, so the photo '
+                            . 'was kept as shot. ' . $whole['reason'] . ' That is beyond what "keep the redraw" '
+                            . 'covers here — past a certain point a recut is a different garment, not a '
+                            . 'different cut of the same one.';
                     } else {
                         $redrawNote = 'The stand could not be removed without altering the garment, '
                             . 'so the photo was kept as shot. ' . $whole['reason'];
@@ -944,9 +956,28 @@ class EditPhotoItemJob implements ShouldQueue
      * the photograph's position and direction is the one thing asked for in
      * exchange for being allowed to redraw at all.
      */
-    private function keepsARecutRedraw(array $edits, string $verdict): bool
+    /**
+     * How far a reshape can go before it stops being a recut and starts being
+     * a different garment, whatever the checkbox says.
+     *
+     * The skirt this was built for topped out at 41%. A batch run afterwards
+     * routinely published 49-69% — most of the garment's proportions, not a
+     * neckline's worth — because 'reshaped' had a floor that classified it and
+     * no ceiling that capped it: once past 7%, any amount was accepted equally.
+     * 55% is a judgment call, not a measurement — held a little above the
+     * skirt's own worst case with room for a garment genuinely harder than
+     * that one, not open enough to wave through most of a batch the way 100%
+     * would.
+     */
+    private const MAX_ACCEPTABLE_RESHAPE = 0.55;
+
+    private function keepsARecutRedraw(array $edits, string $verdict, ?float $aspectShift): bool
     {
-        return !empty($edits['accept_recut_redraw']) && $verdict === 'reshaped';
+        if (empty($edits['accept_recut_redraw']) || $verdict !== 'reshaped') {
+            return false;
+        }
+
+        return $aspectShift === null || $aspectShift <= self::MAX_ACCEPTABLE_RESHAPE;
     }
 
     private function skuAlreadyRefusedARedraw(): bool

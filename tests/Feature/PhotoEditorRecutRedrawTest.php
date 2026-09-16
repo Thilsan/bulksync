@@ -29,12 +29,12 @@ use Tests\TestCase;
  */
 class PhotoEditorRecutRedrawTest extends TestCase
 {
-    private function keeps(array $edits, string $verdict): bool
+    private function keeps(array $edits, string $verdict, ?float $aspectShift = 0.10): bool
     {
         $method = new \ReflectionMethod(EditPhotoItemJob::class, 'keepsARecutRedraw');
         $method->setAccessible(true);
 
-        return $method->invoke(new EditPhotoItemJob(1), $edits, $verdict);
+        return $method->invoke(new EditPhotoItemJob(1), $edits, $verdict, $aspectShift);
     }
 
     /** Off unless asked for: the safe answer stays the default. */
@@ -49,7 +49,27 @@ class PhotoEditorRecutRedrawTest extends TestCase
     /** The case it was built for: the garment held still but came back recut. */
     public function test_a_reshaped_redraw_is_kept_when_the_run_allows_it(): void
     {
-        $this->assertTrue($this->keeps(['accept_recut_redraw' => true], 'reshaped'));
+        $this->assertTrue($this->keeps(['accept_recut_redraw' => true], 'reshaped', 0.10));
+    }
+
+    /**
+     * A reshape has a ceiling even with the checkbox on.
+     *
+     * The skirt this feature was built for topped out at 41%. A later batch
+     * run published 49-69% routinely, because 'reshaped' had a floor that
+     * classified it (past 7%) and no ceiling that capped it — any amount past
+     * that was accepted equally. Past 55% is most of the garment's own
+     * proportions, not a neckline's worth, and no longer the bounded trade
+     * this checkbox describes.
+     */
+    public function test_a_reshape_past_the_ceiling_is_refused_even_when_allowed(): void
+    {
+        $this->assertTrue($this->keeps(['accept_recut_redraw' => true], 'reshaped', 0.55),
+            'the ceiling itself should still be accepted');
+        $this->assertFalse($this->keeps(['accept_recut_redraw' => true], 'reshaped', 0.56),
+            'a reshape past the ceiling was published anyway');
+        $this->assertFalse($this->keeps(['accept_recut_redraw' => true], 'reshaped', 0.69),
+            'the 69%% case from the batch run was published anyway');
     }
 
     /**
