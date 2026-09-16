@@ -185,9 +185,18 @@
                 'label' => null,
                 'items' => [
                     ['label' => 'Dashboard', 'url' => route('dashboard'), 'icon' => 'home', 'on' => request()->routeIs('dashboard')],
-                    ['label' => 'Management Dashboard', 'url' => route('orders.dashboard'), 'icon' => 'chart', 'on' => request()->routeIs('orders.*'), 'show' => $u->hasFeature('orders_dashboard')],
-                    ['label' => 'Team', 'url' => route('team.index'), 'icon' => 'team', 'on' => request()->routeIs('team.*')],
                     ['label' => 'Chat', 'url' => route('chat.index'), 'icon' => 'chat', 'on' => request()->routeIs('chat.*'), 'badge' => $chatUnreadCount ?? 0],
+                ],
+            ],
+            [
+                // Pictures of the department rather than tools people work in:
+                // what it sold, and who owns what. 'gap' leaves extra room
+                // beneath so the two do not run into the modules below.
+                'label' => 'Management',
+                'gap'   => true,
+                'items' => [
+                    ['label' => 'Management Dashboard', 'url' => route('orders.dashboard'), 'icon' => 'chart', 'on' => request()->routeIs('orders.*'), 'show' => $u->hasFeature('orders_dashboard')],
+                    ['label' => 'Team Chart', 'url' => route('team.index'), 'icon' => 'team', 'on' => request()->routeIs('team.*')],
                 ],
             ],
             [
@@ -349,7 +358,7 @@
                     </p>
                 @endif
 
-                <div class="space-y-0.5">
+                <div class="space-y-0.5 {{ ($group['gap'] ?? false) ? 'mb-3' : '' }}">
                     @foreach($group['items'] as $item)
                         @php
                             $kids  = $item['children'] ?? [];
