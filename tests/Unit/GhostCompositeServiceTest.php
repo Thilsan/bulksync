@@ -140,7 +140,49 @@ class GhostCompositeServiceTest extends TestCase
         $this->assertSame('redrawn', $result['verdict']);
     }
 
-    public function test_it_reports_the_geometry_it_measured(): void
+    /**
+     * The gap this was written to close: a redraw that held its shape, its
+     * position and its print, and still came back the wrong colour. Nothing
+     * before this metric existed had any way to notice.
+     */
+    public function test_it_refuses_a_redraw_that_changed_the_garments_colour(): void
+    {
+        $result = $this->service->composite($this->original(), $this->recolouredGhost());
+
+        $this->assertFalse($result['accepted']);
+        $this->assertSame('recoloured', $result['verdict']);
+        $this->assertStringContainsString('colour', $result['reason']);
+        $this->assertNotNull($result['metrics']['colour_shift']);
+        $this->assertGreaterThan(0.12, $result['metrics']['colour_shift']);
+    }
+
+    /**
+     * Not so sensitive that ordinary rendering variance between a photograph
+     * and a generative redraw of the same navy fabric reads as a colour
+     * failure — only a colour a person would actually call different.
+     */
+    public function test_it_accepts_the_ordinary_colour_variance_of_a_faithful_redraw(): void
+    {
+        $result = $this->service->composite($this->original(), $this->ghost());
+
+        $this->assertTrue($result['accepted']);
+        $this->assertNotNull($result['metrics']['colour_shift']);
+        $this->assertLessThan(0.12, $result['metrics']['colour_shift']);
+    }
+
+    /**
+     * A near-white garment has no reliably garment-coloured pixels to average
+     * on either side, so the metric declines to judge rather than guessing —
+     * the same honesty the existing chroma filter already has for this case.
+     */
+    public function test_colour_is_not_judged_when_neither_side_has_enough_of_it(): void
+    {
+        $result = $this->service->composite($this->whiteGarment(), $this->greyedGarment());
+
+        $this->assertNull($result['metrics']['colour_shift']);
+    }
+
+        public function test_it_reports_the_geometry_it_measured(): void
     {
         $result = $this->service->composite($this->original(), $this->ghost());
 
@@ -203,6 +245,24 @@ class GhostCompositeServiceTest extends TestCase
         $this->box($img, [175, 100, 225, 150], self::INNER);
 
         // The print, averaged into one colour — detail destroyed.
+        $this->box($img, [140, 210, 260, 260], [140, 160, 110]);
+
+        return $this->png($img);
+    }
+
+    /**
+     * Same box, same position, same print treatment as ghost() — only the
+     * colour differs, and by enough that a person would call it a different
+     * colour, not a different rendering of the same one. Navy [40,90,160]
+     * to burgundy [120,20,50] is roughly a third of the largest possible RGB
+     * distance, well past the 12% limit.
+     */
+    private function recolouredGhost(): string
+    {
+        $img = $this->canvas(400, 600);
+
+        $this->box($img, [100, 100, 300, 500], [120, 20, 50]);
+        $this->box($img, [175, 100, 225, 150], [90, 15, 38]);
         $this->box($img, [140, 210, 260, 260], [140, 160, 110]);
 
         return $this->png($img);

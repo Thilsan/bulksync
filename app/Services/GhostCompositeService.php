@@ -247,6 +247,27 @@ class GhostCompositeService
     private const MAX_MASK_COVERAGE = 0.35;
 
     /**
+     * How far the garment's average colour may drift between the photograph
+     * and the redraw, as a fraction of the largest possible RGB distance.
+     *
+     * Nothing measured this before now. Position, proportions and surface
+     * difference all had a check; colour had none, because the garments that
+     * exposed the other three problems all happened to keep their own colour
+     * — the failure this catches simply had not been seen yet. Found on a
+     * navy dress whose front-view redraw came back a visibly different shade
+     * from its own back view, with both readings otherwise passing every
+     * existing check.
+     *
+     * 0.12 is a starting point, not a measurement — there was no Photoroom
+     * access here to gather a set of known-good and known-bad redraws and
+     * find the line between them the way the framing presets were measured
+     * off real catalogue shots. Treat this as provisional until it has seen
+     * enough real results to be tightened or loosened with evidence instead
+     * of a guess.
+     */
+    private const MAX_COLOUR_SHIFT = 0.12;
+
+    /**
      * Composite a redraw onto its original.
      *
      * @param  string  $original  the full-size photograph, garment on the stand
@@ -538,7 +559,84 @@ class GhostCompositeService
             'garment_box'   => $oGarment,
             'aspect_shift'  => round(abs(($gAspect / max(0.0001, $oAspect)) - 1), 4),
             'containment'   => $this->containment($orig, $registered),
+            'colour_shift'  => $this->colourShift($orig, $registered, $oGarment),
         ];
+    }
+
+    /**
+     * How far the garment's own colour moved between the photograph and the
+     * redraw, as a fraction of the largest distance two colours can have.
+     *
+     * Registration already put the redraw in the original's coordinate frame,
+     * so both are read from the same box — no second alignment needed here,
+     * only the same chroma filter colouredBox() uses to keep a pale mannequin
+     * or the white background out of the average. Null when either side has
+     * too little garment-coloured pixel to trust an average from, which is
+     * the honest answer for a near-white or pastel product this metric was
+     * never going to be able to judge.
+     */
+    private function colourShift(\GdImage $orig, \GdImage $registered, array $garmentBox): ?float
+    {
+        $o = $this->averageGarmentColour($orig, $garmentBox);
+        $r = $this->averageGarmentColour($registered, $garmentBox);
+
+        if ($o === null || $r === null) {
+            return null;
+        }
+
+        $distance = sqrt(
+            ($o[0] - $r[0]) ** 2
+            + ($o[1] - $r[1]) ** 2
+            + ($o[2] - $r[2]) ** 2,
+        );
+
+        return round($distance / sqrt(3 * 255 ** 2), 4);
+    }
+
+    /**
+     * The mean RGB of a box's garment-coloured pixels, or null when fewer than
+     * thirty of them exist to average — a threshold chosen only to rule out
+     * an average built from noise, not measured against real photographs.
+     *
+     * @return array{0:float,1:float,2:float}|null
+     */
+    private function averageGarmentColour(\GdImage $img, array $box): ?array
+    {
+        [$minX, $minY, $maxX, $maxY] = $box;
+
+        $proxy = $this->proxy($img, 240);
+        $pw    = imagesx($proxy);
+        $ph    = imagesy($proxy);
+        $w     = imagesx($img);
+        $h     = imagesy($img);
+
+        $x0 = (int) floor($minX / $w * $pw);
+        $x1 = (int) ceil($maxX / $w * $pw);
+        $y0 = (int) floor($minY / $h * $ph);
+        $y1 = (int) ceil($maxY / $h * $ph);
+
+        $sumR = 0; $sumG = 0; $sumB = 0; $count = 0;
+
+        for ($y = max(0, $y0); $y <= min($ph - 1, $y1); $y++) {
+            for ($x = max(0, $x0); $x <= min($pw - 1, $x1); $x++) {
+                $rgb = imagecolorat($proxy, $x, $y);
+
+                if ($this->isBackground($rgb) || $this->chroma($rgb) < self::GARMENT_CHROMA) {
+                    continue;
+                }
+
+                $sumR += ($rgb >> 16) & 0xFF;
+                $sumG += ($rgb >> 8) & 0xFF;
+                $sumB += $rgb & 0xFF;
+                $count++;
+            }
+        }
+
+        if ($count < 30) {
+            return null;
+        }
+
+        return [$sumR / $count, $sumG / $count, $sumB / $count];
     }
 
     /**
@@ -936,6 +1034,26 @@ class GhostCompositeService
                 . 'every edge.',
                 $metrics['containment'] * 100,
                 self::MIN_CONTAINMENT * 100,
+            )];
+        }
+
+        /*
+         * Colour, before shape. It is not negotiable the way a recut garment
+         * is — nothing in this service lets an operator opt into publishing
+         * the wrong colour the way accept_recut_redraw lets them opt into a
+         * different cut, and this check does not read that setting.
+         *
+         * Skipped when there was too little garment-coloured pixel on one
+         * side to trust an average from — a near-white or pastel product,
+         * which this metric was never going to be able to judge either way.
+         */
+        if ($metrics['colour_shift'] !== null && $metrics['colour_shift'] > self::MAX_COLOUR_SHIFT) {
+            return ['recoloured', sprintf(
+                'The garment\'s own colour shifted by %.1f%% between the photograph and the redraw '
+                . '(limit %.0f%%). Whatever else matched, a customer ordering this colour should '
+                . 'receive it — the photograph was kept instead.',
+                $metrics['colour_shift'] * 100,
+                self::MAX_COLOUR_SHIFT * 100,
             )];
         }
 
