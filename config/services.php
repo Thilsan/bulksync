@@ -154,4 +154,18 @@ return [
         'timeout' => (int) env('ORDERS_API_TIMEOUT', 20),
     ],
 
+    /*
+     * Google Analytics, for the visitor and session figures Shopify does not
+     * carry. One service-account key covers every property; which property a
+     * website's traffic lives in is per-store and kept on the store itself.
+     *
+     * The key is a credential and stays on disk rather than in the database
+     * or the environment — the path is configurable so a deploy can put it
+     * wherever it keeps secrets, but it must never sit under public/.
+     */
+    'ga4' => [
+        'credentials' => env('GA4_CREDENTIALS_PATH', storage_path('app/google/analytics.json')),
+        'timeout'     => (int) env('GA4_TIMEOUT', 30),
+    ],
+
 ];

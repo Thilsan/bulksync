@@ -241,6 +241,36 @@ class OrdersDashboardTest extends TestCase
         Http::assertSentCount(1);
     }
 
+    // ── The range it opens on ────────────────────────────────────────────────
+
+    /** Every tab opens on the current month, which is the unit these are read in. */
+    public function test_the_default_range_is_this_month(): void
+    {
+        $this->fakeOk();
+
+        $this->actingAs($this->admin)->get(route('orders.dashboard'))->assertOk();
+
+        $from = now()->startOfMonth()->format('Y-m-d');
+        $to   = now()->format('Y-m-d');
+
+        Http::assertSent(fn (Request $r) => str_contains($r->url(), "from={$from}") && str_contains($r->url(), "to={$to}"));
+    }
+
+    /** The rolling 30-day preset is gone; a link still naming it falls back rather than breaking. */
+    public function test_a_link_carrying_the_retired_30_day_preset_falls_back_to_this_month(): void
+    {
+        $this->fakeOk();
+
+        $this->actingAs($this->admin)
+            ->get(route('orders.dashboard', ['preset' => '30d']))
+            ->assertOk()
+            ->assertDontSee('Last 30 days');
+
+        $from = now()->startOfMonth()->format('Y-m-d');
+
+        Http::assertSent(fn (Request $r) => str_contains($r->url(), "from={$from}"));
+    }
+
     // ── Caching ──────────────────────────────────────────────────────────────
 
     /** Reloading the identical range within the cache window shouldn't ask the endpoint twice. */

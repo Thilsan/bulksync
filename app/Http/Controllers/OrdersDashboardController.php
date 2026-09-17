@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Store;
 use App\Models\User;
+use App\Services\Ga4AnalyticsService;
 use App\Services\OrdersSummaryService;
 use App\Services\ShopifyAnalyticsService;
 use App\Support\OrdersSummary;
@@ -45,6 +46,13 @@ class OrdersDashboardController extends Controller
     private const FLOOR = '2019-01-01';
 
     /**
+     * What every tab opens on. The month is the unit these screens are read
+     * in — targets, reviews and comparisons are all monthly — so a rolling
+     * thirty days answered a question nobody was asking.
+     */
+    private const DEFAULT_PRESET = 'this_month';
+
+    /**
      * The discovered platform list, remembered between page loads.
      *
      * The endpoint echoes back the platforms it actually queried, which is the
@@ -70,17 +78,18 @@ class OrdersDashboardController extends Controller
     private const EXCLUDED_PLATFORMS = ['nespresso'];
 
     /**
-     * The three tabs on the screen. Which one is open lives in the URL, so
-     * the keys are what shared links carry and stay as they are however the
-     * labels beside them get renamed.
+     * The tabs on the screen. Which one is open lives in the URL, so the keys
+     * are what shared links carry and stay as they are however the labels
+     * beside them get renamed.
      */
     private const TABS = [
         'orders'    => 'Ecom Delivery',
         'analytics' => 'Ecom Order Analytics',
+        'sessions'  => 'Customer Sessions',
         'studio'    => 'AI Studio',
     ];
 
-    public function index(Request $request, OrdersSummaryService $orders, ShopifyAnalyticsService $analytics, #[CurrentUser] User $user): View
+    public function index(Request $request, OrdersSummaryService $orders, ShopifyAnalyticsService $analytics, Ga4AnalyticsService $sessions, #[CurrentUser] User $user): View
     {
         abort_unless($user->hasFeature('orders_dashboard'), 403);
 
@@ -106,6 +115,8 @@ class OrdersDashboardController extends Controller
                 'workspace' => WorkspaceSummary::for($user),
                 'analytics' => null,
                 'analyticsTotals' => null,
+                'sessions'        => null,
+                'sessionsTotals'  => null,
             ]);
         }
 
@@ -135,6 +146,39 @@ class OrdersDashboardController extends Controller
                 'workspace'       => null,
                 'analytics'       => $rows,
                 'analyticsTotals' => $this->analyticsTotals($rows),
+                'sessions'        => null,
+                'sessionsTotals'  => null,
+            ]);
+        }
+
+        // Google Analytics, not Shopify: the traffic half of the picture, and
+        // answered without either of the other two tabs' calls.
+        if ($tab === 'sessions') {
+            $stores = Store::accessibleBy($user)->orderBy('name')->get();
+            $rows   = $sessions->forStores($stores, $filters['from'], $filters['to']);
+
+            // Websites that reported lead, busiest first; one that cannot
+            // answer has no session count to sort by and falls to the end.
+            $rows = collect($rows)
+                ->sortByDesc(fn ($row) => $row['status'] === 'ok' ? $row['sessions'] : -1)
+                ->values()
+                ->all();
+
+            return view('orders.dashboard', [
+                'tab'             => $tab,
+                'tabs'            => self::TABS,
+                'filters'         => $filters,
+                'presets'         => $this->presets(),
+                'bases'           => OrdersSummaryService::BASES,
+                'result'          => ['ok' => true, 'status' => 100, 'message' => '', 'data' => null],
+                'summary'         => null,
+                'platforms'       => $this->platformList(null, $filters['platforms']),
+                'fallback'        => null,
+                'workspace'       => null,
+                'analytics'       => null,
+                'analyticsTotals' => null,
+                'sessions'        => $rows,
+                'sessionsTotals'  => $this->sessionsTotals($rows),
             ]);
         }
 
@@ -168,7 +212,31 @@ class OrdersDashboardController extends Controller
             'workspace' => null,
             'analytics' => null,
             'analyticsTotals' => null,
+            'sessions'        => null,
+            'sessionsTotals'  => null,
         ]);
+    }
+
+    /**
+     * The headline figures above the session cards.
+     *
+     * Only websites that answered are counted. A website with no property, or
+     * one this service account cannot read, is not a website with no
+     * visitors — leaving it out of the totals is the difference between
+     * reporting what is known and inventing a zero.
+     */
+    private function sessionsTotals(array $rows): array
+    {
+        $reporting = collect($rows)->where('status', 'ok');
+
+        return [
+            'sessions'   => (int) $reporting->sum('sessions'),
+            'users'      => (int) $reporting->sum('users'),
+            'new_users'  => (int) $reporting->sum('new_users'),
+            'page_views' => (int) $reporting->sum('page_views'),
+            'reporting'  => $reporting->count(),
+            'total'      => count($rows),
+        ];
     }
 
     /**
@@ -234,7 +302,7 @@ class OrdersDashboardController extends Controller
         // either — the same rule the main breakdown holds.
         abort_if(\in_array($platform, self::EXCLUDED_PLATFORMS, true), 404);
 
-        $from  = $this->date($request->string('from')->toString(), Carbon::today()->subDays(29));
+        $from  = $this->date($request->string('from')->toString(), Carbon::today()->startOfMonth());
         $to    = $this->date($request->string('to')->toString(), Carbon::today());
         $basis = $request->string('basis')->toString();
         $basis = \array_key_exists($basis, OrdersSummaryService::BASES) ? $basis : 'created';
@@ -275,7 +343,6 @@ class OrdersDashboardController extends Controller
         return [
             'today'      => 'Today',
             '7d'         => 'Last 7 days',
-            '30d'        => 'Last 30 days',
             'this_month' => 'This month',
             'last_month' => 'Last month',
             'this_year'  => 'This year',
@@ -295,7 +362,10 @@ class OrdersDashboardController extends Controller
     private function filters(Request $request): array
     {
         $preset = $request->string('preset')->toString();
-        $preset = \array_key_exists($preset, $this->presets()) || $preset === 'custom' ? $preset : '30d';
+        // Anything unrecognised lands on the default rather than failing the
+        // page, which also catches links bookmarked against the old rolling
+        // 30-day preset now that the month is what these screens report on.
+        $preset = \array_key_exists($preset, $this->presets()) || $preset === 'custom' ? $preset : self::DEFAULT_PRESET;
 
         [$from, $to] = $this->range($preset, $request);
 
@@ -345,10 +415,10 @@ class OrdersDashboardController extends Controller
             'this_year'  => [$today->copy()->startOfYear(), $today->copy()],
             'all'        => [Carbon::parse(self::FLOOR), $today->copy()],
             'custom'     => [
-                $this->date($request->string('from')->toString(), $today->copy()->subDays(29)),
+                $this->date($request->string('from')->toString(), $today->copy()->startOfMonth()),
                 $this->date($request->string('to')->toString(), $today),
             ],
-            default      => [$today->copy()->subDays(29), $today->copy()],
+            default      => [$today->copy()->startOfMonth(), $today->copy()],
         };
     }
 

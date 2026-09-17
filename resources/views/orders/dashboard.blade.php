@@ -32,35 +32,60 @@
 @endphp
 
 @section('content')
-<div class="space-y-5" x-data="{ busy: false }">
+<div class="space-y-5" x-data="{ busy: false, going: null }">
 
     {{-- ── Tabs ─────────────────────────────────────────────────────────────
-         Two views of the same business: what sold, and what the studio is
-         making. Plain links, so each tab is its own shareable URL. --}}
+         Views of the same business: what shipped, what sold, who visited, and
+         what the studio is making. Plain links, so each tab is its own
+         shareable URL.
+
+         A tab that has to ask Shopify or Google for a range nobody has looked
+         at yet takes seconds to answer, and a plain link gives no sign it was
+         even clicked. Marking the click busy puts the skeleton up on the page
+         being left, which is the only page there is until the next one
+         arrives. --}}
     <div class="border-b border-gray-200 flex items-center gap-1" role="tablist">
         @foreach($tabs as $key => $label)
-            {{-- Orders and Analytics share the same date range, so switching
-                 between them keeps it; Studio has its own clock and ignores it. --}}
+            {{-- Every tab but Studio shares the date range, so switching keeps
+                 it; Studio runs on its own clock and ignores it. --}}
             <a href="{{ route('orders.dashboard', $key === 'studio' ? ['tab' => $key] : array_merge(request()->query(), ['tab' => $key])) }}"
                role="tab" @if($tab === $key) aria-selected="true" @endif
-               class="px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors
+               @if($tab !== $key) @click="busy = true; going = '{{ $key }}'" @endif
+               class="px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors inline-flex items-center gap-1.5
                       {{ $tab === $key
                           ? 'border-brand-600 text-brand-700'
                           : 'border-transparent text-gray-500 hover:text-gray-800 hover:border-gray-300' }}">
                 {{ $label }}
+                <svg x-show="going === '{{ $key }}'" x-cloak class="h-3.5 w-3.5 animate-spin text-brand-600"
+                     fill="none" viewBox="0 0 24 24" aria-hidden="true">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/>
+                </svg>
             </a>
         @endforeach
     </div>
 
     @if($tab === 'studio')
         {{-- Read-only by design: management asked to see the numbers, not to
-             start work from here. The marker lets a test hold that line. --}}
-        <div data-tab="studio">
+             start work from here. The marker lets a test hold that line.
+
+             Nothing here waits on an API, but leaving for a tab that does
+             still needs to look like it is happening. --}}
+        <template x-if="busy">
+            @include('orders.loading')
+        </template>
+        <div data-tab="studio" x-show="!busy">
             @include('orders.studio', $workspace)
         </div>
     @elseif($tab === 'analytics')
-        <div data-tab="analytics">
+        {{-- space-y here, not on the partial: its filter bar and its content
+             are siblings, and without it the bar sits flush on the tiles. --}}
+        <div data-tab="analytics" class="space-y-5">
             @include('orders.analytics', ['rows' => $analytics, 'totals' => $analyticsTotals])
+        </div>
+    @elseif($tab === 'sessions')
+        <div data-tab="sessions" class="space-y-5">
+            @include('orders.sessions', ['rows' => $sessions, 'totals' => $sessionsTotals])
         </div>
     @else
 
@@ -140,14 +165,7 @@
     {{-- Skeletons while the next range is on its way. The filter bar above
          stays live, so a mis-click can be corrected without waiting. --}}
     <template x-if="busy">
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            @for($i = 0; $i < 4; $i++)
-                <div class="bg-white rounded-xl border border-gray-200 p-5 animate-pulse">
-                    <div class="h-3 w-20 bg-gray-200 rounded"></div>
-                    <div class="h-7 w-28 bg-gray-200 rounded mt-4"></div>
-                </div>
-            @endfor
-        </div>
+        @include('orders.loading')
     </template>
 
     <div x-show="!busy">

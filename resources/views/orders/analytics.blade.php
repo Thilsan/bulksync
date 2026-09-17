@@ -71,6 +71,16 @@
     </div>
 </form>
 
+{{-- Reading a range nobody has looked at yet means paging through every order
+     in it, store by store, so the wait is real. The filter bar above stays
+     live throughout: a mis-click should be correctable without waiting for the
+     answer to the wrong question. --}}
+<template x-if="busy">
+    @include('orders.loading')
+</template>
+
+<div x-show="!busy" class="space-y-5">
+
 {{-- ── Headline ─────────────────────────────────────────────────────────── --}}
 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
     @php
@@ -249,3 +259,5 @@
         </div>
     @endforelse
 </div>
+
+</div>{{-- /busy --}}
