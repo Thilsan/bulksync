@@ -6,97 +6,82 @@ use App\Jobs\EditPhotoItemJob;
 use Tests\TestCase;
 
 /**
- * Publishing a redraw that changed the garment's proportions, when the operator
- * has asked to — and only that, not any redraw that reworked the garment.
+ * Which verdicts "keep the redraw even if recut" covers at all — not whether
+ * a particular redraw actually is the same garment, which is a separate,
+ * per-photo question answered by Gemini (EditPhotoItemJob::confirmsAsSameGarment(),
+ * exercised at the job level in PhotoEditorNoRedrawTest).
  *
- * The default — refuse it and keep the photograph — is right and stays right: a
- * recut garment is a picture of a product that does not exist. But on a dress
- * form inside a floor-length skirt the redraw is refused every time, measured at
- * 41%, 35% and 32% across three runs of the same two photographs, and the
- * operator is handed back a mannequin they asked to have removed with no way
- * through. Where they have looked at that and decided, it is their catalogue.
+ * The default — refuse a changed redraw and keep the photograph — is right
+ * and stays right: a recut garment is a picture of a product that does not
+ * exist. But on a dress form inside a floor-length skirt the redraw is
+ * refused every time, measured at 41%, 35% and 32% across three runs of the
+ * same two photographs, and the operator is handed back a mannequin they
+ * asked to have removed with no way through. Where they have looked at that
+ * and decided, it is their catalogue.
  *
- * The first version of this let through anything that was not 'moved',
- * including 'redrawn' — proportions fine, but the garment's own surface
- * differing by more than a third. Measured at 87.8% on a smocked blouse: not a
- * recut, a different garment wearing the right silhouette, published because a
- * checkbox meant for one bounded trade also covered a worse failure standing
- * next to it. Only 'reshaped' is kept now.
+ * 'reshaped' and 'redrawn' are both covered, and were not always covered the
+ * same way. 'reshaped' used to also have to clear a 55% ceiling on
+ * aspect_shift before anything else was asked. The ceiling caused the exact
+ * failure it was meant to prevent: a sequin gown's front view measured 58.1%
+ * and was refused outright, its own back view measured 53.8% and was kept —
+ * four points apart on the same dress. A fixed percentage cannot tell "still
+ * the same garment" from "a different one" any better than having no check
+ * at all, so the ceiling was removed rather than tuned again, and both
+ * verdicts now rest entirely on Gemini's answer instead.
  *
- * What is not negotiable is the position. Keeping the photograph's own placement
- * and direction is the one thing the redraw prompt exists to secure, so a
- * 'moved' verdict still falls back however this is set.
+ * What is not negotiable is the position. Keeping the photograph's own
+ * placement and direction is the one thing the redraw prompt exists to
+ * secure, so a 'moved' verdict is never covered, however this is set.
  */
 class PhotoEditorRecutRedrawTest extends TestCase
 {
-    private function keeps(array $edits, string $verdict, ?float $aspectShift = 0.10): bool
+    private function wants(array $edits, string $verdict): bool
     {
-        $method = new \ReflectionMethod(EditPhotoItemJob::class, 'keepsARecutRedraw');
+        $method = new \ReflectionMethod(EditPhotoItemJob::class, 'wantsRecutKept');
         $method->setAccessible(true);
 
-        return $method->invoke(new EditPhotoItemJob(1), $edits, $verdict, $aspectShift);
+        return $method->invoke(new EditPhotoItemJob(1), $edits, $verdict);
     }
 
     /** Off unless asked for: the safe answer stays the default. */
     public function test_a_recut_redraw_is_refused_by_default(): void
     {
         foreach (['reshaped', 'redrawn', 'moved'] as $verdict) {
-            $this->assertFalse($this->keeps([], $verdict),
+            $this->assertFalse($this->wants([], $verdict),
                 "a {$verdict} redraw was published without being asked for");
         }
     }
 
     /** The case it was built for: the garment held still but came back recut. */
-    public function test_a_reshaped_redraw_is_kept_when_the_run_allows_it(): void
+    public function test_a_reshaped_redraw_is_covered_when_the_run_allows_it(): void
     {
-        $this->assertTrue($this->keeps(['accept_recut_redraw' => true], 'reshaped', 0.10));
+        $this->assertTrue($this->wants(['accept_recut_redraw' => true], 'reshaped'));
     }
 
     /**
-     * A reshape has a ceiling even with the checkbox on.
-     *
-     * The skirt this feature was built for topped out at 41%. A later batch
-     * run published 49-69% routinely, because 'reshaped' had a floor that
-     * classified it (past 7%) and no ceiling that capped it — any amount past
-     * that was accepted equally. Past 55% is most of the garment's own
-     * proportions, not a neckline's worth, and no longer the bounded trade
-     * this checkbox describes.
+     * 'redrawn' is covered too, on the same terms as 'reshaped' — the
+     * ceiling that used to separate them is gone. Whether a specific
+     * 'redrawn' photo is actually the same garment is Gemini's question, not
+     * this method's; a smocked blouse measured 87.8% different because the
+     * model had reworked its pattern outright, and that is exactly the case
+     * confirmsAsSameGarment exists to catch, not this one.
      */
-    public function test_a_reshape_past_the_ceiling_is_refused_even_when_allowed(): void
+    public function test_a_redrawn_verdict_is_covered_when_the_run_allows_it(): void
     {
-        $this->assertTrue($this->keeps(['accept_recut_redraw' => true], 'reshaped', 0.55),
-            'the ceiling itself should still be accepted');
-        $this->assertFalse($this->keeps(['accept_recut_redraw' => true], 'reshaped', 0.56),
-            'a reshape past the ceiling was published anyway');
-        $this->assertFalse($this->keeps(['accept_recut_redraw' => true], 'reshaped', 0.69),
-            'the 69%% case from the batch run was published anyway');
+        $this->assertTrue($this->wants(['accept_recut_redraw' => true], 'redrawn'));
     }
 
     /**
-     * A redrawn garment is refused even when recuts are allowed.
-     *
-     * 'redrawn' means proportions were fine but the surface itself differs by
-     * more than a third — a smocked blouse came back 87.8% different, its
-     * pattern reworked rather than reproduced. That is not the bounded "cut is
-     * slightly different" trade the checkbox describes; it is a different
-     * garment in the right silhouette, and no setting here publishes that.
-     */
-    public function test_a_redrawn_garment_is_refused_even_when_recuts_are_allowed(): void
-    {
-        $this->assertFalse($this->keeps(['accept_recut_redraw' => true], 'redrawn'),
-            'a redraw that reworked the garment\'s own surface was published anyway');
-    }
-
-    /**
-     * A moved garment is refused however this is set.
+     * A moved garment is never covered, however this is set.
      *
      * "Do not change the position or the direction" is the whole of what the
-     * redraw prompt asks for in exchange for being allowed to redraw at all, so
-     * it is not something a checkbox can waive.
+     * redraw prompt asks for in exchange for being allowed to redraw at all,
+     * so it is not something a checkbox — or a second opinion on the
+     * garment itself — can waive.
      */
-    public function test_a_moved_garment_is_refused_even_when_recuts_are_allowed(): void
+    public function test_a_moved_garment_is_never_covered(): void
     {
-        $this->assertFalse($this->keeps(['accept_recut_redraw' => true], 'moved'),
-            'a redraw that moved or tilted the garment was published anyway');
+        $this->assertFalse($this->wants(['accept_recut_redraw' => true], 'moved'),
+            'a redraw that moved or tilted the garment was covered by the checkbox');
     }
 }

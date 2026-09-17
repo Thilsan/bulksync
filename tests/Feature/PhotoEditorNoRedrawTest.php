@@ -635,17 +635,18 @@ class PhotoEditorNoRedrawTest extends TestCase
     }
 
     /**
-     * A 'reshaped' verdict inside the ceiling is still refused when Gemini
-     * cannot confirm it is the same garment.
+     * A 'reshaped' verdict is still refused when Gemini cannot confirm it is
+     * the same garment — there is no numeric ceiling to fall back on instead.
      *
      * The gap this closes: aspect_shift only measures the garment's outline.
-     * A men's jeans back view measured well inside the 55% ceiling and still
-     * came back with its leather back-pocket patch relocated to the
-     * waistband — the outline recut cleanly, the patch did not travel with
-     * it, and the ceiling alone had no way to see that. The same
-     * confirmation already required for 'redrawn' is required here too.
+     * A men's jeans back view measured well inside the reshape ceiling that
+     * used to gate this alone, and still came back with its leather
+     * back-pocket patch relocated to the waistband — the outline recut
+     * cleanly, the patch did not travel with it, and a percentage had no way
+     * to see that. The same confirmation already required for 'redrawn' is
+     * required here too, now the only check either verdict gets.
      */
-    public function test_a_reshape_inside_the_ceiling_is_still_refused_without_gemini_confirmation(): void
+    public function test_a_reshaped_redraw_is_still_refused_without_gemini_confirmation(): void
     {
         Http::fake([
             'image-api.photoroom.com/*' => Http::response($this->recutGarment(), 200),

@@ -601,11 +601,11 @@ class EditPhotoItemJob implements ShouldQueue
                         $edited      = $whole['image'];
                         $appliedMode = 'ghost_photo_kept';
                     } elseif (
-                        $this->keepsARecutRedraw($edits, $whole['verdict'], $whole['metrics']['aspect_shift'] ?? null)
+                        $this->wantsRecutKept($edits, $whole['verdict'])
                         && $this->confirmsAsSameGarment($gemini, $input, $edited)
                     ) {
                         /*
-                         * Asked for, and narrowly.
+                         * Asked for, and checked.
                          *
                          * The refusal above is the right default and stays the
                          * default: a redraw that reworked the garment is a
@@ -618,29 +618,29 @@ class EditPhotoItemJob implements ShouldQueue
                          * looked at that and decided the recut is acceptable
                          * for their catalogue, that is their call to make.
                          *
+                         * 'reshaped' and 'redrawn' both land here, on the same
+                         * question: is this actually the same garment. There
+                         * used to be a numeric ceiling on 'reshaped' instead —
+                         * 55%, chosen after a batch published 49-69% blindly —
+                         * and it caused exactly the wrong failure on a sequin
+                         * gown's own two views: 53.8% (front) kept, 58.1%
+                         * (back) refused, four points apart on the same
+                         * garment, because a ceiling cannot tell "still the
+                         * same dress" from "a different one" any better than
+                         * the floor it replaced could. Gemini can, and now
+                         * does, for both verdicts, which is why the ceiling is
+                         * gone rather than tuned again.
+                         *
                          * Only where the garment stayed put. A 'moved' verdict
                          * means the redraw shifted, tilted or resized it, and
                          * keeping the position and direction of the photograph
                          * was the one thing asked for in exchange — so that
-                         * refusal is not negotiable and still falls back.
+                         * refusal is not negotiable and still falls back,
+                         * whatever Gemini would say about the garment itself.
                          *
                          * The whole redraw is kept, not the composite: a
                          * composite of two garments that do not line up is the
                          * torn seam this was all written to avoid.
-                         *
-                         * Gated on Gemini too, not just the ceiling, since a
-                         * batch run of men's jeans showed the gap: a redraw
-                         * measured well inside the 55% ceiling on aspect_shift
-                         * alone, and still came back with its back-pocket
-                         * leather patch relocated to the waistband.
-                         * aspect_shift measures the garment's outline, not
-                         * where a single stitched-on patch sits within it, so
-                         * a silhouette that measures as a fine recut can still
-                         * be carrying a real design change the ceiling cannot
-                         * see. The same question already being asked for
-                         * 'redrawn' — is this actually the same garment — is
-                         * asked here too, rather than trusting a number that
-                         * was never measuring this.
                          */
                         /*
                          * $edited already holds the redraw — it is what came
@@ -654,81 +654,19 @@ class EditPhotoItemJob implements ShouldQueue
                         $keptRedraw  = true;
                         $appliedMode = 'ghost_redraw_kept';
                         $redrawNote  = 'The stand was removed by redrawing the garment, which you allowed for '
-                            . 'this run. ' . $whole['reason'] . ' The photograph was not used — check the '
-                            . 'print, the colour and the drape before pushing.';
-                    } elseif (
-                        $whole['verdict'] === 'redrawn'
-                        && !empty($edits['accept_recut_redraw'])
-                        && $this->confirmsAsSameGarment($gemini, $input, $edited)
-                    ) {
-                        /*
-                         * The 'redrawn' verdict measures a percentage of the
-                         * garment's surface that differs from the original —
-                         * a proxy for "the model reworked the garment" that a
-                         * smocked blouse (87.8% different, reworked pattern)
-                         * showed was real. But a heavily draped or sheer
-                         * fabric fails the same proxy for a different reason:
-                         * a ruffled chiffon dress measured 72.0% and 74.6%
-                         * different from itself on its own front and back
-                         * photographs, refused both times, because loose
-                         * fabric re-drapes by a large margin even when
-                         * faithfully redrawn. A percentage cannot tell those
-                         * two failures apart; asked to look at the actual
-                         * garment, Gemini can.
-                         *
-                         * Gated the same way as a reshape: only with the
-                         * checkbox on, and never for 'moved' — the position
-                         * guarantee is not something a second opinion can
-                         * waive either.
-                         */
-                        $keptRedraw  = true;
-                        $appliedMode = 'ghost_redraw_kept';
-                        $redrawNote  = 'The stand was removed by redrawing the garment, which you allowed for '
                             . 'this run. ' . $whole['reason'] . ' The redraw was checked against the original '
                             . 'photograph and confirmed to be the same garment, not a different one in the '
                             . 'right silhouette. The photograph was not used — check the print, the colour '
                             . 'and the drape before pushing.';
-                    } elseif (
-                        $whole['verdict'] === 'reshaped'
-                        && !empty($edits['accept_recut_redraw'])
-                        && !$this->keepsARecutRedraw($edits, $whole['verdict'], $whole['metrics']['aspect_shift'] ?? null)
-                    ) {
-                        /*
-                         * Refused by the ceiling, not by the checkbox — worth
-                         * saying differently, since the operator did tick
-                         * "keep the redraw" and the generic reason ("limit 7%")
-                         * reads as though that had no effect. This is the one
-                         * place that number is 55%, not 7%.
-                         */
-                        $redrawNote = 'The stand could not be removed without altering the garment, so the photo '
-                            . 'was kept as shot. ' . $whole['reason'] . ' That is beyond what "keep the redraw" '
-                            . 'covers here — past a certain point a recut is a different garment, not a '
-                            . 'different cut of the same one.';
-                    } elseif ($whole['verdict'] === 'reshaped' && !empty($edits['accept_recut_redraw'])) {
-                        /*
-                         * Inside the ceiling and still refused — the case the
-                         * ceiling alone cannot see. A men's jeans back view
-                         * measured well within 55% on aspect_shift and still
-                         * came back with its back-pocket patch moved to the
-                         * waistband: the outline recut cleanly, the patch did
-                         * not travel with it. Checked against the original the
-                         * same way a 'redrawn' verdict is, and refused for the
-                         * same reason when it cannot be confirmed.
-                         */
-                        $redrawNote = 'The stand could not be removed without altering the garment, so the photo '
-                            . 'was kept as shot. ' . $whole['reason'] . ' The redraw was checked against the '
-                            . 'original photograph and could not be confirmed as the same garment, so "keep '
-                            . 'the redraw" did not apply here.';
-                    } elseif ($whole['verdict'] === 'redrawn' && !empty($edits['accept_recut_redraw'])) {
+                    } elseif ($this->wantsRecutKept($edits, $whole['verdict'])) {
                         /*
                          * Checked and not confirmed — worth saying
-                         * differently from a plain refusal, for the same
-                         * reason as the ceiling message above: the operator
-                         * did tick "keep the redraw" and this is the one
-                         * place a second, garment-level opinion was actually
-                         * asked for and came back unable to say it was the
-                         * same garment (or could not be reached at all,
-                         * which is treated the same way on purpose — a
+                         * differently from a plain refusal, since the
+                         * operator did tick "keep the redraw" and this is the
+                         * one place a second, garment-level opinion was
+                         * actually asked for and came back unable to say it
+                         * was the same garment (or could not be reached at
+                         * all, which is treated the same way on purpose — a
                          * refusal it cannot explain is the safe default).
                          */
                         $redrawNote = 'The stand could not be removed without altering the garment, so the photo '
@@ -1064,87 +1002,53 @@ class EditPhotoItemJob implements ShouldQueue
      * expensive mistake.
      */
     /**
-     * May a redraw that reworked the garment be published anyway?
+     * May a redraw that changed the garment be considered for "keep the
+     * redraw" at all?
      *
-     * Off unless the operator turned it on for the run, and refused outright
-     * for a 'moved' verdict however it is set. A recut garment is a different
-     * product and that is a judgement somebody can make about their own
-     * catalogue; a moved one breaks the promise the redraw prompt exists to
-     * keep, which is that the photograph's position and direction survive.
+     * Off unless the operator turned it on for the run, and never for
+     * 'moved' — a recut garment is a different product and that is a
+     * judgement somebody can make about their own catalogue; a moved one
+     * breaks the promise the redraw prompt exists to keep, which is that the
+     * photograph's position and direction survive, and no confirmation about
+     * the garment itself can buy that back.
+     *
+     * A true answer here is necessary but not sufficient — the call site
+     * also requires confirmsAsSameGarment() before actually keeping the
+     * redraw. This method only asks "is this a verdict the checkbox covers
+     * at all"; whether this particular redraw is really the same garment is
+     * a question only Gemini answers.
+     *
+     * 'reshaped' and 'redrawn' are treated alike on purpose, which they were
+     * not always. 'reshaped' used to also have to clear a 55% ceiling on
+     * aspect_shift before Gemini was ever asked — a number chosen after a
+     * batch published 49-69% blindly, back when the checkbox had no other
+     * check behind it. The ceiling caused the failure it was built to
+     * prevent: a sequin gown's front view measured 58.1% and was refused
+     * outright, its own back view measured 53.8% and was kept, four points
+     * apart on the same dress, because a fixed percentage cannot tell "still
+     * the same garment" from "a different one" any better than the total
+     * absence of a check that came before it. Gemini can tell the difference
+     * directly, so the ceiling was removed rather than moved again — the
+     * same reasoning 'redrawn' was already built on.
      */
-    /**
-     * May a redraw that changed the garment be published anyway?
-     *
-     * Only for 'reshaped' — proportions off, everything else about the
-     * garment intact — which is what the checkbox was built for and named
-     * after: a dress form inside a floor-length skirt that always came back
-     * recut, refused every time, with the operator handed back the mannequin
-     * they had explicitly asked to have removed.
-     *
-     * A true answer from this method is necessary but not sufficient — the
-     * call site also requires confirmsAsSameGarment() before actually
-     * keeping the redraw. This method only reads aspect_shift, the
-     * garment's outline against the photograph's, and a men's jeans back
-     * view showed what that alone misses: measured well inside the 55%
-     * ceiling, and still came back with its leather back-pocket patch
-     * relocated to the waistband. The outline recut cleanly; the patch did
-     * not travel with it, and nothing here was ever going to notice that.
-     *
-     * Not this method for 'redrawn' — that verdict means proportions were
-     * fine but the garment's own surface differs by more than a third, which
-     * was measured at 87.8% on a smocked blouse the model reworked rather
-     * than reproduced, and is also measured at 70%+ on a faithfully redrawn
-     * dress in heavily draped chiffon that simply re-drapes by a large
-     * margin once nothing is holding it in a fixed pose. This method cannot
-     * tell those two apart from the percentage alone, so it does not try:
-     * see confirmsAsSameGarment(), called separately at the point 'redrawn'
-     * is handled, which asks Gemini to look at the actual garment instead of
-     * trusting the number.
-     *
-     * Not for 'moved' either, and that one is still not negotiable: keeping
-     * the photograph's position and direction is the one thing asked for in
-     * exchange for being allowed to redraw at all. No amount of confirmation
-     * that it is "the same garment" changes that a moved one broke the one
-     * promise made in exchange for running the redraw at all.
-     */
-    /**
-     * How far a reshape can go before it stops being a recut and starts being
-     * a different garment, whatever the checkbox says.
-     *
-     * The skirt this was built for topped out at 41%. A batch run afterwards
-     * routinely published 49-69% — most of the garment's proportions, not a
-     * neckline's worth — because 'reshaped' had a floor that classified it and
-     * no ceiling that capped it: once past 7%, any amount was accepted equally.
-     * 55% is a judgment call, not a measurement — held a little above the
-     * skirt's own worst case with room for a garment genuinely harder than
-     * that one, not open enough to wave through most of a batch the way 100%
-     * would.
-     */
-    private const MAX_ACCEPTABLE_RESHAPE = 0.55;
+    private function wantsRecutKept(array $edits, string $verdict): bool
+    {
+        return !empty($edits['accept_recut_redraw']) && in_array($verdict, ['reshaped', 'redrawn'], true);
+    }
 
     /**
      * How far ironing may shift the subject's own colour before the result
      * is thrown away and retried without it.
      *
-     * Not measured — there is no failing photograph behind this number the
-     * way there is behind MAX_ACCEPTABLE_RESHAPE, because ironing has no
-     * prompt to have gone wrong in a way that produced one yet. Set the same
-     * as GhostCompositeService's own colour ceiling, on the same reasoning:
-     * a judgement call at a level that would clearly read as "a different
-     * colour" to a shopper, not a measurement of where ironing itself
-     * actually tends to drift. The number to revisit once a real ironed
-     * photo is caught by it.
+     * Not measured — there is no failing photograph behind this number,
+     * because ironing has no prompt to have gone wrong in a way that
+     * produced one yet. Set the same as GhostCompositeService's own colour
+     * ceiling, on the same reasoning: a judgement call at a level that would
+     * clearly read as "a different colour" to a shopper, not a measurement
+     * of where ironing itself actually tends to drift. The number to revisit
+     * once a real ironed photo is caught by it.
      */
     private const MAX_IRONING_COLOUR_SHIFT = 0.12;
-
-    private function keepsARecutRedraw(array $edits, string $verdict, ?float $aspectShift): bool
-    {
-        if (empty($edits['accept_recut_redraw']) || $verdict !== 'reshaped') {
-            return false;
-        }
-
-        return $aspectShift === null || $aspectShift <= self::MAX_ACCEPTABLE_RESHAPE;
-    }
 
     /**
      * Ask Gemini whether a redraw being considered for "keep the redraw" is
