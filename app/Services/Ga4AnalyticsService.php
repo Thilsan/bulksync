@@ -89,9 +89,18 @@ class Ga4AnalyticsService
             // Matched on the wording Ga4Client throws, which is two files
             // away in this same codebase.
             if (str_contains($e->getMessage(), 'No Google Analytics credentials')) {
+                $path = (string) config('services.ga4.credentials');
+
                 return $base + [
                     'status'  => 'no_credentials',
-                    'message' => 'The Google Analytics key is missing on this server. Copy the service account JSON to storage/app/google/analytics.json, or point GA4_CREDENTIALS_PATH at it.',
+                    // An empty path is not a missing file: it is a config that
+                    // never loaded, which on a deployed server means a config
+                    // cache built before this setting existed. Saying "copy
+                    // the key" there sends somebody to check a file that is
+                    // already sitting exactly where they put it.
+                    'message' => $path === ''
+                        ? 'No Google Analytics key path is configured. This is usually a cached config built before the setting existed — run config:clear and config:cache on this server.'
+                        : "The Google Analytics key could not be read at {$path}. Copy the service account JSON there, check the web user can read it and traverse the folders above it, or point GA4_CREDENTIALS_PATH somewhere else.",
                 ];
             }
 

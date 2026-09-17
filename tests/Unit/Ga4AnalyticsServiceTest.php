@@ -266,6 +266,40 @@ class Ga4AnalyticsServiceTest extends TestCase
         $this->assertStringContainsString('storage/app/google', $rows[0]['message']);
     }
 
+    /**
+     * The key sat exactly where the message told somebody to put it while the
+     * app was reading a config that had no such setting in it. Naming the
+     * path actually consulted is the difference between that being obvious
+     * and being an afternoon.
+     */
+    public function test_the_missing_key_message_names_the_path_it_looked_at(): void
+    {
+        config(['services.ga4.credentials' => '/srv/releases/07/storage/app/google/analytics.json']);
+
+        $service = $this->service(
+            fn () => throw new \RuntimeException('No Google Analytics credentials at /srv/releases/07/storage/app/google/analytics.json.'),
+        );
+
+        $rows = $this->rows($service, $this->store());
+
+        $this->assertStringContainsString('/srv/releases/07/storage/app/google/analytics.json', $rows[0]['message']);
+    }
+
+    /** An empty path is a config that never loaded, not a file that is absent. */
+    public function test_an_unset_credentials_config_says_so_in_its_own_words(): void
+    {
+        config(['services.ga4.credentials' => null]);
+
+        $service = $this->service(
+            fn () => throw new \RuntimeException('No Google Analytics credentials at .'),
+        );
+
+        $rows = $this->rows($service, $this->store());
+
+        $this->assertSame('no_credentials', $rows[0]['status']);
+        $this->assertStringContainsString('config', $rows[0]['message']);
+    }
+
     public function test_any_other_failure_is_reported_without_breaking_the_page(): void
     {
         $service = $this->service(fn () => throw new \RuntimeException('connection reset'));
