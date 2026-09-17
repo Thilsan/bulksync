@@ -1784,6 +1784,38 @@ class PhotoEditorTest extends TestCase
             'the garment was left to the model to reinterpret');
     }
 
+    /**
+     * A kept Ghost Mannequin result ends up on the category's own canvas,
+     * the same as every other treatment does.
+     *
+     * Ghost Mannequin, flat lay and virtual model were all excluded from
+     * frameToStandard as "generates its own canvas" — true of all three in
+     * that Photoroom decides the composition, but only flat lay and virtual
+     * model build a scene the standard framing step was never meant for (a
+     * lifestyle background, a person). A Ghost Mannequin result is a plain
+     * product on white or transparent, exactly like a cutout, and being
+     * excluded anyway meant it came back at whatever pixel size Photoroom's
+     * own apparel_size preset happens to produce. A real jacket-and-t-shirt
+     * batch showed the cost: the redrawn front photo and the erased back
+     * photo (which does pass through this step) landing at visibly
+     * different final dimensions in the same catalogue. Framed here now,
+     * the same as a cutout would be.
+     */
+    public function test_a_kept_ghost_mannequin_result_is_framed_to_the_category_canvas(): void
+    {
+        $item = $this->runCleanupItem(
+            PhotoroomService::applyFramingPreset(['framing_preset' => 'women/top'], 'women/top'),
+            ['view_type' => 'front', 'mannequin_visible' => true],
+        );
+
+        $this->assertSame('ghost_photo_kept', $item->apparel_mode_applied, (string) $item->error_message);
+
+        $result = file_get_contents(storage_path('app/' . $item->fresh()->edited_path));
+
+        $this->assertSame([2000, 2000], array_slice(getimagesizefromstring($result), 0, 2),
+            'a kept redraw was left at Photoroom\'s own size instead of the category\'s canvas');
+    }
+
 
     /** AVIF holds alpha, so a cutout asked for as AVIF stays AVIF. */
     public function test_avif_is_offered_and_survives_a_transparent_cutout(): void
