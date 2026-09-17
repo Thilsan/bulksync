@@ -255,13 +255,14 @@ class PhotoEditorNoRedrawTest extends TestCase
         ?string $supportType = 'held',
         int $photoWidth = 0,
         int $photoHeight = 0,
+        ?string $viewType = null,
     ): array {
         $method = new \ReflectionMethod(EditPhotoItemJob::class, 'chooseApparelRoute');
         $method->setAccessible(true);
 
         return $method->invoke(
             new EditPhotoItemJob(1), $edits, $mannequinVisible, $seen, $support, $supportType,
-            $photoWidth, $photoHeight,
+            $photoWidth, $photoHeight, $viewType,
         );
     }
 
@@ -424,6 +425,70 @@ class PhotoEditorNoRedrawTest extends TestCase
 
         $this->assertSame('ghost_mannequin', $mode,
             'a garment on a dress form was sent to a cutout that cannot remove one');
+    }
+
+    /**
+     * A back view on a dress form does not go to Ghost Mannequin at all.
+     *
+     * Photoroom's own documented limit on the feature: it only reconstructs
+     * front views. Nothing here had ever acted on that, and a sequin gown's
+     * back view — straps crossing behind a bare back, the mannequin's torso
+     * visible between them — went to Ghost Mannequin anyway and came back a
+     * front view of the same dress: a V-neck and thin straps over the chest,
+     * a garment invented from scratch rather than the back that was actually
+     * photographed with a stand lifted out of it. Routed to the erase pass
+     * instead, which inpaints only the stand and leaves the photographed
+     * view alone.
+     */
+    public function test_a_back_view_on_a_dress_form_is_erased_not_redrawn(): void
+    {
+        [$mode] = $this->route(
+            ['framing_preset' => 'women/top', 'ghost_mannequin' => true],
+            true,
+            'the dress',
+            'the mannequin',
+            'worn',
+            0,
+            0,
+            'back',
+        );
+
+        $this->assertSame('needs_erase', $mode,
+            'a back view was sent to the front-view-only redraw anyway');
+    }
+
+    /** A side view gets the same treatment as a back view, for the same reason. */
+    public function test_a_side_view_on_a_dress_form_is_erased_not_redrawn(): void
+    {
+        [$mode] = $this->route(
+            ['framing_preset' => 'women/top', 'ghost_mannequin' => true],
+            true,
+            'the dress',
+            'the mannequin',
+            'worn',
+            0,
+            0,
+            'side',
+        );
+
+        $this->assertSame('needs_erase', $mode);
+    }
+
+    /** A front view — or a view nothing was told about — still gets the redraw. */
+    public function test_a_front_view_on_a_dress_form_still_goes_to_the_redraw(): void
+    {
+        [$frontMode] = $this->route(
+            ['framing_preset' => 'women/top', 'ghost_mannequin' => true],
+            true, 'the dress', 'the mannequin', 'worn', 0, 0, 'front',
+        );
+        [$unknownMode] = $this->route(
+            ['framing_preset' => 'women/top', 'ghost_mannequin' => true],
+            true, 'the dress', 'the mannequin', 'worn', 0, 0, null,
+        );
+
+        $this->assertSame('ghost_mannequin', $frontMode);
+        $this->assertSame('ghost_mannequin', $unknownMode,
+            'an unclassified view should default to the redraw, as it always has');
     }
 
     /**

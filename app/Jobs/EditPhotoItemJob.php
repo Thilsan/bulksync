@@ -217,6 +217,7 @@ class EditPhotoItemJob implements ShouldQueue
                         $classification['support_type'] ?? null,
                         (int) ($rawInfo[0] ?? 0),
                         (int) ($rawInfo[1] ?? 0),
+                        $classification['view_type'] ?? null,
                     );
 
                     /*
@@ -1117,6 +1118,7 @@ class EditPhotoItemJob implements ShouldQueue
         ?string $supportType = null,
         int $photoWidth = 0,
         int $photoHeight = 0,
+        ?string $viewType = null,
     ): array {
         $itemEdits   = $edits;
         $named       = filled($edits['segmentation_prompt'] ?? null);
@@ -1238,7 +1240,7 @@ class EditPhotoItemJob implements ShouldQueue
             return ['cutout_unnamed', $itemEdits];
         }
 
-        if ($wantsRedraw && $standVisible && !$named) {
+        if ($wantsRedraw && $standVisible && !$named && $viewType !== 'back' && $viewType !== 'side') {
             /*
              * Photoroom's own Ghost Mannequin, for a category nobody has given a
              * word to. This used to be switched off here and replaced with a
@@ -1251,6 +1253,21 @@ class EditPhotoItemJob implements ShouldQueue
              * Ghost Mannequin reproduced the horseshoes. One is apparel-aware;
              * the other is a general image editor being asked to understand a
              * garment.
+             *
+             * Restricted to a front view (or a view nothing was told about) for
+             * a reason documented against this feature since before this
+             * branch existed: "Ghost Mannequin only reconstructs front views,
+             * so it can't help a back or side shot where the stand is left
+             * visible" — see MANNEQUIN_REMOVAL_PROMPT's own docblock in
+             * PhotoroomService. Nothing here had ever acted on that. A sequin
+             * gown's back view — straps crossing behind a bare back, the
+             * mannequin's torso visible between them — went to Ghost Mannequin
+             * anyway and came back a front view of the same dress: a V-neck
+             * and thin straps over the chest, a garment reconstructed from
+             * scratch rather than a photograph with a stand lifted out of it.
+             * A back or side view now falls through to the erase pass instead
+             * (below, 'needs_erase'), which inpaints only the stand and leaves
+             * every other pixel — and the view actually photographed — alone.
              *
              * The size is named rather than left open, because Photoroom's app
              * exposes quality tiers that turn out to be resolutions — 1024,
