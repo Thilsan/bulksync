@@ -9,11 +9,11 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
 /**
- * The Customer Sessions tab: visitors and sessions per website, from Google
+ * The Visitor Sessions tab: visitors and sessions per website, from Google
  * Analytics. Ga4AnalyticsService is swapped for a fake in the container, so
  * nothing here reaches Google.
  */
-class CustomerSessionsTabTest extends TestCase
+class VisitorSessionsTabTest extends TestCase
 {
     use RefreshDatabase;
 
@@ -63,7 +63,7 @@ class CustomerSessionsTabTest extends TestCase
 
         $response->assertOk();
         $response->assertSee('data-tab="sessions"', false);
-        $response->assertSee('Customer Sessions');
+        $response->assertSee('Visitor Sessions');
         $response->assertSee('Blue Salon');
         $response->assertSee('1,000');          // sessions
         $response->assertSee('900');            // visitors
@@ -113,6 +113,33 @@ class CustomerSessionsTabTest extends TestCase
         $response->assertDontSee("going = 'sessions'", false);
         // ...and the skeleton is on the page ready to take over.
         $response->assertSee('aria-busy="true"', false);
+    }
+
+    /**
+     * The same ten storefronts named on the analytics tab are named here, for
+     * the same reason: a site somebody knows about being absent altogether
+     * reads as a broken page rather than as work still to do.
+     */
+    public function test_the_websites_still_being_integrated_are_named_below_the_cards(): void
+    {
+        Store::create(['name' => 'Gold Gourmet', 'shopify_domain' => 'gg.myshopify.com']);
+
+        $response = $this->actingAs($this->admin)
+            ->get('/management-dashboard?tab=sessions')
+            ->assertOk()
+            ->assertSee('Integration in progress');
+
+        foreach ([
+            'billjumla.com', 'thefaceshopqatar.com', 'karisma-cosmetics.com', 'faltafalta.com',
+            'colehaan.qa', 'outoftheblue.qa', 'goldgourmet.qa', 'oryx-tec.com',
+            'shoptriumph.qa', 'replayjeans.qa',
+        ] as $domain) {
+            $response->assertSee($domain);
+        }
+
+        // Named, not counted: these have reported nothing, and folding them
+        // into the coverage line would read as ten websites with no visitors.
+        $response->assertSee('0 of 1 websites reporting');
     }
 
     /**

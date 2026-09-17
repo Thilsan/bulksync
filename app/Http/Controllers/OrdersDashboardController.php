@@ -78,6 +78,39 @@ class OrdersDashboardController extends Controller
     private const EXCLUDED_PLATFORMS = ['nespresso'];
 
     /**
+     * Storefronts being wired up to the analytics and sessions tabs, named on
+     * both while they are on the way.
+     *
+     * They have no Shopify token and no analytics property, so there is
+     * nothing honest to put in a card for them — but leaving them off
+     * altogether reads as "not part of this business", and anyone who knows
+     * one of these sites exists is left wondering whether the page is broken.
+     * Naming them says the list is complete and these are known.
+     *
+     * Domains rather than store names, because most of these have no Store
+     * row at all yet and the domain is the only identifier that means
+     * anything. goldgourmet.qa is the exception: it has a store above showing
+     * as not connected, which is the same fact from the other side rather
+     * than a duplicate, and it was on the list as given.
+     *
+     * A site that gets connected gains a real card above and should come off
+     * this list — nothing removes it automatically, because nothing here
+     * knows which store row a bare domain was meant to become.
+     */
+    private const INTEGRATING = [
+        'billjumla.com',
+        'thefaceshopqatar.com',
+        'karisma-cosmetics.com',
+        'faltafalta.com',
+        'colehaan.qa',
+        'outoftheblue.qa',
+        'goldgourmet.qa',
+        'oryx-tec.com',
+        'shoptriumph.qa',
+        'replayjeans.qa',
+    ];
+
+    /**
      * The tabs on the screen. Which one is open lives in the URL, so the keys
      * are what shared links carry and stay as they are however the labels
      * beside them get renamed.
@@ -85,7 +118,7 @@ class OrdersDashboardController extends Controller
     private const TABS = [
         'orders'    => 'Ecom Delivery',
         'analytics' => 'Ecom Order Analytics',
-        'sessions'  => 'Customer Sessions',
+        'sessions'  => 'Visitor Sessions',
         'studio'    => 'AI Studio',
     ];
 
@@ -117,6 +150,7 @@ class OrdersDashboardController extends Controller
                 'analyticsTotals' => null,
                 'sessions'        => null,
                 'sessionsTotals'  => null,
+                'integrating'     => self::INTEGRATING,
             ]);
         }
 
@@ -148,6 +182,7 @@ class OrdersDashboardController extends Controller
                 'analyticsTotals' => $this->analyticsTotals($rows),
                 'sessions'        => null,
                 'sessionsTotals'  => null,
+                'integrating'     => self::INTEGRATING,
             ]);
         }
 
@@ -179,6 +214,7 @@ class OrdersDashboardController extends Controller
                 'analyticsTotals' => null,
                 'sessions'        => $rows,
                 'sessionsTotals'  => $this->sessionsTotals($rows),
+                'integrating'     => self::INTEGRATING,
             ]);
         }
 
@@ -214,6 +250,7 @@ class OrdersDashboardController extends Controller
             'analyticsTotals' => null,
             'sessions'        => null,
             'sessionsTotals'  => null,
+            'integrating'     => self::INTEGRATING,
         ]);
     }
 

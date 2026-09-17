@@ -96,6 +96,50 @@ class OrdersDashboardAnalyticsTest extends TestCase
         $response->assertSee('Not connected');
     }
 
+    /**
+     * Ten more storefronts are being wired up. Naming them says the list is
+     * complete — without it, somebody who knows one of these sites exists is
+     * left wondering whether the tab is broken or the site is not ours.
+     */
+    public function test_the_websites_still_being_integrated_are_named_below_the_cards(): void
+    {
+        Store::create(['name' => 'No Token Shop', 'shopify_domain' => 'notoken.myshopify.com']);
+
+        $response = $this->actingAs($this->admin)
+            ->get('/management-dashboard?tab=analytics')
+            ->assertOk()
+            ->assertSee('Integration in progress');
+
+        foreach ($this->integrating() as $domain) {
+            $response->assertSee($domain);
+        }
+    }
+
+    /**
+     * Named, but not counted. A website that is not connected has reported
+     * nothing, and rolling these into the coverage tile would turn "ten sites
+     * we have not wired up" into "ten sites that sold nothing".
+     */
+    public function test_a_website_being_integrated_is_not_counted_among_those_reporting(): void
+    {
+        Store::create(['name' => 'No Token Shop', 'shopify_domain' => 'notoken.myshopify.com']);
+
+        $this->actingAs($this->admin)
+            ->get('/management-dashboard?tab=analytics')
+            ->assertOk()
+            ->assertSee('0 of 1');
+    }
+
+    /** The domains, as the business gave them. */
+    private function integrating(): array
+    {
+        return [
+            'billjumla.com', 'thefaceshopqatar.com', 'karisma-cosmetics.com', 'faltafalta.com',
+            'colehaan.qa', 'outoftheblue.qa', 'goldgourmet.qa', 'oryx-tec.com',
+            'shoptriumph.qa', 'replayjeans.qa',
+        ];
+    }
+
     public function test_shows_the_sales_channel_breakdown_for_a_connected_store(): void
     {
         Store::create([
