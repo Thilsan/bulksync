@@ -1164,15 +1164,18 @@ class EditPhotoItemJob implements ShouldQueue
          * was reported, a mannequin returned still wearing the poncho after
          * the background came away cleanly.
          *
-         * A generative pass can still remove one without cutting anything —
-         * inpainting fills in the small gap the form leaves rather than
-         * needing pixels that were never photographed. This used to say only
-         * a redraw could do it, which sent every worn dress form to Ghost
-         * Mannequin's full regeneration whether it needed one or not, and a
-         * front view of a sequin gown showed the cost of that: a real, fitted
-         * silhouette recut 56.6% into a generic loose slip shape. See the
-         * needs_erase branch further down, which is what a worn dress form
-         * gets instead now, on every view.
+         * A generative pass can remove one without cutting anything — either
+         * one. The erase pass inpaints the small gap the form leaves rather
+         * than needing pixels that were never photographed, which is gentler
+         * on the garment's true cut than a full redraw; Ghost Mannequin
+         * redraws the whole picture and can misjudge that cut in the
+         * process, but does not depend on the gap being small enough to
+         * inpaint plausibly, and can finish the job where an erase leaves a
+         * piece of the form visible instead. Both are real failure modes,
+         * on different photos, and the checkbox is what decides which one
+         * the operator is willing to risk on a given run — see the
+         * ghost_mannequin branch below for which view still refuses the
+         * redraw regardless of the checkbox, and why.
          *
          * So the guess is offered where it can succeed and withheld where it
          * cannot. An unknown support falls through to the redraw, because the
@@ -1250,7 +1253,7 @@ class EditPhotoItemJob implements ShouldQueue
             return ['cutout_unnamed', $itemEdits];
         }
 
-        if ($wantsRedraw && $standVisible && !$named && $supportType !== 'worn' && $viewType !== 'back' && $viewType !== 'side') {
+        if ($wantsRedraw && $standVisible && !$named && $viewType !== 'back' && $viewType !== 'side') {
             /*
              * Photoroom's own Ghost Mannequin, for a category nobody has given a
              * word to. This used to be switched off here and replaced with a
@@ -1264,32 +1267,32 @@ class EditPhotoItemJob implements ShouldQueue
              * the other is a general image editor being asked to understand a
              * garment.
              *
-             * Kept for a hanger or rail with nothing to name the product by
-             * (the case this branch was written for) and dropped entirely for
-             * a dress form, whatever the view. Restricting it to a front view
-             * only was the first fix, for the reason documented against this
-             * feature since before this branch existed: "Ghost Mannequin only
-             * reconstructs front views, so it can't help a back or side shot
-             * where the stand is left visible" — see MANNEQUIN_REMOVAL_PROMPT's
-             * own docblock in PhotoroomService. That closed back and side
-             * views, and then a front view on the same dress form showed the
-             * fix had not gone far enough: a sequin gown's own front photo,
-             * fitted through the body and following the mannequin's real
-             * curves, came back redrawn 56.6% recut into a generic loose slip
-             * shape — the same silhouette the untouched back view already had.
-             * Ghost Mannequin was not lifting the stand off the front
-             * photograph, it was re-imagining the dress into whatever a
-             * "sequin slip dress" generically looks like, discarding the
-             * actual cut in the process. The erase pass does not do this on
-             * any view, worn or not, because it does not redraw the garment
-             * at all — it inpaints only the stand and leaves the true shape,
-             * front or back, exactly as photographed.
+             * Ticking "Remove the stand (Ghost Mannequin)" asks for this route
+             * by name, and this is the one place that request is honoured
+             * unconditionally for a worn dress form as well as a hanger. It
+             * was briefly narrowed to hangers only, on the grounds that the
+             * erase pass cannot recut a garment because it does not redraw
+             * one at all — true, but the same erase pass also cannot remove a
+             * dress form that shows through a gap the inpainting cannot
+             * plausibly fill, which is exactly the failure it was reported
+             * doing on a worn dress form: a visible piece of the form left in
+             * the photo the operator had explicitly asked to have it removed
+             * from. Between a redraw that can misjudge the cut and an erase
+             * that can leave the stand half in shot, the operator gets to
+             * choose which risk to take on their own catalogue by ticking the
+             * one checkbox that says so — this route does not choose for them
+             * a second time underneath it.
              *
-             * Held supports still redraw, because a hanger is not inside the
-             * garment: erasing one leaves nothing behind to invent, so there
-             * is no equivalent failure to guard against, and Ghost Mannequin
-             * reproduces a licensed print (the horseshoe monogram above)
-             * better than the general erase pass does.
+             * Still excluded: a back or side view, which is not a quality
+             * tradeoff to weigh but a hard capability limit — "Ghost Mannequin
+             * only reconstructs front views, so it can't help a back or side
+             * shot where the stand is left visible" (see
+             * MANNEQUIN_REMOVAL_PROMPT's own docblock in PhotoroomService).
+             * Sent anyway, a sequin gown's back view came back as a front
+             * view of the same dress, not a worse redraw of the right one —
+             * there is no operator preference that makes that useful, so it
+             * still falls through to the erase pass below regardless of the
+             * checkbox.
              *
              * The size is named rather than left open, because Photoroom's app
              * exposes quality tiers that turn out to be resolutions — 1024,

@@ -412,17 +412,19 @@ class PhotoEditorNoRedrawTest extends TestCase
      * the poncho after the background came away cleanly, which is what was
      * reported.
      *
-     * The operator asked for the stand to go, and the erase pass can do that
-     * without cutting anything: it inpaints the small gap the form leaves
-     * rather than needing pixels the photograph never had. This used to go
-     * to Ghost Mannequin's full redraw instead, on every view, until a front
-     * view of a sequin gown showed the cost of that route when it was not
-     * needed: a real, fitted silhouette recut 56.6% into a generic loose slip
-     * shape — the redraw had not lifted the stand off the photograph, it had
-     * re-imagined the dress. A worn dress form goes to the erase pass now,
-     * whatever view it is.
+     * Ticking "Remove the stand (Ghost Mannequin)" still reaches the redraw
+     * for a worn dress form on a front view, exactly as it always has. This
+     * was briefly narrowed to hangers only, on the discovery that the redraw
+     * can recut a real, fitted silhouette into a generic shape — a sequin
+     * gown's front photo came back 56.6% recut. But the erase pass has its
+     * own failure the redraw does not: reported on a different worn dress
+     * form, a visible piece of the form left in shot because the gap it
+     * showed through was too large to inpaint plausibly. Between a redraw
+     * that can misjudge the cut and an erase that can leave the stand half
+     * in shot, the checkbox is what the operator ticks to say which risk
+     * they are choosing for this run.
      */
-    public function test_a_worn_dress_form_goes_to_the_erase_pass_not_a_cutout_or_a_redraw(): void
+    public function test_a_worn_dress_form_goes_to_the_redraw_rather_than_a_cutout(): void
     {
         [$mode] = $this->route(
             ['framing_preset' => 'women/top', 'ghost_mannequin' => true],
@@ -432,68 +434,57 @@ class PhotoEditorNoRedrawTest extends TestCase
             'worn',
         );
 
-        $this->assertSame('needs_erase', $mode,
-            'a garment on a dress form was sent to a cutout, or a redraw, that either cannot remove one '
-            . 'or recuts it doing so');
+        $this->assertSame('ghost_mannequin', $mode,
+            'a garment on a dress form was sent to a cutout that cannot remove one');
     }
 
     /**
-     * Every view of a worn dress form gets the same treatment, including a
-     * front view — the one case Ghost Mannequin was actually built for. It
-     * still is not offered here: the erase pass reproduces the true cut, and
-     * Ghost Mannequin does not, so there is nothing a front view gains from
-     * the redraw that the erase pass does not already give it without the
-     * recut risk.
+     * A back or side view still refuses the redraw regardless of the
+     * checkbox — not a risk the operator can choose to take, because it is
+     * not a quality tradeoff. Photoroom's Ghost Mannequin only reconstructs
+     * front views at all; sent a back view, it does not produce a worse
+     * redraw of the right garment, it produces a confident front view of the
+     * wrong one. A sequin gown's back view came back a front view of the
+     * same dress. There is no operator preference that makes that useful, on
+     * a worn dress form or a held one, so both fall through to the erase
+     * pass here instead.
      */
-    public function test_every_view_of_a_worn_dress_form_is_erased_not_redrawn(): void
+    public function test_a_back_or_side_view_is_erased_not_redrawn_whatever_the_support(): void
     {
-        foreach (['front', 'back', 'side', null] as $viewType) {
-            [$mode] = $this->route(
-                ['framing_preset' => 'women/top', 'ghost_mannequin' => true],
-                true, 'the dress', 'the mannequin', 'worn', 0, 0, $viewType,
-            );
+        foreach (['worn', 'held', null] as $supportType) {
+            foreach (['back', 'side'] as $viewType) {
+                [$mode] = $this->route(
+                    ['framing_preset' => 'women/gown-unlisted', 'ghost_mannequin' => true],
+                    true, null, 'the mannequin', $supportType, 0, 0, $viewType,
+                );
 
-            $this->assertSame('needs_erase', $mode,
-                ($viewType ?? 'unclassified') . ' view of a worn dress form went to the redraw anyway');
+                $this->assertSame(
+                    'needs_erase',
+                    $mode,
+                    "{$viewType} view with support '" . ($supportType ?? 'unknown') . "' went to the redraw anyway",
+                );
+            }
         }
     }
 
-    /**
-     * A held support — a hanger, nothing to name the product by — still gets
-     * the redraw on a front view. This is the case Ghost Mannequin was kept
-     * for: there is no dress form inside the garment to inpaint around, so
-     * there is no equivalent recut risk to guard against, and the redraw
-     * reproduces a licensed print better than the general erase pass does.
-     *
-     * Restricted to front (or unclassified) all the same, since the
-     * front-view-only limitation is Photoroom's, not a property of what is
-     * holding the garment up.
-     */
-    public function test_a_held_support_still_gets_the_redraw_on_a_front_view(): void
+    /** A front view — or a view nothing was told about — still gets the redraw, worn or held. */
+    public function test_a_front_or_unclassified_view_still_gets_the_redraw(): void
     {
-        [$frontMode] = $this->route(
-            ['framing_preset' => 'women/gown-unlisted', 'ghost_mannequin' => true],
-            true, null, 'the hanger', 'held', 0, 0, 'front',
-        );
-        [$unknownMode] = $this->route(
-            ['framing_preset' => 'women/gown-unlisted', 'ghost_mannequin' => true],
-            true, null, 'the hanger', 'held', 0, 0, null,
-        );
+        foreach (['worn', 'held', null] as $supportType) {
+            foreach (['front', null] as $viewType) {
+                [$mode] = $this->route(
+                    ['framing_preset' => 'women/gown-unlisted', 'ghost_mannequin' => true],
+                    true, null, 'the mannequin', $supportType, 0, 0, $viewType,
+                );
 
-        $this->assertSame('ghost_mannequin', $frontMode);
-        $this->assertSame('ghost_mannequin', $unknownMode,
-            'an unclassified view should default to the redraw, as it always has');
-    }
-
-    /** And a back view of a held support still avoids the front-view-only redraw. */
-    public function test_a_held_support_is_erased_not_redrawn_on_a_back_view(): void
-    {
-        [$mode] = $this->route(
-            ['framing_preset' => 'women/gown-unlisted', 'ghost_mannequin' => true],
-            true, null, 'the hanger', 'held', 0, 0, 'back',
-        );
-
-        $this->assertSame('needs_erase', $mode);
+                $this->assertSame(
+                    'ghost_mannequin',
+                    $mode,
+                    ($viewType ?? 'unclassified') . " view with support '" . ($supportType ?? 'unknown')
+                        . "' did not reach the redraw",
+                );
+            }
+        }
     }
 
     /**
