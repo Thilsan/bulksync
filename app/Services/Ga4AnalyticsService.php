@@ -7,6 +7,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 /**
  * One row of visitor and session figures per website, from Google Analytics.
@@ -114,7 +115,14 @@ class Ga4AnalyticsService
                 ];
             }
 
-            return $base + ['status' => 'unavailable', 'message' => 'Google Analytics could not be reached.'];
+            // Blocked egress, a clock too far out for Google to accept the
+            // signed request, and a rejected query all land here and read
+            // identically without it. Trimmed, because a Guzzle failure runs
+            // to paragraphs and this is a line on a card.
+            return $base + [
+                'status'  => 'unavailable',
+                'message' => 'Google Analytics could not be reached: ' . Str::limit($e->getMessage(), 240),
+            ];
         }
 
         return $base + $data + ['status' => 'ok'];

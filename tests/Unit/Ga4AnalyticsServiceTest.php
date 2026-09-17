@@ -309,6 +309,34 @@ class Ga4AnalyticsServiceTest extends TestCase
         $this->assertSame('unavailable', $rows[0]['status']);
     }
 
+    /**
+     * "Could not be reached" covers a blocked firewall, a clock too far out
+     * for Google to accept the signed request, and a rejected query alike.
+     * Carrying the reason through is the difference between reading the
+     * screen and reading the logs.
+     */
+    public function test_an_unreachable_google_carries_its_reason_to_the_screen(): void
+    {
+        $service = $this->service(
+            fn () => throw new \RuntimeException('cURL error 6: Could not resolve host: oauth2.googleapis.com'),
+        );
+
+        $rows = $this->rows($service, $this->store());
+
+        $this->assertSame('unavailable', $rows[0]['status']);
+        $this->assertStringContainsString('Could not resolve host', $rows[0]['message']);
+    }
+
+    /** A wall of Guzzle output does not belong on a dashboard card. */
+    public function test_a_long_failure_is_trimmed_rather_than_printed_whole(): void
+    {
+        $service = $this->service(fn () => throw new \RuntimeException(str_repeat('a very long failure. ', 100)));
+
+        $rows = $this->rows($service, $this->store());
+
+        $this->assertLessThan(320, strlen($rows[0]['message']));
+    }
+
     public function test_a_second_look_at_the_same_range_does_not_ask_again(): void
     {
         $counter = new class { public int $calls = 0; };
