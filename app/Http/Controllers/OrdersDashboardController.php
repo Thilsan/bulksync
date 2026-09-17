@@ -479,8 +479,6 @@ class OrdersDashboardController extends Controller
         $byStatus = $data['by_status'] ?? [];
         $before   = $previous['totals'] ?? null;
 
-        $net = OrdersSummary::netRevenue($byStatus);
-
         // Excluded platforms never had their own row here, so nothing past
         // this point — the breakdown, its chart and the quiet-platforms line
         // below it — has to know they exist. The totals above are the one
@@ -495,25 +493,15 @@ class OrdersDashboardController extends Controller
         return [
             'totals'   => $totals,
             'filters'  => $data['filters'] ?? [],
-            'quality'  => $data['data_quality'] ?? [],
             'currency' => $totals['currency'] ?? 'QAR',
             'empty'    => (int) ($totals['total_orders'] ?? 0) === 0,
 
-            'net'        => $net,
-            'lost'       => OrdersSummary::lostOrders($byStatus),
-            'lost_value' => (float) ($totals['total_revenue'] ?? 0) - $net,
-
+            // Only the order count is compared against the preceding period.
+            // This tab is about where parcels are, and the revenue, average
+            // order value and net figures it used to carry live on the Ecom
+            // Order Analytics tab instead.
             'deltas' => [
-                'orders'  => OrdersSummary::delta((float) ($totals['total_orders'] ?? 0), $before ? (float) ($before['total_orders'] ?? 0) : null),
-                'revenue' => OrdersSummary::delta((float) ($totals['total_revenue'] ?? 0), $before ? (float) ($before['total_revenue'] ?? 0) : null),
-
-                // An empty range reports a null average rather than zero, and
-                // a change measured against null is not a change.
-                'aov'     => OrdersSummary::delta(
-                    ($totals['average_order_value'] ?? null) !== null ? (float) $totals['average_order_value'] : null,
-                    ($before['average_order_value'] ?? null) !== null ? (float) $before['average_order_value'] : null,
-                ),
-                'net'     => OrdersSummary::delta($net, $previous ? OrdersSummary::netRevenue($previous['by_status'] ?? []) : null),
+                'orders' => OrdersSummary::delta((float) ($totals['total_orders'] ?? 0), $before ? (float) ($before['total_orders'] ?? 0) : null),
             ],
             'previous' => $before,
 
@@ -529,8 +517,9 @@ class OrdersDashboardController extends Controller
             'platform_bars' => OrdersSummary::topN($byPlatform, 'platform'),
             'dormant'       => OrdersSummary::dormant($byPlatform, $queried),
 
-            'outcomes' => OrdersSummary::outcomes($byStatus),
-            'statuses' => $byStatus,
+            'outcomes'       => OrdersSummary::outcomes($byStatus),
+            'outcome_counts' => OrdersSummary::outcomeCounts($byStatus),
+            'statuses'       => $byStatus,
             'payments' => OrdersSummary::payments($data['by_payment_method'] ?? []),
             'types'    => $data['by_order_type'] ?? [],
             'sources'  => OrdersSummary::sources($data['by_source'] ?? []),

@@ -105,22 +105,48 @@ class OrdersSummaryTest extends TestCase
         $this->assertCount(9, OrdersSummary::topN($rows, 'platform'));
     }
 
-    public function test_net_revenue_drops_only_the_lost_statuses(): void
+    /**
+     * The three words the business uses for where an order is.
+     *
+     * A parcel returned to the delivery hub is still in play — it can go out
+     * again — so it belongs with the orders still moving rather than beside a
+     * cancellation. Cancelled and failed both mean the same thing to the
+     * person reading the screen, and are shown as one.
+     */
+    public function test_orders_group_into_completed_processing_and_cancelled(): void
     {
         $statuses = [
             ['status' => 'FullFilled', 'status_id' => 10, 'orders' => 100, 'revenue' => 1000.0],
+            ['status' => 'Processing', 'status_id' => 1,  'orders' => 20,  'revenue' => 200.0],
+            ['status' => 'Returned to Delivery Hub & Hold', 'status_id' => 12, 'orders' => 7, 'revenue' => 70.0],
             ['status' => 'Cancelled',  'status_id' => 6,  'orders' => 10,  'revenue' => 100.0],
             ['status' => 'Failed',     'status_id' => 17, 'orders' => 5,   'revenue' => 50.0],
             ['status' => 'Unknown',    'status_id' => null, 'orders' => 2, 'revenue' => 20.0],
         ];
 
-        $this->assertSame(1020.0, OrdersSummary::netRevenue($statuses));
-        $this->assertSame(15, OrdersSummary::lostOrders($statuses));
+        $this->assertSame(
+            ['completed' => 100, 'processing' => 27, 'cancelled' => 15],
+            OrdersSummary::outcomeCounts($statuses),
+        );
 
-        // An unmapped status is not silently counted as lost, and not dropped.
+        // An unmapped status is not silently counted as cancelled, and not dropped.
         $outcomes = OrdersSummary::outcomes($statuses);
-        $this->assertSame(117, array_sum(array_column($outcomes, 'orders')));
+        $this->assertSame(144, array_sum(array_column($outcomes, 'orders')));
         $this->assertContains('Unclassified', array_column($outcomes, 'label'));
+        $this->assertNotContains('Lost', array_column($outcomes, 'label'));
+    }
+
+    /**
+     * A tile that vanishes reads as "no such thing". Nothing cancelled all
+     * month is a fact worth printing, so every bucket answers even at zero.
+     */
+    public function test_a_bucket_nobody_is_in_still_reports_zero(): void
+    {
+        $counts = OrdersSummary::outcomeCounts([
+            ['status' => 'FullFilled', 'status_id' => 10, 'orders' => 3, 'revenue' => 30.0],
+        ]);
+
+        $this->assertSame(['completed' => 3, 'processing' => 0, 'cancelled' => 0], $counts);
     }
 
     public function test_the_series_is_filled_out_to_the_full_range(): void

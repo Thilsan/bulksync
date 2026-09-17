@@ -314,29 +314,28 @@ class OrdersDashboardTest extends TestCase
     {
         $this->fakeOk();
 
-        $this->actingAs($this->admin)
-            ->get(route('orders.dashboard'))
-            ->assertOk()
-            ->assertSee('1,797')
-            ->assertSee('QAR 1,327,150.65')
-            ->assertSee('QAR 738.54');
+        $tiles = $this->kpiTilesHtml($this->actingAs($this->admin)
+            ->get(route('orders.dashboard'))->assertOk()->getContent());
+
+        $this->assertStringContainsString('1,797', $tiles);      // orders
+        $this->assertStringContainsString('1,697', $tiles);      // fulfilled and delivered
+        $this->assertStringContainsString('94.4% of orders', $tiles);
+        $this->assertStringContainsString('5.6% of orders', $tiles);  // the 100 cancelled
     }
 
     /**
-     * A staff-entered order is worth several times a web one, so the two
-     * headline tiles that management actually reads — Orders and Revenue —
-     * carry the split themselves rather than only the smaller card further
-     * down the page.
+     * A staff-entered order is placed and delivered differently from a website
+     * one, so the tile management actually reads carries the split itself
+     * rather than only the smaller card further down the page.
      */
-    public function test_the_orders_and_revenue_tiles_split_by_order_type(): void
+    public function test_the_orders_tile_splits_by_order_type(): void
     {
         $this->fakeOk();
 
         $this->actingAs($this->admin)
             ->get(route('orders.dashboard'))
             ->assertOk()
-            ->assertSee('1,608 web · 189 manual')
-            ->assertSee('QAR 1,057,481.35 web · 269,669.30 manual', false);
+            ->assertSee('1,608 web · 189 manual');
     }
 
     /**
@@ -397,18 +396,83 @@ class OrdersDashboardTest extends TestCase
     }
 
     /**
-     * Revenue from the endpoint is gross across every status, cancelled
-     * included. Showing only that overstates the business.
+     * Ecom Delivery answers "where is everything", not "what did it make".
+     * The money lives on Ecom Order Analytics; this tab counts parcels, and a
+     * revenue figure sitting among them is one nobody asked this screen for.
      */
-    public function test_net_revenue_drops_cancelled_and_returned_orders(): void
+    public function test_the_delivery_tab_counts_orders_and_shows_no_money(): void
     {
         $this->fakeOk();
 
-        $this->actingAs($this->admin)
-            ->get(route('orders.dashboard'))
-            ->assertOk()
-            ->assertSee('QAR 1,277,150.65')   // gross less the 50,000 cancelled
-            ->assertSee('Excludes 100 cancelled, returned or failed');
+        $html = $this->actingAs($this->admin)
+            ->get(route('orders.dashboard'))->assertOk()->getContent();
+
+        $this->assertStringContainsString('1,797', $html);
+
+        foreach (['QAR', '1,327,150.65', '738.54', 'Avg order', 'Net revenue', 'Revenue'] as $money) {
+            $this->assertStringNotContainsString($money, $html, "\"{$money}\" should not be on the Ecom Delivery tab.");
+        }
+    }
+
+    /**
+     * Where each order sits, in the words the business uses for it.
+     *
+     * A parcel back at the delivery hub is still in play and counts as
+     * processing; cancelled and failed mean the same thing to whoever is
+     * reading the screen and are shown as one number.
+     */
+    public function test_orders_are_grouped_by_order_status(): void
+    {
+        $payload = $this->payload();
+        $payload['data']['by_status'] = [
+            ['status' => 'FullFilled', 'status_id' => 10, 'orders' => 1200, 'revenue' => 900150.65,
+             'average_order_value' => 750.13, 'share_of_orders' => 66.78, 'share_of_revenue' => 67.83],
+            ['status' => 'Processing', 'status_id' => 1, 'orders' => 400, 'revenue' => 300000,
+             'average_order_value' => 750, 'share_of_orders' => 22.26, 'share_of_revenue' => 22.6],
+            ['status' => 'Returned to Delivery Hub & Hold', 'status_id' => 12, 'orders' => 97, 'revenue' => 70000,
+             'average_order_value' => 721.65, 'share_of_orders' => 5.4, 'share_of_revenue' => 5.27],
+            ['status' => 'Cancelled', 'status_id' => 6, 'orders' => 80, 'revenue' => 40000,
+             'average_order_value' => 500, 'share_of_orders' => 4.45, 'share_of_revenue' => 3.01],
+            ['status' => 'Failed', 'status_id' => 17, 'orders' => 20, 'revenue' => 17000,
+             'average_order_value' => 850, 'share_of_orders' => 1.11, 'share_of_revenue' => 1.28],
+        ];
+        Http::fake(['orders.test/*' => Http::response($payload)]);
+
+        $html = $this->actingAs($this->admin)
+            ->get(route('orders.dashboard'))->assertOk()->getContent();
+
+        $this->assertStringContainsString('Order status', $html);
+
+        // 400 still going out plus the 97 sitting back at the hub.
+        $this->assertStringContainsString('497', $html);
+        // The 80 cancelled and the 20 that failed, counted as one thing.
+        $this->assertStringContainsString('100', $html);
+
+        foreach (['Where orders sit', 'In flight', '>Lost<'] as $gone) {
+            $this->assertStringNotContainsString($gone, $html, "\"{$gone}\" should have been renamed.");
+        }
+    }
+
+    /**
+     * The wrapper the loading skeleton swaps out is also what puts the gap
+     * between the cards inside it. Dropping the class leaves the tiles, the
+     * chart and the tables sitting flush against one another, with the grids'
+     * own gap-5 still spacing the columns — so the page reads as spaced
+     * sideways and not downwards. That is exactly how this was found, and it
+     * had already happened once on the analytics and sessions tabs.
+     */
+    public function test_the_tab_spaces_its_cards_apart_vertically(): void
+    {
+        $this->fakeOk();
+
+        $html = $this->actingAs($this->admin)
+            ->get(route('orders.dashboard'))->assertOk()->getContent();
+
+        $this->assertMatchesRegularExpression(
+            '/<div x-show="!busy"[^>]*class="[^"]*space-y-5/',
+            $html,
+            'The Ecom Delivery tab should space its cards apart, like the other tabs do.',
+        );
     }
 
     public function test_payment_methods_are_folded_into_readable_names(): void
@@ -443,7 +507,7 @@ class OrdersDashboardTest extends TestCase
             ->assertOk()
             ->assertSee('3 Aug')
             ->assertSee('31 Aug')
-            ->assertSee('Daily orders and revenue');
+            ->assertSee('Daily orders');
     }
 
     public function test_a_long_range_relabels_the_axis_to_months(): void
@@ -453,25 +517,25 @@ class OrdersDashboardTest extends TestCase
         $this->actingAs($this->admin)
             ->get(route('orders.dashboard', ['preset' => 'custom', 'from' => '2025-01-01', 'to' => '2026-08-31']))
             ->assertOk()
-            ->assertSee('Monthly orders and revenue')
-            ->assertDontSee('Daily orders and revenue');
+            ->assertSee('Monthly orders')
+            ->assertDontSee('Daily orders');
     }
 
     /**
-     * Four orders carry a reference number where a price belongs. They parse
-     * fine, so nothing server-side can catch them — but they visibly distort
-     * all-time revenue, and hiding that is worse than showing it.
+     * The data-quality panel went with the revenue it qualified: every line in
+     * it counted orders whose *price* was missing, unparseable or absurd, and
+     * this tab no longer prints a price for any of that to undermine.
      */
-    public function test_outliers_raise_a_warning_next_to_revenue(): void
+    public function test_the_revenue_quality_panel_is_gone_with_the_revenue(): void
     {
         $this->fakeOk(['data_quality' => ['suspected_outlier_orders' => 4, 'revenue_coverage_pct' => 97.99]]);
 
         $this->actingAs($this->admin)
             ->get(route('orders.dashboard'))
             ->assertOk()
-            ->assertSee('4 orders above QAR 500,000 included')
-            ->assertSee('Based on 98.0% of orders')
-            ->assertSee('needs a look');
+            ->assertDontSee('Data quality')
+            ->assertDontSee('needs a look')
+            ->assertDontSee('orders above');
     }
 
     /**
@@ -488,7 +552,6 @@ class OrdersDashboardTest extends TestCase
             // Nespresso sold in this range too, but is dropped from the page
             // entirely — see the exclusion tests below — leaving bluesalon as
             // the only one selling and wcmq the only one named as quiet.
-            ->assertSee('1 selling · 1 quiet', false)
             ->assertSee('No orders in this range:')
             ->assertSee('WCMQ');
     }
@@ -519,17 +582,23 @@ class OrdersDashboardTest extends TestCase
      * worth its own test: dropping a dormant platform is easy, dropping one
      * that is actively selling is the case that has to be checked for.
      */
-    public function test_nespresso_is_dropped_from_the_breakdown_and_the_coverage_count(): void
+    public function test_nespresso_is_dropped_from_the_breakdown(): void
     {
         $this->fakeOk();
 
         $html = $this->actingAs($this->admin)
             ->get(route('orders.dashboard'))->assertOk()->getContent();
 
-        // bluesalon sold, wcmq did not — nespresso is neither shown nor
-        // counted as one of the two platforms the range knows about.
-        $this->assertStringContainsString('1 selling · 1 quiet', $html);
-        $this->assertStringContainsString('1 of 2 platforms selling.', $html);
+        // bluesalon sold and wcmq did not, so the table holds exactly one row
+        // — and nespresso's 397 orders are not it. Counting the rows is what
+        // makes this a test: asserting the name is absent would pass just as
+        // well against a page that rendered no table at all.
+        $this->assertStringContainsString('data-name="Bluesalon"', $html);
+        $this->assertSame(1, substr_count($html, 'data-name="'));
+
+        // Nor is it folded into the quiet line, which names wcmq alone.
+        $this->assertStringContainsString('No orders in this range:', $html);
+        $this->assertStringNotContainsString('Nespresso', $html);
     }
 
     /**
@@ -802,7 +871,7 @@ class OrdersDashboardTest extends TestCase
         $this->actingAs($this->admin)
             ->get(route('orders.dashboard'))
             ->assertOk()
-            ->assertSee('Daily orders and revenue')
+            ->assertSee('Daily orders')
             ->assertDontSee('data-tab="studio"', false);
     }
 
@@ -819,7 +888,7 @@ class OrdersDashboardTest extends TestCase
             ->get(route('orders.dashboard', ['tab' => 'studio']))
             ->assertOk()
             ->assertSee('data-tab="studio"', false)
-            ->assertDontSee('Daily orders and revenue');
+            ->assertDontSee('Daily orders');
 
         Http::assertNothingSent();
     }
@@ -832,7 +901,7 @@ class OrdersDashboardTest extends TestCase
         $this->actingAs($this->admin)
             ->get(route('orders.dashboard', ['tab' => 'nonsense']))
             ->assertOk()
-            ->assertSee('Daily orders and revenue');
+            ->assertSee('Daily orders');
     }
 
     /** The studio tab renders for someone who owns none of the other tools. */

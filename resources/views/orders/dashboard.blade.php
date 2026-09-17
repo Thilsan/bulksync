@@ -4,13 +4,13 @@
 
 @php
     /*
-     * Currency comes from the endpoint rather than being written into the page:
-     * it reports QAR today, and a page that hardcodes it lies the day it does
-     * not. Nulls arrive on an empty range — see the empty state below — so
-     * every formatter here has to survive one rather than print NaN.
+     * This tab counts parcels and says nothing about money — the revenue,
+     * average order value and net figures it used to carry belong to Ecom
+     * Order Analytics, which is the tab people open to ask that question.
+     *
+     * Nulls arrive on an empty range — see the empty state below — so every
+     * formatter here has to survive one rather than print NaN.
      */
-    $ccy   = $summary['currency'] ?? 'QAR';
-    $money = fn ($v) => $v === null ? '—' : number_format((float) $v, 2);
     $num   = fn ($v) => $v === null ? '—' : number_format((int) $v);
     $pct   = fn ($v) => $v === null ? '—' : number_format((float) $v, 1) . '%';
 
@@ -168,7 +168,10 @@
         @include('orders.loading')
     </template>
 
-    <div x-show="!busy">
+    {{-- space-y-5 here, not on the sections inside: the skeleton above
+         replaces this whole block, so the gap between the cards has to belong
+         to the wrapper rather than to what it happens to be holding. --}}
+    <div x-show="!busy" class="space-y-5">
 
     {{-- ── Error ────────────────────────────────────────────────────────────
          The endpoint writes its messages for people, so they are shown as
@@ -198,7 +201,7 @@
 
     @if($summary)
         @php
-            $t = $summary['totals']; $d = $summary['deltas']; $q = $summary['quality'];
+            $t = $summary['totals']; $d = $summary['deltas'];
 
             // Read once, in a fixed Web-then-Manual order rather than
             // whatever order the endpoint happens to return, so the KPI
@@ -220,20 +223,35 @@
             </div>
         @else
 
-        {{-- ── KPIs ─────────────────────────────────────────────────────── --}}
+        {{-- ── KPIs ───────────────────────────────────────────────────────
+             How many orders there are, and where they are. The three status
+             tiles read off the same grouping as the Order status card below,
+             so the headline and the breakdown cannot drift apart. --}}
         @php
+            $counts  = $summary['outcome_counts'];
+            $ordered = max(1, (int) ($t['total_orders'] ?? 0));
+
+            // Not $share — that one is the bar-width helper at the top of the
+            // page, and is still needed by everything below these tiles.
+            $ofOrders = fn (int $n) => $pct($n / $ordered * 100) . ' of orders';
+
             $tiles = [
-                ['label' => 'Orders',      'value' => $num($t['total_orders'] ?? 0),                  'delta' => $d['orders']],
-                ['label' => 'Revenue',     'value' => $ccy . ' ' . $money($t['total_revenue'] ?? 0),  'delta' => $d['revenue']],
-                ['label' => 'Avg order',   'value' => $ccy . ' ' . $money($t['average_order_value'] ?? null), 'delta' => $d['aov']],
-                ['label' => 'Net revenue', 'value' => $ccy . ' ' . $money($summary['net']),           'delta' => $d['net']],
+                ['label' => 'Orders',     'value' => $num($t['total_orders'] ?? 0), 'delta' => $d['orders'], 'tone' => null],
+                ['label' => 'Completed',  'value' => $num($counts['completed']),    'delta' => null, 'tone' => 'emerald', 'note' => $ofOrders($counts['completed'])],
+                ['label' => 'Processing', 'value' => $num($counts['processing']),   'delta' => null, 'tone' => 'sky',     'note' => $ofOrders($counts['processing'])],
+                ['label' => 'Cancelled',  'value' => $num($counts['cancelled']),    'delta' => null, 'tone' => 'rose',    'note' => $ofOrders($counts['cancelled'])],
             ];
         @endphp
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             @foreach($tiles as $i => $tile)
                 <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
                     <div class="flex items-start justify-between gap-2">
-                        <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">{{ $tile['label'] }}</p>
+                        <p class="text-xs font-medium text-gray-500 uppercase tracking-wide inline-flex items-center gap-1.5">
+                            @if($tile['tone'])
+                                <span class="w-2 h-2 rounded-sm {{ $fill[$tile['tone']] }}"></span>
+                            @endif
+                            {{ $tile['label'] }}
+                        </p>
                         @if($tile['delta'] !== null)
                             @php $up = $tile['delta'] >= 0; @endphp
                             <span class="text-xs font-medium tabular-nums {{ $up ? 'text-emerald-600' : 'text-rose-600' }}">
@@ -243,37 +261,17 @@
                     </div>
                     <p class="mt-3 text-2xl font-semibold text-gray-900 tabular-nums leading-none">{{ $tile['value'] }}</p>
 
-                    {{-- Orders and Revenue split by how the order was placed,
-                         so the two most-read tiles on the page do not blend a
-                         staff-entered order into a website one silently. --}}
-                    @if(($i === 0 || $i === 1) && $typeRows->isNotEmpty())
-                        <p class="text-xs text-gray-400 mt-2">
-                            @if($i === 0)
+                    @if($i === 0)
+                        {{-- How the orders were placed, so the most-read tile on
+                             the page does not blend a staff-entered order into a
+                             website one silently. --}}
+                        @if($typeRows->isNotEmpty())
+                            <p class="text-xs text-gray-400 mt-2">
                                 {{ $typeRows->map(fn ($r) => $num($r['orders']) . ' ' . strtolower($r['order_type']))->join(' · ') }}
-                            @else
-                                {{ $ccy }} {{ $typeRows->map(fn ($r) => $money($r['revenue']) . ' ' . strtolower($r['order_type']))->join(' · ') }}
-                            @endif
-                        </p>
-                    @endif
-
-                    {{-- The two numbers that are not what they look like. --}}
-                    @if($i === 1 && ($q['suspected_outlier_orders'] ?? 0) > 0)
-                        <p class="text-xs text-amber-700 {{ $typeRows->isNotEmpty() ? 'mt-1' : 'mt-2' }}">
-                            {{ $num($q['suspected_outlier_orders']) }} orders above {{ $ccy }} {{ $num($q['outlier_threshold']) }} included — likely typed in error.
-                        </p>
-                    @elseif($i === 2 && ($q['revenue_coverage_pct'] ?? 100) < 100)
-                        <p class="text-xs text-gray-400 mt-2">Based on {{ $pct($q['revenue_coverage_pct']) }} of orders.</p>
-                    @elseif($i === 3)
-                        <p class="text-xs text-gray-400 mt-2">
-                            Excludes {{ $num($summary['lost']) }} cancelled, returned or failed.
-                        </p>
-                    @elseif($i === 0)
-                        {{-- Read off the breakdown below rather than the
-                             endpoint's own count, so an excluded platform
-                             cannot make this line disagree with that table. --}}
-                        <p class="text-xs text-gray-400 {{ $typeRows->isNotEmpty() ? 'mt-1' : 'mt-2' }}">
-                            {{ count($summary['platforms']) }} of {{ count($summary['platforms']) + count($summary['dormant']) }} platforms selling.
-                        </p>
+                            </p>
+                        @endif
+                    @else
+                        <p class="text-xs text-gray-400 mt-2">{{ $tile['note'] }}</p>
                     @endif
                 </div>
             @endforeach
@@ -283,27 +281,19 @@
         @php
             $series    = $summary['series'];
             $maxOrders = max(1, ...array_map(fn ($r) => $r['orders'], $series ?: [['orders' => 0]]));
-            $maxRev    = max(1, ...array_map(fn ($r) => $r['revenue'], $series ?: [['revenue' => 0]]));
             $unit      = $summary['monthly'] ? 'Monthly' : 'Daily';
         @endphp
         <div class="bg-white rounded-xl border border-gray-200 shadow-sm">
             <div class="px-5 py-3.5 border-b border-gray-100 flex items-center justify-between gap-3">
-                <h3 class="text-sm font-semibold text-gray-800">{{ $unit }} orders and revenue</h3>
-                <div class="flex items-center gap-3 text-xs text-gray-500">
-                    <span class="inline-flex items-center gap-1.5"><span class="w-2 h-2 rounded-sm bg-brand-500"></span>Orders</span>
-                    <span class="inline-flex items-center gap-1.5"><span class="w-2 h-2 rounded-sm bg-emerald-400"></span>Revenue</span>
-                </div>
+                <h3 class="text-sm font-semibold text-gray-800">{{ $unit }} orders</h3>
+                <span class="text-xs text-gray-400">Peak {{ $num($maxOrders) }}</span>
             </div>
             <div class="px-5 py-4 overflow-x-auto">
                 <div class="flex items-end gap-[3px] h-44 min-w-full" style="min-width: {{ max(300, count($series) * 14) }}px">
                     @foreach($series as $bucket)
-                        {{-- Two bars per bucket, each scaled to its own maximum:
-                             one axis for both would flatten orders against a
-                             revenue figure three orders of magnitude larger. --}}
-                        <div class="flex-1 flex items-end justify-center gap-[1px] h-full group relative"
-                             title="{{ $bucket['label'] }} — {{ $num($bucket['orders']) }} orders, {{ $ccy }} {{ $money($bucket['revenue']) }}">
-                            <div class="w-1/2 bg-brand-500 rounded-t-sm" style="height: {{ $share($bucket['orders'], $maxOrders) }}%"></div>
-                            <div class="w-1/2 bg-emerald-400 rounded-t-sm" style="height: {{ $share($bucket['revenue'], $maxRev) }}%"></div>
+                        <div class="flex-1 flex items-end justify-center h-full group relative"
+                             title="{{ $bucket['label'] }} — {{ $num($bucket['orders']) }} orders">
+                            <div class="w-full bg-brand-500 rounded-t-sm" style="height: {{ $share($bucket['orders'], $maxOrders) }}%"></div>
                         </div>
                     @endforeach
                 </div>
@@ -319,12 +309,11 @@
                 <summary class="px-5 py-2.5 text-xs text-gray-500 cursor-pointer hover:text-gray-700">Show as table</summary>
                 <div class="px-5 pb-4 max-h-72 overflow-y-auto">
                     <table class="w-full text-xs">
-                        <thead class="text-gray-500 text-left"><tr><th class="py-1 font-medium">Period</th><th class="py-1 font-medium text-right">Orders</th><th class="py-1 font-medium text-right">Revenue</th></tr></thead>
+                        <thead class="text-gray-500 text-left"><tr><th class="py-1 font-medium">Period</th><th class="py-1 font-medium text-right">Orders</th></tr></thead>
                         <tbody class="divide-y divide-gray-100">
                             @foreach($series as $bucket)
                                 <tr><td class="py-1 text-gray-700">{{ $bucket['label'] }}</td>
-                                    <td class="py-1 text-right tabular-nums text-gray-700">{{ $num($bucket['orders']) }}</td>
-                                    <td class="py-1 text-right tabular-nums text-gray-700">{{ $money($bucket['revenue']) }}</td></tr>
+                                    <td class="py-1 text-right tabular-nums text-gray-700">{{ $num($bucket['orders']) }}</td></tr>
                             @endforeach
                         </tbody>
                     </table>
@@ -334,19 +323,18 @@
 
         {{-- ── Platforms ──────────────────────────────────────────────────
              One table rather than a bar chart with the same numbers listed
-             underneath it. The bar lives in the revenue cell, so size and
+             underneath it. The bar lives in the orders cell, so size and
              figure are read in one place instead of two. --}}
         @php
             $rows    = $summary['platforms'];
-            $maxRow  = max(1, ...array_map(fn ($r) => (float) $r['revenue'], $rows ?: [['revenue' => 0]]));
-            $selling = count($rows);
+            $maxRow  = max(1, ...array_map(fn ($r) => (int) $r['orders'], $rows ?: [['orders' => 0]]));
         @endphp
         <div class="bg-white rounded-xl border border-gray-200 shadow-sm">
-            <div class="px-5 py-3.5 border-b border-gray-100 flex items-baseline justify-between gap-3">
+            {{-- The selling-and-quiet tally that used to sit here is gone. The
+                 table below is the same fact in full: a row each for the shops
+                 that sold, and the quiet ones named by the footer. --}}
+            <div class="px-5 py-3.5 border-b border-gray-100">
                 <h3 class="text-sm font-semibold text-gray-800">Platforms</h3>
-                <span class="text-xs text-gray-400">
-                    {{ $selling }} selling{{ $summary['dormant'] ? ' · ' . count($summary['dormant']) . ' quiet' : '' }}
-                </span>
             </div>
 
             <div class="overflow-x-auto" x-data="{ dir: {} }">
@@ -356,8 +344,6 @@
                             @foreach([
                                 'name'    => ['Platform',  'text-left'],
                                 'orders'  => ['Orders',    'text-right'],
-                                'revenue' => ['Revenue ' . $ccy, 'text-right'],
-                                'aov'     => ['Avg order', 'text-right'],
                                 'last'    => ['Last order','text-right'],
                             ] as $key => [$label, $align])
                                 <th class="px-5 py-2.5 font-medium {{ $align }}">
@@ -392,7 +378,6 @@
                             @endphp
                             <tr class="hover:bg-gray-50/60"
                                 data-name="{{ $name }}" data-orders="{{ $row['orders'] }}"
-                                data-revenue="{{ $row['revenue'] }}" data-aov="{{ $row['average_order_value'] }}"
                                 data-last="{{ $row['last_order_at'] ?? '' }}"
                                 x-data="{
                                     loading: false, loaded: false, failed: false, web: null, manual: null,
@@ -413,17 +398,13 @@
                                     <span class="font-medium text-gray-800" title="{{ $row['platform'] }}">{{ $name }}</span>
                                 </td>
 
-                                <td class="px-5 py-2.5 text-right tabular-nums text-gray-600">{{ $num($row['orders']) }}</td>
-
                                 <td class="px-5 py-2.5 text-right">
-                                    <span class="tabular-nums font-medium text-gray-900">{{ $money($row['revenue']) }}</span>
-                                    <span class="block text-xs text-gray-400 tabular-nums">{{ $pct($row['share_of_revenue']) }}</span>
+                                    <span class="tabular-nums font-medium text-gray-900">{{ $num($row['orders']) }}</span>
+                                    <span class="block text-xs text-gray-400 tabular-nums">{{ $pct($row['share_of_orders']) }}</span>
                                     <span class="block mt-1 h-1 rounded-full bg-brand-500 ml-auto"
-                                          style="width: {{ $share($row['revenue'], $maxRow) }}%"
+                                          style="width: {{ $share($row['orders'], $maxRow) }}%"
                                           role="presentation"></span>
                                 </td>
-
-                                <td class="px-5 py-2.5 text-right tabular-nums text-gray-600">{{ $money($row['average_order_value']) }}</td>
 
                                 {{-- "3 hours ago" answers "is this shop still
                                      trading" at a glance; the exact stamp is a
@@ -444,13 +425,13 @@
                                     </button>
                                     <span x-show="loading" x-cloak class="text-gray-300">…</span>
                                     <template x-if="loaded">
-                                        <span x-text="web.orders.toLocaleString() + ' · {{ $ccy }} ' + web.revenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })"></span>
+                                        <span x-text="web.orders.toLocaleString()"></span>
                                     </template>
                                 </td>
                                 <td class="px-5 py-2.5 text-right tabular-nums text-gray-600">
                                     <span x-show="!loaded" x-cloak class="text-gray-300">—</span>
                                     <template x-if="loaded">
-                                        <span x-text="manual.orders.toLocaleString() + ' · {{ $ccy }} ' + manual.revenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })"></span>
+                                        <span x-text="manual.orders.toLocaleString()"></span>
                                     </template>
                                 </td>
                             </tr>
@@ -464,7 +445,7 @@
                     @if($summary['dormant'])
                         <tfoot>
                             <tr class="border-t border-gray-100">
-                                <td colspan="7" class="px-5 py-3 text-xs text-gray-400">
+                                <td colspan="5" class="px-5 py-3 text-xs text-gray-400">
                                     No orders in this range:
                                     <span class="text-gray-500">{{ collect($summary['dormant'])->map(fn ($p) => \App\Support\OrdersSummary::platform($p))->join(', ') }}</span>
                                 </td>
@@ -475,12 +456,17 @@
             </div>
         </div>
 
-        {{-- ── Outcomes · payment · web vs manual ───────────────────────── --}}
+        {{-- ── Breakdowns ───────────────────────────────────────────────────
+             Five cards answering the same question five ways, so they share
+             one grid rather than sitting in rows of their own. Splitting them
+             would set its own column width and leave the edges not lining up
+             with the row above — which is exactly what happened when the
+             revenue quality panel was removed from the end of this list. --}}
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
 
             @php $outcomeTotal = max(1, array_sum(array_column($summary['outcomes'], 'orders'))); @endphp
             <div class="bg-white rounded-xl border border-gray-200 shadow-sm">
-                <h3 class="px-5 py-3.5 border-b border-gray-100 text-sm font-semibold text-gray-800">Where orders sit</h3>
+                <h3 class="px-5 py-3.5 border-b border-gray-100 text-sm font-semibold text-gray-800">Order status</h3>
                 <div class="p-5">
                     <div class="flex h-2.5 rounded-full overflow-hidden bg-gray-100">
                         @foreach($summary['outcomes'] as $group)
@@ -488,15 +474,18 @@
                                  title="{{ $group['label'] }}: {{ $num($group['orders']) }}"></div>
                         @endforeach
                     </div>
-                    <div class="mt-4 space-y-3">
+                    <div class="mt-4 space-y-2.5">
                         @foreach($summary['outcomes'] as $group)
                             <div>
                                 <div class="flex items-center justify-between text-xs">
                                     <span class="inline-flex items-center gap-1.5 font-medium text-gray-700">
                                         <span class="w-2 h-2 rounded-sm {{ $fill[$group['tone']] ?? $fill['gray'] }}"></span>{{ $group['label'] }}
                                     </span>
-                                    <span class="tabular-nums text-gray-700">{{ $num($group['orders']) }} · {{ $money($group['revenue']) }}</span>
+                                    <span class="tabular-nums text-gray-700">{{ $num($group['orders']) }} · {{ $pct($group['orders'] / $outcomeTotal * 100) }}</span>
                                 </div>
+                                {{-- The raw statuses folded into this bucket, so
+                                     anyone who works in those words can still
+                                     find the one they were looking for. --}}
                                 <p class="text-xs text-gray-400 mt-0.5 pl-3.5">
                                     {{ collect($group['statuses'])->map(fn ($s) => $s['status'] . ' ' . number_format($s['orders']))->join(', ') }}
                                 </p>
@@ -541,66 +530,40 @@
                                  style="width: {{ $row['orders'] / $typeTotal * 100 }}%"></div>
                         @endforeach
                     </div>
-                    <div class="mt-4 space-y-3">
+                    <div class="mt-4 space-y-2.5">
                         @foreach($summary['types'] as $row)
                             <div class="flex items-center justify-between text-xs">
                                 <span class="inline-flex items-center gap-1.5 font-medium text-gray-700">
                                     <span class="w-2 h-2 rounded-sm {{ $row['order_type'] === 'Manual' ? 'bg-amber-500' : 'bg-brand-500' }}"></span>
                                     {{ $row['order_type'] }}
                                 </span>
-                                <span class="tabular-nums text-gray-700">{{ $num($row['orders']) }} · {{ $money($row['revenue']) }}</span>
+                                <span class="tabular-nums text-gray-700">{{ $num($row['orders']) }} · {{ $pct($row['share_of_orders'] ?? null) }}</span>
                             </div>
                         @endforeach
                     </div>
-                    {{-- Staff-entered orders are worth several times a web one,
-                         which is the only reason this split is on the page.
-                         $web/$manual come from the top of the section. --}}
-                    @if($web && $manual && $web['average_order_value'] > 0)
-                        <p class="mt-4 pt-3 border-t border-gray-100 text-xs text-gray-500">
-                            Manual orders average
-                            <span class="font-semibold text-gray-800">{{ number_format($manual['average_order_value'] / $web['average_order_value'], 1) }}×</span>
-                            a web order — {{ $ccy }} {{ $money($manual['average_order_value']) }} against {{ $money($web['average_order_value']) }}.
-                        </p>
-                    @endif
                 </div>
             </div>
-        </div>
 
-        {{-- ── Secondary · quality ──────────────────────────────────────── --}}
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+            {{-- The data-quality panel that used to close this row is gone with
+                 the revenue it qualified: every line in it counted orders with
+                 an unusable or outlying *price*, and there is no price on this
+                 tab for it to cast doubt on any more. --}}
             @foreach([['Source', $summary['sources'], 'Mostly not recorded'], ['Shipping', $summary['shipping'], null]] as [$title, $rows, $caveat])
                 <div class="bg-white rounded-xl border border-gray-200 shadow-sm">
-                    <div class="px-5 py-3 border-b border-gray-100 flex items-baseline justify-between">
+                    <div class="px-5 py-3.5 border-b border-gray-100 flex items-baseline justify-between gap-3">
                         <h3 class="text-sm font-semibold text-gray-800">{{ $title }}</h3>
                         @if($caveat)<span class="text-xs text-gray-400">{{ $caveat }}</span>@endif
                     </div>
-                    <div class="p-5 space-y-1.5">
+                    <div class="p-5 space-y-2.5">
                         @foreach($rows as $row)
                             <div class="flex items-center justify-between text-xs">
-                                <span class="text-gray-600">{{ $row['label'] }}</span>
+                                <span class="text-gray-700 truncate">{{ $row['label'] }}</span>
                                 <span class="tabular-nums text-gray-500">{{ $num($row['orders']) }} · {{ $pct($row['share_of_orders']) }}</span>
                             </div>
                         @endforeach
                     </div>
                 </div>
             @endforeach
-
-            {{-- Opens itself when there is something wrong with the numbers
-                 above, so nobody has to know to look. --}}
-            @php $flag = ($q['suspected_outlier_orders'] ?? 0) > 0 || ($q['revenue_coverage_pct'] ?? 100) < 95; @endphp
-            <details class="bg-white rounded-xl border {{ $flag ? 'border-amber-200' : 'border-gray-200' }} shadow-sm" @if($flag) open @endif>
-                <summary class="px-5 py-3 text-sm font-semibold text-gray-800 cursor-pointer">
-                    Data quality
-                    @if($flag)<span class="ml-1.5 text-xs font-medium text-amber-700">needs a look</span>@endif
-                </summary>
-                <div class="px-5 pb-5 space-y-1.5 text-xs text-gray-600">
-                    <p>{{ $num($q['orders_counted_in_revenue'] ?? 0) }} orders carry a usable price ({{ $pct($q['revenue_coverage_pct'] ?? null) }} of them).</p>
-                    <p>{{ $num($q['orders_missing_total'] ?? 0) }} have no price recorded; {{ $num($q['orders_unparseable_total'] ?? 0) }} hold something that is not a number.</p>
-                    <p @class(['text-amber-700 font-medium' => ($q['suspected_outlier_orders'] ?? 0) > 0])>
-                        {{ $num($q['suspected_outlier_orders'] ?? 0) }} orders exceed {{ $ccy }} {{ $num($q['outlier_threshold'] ?? 0) }} and are counted in every total above.
-                    </p>
-                </div>
-            </details>
         </div>
         @endif
     @endif

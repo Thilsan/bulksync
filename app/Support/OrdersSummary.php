@@ -95,58 +95,56 @@ class OrdersSummary
     ];
 
     /**
-     * Where an order ended up, by status id.
+     * Where an order sits, by status id.
      *
-     * Revenue from the endpoint is gross — it includes cancelled, returned and
-     * failed orders, which is a deliberate decision on its side, not an
-     * oversight. Grouping by outcome is what lets the page show a net figure
-     * without asking for the data twice.
+     * Twenty-odd raw statuses is a list nobody reads; three is a sentence.
+     * The names are the ones the business uses for them, so a figure here can
+     * be quoted in a meeting without translation:
+     *
+     *   - **Processing** is everything still in play, and that deliberately
+     *     includes "Returned to Delivery Hub & Hold" — a parcel back at the
+     *     hub can go out again, so writing it off beside a cancellation
+     *     overstates what has actually been lost.
+     *   - **Cancelled** takes cancelled, failed and returned together. They
+     *     are different rows upstream and the same news to whoever is reading
+     *     the screen: the order is not happening.
      */
     public const OUTCOMES = [
-        'completed' => ['label' => 'Completed', 'ids' => [3, 4, 10],                    'tone' => 'emerald'],
-        'in_flight' => ['label' => 'In flight', 'ids' => [0, 1, 2, 5, 7, 11, 14, 15, 16], 'tone' => 'sky'],
-        'lost'      => ['label' => 'Lost',      'ids' => [6, 8, 12, 17],                'tone' => 'rose'],
+        'completed'  => ['label' => 'Completed',  'ids' => [3, 4, 10],                        'tone' => 'emerald'],
+        'processing' => ['label' => 'Processing', 'ids' => [0, 1, 2, 5, 7, 11, 12, 14, 15, 16], 'tone' => 'sky'],
+        'cancelled'  => ['label' => 'Cancelled',  'ids' => [6, 8, 17],                        'tone' => 'rose'],
     ];
 
-    /** Cancelled, returned to hub, returned and failed — what net revenue drops. */
-    public const LOST_IDS = [6, 8, 12, 17];
-
     /**
-     * Gross revenue minus everything that will never be collected.
+     * How many orders are in each outcome, every one of them present.
      *
-     * Shown beneath the headline rather than instead of it: gross alone
-     * overstates the business, and net alone silently contradicts the number
-     * the endpoint itself calls total_revenue.
+     * Unlike outcomes() this does not drop the empty ones: these feed the
+     * headline tiles, and a tile that disappears when nothing was cancelled
+     * reads as "no such thing" rather than "none".
+     *
+     * @return array<string, int>
      */
-    public static function netRevenue(array $byStatus): float
+    public static function outcomeCounts(array $byStatus): array
     {
-        $net = 0.0;
+        $counts = array_fill_keys(array_keys(self::OUTCOMES), 0);
 
-        foreach ($byStatus as $row) {
-            if (! \in_array($row['status_id'] ?? null, self::LOST_IDS, true)) {
-                $net += (float) ($row['revenue'] ?? 0);
+        foreach (self::group($byStatus) as $key => $group) {
+            if (isset($counts[$key])) {
+                $counts[$key] = $group['orders'];
             }
         }
 
-        return $net;
+        return $counts;
     }
 
-    /** Orders in statuses that will never be collected. */
-    public static function lostOrders(array $byStatus): int
-    {
-        $lost = 0;
-
-        foreach ($byStatus as $row) {
-            if (\in_array($row['status_id'] ?? null, self::LOST_IDS, true)) {
-                $lost += (int) ($row['orders'] ?? 0);
-            }
-        }
-
-        return $lost;
-    }
-
-    /** Statuses rolled into completed / in flight / lost, plus whatever fits nowhere. */
+    /** Statuses rolled into completed / processing / cancelled, minus the empty buckets. */
     public static function outcomes(array $byStatus): array
+    {
+        return array_values(array_filter(self::group($byStatus), fn ($g) => $g['orders'] > 0));
+    }
+
+    /** Every bucket, empty ones included, keyed by outcome. */
+    private static function group(array $byStatus): array
     {
         $groups = [];
 
@@ -175,7 +173,7 @@ class OrdersSummary
             $groups[$key]['statuses'][] = $row;
         }
 
-        return array_values(array_filter($groups, fn ($g) => $g['orders'] > 0));
+        return $groups;
     }
 
     /**
