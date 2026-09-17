@@ -407,13 +407,22 @@ class PhotoEditorNoRedrawTest extends TestCase
      *
      * It is inside the garment: it shows through the neck, it is what the
      * garment takes its shape from, and what is behind it is the inside of the
-     * garment, which the photograph does not contain. Asked to try, the cutout
-     * keeps it — a mannequin returned still wearing the poncho after the
-     * background came away cleanly, which is what was reported.
+     * garment, which the photograph does not contain. Asked to try, a
+     * segmentation-based cutout keeps it — a mannequin returned still wearing
+     * the poncho after the background came away cleanly, which is what was
+     * reported.
      *
-     * The operator asked for the stand to go, and only a redraw can do it.
+     * The operator asked for the stand to go, and the erase pass can do that
+     * without cutting anything: it inpaints the small gap the form leaves
+     * rather than needing pixels the photograph never had. This used to go
+     * to Ghost Mannequin's full redraw instead, on every view, until a front
+     * view of a sequin gown showed the cost of that route when it was not
+     * needed: a real, fitted silhouette recut 56.6% into a generic loose slip
+     * shape — the redraw had not lifted the stand off the photograph, it had
+     * re-imagined the dress. A worn dress form goes to the erase pass now,
+     * whatever view it is.
      */
-    public function test_a_worn_dress_form_goes_to_the_redraw_rather_than_a_cutout(): void
+    public function test_a_worn_dress_form_goes_to_the_erase_pass_not_a_cutout_or_a_redraw(): void
     {
         [$mode] = $this->route(
             ['framing_preset' => 'women/top', 'ghost_mannequin' => true],
@@ -423,72 +432,68 @@ class PhotoEditorNoRedrawTest extends TestCase
             'worn',
         );
 
-        $this->assertSame('ghost_mannequin', $mode,
-            'a garment on a dress form was sent to a cutout that cannot remove one');
+        $this->assertSame('needs_erase', $mode,
+            'a garment on a dress form was sent to a cutout, or a redraw, that either cannot remove one '
+            . 'or recuts it doing so');
     }
 
     /**
-     * A back view on a dress form does not go to Ghost Mannequin at all.
-     *
-     * Photoroom's own documented limit on the feature: it only reconstructs
-     * front views. Nothing here had ever acted on that, and a sequin gown's
-     * back view — straps crossing behind a bare back, the mannequin's torso
-     * visible between them — went to Ghost Mannequin anyway and came back a
-     * front view of the same dress: a V-neck and thin straps over the chest,
-     * a garment invented from scratch rather than the back that was actually
-     * photographed with a stand lifted out of it. Routed to the erase pass
-     * instead, which inpaints only the stand and leaves the photographed
-     * view alone.
+     * Every view of a worn dress form gets the same treatment, including a
+     * front view — the one case Ghost Mannequin was actually built for. It
+     * still is not offered here: the erase pass reproduces the true cut, and
+     * Ghost Mannequin does not, so there is nothing a front view gains from
+     * the redraw that the erase pass does not already give it without the
+     * recut risk.
      */
-    public function test_a_back_view_on_a_dress_form_is_erased_not_redrawn(): void
+    public function test_every_view_of_a_worn_dress_form_is_erased_not_redrawn(): void
     {
-        [$mode] = $this->route(
-            ['framing_preset' => 'women/top', 'ghost_mannequin' => true],
-            true,
-            'the dress',
-            'the mannequin',
-            'worn',
-            0,
-            0,
-            'back',
-        );
+        foreach (['front', 'back', 'side', null] as $viewType) {
+            [$mode] = $this->route(
+                ['framing_preset' => 'women/top', 'ghost_mannequin' => true],
+                true, 'the dress', 'the mannequin', 'worn', 0, 0, $viewType,
+            );
 
-        $this->assertSame('needs_erase', $mode,
-            'a back view was sent to the front-view-only redraw anyway');
+            $this->assertSame('needs_erase', $mode,
+                ($viewType ?? 'unclassified') . ' view of a worn dress form went to the redraw anyway');
+        }
     }
 
-    /** A side view gets the same treatment as a back view, for the same reason. */
-    public function test_a_side_view_on_a_dress_form_is_erased_not_redrawn(): void
-    {
-        [$mode] = $this->route(
-            ['framing_preset' => 'women/top', 'ghost_mannequin' => true],
-            true,
-            'the dress',
-            'the mannequin',
-            'worn',
-            0,
-            0,
-            'side',
-        );
-
-        $this->assertSame('needs_erase', $mode);
-    }
-
-    /** A front view — or a view nothing was told about — still gets the redraw. */
-    public function test_a_front_view_on_a_dress_form_still_goes_to_the_redraw(): void
+    /**
+     * A held support — a hanger, nothing to name the product by — still gets
+     * the redraw on a front view. This is the case Ghost Mannequin was kept
+     * for: there is no dress form inside the garment to inpaint around, so
+     * there is no equivalent recut risk to guard against, and the redraw
+     * reproduces a licensed print better than the general erase pass does.
+     *
+     * Restricted to front (or unclassified) all the same, since the
+     * front-view-only limitation is Photoroom's, not a property of what is
+     * holding the garment up.
+     */
+    public function test_a_held_support_still_gets_the_redraw_on_a_front_view(): void
     {
         [$frontMode] = $this->route(
-            ['framing_preset' => 'women/top', 'ghost_mannequin' => true],
-            true, 'the dress', 'the mannequin', 'worn', 0, 0, 'front',
+            ['framing_preset' => 'women/gown-unlisted', 'ghost_mannequin' => true],
+            true, null, 'the hanger', 'held', 0, 0, 'front',
         );
         [$unknownMode] = $this->route(
-            ['framing_preset' => 'women/top', 'ghost_mannequin' => true],
-            true, 'the dress', 'the mannequin', 'worn', 0, 0, null,
+            ['framing_preset' => 'women/gown-unlisted', 'ghost_mannequin' => true],
+            true, null, 'the hanger', 'held', 0, 0, null,
         );
 
         $this->assertSame('ghost_mannequin', $frontMode);
         $this->assertSame('ghost_mannequin', $unknownMode,
             'an unclassified view should default to the redraw, as it always has');
+    }
+
+    /** And a back view of a held support still avoids the front-view-only redraw. */
+    public function test_a_held_support_is_erased_not_redrawn_on_a_back_view(): void
+    {
+        [$mode] = $this->route(
+            ['framing_preset' => 'women/gown-unlisted', 'ghost_mannequin' => true],
+            true, null, 'the hanger', 'held', 0, 0, 'back',
+        );
+
+        $this->assertSame('needs_erase', $mode);
     }
 
     /**
@@ -524,9 +529,9 @@ class PhotoEditorNoRedrawTest extends TestCase
         [, $itemEdits] = $this->route(
             ['framing_preset' => 'women/top', 'ghost_mannequin' => true],
             true,
-            'the scarf',
-            'the mannequin',
-            'worn',
+            null,
+            null,
+            null,
             900,
             1600,
         );
@@ -541,9 +546,9 @@ class PhotoEditorNoRedrawTest extends TestCase
         [, $itemEdits] = $this->route(
             ['framing_preset' => 'women/top', 'ghost_mannequin' => true],
             true,
-            'the scarf',
-            'the mannequin',
-            'worn',
+            null,
+            null,
+            null,
         );
 
         $this->assertSame('SQUARE_HD', $itemEdits['apparel_size'] ?? null);
@@ -675,11 +680,13 @@ class PhotoEditorNoRedrawTest extends TestCase
                 'accept_recut_redraw' => true,
             ],
             /*
-             * Nothing named and worn rather than held: the route that actually
-             * redraws. A named product goes to text-guided segmentation
-             * instead, which is a different failure with a different answer.
+             * Nothing named and no support classified: the route that still
+             * reaches the redraw. A worn dress form no longer does — it goes
+             * to the erase pass instead, whatever the view — and a named
+             * product goes to text-guided segmentation, a different failure
+             * with a different answer.
              */
-            ['product' => null, 'support_type' => 'worn'],
+            ['product' => null, 'support_type' => null],
             /*
              * A 'reshaped' verdict within the ceiling is no longer kept on the
              * ceiling alone — a men's jeans back view showed why: measured
@@ -722,7 +729,7 @@ class PhotoEditorNoRedrawTest extends TestCase
                 'framing_preset'      => 'women/skirts',
                 'accept_recut_redraw' => true,
             ],
-            ['product' => null, 'support_type' => 'worn'],
+            ['product' => null, 'support_type' => null],
             confirmSameGarment: false,
         );
 
@@ -757,7 +764,7 @@ class PhotoEditorNoRedrawTest extends TestCase
                 'framing_preset'      => 'women/skirts',
                 'accept_recut_redraw' => true,
             ],
-            ['product' => null, 'support_type' => 'worn'],
+            ['product' => null, 'support_type' => null],
             confirmSameGarment: true,
         );
 
@@ -787,7 +794,7 @@ class PhotoEditorNoRedrawTest extends TestCase
                 'framing_preset'      => 'women/skirts',
                 'accept_recut_redraw' => true,
             ],
-            ['product' => null, 'support_type' => 'worn'],
+            ['product' => null, 'support_type' => null],
             confirmSameGarment: false,
         );
 
@@ -815,7 +822,7 @@ class PhotoEditorNoRedrawTest extends TestCase
 
         $item = $this->runItem(
             ['framing_preset' => 'women/skirts'],
-            ['product' => null, 'support_type' => 'worn'],
+            ['product' => null, 'support_type' => null],
         );
 
         $this->assertSame('edited', $item->status, (string) $item->error_message);

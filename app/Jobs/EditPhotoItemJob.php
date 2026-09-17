@@ -1158,16 +1158,26 @@ class EditPhotoItemJob implements ShouldQueue
          *
          * A dress form is inside the garment. It shows through the neck and
          * below the hem, and it is what the garment takes its shape from. There
-         * is no cutting that away: what is behind it is the inside of the
-         * garment, which the photograph does not contain. Asked to try, the
-         * cutout keeps the form — which is what was reported, a mannequin
-         * returned still wearing the poncho after the background came away
-         * cleanly. Only a redraw removes one, and a redraw is a redraw.
+         * is no cutting that away with a segmentation-based cutout: what is
+         * behind it is the inside of the garment, which the photograph does
+         * not contain. Asked to try, the cutout keeps the form — which is what
+         * was reported, a mannequin returned still wearing the poncho after
+         * the background came away cleanly.
+         *
+         * A generative pass can still remove one without cutting anything —
+         * inpainting fills in the small gap the form leaves rather than
+         * needing pixels that were never photographed. This used to say only
+         * a redraw could do it, which sent every worn dress form to Ghost
+         * Mannequin's full regeneration whether it needed one or not, and a
+         * front view of a sequin gown showed the cost of that: a real, fitted
+         * silhouette recut 56.6% into a generic loose slip shape. See the
+         * needs_erase branch further down, which is what a worn dress form
+         * gets instead now, on every view.
          *
          * So the guess is offered where it can succeed and withheld where it
          * cannot. An unknown support falls through to the redraw, because the
          * operator asked for the stand to go and that is the route that can
-         * always do it.
+         * always do it when nothing else has claimed the photo first.
          */
         $canBeCutAway = $supportType === 'held';
 
@@ -1240,7 +1250,7 @@ class EditPhotoItemJob implements ShouldQueue
             return ['cutout_unnamed', $itemEdits];
         }
 
-        if ($wantsRedraw && $standVisible && !$named && $viewType !== 'back' && $viewType !== 'side') {
+        if ($wantsRedraw && $standVisible && !$named && $supportType !== 'worn' && $viewType !== 'back' && $viewType !== 'side') {
             /*
              * Photoroom's own Ghost Mannequin, for a category nobody has given a
              * word to. This used to be switched off here and replaced with a
@@ -1254,20 +1264,32 @@ class EditPhotoItemJob implements ShouldQueue
              * the other is a general image editor being asked to understand a
              * garment.
              *
-             * Restricted to a front view (or a view nothing was told about) for
-             * a reason documented against this feature since before this
-             * branch existed: "Ghost Mannequin only reconstructs front views,
-             * so it can't help a back or side shot where the stand is left
-             * visible" — see MANNEQUIN_REMOVAL_PROMPT's own docblock in
-             * PhotoroomService. Nothing here had ever acted on that. A sequin
-             * gown's back view — straps crossing behind a bare back, the
-             * mannequin's torso visible between them — went to Ghost Mannequin
-             * anyway and came back a front view of the same dress: a V-neck
-             * and thin straps over the chest, a garment reconstructed from
-             * scratch rather than a photograph with a stand lifted out of it.
-             * A back or side view now falls through to the erase pass instead
-             * (below, 'needs_erase'), which inpaints only the stand and leaves
-             * every other pixel — and the view actually photographed — alone.
+             * Kept for a hanger or rail with nothing to name the product by
+             * (the case this branch was written for) and dropped entirely for
+             * a dress form, whatever the view. Restricting it to a front view
+             * only was the first fix, for the reason documented against this
+             * feature since before this branch existed: "Ghost Mannequin only
+             * reconstructs front views, so it can't help a back or side shot
+             * where the stand is left visible" — see MANNEQUIN_REMOVAL_PROMPT's
+             * own docblock in PhotoroomService. That closed back and side
+             * views, and then a front view on the same dress form showed the
+             * fix had not gone far enough: a sequin gown's own front photo,
+             * fitted through the body and following the mannequin's real
+             * curves, came back redrawn 56.6% recut into a generic loose slip
+             * shape — the same silhouette the untouched back view already had.
+             * Ghost Mannequin was not lifting the stand off the front
+             * photograph, it was re-imagining the dress into whatever a
+             * "sequin slip dress" generically looks like, discarding the
+             * actual cut in the process. The erase pass does not do this on
+             * any view, worn or not, because it does not redraw the garment
+             * at all — it inpaints only the stand and leaves the true shape,
+             * front or back, exactly as photographed.
+             *
+             * Held supports still redraw, because a hanger is not inside the
+             * garment: erasing one leaves nothing behind to invent, so there
+             * is no equivalent failure to guard against, and Ghost Mannequin
+             * reproduces a licensed print (the horseshoe monogram above)
+             * better than the general erase pass does.
              *
              * The size is named rather than left open, because Photoroom's app
              * exposes quality tiers that turn out to be resolutions — 1024,
