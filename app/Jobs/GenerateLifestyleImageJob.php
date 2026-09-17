@@ -182,7 +182,7 @@ class GenerateLifestyleImageJob implements ShouldQueue
             'ghost_mannequin' => false,
             'flat_lay'        => false,
 
-            'vm_model' => $edits['vm_model'] ?? '',
+            'vm_model' => $this->defaultModel($edits),
 
             // A chosen scene or pose is honoured on the first shot and varied
             // after it; left unset, every shot varies.
@@ -257,6 +257,48 @@ class GenerateLifestyleImageJob implements ShouldQueue
 
             return $photoroom->edit($input, $wanted, $filename);
         }
+    }
+
+    /**
+     * A model whose apparent gender matches the category, when the operator
+     * has not picked one by hand.
+     *
+     * Left unset, vm_model was passed straight through as an empty string,
+     * which does not ask Photoroom for any particular model — it picks one
+     * itself, with nothing here telling it the category was menswear or
+     * womenswear. Reported directly: a men's t-shirt came back on a female
+     * model, walking a street in womenswear jeans, because nothing had ever
+     * asked for anything else.
+     *
+     * Only fills the gap. An operator who chose a model keeps exactly that
+     * choice on every shot, as before — this only replaces the empty string
+     * Photoroom was otherwise left to interpret on its own, and only when
+     * the category is named 'men/...' or 'women/...' clearly enough to
+     * choose a pool from. Varied like a scene or a pose across a group's
+     * multiple shots, so three lifestyle images do not all show the same
+     * one person.
+     */
+    private function defaultModel(array $edits): string
+    {
+        $chosen = (string) ($edits['vm_model'] ?? '');
+
+        if ($chosen !== '') {
+            return $chosen;
+        }
+
+        $category = (string) ($edits['framing_preset'] ?? '');
+
+        $pool = match (true) {
+            str_starts_with($category, 'men/')   => PhotoroomService::MALE_VIRTUAL_MODEL_PRESETS,
+            str_starts_with($category, 'women/') => PhotoroomService::FEMALE_VIRTUAL_MODEL_PRESETS,
+            default                               => null,
+        };
+
+        if ($pool === null) {
+            return '';
+        }
+
+        return $pool[$this->variationIndex % count($pool)];
     }
 
     /**

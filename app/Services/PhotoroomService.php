@@ -131,8 +131,33 @@ class PhotoroomService
     }
 
     public const VIRTUAL_MODEL_PRESETS = [
-        'avery', 'sam', 'taylor', 'kendall', 'jordan', 'casey', 'maya', 'reece',
+        'avery', 'sam', 'taylor', 'kendall', 'jordan', 'casey', 'alex', 'maya', 'reece',
         'lena', 'julia', 'jackson', 'sophia', 'emma', 'ava', 'zoe', 'fiona',
+    ];
+
+    /**
+     * Which named presets to draw from for a men's or women's category, so a
+     * men's t-shirt does not get a model chosen at random and end up in
+     * women's clothing on a walk in the park — reported directly, on a men's
+     * t-shirt that came back on a female model with nothing in the run
+     * asking for one.
+     *
+     * Photoroom's own API reference does not document a gender for any of
+     * these names — the schema is a bare list, nothing more. This split is
+     * the operator's own read of the names in common use, not something
+     * measured against Photoroom's actual generated output the way every
+     * other constant in this file is footnoted. 'avery' and 'taylor' are
+     * left out of both on purpose as genuinely unisex names rather than
+     * guessed into either pool; they stay available for a category that
+     * chooses one by hand, just not picked automatically for either gender.
+     * Worth confirming against a real batch once this ships, and correcting
+     * here — the same way every measured constant in this file has been —
+     * if any of it turns out wrong.
+     */
+    public const MALE_VIRTUAL_MODEL_PRESETS = ['sam', 'jackson', 'reece', 'jordan', 'alex'];
+
+    public const FEMALE_VIRTUAL_MODEL_PRESETS = [
+        'maya', 'lena', 'julia', 'sophia', 'emma', 'ava', 'zoe', 'fiona', 'kendall', 'casey',
     ];
 
     public const VIRTUAL_MODEL_SCENES = [
