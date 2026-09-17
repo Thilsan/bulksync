@@ -785,8 +785,29 @@ class EditPhotoItemJob implements ShouldQueue
              * picture — and a measured standard that lands within six points is
              * not a standard. Arithmetic settles it where negotiation cannot.
              */
+            /*
+             * Ghost Mannequin is let through this gate now; flat lay and
+             * virtual model still are not. All three used to be excluded
+             * together as "generates its own canvas", true of all three in
+             * the sense that Photoroom decides the composition — but only
+             * flat lay and virtual model build a scene frameToStandard's
+             * subject-box detection was never meant for (a lifestyle
+             * background, a person). A Ghost Mannequin result is a plain
+             * product on white or transparent, exactly like a cutout, and
+             * skipping this step for it only ever meant the redraw came back
+             * at whatever pixel size Photoroom's own apparel_size preset
+             * produces — a real jacket and t-shirt batch showed what that
+             * costs: the front photo (redrawn) and the back photo (erased,
+             * which does pass through here) landing at visibly different
+             * final dimensions from each other in the same catalogue, one
+             * looking sized-down next to the other for no reason a shopper
+             * would understand. Framed here the same as everything else, a
+             * kept redraw ends the run on the same canvas its own SKU's
+             * other photos do.
+             */
             if (!empty($itemEdits['framing_preset'])
-                && !$photoroom->generatesOwnCanvas($itemEdits)
+                && empty($itemEdits['flat_lay'])
+                && empty($itemEdits['virtual_model'])
                 && !empty($itemEdits['width'])) {
                 $edited = $imageService->frameToStandard(
                     $edited,

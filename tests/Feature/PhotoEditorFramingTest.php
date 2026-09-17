@@ -617,6 +617,96 @@ class PhotoEditorFramingTest extends TestCase
     }
 
     /**
+     * A men's category is not left to Photoroom's own, unstated choice of
+     * model.
+     *
+     * vm_model used to pass straight through as an empty string when nobody
+     * had picked one, which asks Photoroom for nothing in particular — it
+     * chooses a model itself, with no idea the category was menswear.
+     * Reported directly: a men's t-shirt came back on a female model,
+     * walking a street in womenswear jeans. A men's category now draws from
+     * MALE_VIRTUAL_MODEL_PRESETS instead of being left blank.
+     */
+    public function test_a_mens_category_defaults_to_a_male_model(): void
+    {
+        $method = new \ReflectionMethod(\App\Jobs\GenerateLifestyleImageJob::class, 'onModelEdits');
+        $method->setAccessible(true);
+
+        $edits = $method->invoke(
+            new \App\Jobs\GenerateLifestyleImageJob(1, 0),
+            ['framing_preset' => 'men/t-shirt'],
+        );
+
+        $this->assertContains($edits['vm_model'], PhotoroomService::MALE_VIRTUAL_MODEL_PRESETS,
+            "'{$edits['vm_model']}' is not one of the male presets");
+    }
+
+    /** And a women's category draws from the corresponding pool, the same way. */
+    public function test_a_womens_category_defaults_to_a_female_model(): void
+    {
+        $method = new \ReflectionMethod(\App\Jobs\GenerateLifestyleImageJob::class, 'onModelEdits');
+        $method->setAccessible(true);
+
+        $edits = $method->invoke(
+            new \App\Jobs\GenerateLifestyleImageJob(1, 0),
+            ['framing_preset' => 'women/top'],
+        );
+
+        $this->assertContains($edits['vm_model'], PhotoroomService::FEMALE_VIRTUAL_MODEL_PRESETS,
+            "'{$edits['vm_model']}' is not one of the female presets");
+    }
+
+    /**
+     * An operator's own choice of model is never overridden, whatever the
+     * category says — only the empty default is ever replaced.
+     */
+    public function test_an_explicitly_chosen_model_is_never_overridden(): void
+    {
+        $method = new \ReflectionMethod(\App\Jobs\GenerateLifestyleImageJob::class, 'onModelEdits');
+        $method->setAccessible(true);
+
+        $edits = $method->invoke(
+            new \App\Jobs\GenerateLifestyleImageJob(1, 0),
+            ['framing_preset' => 'men/t-shirt', 'vm_model' => 'fiona'],
+        );
+
+        $this->assertSame('fiona', $edits['vm_model']);
+    }
+
+    /**
+     * A category that is neither men's nor women's — kids, accessories,
+     * unclassified — is left exactly as before: blank, for Photoroom to
+     * choose. There is no gendered pool to draw from without guessing one.
+     */
+    public function test_an_unclassified_category_leaves_the_model_blank(): void
+    {
+        $method = new \ReflectionMethod(\App\Jobs\GenerateLifestyleImageJob::class, 'onModelEdits');
+        $method->setAccessible(true);
+
+        $edits = $method->invoke(
+            new \App\Jobs\GenerateLifestyleImageJob(1, 0),
+            ['framing_preset' => 'kids/tops'],
+        );
+
+        $this->assertSame('', $edits['vm_model']);
+    }
+
+    /**
+     * Three lifestyle shots for one men's SKU do not all show the same
+     * person, the same way scene and pose already vary across a group.
+     */
+    public function test_the_default_male_model_varies_across_a_groups_shots(): void
+    {
+        $method = new \ReflectionMethod(\App\Jobs\GenerateLifestyleImageJob::class, 'onModelEdits');
+        $method->setAccessible(true);
+
+        $first  = $method->invoke(new \App\Jobs\GenerateLifestyleImageJob(1, 0), ['framing_preset' => 'men/t-shirt']);
+        $second = $method->invoke(new \App\Jobs\GenerateLifestyleImageJob(1, 1), ['framing_preset' => 'men/t-shirt']);
+
+        $this->assertNotSame($first['vm_model'], $second['vm_model']);
+    }
+
+    /**
      * A refused upscale costs the size, not the image.
      *
      * Photoroom does not document whether its upscaler can be combined with
