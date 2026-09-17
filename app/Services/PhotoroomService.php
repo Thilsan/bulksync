@@ -802,6 +802,22 @@ class PhotoroomService
         . 'do not move any trim or hardware at all. '
         . 'Do not redraw the garment. Just remove the stand.';
 
+    /**
+     * What the erase pass is told when a mannequin or dress form is in shot
+     * and nothing names the product for a cutout — the route a worn dress
+     * form now reaches on every view except a redraw-eligible front one,
+     * precisely because it does not redraw the garment and so cannot recut
+     * it the way Ghost Mannequin can.
+     *
+     * It shares GHOST_MANNEQUIN_PROMPT's blind spot until this line was
+     * added here too: a men's jeans back view, run through this pass rather
+     * than the redraw, came back with its leather back-pocket brand patch
+     * relocated to the waistband — the same failure measured on the redraw
+     * output, on a different pass that was never asked to leave trim alone
+     * because nothing here had ever named it. "Change nothing else
+     * whatsoever" was never going to be specific enough on its own; it
+     * wasn't for the redraw prompt either.
+     */
     private const MANNEQUIN_REMOVAL_PROMPT = 'Remove only the hanger, hook, clothes rail, garment rack, mannequin, '
         . 'dress form, headless body or stand that this garment is displayed on. '
         . 'Change nothing else whatsoever. '
@@ -809,6 +825,9 @@ class PhotoroomService
         . 'the same shape, with the same folds, creases and shadows. '
         . 'Keep it upright and square to the frame: do not rotate it, do not tilt or lean it, do not lay it flat, '
         . 'do not drape or crumple it, do not move it up, down or sideways, do not enlarge or shrink it. '
+        . 'Keep every stitched-on patch, badge, tab, rivet, button, pocket and seam in exactly the same place on '
+        . 'the garment as in the photograph — do not move a back-pocket patch to the waistband or anywhere else, '
+        . 'do not move any trim or hardware at all. '
         . 'Do not redraw the garment. Do not add a person, a hanger, a surface or any other object.';
 
     /**

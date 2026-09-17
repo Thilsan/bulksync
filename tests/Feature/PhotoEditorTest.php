@@ -244,6 +244,26 @@ class PhotoEditorTest extends TestCase
     }
 
     /**
+     * The erase instruction protects stitched-on trim, not just the garment's
+     * overall position.
+     *
+     * A men's jeans back view sent through this pass — not the redraw, which
+     * has its own equivalent check further down — came back with its
+     * leather back-pocket brand patch relocated to the waistband. "Change
+     * nothing else whatsoever" said nothing specific enough to stop that,
+     * the same gap the redraw prompt had before it was named there.
+     */
+    public function test_the_erase_instruction_protects_stitched_on_trim(): void
+    {
+        $prompt = strtolower((new \ReflectionClass(PhotoroomService::class))
+            ->getConstant('MANNEQUIN_REMOVAL_PROMPT'));
+
+        foreach (['stitched-on patch', 'back-pocket patch', 'waistband', 'trim or hardware'] as $rule) {
+            $this->assertStringContainsString($rule, $prompt, "the erase instruction stopped protecting: {$rule}");
+        }
+    }
+
+    /**
      * The redraw instruction forbids them too, and has more riding on it.
      *
      * Ghost Mannequin builds its own picture, and GhostCompositeService then
