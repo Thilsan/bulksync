@@ -272,6 +272,37 @@ class PhotoEditorFramingTest extends TestCase
     }
 
     /**
+     * Men's jacket, measured rather than assumed.
+     *
+     * Checked against a real finished frame (STR202TOP04893, a Stefano
+     * Ricci hooded jacket, 2000 square): 10.00% top, 9.90% bottom, the
+     * jacket filling 80.10% of the height — the house rule again, on a
+     * second menswear category.
+     */
+    public function test_mens_jacket_keeps_the_padding_its_sample_measured(): void
+    {
+        $fields = $this->layoutFields(PhotoroomService::applyFramingPreset([], 'men/jacket'));
+
+        $this->assertSame('0.1', $fields['padding']);
+        $this->assertSame('center', $fields['verticalAlignment']);
+    }
+
+    /**
+     * Men's t-shirt, measured rather than assumed.
+     *
+     * Checked against a real finished frame (CIN202TOP04225, 2048 square):
+     * 10.01% top, 9.86% bottom, the t-shirt filling 80.13% of the height —
+     * the house rule a third time, on a third menswear category.
+     */
+    public function test_mens_t_shirt_keeps_the_padding_its_sample_measured(): void
+    {
+        $fields = $this->layoutFields(PhotoroomService::applyFramingPreset([], 'men/t-shirt'));
+
+        $this->assertSame('0.1', $fields['padding']);
+        $this->assertSame('center', $fields['verticalAlignment']);
+    }
+
+    /**
      * Beauty was measured, not inherited.
      *
      * The request was to reuse perfume's framing. The samples say otherwise:
