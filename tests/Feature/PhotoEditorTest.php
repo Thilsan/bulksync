@@ -358,6 +358,29 @@ class PhotoEditorTest extends TestCase
         }
     }
 
+    /**
+     * The price-tag erase pass says what belongs in the gap the tag leaves,
+     * not only what must not move.
+     *
+     * A real sample (Stefano Ricci jeans) had its tag and string removed
+     * cleanly and came back with a new leather-look patch invented where
+     * they had hung, near the waistband — the real pocket patch elsewhere in
+     * the same photo was untouched and correctly placed. "Do not add
+     * anything" already existed and did not stop it: an inpainting model
+     * asked to fill a gap tends to invent something plausible for the space
+     * rather than plain fabric.
+     */
+    public function test_the_price_tag_instruction_forbids_inventing_a_replacement_in_the_gap(): void
+    {
+        $prompt = strtolower(PhotoroomService::PRICE_TAG_REMOVAL_PROMPT);
+
+        foreach ([
+            'plain fabric', 'do not invent', 'new patch', 'even one that looks like it could plausibly belong',
+        ] as $rule) {
+            $this->assertStringContainsString($rule, $prompt, "the price tag instruction stopped forbidding: {$rule}");
+        }
+    }
+
     /** A transparent cutout is a PNG wherever the setting was chosen. */
     public function test_a_transparent_background_is_saved_as_png(): void
     {

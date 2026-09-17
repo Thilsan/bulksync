@@ -853,6 +853,18 @@ class PhotoroomService
      * "STEFANO RICCI" patch stitched to the pocket beside it). A prompt that
      * only protects "the collar" gives the model nothing to recognise that
      * patch by, on the one garment shape where the two sit closest together.
+     *
+     * Told what to leave in the gap, not only what to leave alone. The same
+     * Stefano Ricci sample measured a second failure once the patch-position
+     * one was fixed: the tag and its string were removed cleanly, and a new
+     * rectangular leather-look patch appeared where they had hung, near the
+     * waistband, alongside the real pocket patch which was untouched and
+     * correctly placed. Nothing had been moved this time — something had
+     * been invented. "Do not add anything" was already there and was not
+     * specific enough: an inpainting model filling a gap tends to invent
+     * something plausible for the space rather than plain fabric, especially
+     * next to a genuine leather patch elsewhere in the same photograph that
+     * gives it a pattern to copy. Told directly what belongs in that gap.
      */
     public const PRICE_TAG_REMOVAL_PROMPT = 'Remove only the paper price tag, the barcode ticket, the hang tag '
         . 'and the string or thread they hang from. '
@@ -863,6 +875,10 @@ class PhotoroomService
         . 'Keep every sewn-in label exactly as it is — a woven label or size label at the collar, a leather or '
         . 'fabric brand patch stitched to a back pocket or a waistband, or a leather loop pull tab at the '
         . 'waistband. These are part of the garment, not the price tag, however close they hang to it. '
+        . 'Where the tag and its string are removed, fill that area with plain fabric matching the garment '
+        . 'around it. Do not invent, add or place any new patch, label, tab, logo, badge or decoration there, '
+        . 'even one that looks like it could plausibly belong on the garment — if it was not visible in the '
+        . 'photograph before the tag was removed, it must not appear after. '
         . 'Do not add anything.';
 
     private string $apiKey;
