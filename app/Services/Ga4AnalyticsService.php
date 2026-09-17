@@ -85,6 +85,16 @@ class Ga4AnalyticsService
         } catch (\Throwable $e) {
             Log::warning("GA4 analytics failed for store {$store->id}: " . $e->getMessage());
 
+            // The key is gitignored and so does not travel with a deploy.
+            // Matched on the wording Ga4Client throws, which is two files
+            // away in this same codebase.
+            if (str_contains($e->getMessage(), 'No Google Analytics credentials')) {
+                return $base + [
+                    'status'  => 'no_credentials',
+                    'message' => 'The Google Analytics key is missing on this server. Copy the service account JSON to storage/app/google/analytics.json, or point GA4_CREDENTIALS_PATH at it.',
+                ];
+            }
+
             // Google answers both "never shared with this account" and "that
             // is not a property id" with the same 403, so the message names
             // both rather than guessing at which one it was.

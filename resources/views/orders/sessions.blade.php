@@ -20,6 +20,7 @@
     $states = [
         'not_configured' => ['dot' => 'bg-gray-300',  'text' => 'text-gray-400',  'label' => 'No GA4 property set'],
         'no_access'      => ['dot' => 'bg-amber-400', 'text' => 'text-amber-700', 'label' => 'No access to this property'],
+        'no_credentials' => ['dot' => 'bg-amber-400', 'text' => 'text-amber-700', 'label' => 'Analytics key missing on this server'],
         'unavailable'    => ['dot' => 'bg-rose-400',  'text' => 'text-rose-600',  'label' => 'Unavailable'],
     ];
 @endphp

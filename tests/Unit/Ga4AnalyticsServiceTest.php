@@ -249,6 +249,23 @@ class Ga4AnalyticsServiceTest extends TestCase
         $this->assertStringContainsString('Viewer', $rows[0]['message']);
     }
 
+    /**
+     * The key is gitignored, so it does not travel with a deploy — the first
+     * time this ran on the live server every website read "Unavailable",
+     * which gives whoever is looking at it nowhere to start.
+     */
+    public function test_a_missing_key_on_this_server_says_so(): void
+    {
+        $service = $this->service(
+            fn () => throw new \RuntimeException('No Google Analytics credentials at /app/storage/app/google/analytics.json.'),
+        );
+
+        $rows = $this->rows($service, $this->store());
+
+        $this->assertSame('no_credentials', $rows[0]['status']);
+        $this->assertStringContainsString('storage/app/google', $rows[0]['message']);
+    }
+
     public function test_any_other_failure_is_reported_without_breaking_the_page(): void
     {
         $service = $this->service(fn () => throw new \RuntimeException('connection reset'));
