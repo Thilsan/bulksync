@@ -61,7 +61,11 @@ class PhotoroomAllowance
             ->reject(fn ($i) => $this->wasRefusedUncounted((string) $i->error_message));
 
         // Mannequin removal is its own request, spent before the edit itself.
-        $extraCalls = $succeeded->where('apparel_mode_applied', 'mannequin_removed')->count();
+        // 'mannequin_removed_unverified' is the same request — the trim check
+        // that comes after it does not cost a Photoroom call, only a Gemini
+        // one — so it is counted here too or this would undercount exactly
+        // the runs the check exists to flag.
+        $extraCalls = $succeeded->whereIn('apparel_mode_applied', ['mannequin_removed', 'mannequin_removed_unverified'])->count();
 
         $spent = $succeeded->count() + $chargedFailures->count() + $extraCalls;
         $quota = $sandbox

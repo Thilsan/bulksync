@@ -350,10 +350,28 @@
                          and the status badge, so nothing overlaps on hover. --}}
                     <template x-if="item.view_type">
                         <span class="pointer-events-none absolute bottom-2 left-2 rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
-                              :class="['none', 'cutout_unnamed', 'ghost_redraw_kept'].includes(item.apparel_mode_applied) ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'"
+                              :class="['none', 'cutout_unnamed', 'ghost_redraw_kept', 'mannequin_removed_unverified'].includes(item.apparel_mode_applied) ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'"
                               x-text="item.view_type.replace('_', ' ') + ' view · ' + ({
                                   mannequin_removed: 'mannequin removed',
                                   segmented:         'mannequin segmented out',
+
+                                  {{-- The erase pass has no equivalent to
+                                       GhostCompositeService checking a redraw
+                                       against its photograph, so this is the
+                                       one place that check runs after the
+                                       fact instead: a real jeans photo came
+                                       back with its leather back-pocket patch
+                                       either relocated to the waistband or,
+                                       once that was fixed in the prompt, gone
+                                       from the pocket while a new one
+                                       appeared at the waistband anyway. The
+                                       stand really is gone either way — this
+                                       is not a refusal — but a plain green
+                                       "mannequin removed" has been wrong
+                                       about the trim twice on this exact
+                                       garment, so it says so instead of
+                                       looking identical to a clean one. --}}
+                                  mannequin_removed_unverified: 'mannequin removed · check trim',
 
                                   {{-- Named its way to nothing, so it was cut
                                        out on Photoroom's own matting instead.

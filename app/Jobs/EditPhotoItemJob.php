@@ -231,7 +231,8 @@ class EditPhotoItemJob implements ShouldQueue
                         $appliedMode = 'none';
 
                         try {
-                            $before = $this->describeSize($raw);
+                            $beforeSize  = $this->describeSize($raw);
+                            $beforeErase = $raw;
 
                             $raw = $photoroom->removeMannequin(
                                 $raw,
@@ -241,14 +242,44 @@ class EditPhotoItemJob implements ShouldQueue
 
                             $appliedMode = 'mannequin_removed';
 
-                            $after = $this->describeSize($raw);
+                            $afterSize = $this->describeSize($raw);
 
-                            if ($before !== $after) {
+                            if ($beforeSize !== $afterSize) {
                                 Log::warning('Photoroom erase changed the resolution', [
                                     'item' => $this->itemId,
-                                    'in'   => $before,
-                                    'out'  => $after,
+                                    'in'   => $beforeSize,
+                                    'out'  => $afterSize,
                                 ]);
+                            }
+
+                            /*
+                             * The redraw has GhostCompositeService checking every
+                             * one of its results against the photograph; this pass
+                             * had nothing, on the theory that inpainting a stand
+                             * away is a narrower job than redrawing a garment and
+                             * so a narrower risk. A real Stefano Ricci jeans photo
+                             * said otherwise twice: the mannequin genuinely gone,
+                             * badge green, "MANNEQUIN REMOVED" — and the leather
+                             * back-pocket patch either relocated to the waistband
+                             * or, on a later run after the prompt named that
+                             * exact failure, missing from the pocket while a new
+                             * one appeared at the waistband anyway. A prompt fix
+                             * alone was tried twice and did not hold, so this is
+                             * the same backstop the redraw already has: asking
+                             * Gemini whether the trim survived, not trusting that
+                             * naming the failure in the prompt was enough to stop
+                             * it. Unconfirmed does not discard the erase — the
+                             * stand is still genuinely gone, which is what was
+                             * asked for — it downgrades the badge so the operator
+                             * checks the trim before pushing instead of trusting a
+                             * green one that has been wrong twice on this exact
+                             * garment.
+                             */
+                            if (!$this->confirmsAsSameGarment($gemini, $beforeErase, $raw)) {
+                                $appliedMode = 'mannequin_removed_unverified';
+                                $redrawNote  = 'The stand was removed, but the result could not be confirmed '
+                                    . 'against the original photograph as an unchanged garment. Check that no '
+                                    . 'stitched patch, label or trim moved or was invented before pushing.';
                             }
                         } catch (\Throwable $e) {
                             Log::warning("EditPhotoItemJob item {$this->itemId} mannequin removal failed: " . $e->getMessage());

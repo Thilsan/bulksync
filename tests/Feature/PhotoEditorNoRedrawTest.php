@@ -488,6 +488,58 @@ class PhotoEditorNoRedrawTest extends TestCase
     }
 
     /**
+     * The erase pass gets the same after-the-fact check the redraw already
+     * has, because it turned out to need one just as much.
+     *
+     * GhostCompositeService checks every redraw against its photograph;
+     * this pass checked nothing, on the theory that inpainting a stand away
+     * is a narrower job than redrawing a garment. A real jeans photo said
+     * otherwise twice: the mannequin genuinely gone, badge green, and the
+     * leather back-pocket patch either relocated to the waistband or, once
+     * that was named in the prompt, missing from the pocket while a new one
+     * appeared at the waistband anyway. Gemini is asked the same question
+     * asked of a redraw — is this still the same garment — and an
+     * unconfirmed answer downgrades the mode rather than the item, since the
+     * stand really is gone either way.
+     */
+    public function test_an_unconfirmed_mannequin_removal_is_flagged_not_hidden(): void
+    {
+        Http::fake([
+            'image-api.photoroom.com/*' => Http::response($this->garmentCutout(), 200),
+        ]);
+
+        $item = $this->runItem(
+            ['framing_preset' => 'women/gown-unlisted'],
+            ['product' => null, 'support_type' => 'worn', 'view_type' => 'back'],
+            confirmSameGarment: false,
+        );
+
+        $this->assertSame('edited', $item->status, (string) $item->error_message);
+
+        $this->assertSame('mannequin_removed_unverified', $item->apparel_mode_applied,
+            'an unconfirmed mannequin removal was labelled as a plain, unchecked success');
+
+        $this->assertStringContainsString('could not be confirmed', (string) $item->error_message);
+    }
+
+    /** The ordinary case: Gemini confirms the trim survived, and the mode says so plainly. */
+    public function test_a_confirmed_mannequin_removal_is_not_flagged(): void
+    {
+        Http::fake([
+            'image-api.photoroom.com/*' => Http::response($this->garmentCutout(), 200),
+        ]);
+
+        $item = $this->runItem(
+            ['framing_preset' => 'women/gown-unlisted'],
+            ['product' => null, 'support_type' => 'worn', 'view_type' => 'back'],
+            confirmSameGarment: true,
+        );
+
+        $this->assertSame('edited', $item->status, (string) $item->error_message);
+        $this->assertSame('mannequin_removed', $item->apparel_mode_applied);
+    }
+
+    /**
      * And an unrecognised support falls through to the redraw, because that is
      * the route that can always remove one and the operator did ask.
      */

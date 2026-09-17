@@ -95,6 +95,19 @@ class PhotoroomAllowanceTest extends TestCase
         $this->assertSame(2, $this->report()['spent']);
     }
 
+    /**
+     * An unverified mannequin removal spent the same Photoroom request as a
+     * verified one — the trim check that follows it is a Gemini call, not a
+     * second Photoroom one — so it must count the same or every run this
+     * check actually flags would quietly undercount what was spent.
+     */
+    public function test_an_unverified_mannequin_removal_still_counts_twice(): void
+    {
+        $this->item('edited', null, 'mannequin_removed_unverified');
+
+        $this->assertSame(2, $this->report()['spent']);
+    }
+
     /** Nothing left must not read as a negative allowance. */
     public function test_an_overspent_allowance_floors_at_zero(): void
     {
