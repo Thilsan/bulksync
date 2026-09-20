@@ -705,6 +705,21 @@ class PhotoroomService
                 ],
             ],
         ],
+
+        /*
+         * A main category with nothing under it yet, the way perfume and
+         * luggage are — one sample so far (a decorative urn), so it stands on
+         * its own note rather than a subcategory tree assumed ahead of what
+         * has actually been shot. Worth splitting into its own subcategories
+         * (vases, cushions, throws, table linen) once more than one shape of
+         * product has been sampled — a footed urn and a folded towel are not
+         * going to want the same padding, the way a bag and a ring did not.
+         */
+        'home' => [
+            'label' => 'Home & Linen',
+            'note'  => 'Measured off a finished catalogue frame (VSS103VAS00103, a footed urn with side handles) on a 2000 square: 11.90% top, 11.75% bottom, the piece filling 76.35% of the height — looser than the 10%/80% house rule five womenswear categories and three menswear ones measured to. Left uncentred on nothing but height: the same piece filled only 64.80% of the width at 17.55%/17.65% either side, so the height is what binds and the sides are its consequence, the same relationship jeans and jackets already showed on a garment. One sample, so this is the entry to re-measure once a second piece — especially one a different shape, like something wide and low rather than tall and footed — is sampled.',
+            'edits' => ['width' => 2000, 'height' => 2000, 'padding' => 0.118],
+        ],
     ];
 
     public const COLOR_SPACES = ['sRGB', 'original'];
@@ -1267,6 +1282,12 @@ class PhotoroomService
         'perfume'                     => 'the perfume bottle',
 
         'luggage'                     => 'the suitcase',
+
+        // A broad, unsplit category (see FRAMING_PRESETS) covering whatever
+        // shape has actually been sampled so far — a decorative urn, not yet
+        // cushions, throws or table linen — so this stays a generic word
+        // rather than naming the one product photographed.
+        'home'                        => 'the piece',
 
         'beauty/makeup'               => 'the makeup product',
         'beauty/skincare'             => 'the skincare product',

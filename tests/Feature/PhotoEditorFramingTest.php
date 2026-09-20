@@ -303,6 +303,24 @@ class PhotoEditorFramingTest extends TestCase
     }
 
     /**
+     * Home & Linen, measured off its first sample rather than given the
+     * house rule.
+     *
+     * Checked against a real finished frame (VSS103VAS00103, a footed urn
+     * with side handles), 2000 square: 11.90% top, 11.75% bottom, the piece
+     * filling 76.35% of the height — looser than the 10%/80% every garment
+     * category measured to so far. Pinned so a future edit doesn't quietly
+     * pull this back to a house rule it was actually measured away from.
+     */
+    public function test_home_and_linen_keeps_the_padding_its_sample_measured(): void
+    {
+        $fields = $this->layoutFields(PhotoroomService::applyFramingPreset([], 'home'));
+
+        $this->assertSame('0.118', $fields['padding']);
+        $this->assertSame('center', $fields['verticalAlignment']);
+    }
+
+    /**
      * Beauty was measured, not inherited.
      *
      * The request was to reuse perfume's framing. The samples say otherwise:
