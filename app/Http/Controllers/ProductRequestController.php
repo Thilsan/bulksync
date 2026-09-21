@@ -108,7 +108,7 @@ class ProductRequestController extends Controller implements HasMiddleware
 
         $stats = [
             'total'             => $base()->count(),
-            'pending'           => $base()->where('status', ProductRequest::SUBMITTED)->count(),
+            'pending'           => $base()->pending()->count(),
             'waiting_mapping'   => $base()->where('status', ProductRequest::WAITING_MAPPING)->count(),
             'in_progress'       => $base()->inProgress()->count(),
             'waiting_photoshoot'=> $base()->whereIn('status', [ProductRequest::WAITING_IMAGES, ProductRequest::PHOTOSHOOT_SCHEDULED])->count(),
@@ -169,6 +169,7 @@ class ProductRequestController extends Controller implements HasMiddleware
 
         if ($request->filled('status')) {
             match ($request->string('status')->toString()) {
+                'pending' => $query->pending(),
                 'in_progress' => $query->inProgress(),
                 'on_hold' => $query->onHold(),
                 default => $query->where('status', $request->string('status')),

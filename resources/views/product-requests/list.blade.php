@@ -57,11 +57,13 @@
                 <label class="block text-xs font-medium text-gray-600 mb-1.5">Status</label>
                 <select name="status" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
                     <option value="">All statuses</option>
+                    <option value="pending" @selected(request('status') === 'pending')>Pending</option>
+                    <option value="{{ \App\Models\ProductRequest::WAITING_MAPPING }}" @selected(request('status') === \App\Models\ProductRequest::WAITING_MAPPING)>Waiting for Mapping</option>
                     <option value="in_progress" @selected(request('status') === 'in_progress')>In Progress</option>
+                    <option value="{{ \App\Models\ProductRequest::PHOTOSHOOT_SCHEDULED }}" @selected(request('status') === \App\Models\ProductRequest::PHOTOSHOOT_SCHEDULED)>Waiting for Photoshoot</option>
+                    <option value="{{ \App\Models\ProductRequest::QA_REVIEW }}" @selected(request('status') === \App\Models\ProductRequest::QA_REVIEW)>QA Review</option>
                     <option value="on_hold" @selected(request('status') === 'on_hold')>On Hold</option>
-                    @foreach(\App\Models\ProductRequest::STATUS_LABELS as $value => $label)
-                        <option value="{{ $value }}" @selected(request('status') === $value)>{{ $label }}</option>
-                    @endforeach
+                    <option value="{{ \App\Models\ProductRequest::PUBLISHED }}" @selected(request('status') === \App\Models\ProductRequest::PUBLISHED)>Published</option>
                 </select>
             </div>
             <div>

@@ -1868,13 +1868,21 @@ class ProductRequest extends Model
     public function scopeInProgress($query)
     {
         return $query->whereIn('status', [
-            self::SKU_VERIFIED,
             self::WAITING_IMAGES,
             self::PHOTOSHOOT_SCHEDULED,
             self::PHOTOSHOOT_COMPLETED,
             self::IMAGE_EDITING,
             self::AI_CONTENT,
             self::QA_REVIEW,
+        ]);
+    }
+
+    /** "Pending" for the dashboard tile — not yet picked up, or waiting to move past SKU verification. */
+    public function scopePending($query)
+    {
+        return $query->whereIn('status', [
+            self::SUBMITTED,
+            self::SKU_VERIFIED,
         ]);
     }
 }
