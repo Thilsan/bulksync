@@ -398,6 +398,76 @@ Return only valid JSON. No markdown, no code blocks, no extra text.";
     }
 
     /**
+     * Look at one finished image and say whether any part of a mannequin,
+     * dress form, hanger or stand is still visible in it — checked against
+     * the delivered result itself, not trusted from whatever the
+     * classification decided before any editing ran.
+     *
+     * Built because confirmSameGarment() answers a different question and
+     * missed exactly this on a real batch: a back-view gown that passed it
+     * cleanly — correctly, it genuinely was the same garment — still had a
+     * pale sliver of the mannequin's shoulder showing above the neckline,
+     * because nothing had ever asked "is the stand actually gone," only
+     * "is this still the same garment." The two are not the same question;
+     * a redraw or an erase pass can hold the garment's identity perfectly
+     * and still leave a piece of the thing it was supposed to remove.
+     *
+     * Run independently of whatever the pre-edit classification said,
+     * because that classification is the other half of the same batch's
+     * failure: a front-view gown, plainly on a full dress form in the
+     * original photo, was read as having no mannequin visible at all, so
+     * removal was never attempted and the finished image kept the entire
+     * stand. Trusting that same classification a second time here would
+     * have waved the same photo through twice.
+     *
+     * @return bool|null true if confirmed clean, false if a stand is seen,
+     *                    null if Gemini could not be asked or would not
+     *                    say — the caller treats both the same way this
+     *                    file's other verification does: a refusal it
+     *                    cannot explain still counts as a refusal.
+     */
+    public function confirmNoStandVisible(string $imageBytes): ?bool
+    {
+        $imageBytes = $this->shrinkForApi($imageBytes);
+
+        $prompt = "Look at this product photograph of a garment.
+
+Decide whether any part of a mannequin, dress form, headless body, hanger, hook, clothes rail or other stand is still visible anywhere in the image — including a small piece showing through a neckline, above a shoulder, through a sleeve opening, or at any edge of the garment. A faint or partial sliver still counts as visible.
+
+Return a JSON object with exactly one field:
+- \"stand_visible\": true if any part of a mannequin, dress form or stand can be seen anywhere in the image, false if the garment is fully clear of one.
+
+Return only valid JSON. No markdown, no code blocks, no extra text.";
+
+        $payload = [
+            'contents' => [[
+                'parts' => [
+                    ['text' => $prompt],
+                    ['inline_data' => [
+                        'mime_type' => $this->detectMimeType($imageBytes),
+                        'data'      => base64_encode($imageBytes),
+                    ]],
+                ],
+            ]],
+            'generationConfig' => [
+                'responseMimeType' => 'application/json',
+                'temperature'      => 0.1,
+            ],
+        ];
+
+        $response = $this->postWithRetry($payload);
+        if (!$response) return null;
+
+        $text = $response->json('candidates.0.content.parts.0.text') ?? '';
+        if (!$text) return null;
+
+        $data = json_decode($text, true);
+        if (!is_array($data) || !array_key_exists('stand_visible', $data)) return null;
+
+        return !$data['stand_visible'];
+    }
+
+    /**
      * Look at a product photo and say which side of the garment is showing,
      * so the caller can decide whether a generative apparel mode (which only
      * knows how to build a front view) is appropriate for this specific shot.

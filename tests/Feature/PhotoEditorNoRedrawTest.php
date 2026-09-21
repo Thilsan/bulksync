@@ -87,6 +87,7 @@ class PhotoEditorNoRedrawTest extends TestCase
         array $edits,
         array $classification = [],
         ?bool $confirmSameGarment = null,
+        bool $confirmNoStandVisible = true,
     ): PhotoEditItem {
         $user = User::factory()->create(['is_active' => true, 'perm_photo_editor' => true]);
 
@@ -130,6 +131,12 @@ class PhotoEditorNoRedrawTest extends TestCase
         if ($confirmSameGarment !== null) {
             $gemini->shouldReceive('confirmSameGarment')->once()->andReturn($confirmSameGarment);
         }
+
+        // Confirmed clean by default — these tests are about routing and the
+        // redraw pipeline, not this check, so a real photo's stand genuinely
+        // being gone is the ordinary case to assume unless a test says
+        // otherwise.
+        $gemini->shouldReceive('confirmNoStandVisible')->andReturn($confirmNoStandVisible);
 
         (new EditPhotoItemJob($item->id))->handle(
             $oneDrive,
@@ -537,6 +544,101 @@ class PhotoEditorNoRedrawTest extends TestCase
 
         $this->assertSame('edited', $item->status, (string) $item->error_message);
         $this->assertSame('mannequin_removed', $item->apparel_mode_applied);
+    }
+
+    /**
+     * The stand-visibility check runs independently of confirmsAsSameGarment
+     * and of whatever mode the item ended up in — a real batch showed why:
+     * a back-view gown passed the same-garment check cleanly (it genuinely
+     * was the same garment) while a pale sliver of the mannequin's shoulder
+     * was still visible above the neckline, which that check was never
+     * asking about. Confirmed here on the erase path specifically, since
+     * that is the mode the real failure was found on.
+     */
+    public function test_a_stand_still_visible_after_mannequin_removal_is_flagged(): void
+    {
+        Http::fake([
+            'image-api.photoroom.com/*' => Http::response($this->garmentCutout(), 200),
+        ]);
+
+        $item = $this->runItem(
+            ['framing_preset' => 'women/gown-unlisted'],
+            ['product' => null, 'support_type' => 'worn', 'view_type' => 'back'],
+            confirmNoStandVisible: false,
+        );
+
+        $this->assertSame('edited', $item->status, (string) $item->error_message);
+        $this->assertTrue((bool) $item->stand_visible_after_edit,
+            'a stand left visible in the delivered image was not recorded');
+        $this->assertStringContainsString('mannequin or stand may still be visible', (string) $item->error_message);
+    }
+
+    /** The ordinary case: a stand confirmed gone leaves the item unflagged. */
+    public function test_a_confirmed_clean_result_is_not_flagged_for_a_stand(): void
+    {
+        Http::fake([
+            'image-api.photoroom.com/*' => Http::response($this->garmentCutout(), 200),
+        ]);
+
+        $item = $this->runItem(
+            ['framing_preset' => 'women/gown-unlisted'],
+            ['product' => null, 'support_type' => 'worn', 'view_type' => 'back'],
+            confirmNoStandVisible: true,
+        );
+
+        $this->assertSame('edited', $item->status, (string) $item->error_message);
+        $this->assertFalse((bool) $item->stand_visible_after_edit);
+    }
+
+    /**
+     * Nothing routed through the apparel pipeline at all — no category
+     * ticked a redraw mode — so there is no classification for this check
+     * to run alongside, and it is left unrecorded rather than guessed at.
+     * confirmNoStandVisible has no expectation set on this run's mock, so a
+     * call here fails the test loudly rather than silently passing.
+     */
+    public function test_an_item_outside_the_apparel_pipeline_is_never_stand_checked(): void
+    {
+        Http::fake([
+            'image-api.photoroom.com/*' => Http::response($this->solidRectangle(), 200),
+        ]);
+
+        $user = User::factory()->create(['is_active' => true, 'perm_photo_editor' => true]);
+
+        $session = PhotoEditSession::create([
+            'user_id'       => $user->id,
+            'name'          => 'Run',
+            'onedrive_link' => 'https://example.com',
+            'edits'         => ['remove_background' => true],
+        ]);
+
+        $item = PhotoEditItem::create([
+            'photo_edit_session_id' => $session->id,
+            'filename'              => 'a.jpg',
+            'status'                => 'pending',
+            'onedrive_drive_id'     => 'drive-1',
+            'onedrive_item_id'      => 'item-1',
+        ]);
+
+        $oneDrive = \Mockery::mock(\App\Services\OneDriveService::class);
+        $oneDrive->shouldReceive('setUser')->andReturnSelf();
+        $oneDrive->shouldReceive('downloadFileById')->andReturn($this->garmentCutout());
+
+        $gemini = \Mockery::mock(\App\Services\GeminiService::class);
+
+        (new EditPhotoItemJob($item->id))->handle(
+            $oneDrive,
+            app(\App\Services\ImageProcessingService::class),
+            app(PhotoroomService::class),
+            $gemini,
+            app(\App\Services\GhostPrintTransplantService::class),
+            app(\App\Services\GhostCompositeService::class),
+        );
+
+        $item = $item->fresh();
+
+        $this->assertSame('edited', $item->status, (string) $item->error_message);
+        $this->assertNull($item->stand_visible_after_edit);
     }
 
     /**

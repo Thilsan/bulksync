@@ -28,6 +28,7 @@ class PhotoEditItem extends Model
         'status',
         'view_type',
         'mannequin_visible',
+        'stand_visible_after_edit',
         'apparel_mode_applied',
         'sandbox',
         'uncertainty_score',
@@ -50,6 +51,7 @@ class PhotoEditItem extends Model
             'remove_handle'     => 'boolean',
             'selected'          => 'boolean',
             'mannequin_visible' => 'boolean',
+            'stand_visible_after_edit' => 'boolean',
             'uncertainty_score' => 'float',
         ];
     }

@@ -700,6 +700,12 @@ class PhotoEditorController extends Controller implements HasMiddleware
             'status_color'          => $i->statusColor(),
             'view_type'             => $i->view_type,
             'mannequin_visible'     => $i->mannequin_visible,
+
+            // Checked against the delivered image itself, independent of
+            // mannequin_visible above — see GeminiService::confirmNoStandVisible()
+            // for why the two are not allowed to trust one another.
+            'stand_visible_after_edit' => $i->stand_visible_after_edit,
+
             'apparel_mode_applied'  => $i->apparel_mode_applied,
 
             // Photoroom's own confidence in the cutout, so the reviewer's

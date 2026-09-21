@@ -348,9 +348,15 @@
                          not applied, so it is not mistaken for a failure.
                          Bottom-left, clear of both the "Before" hover label
                          and the status badge, so nothing overlaps on hover. --}}
+                    {{-- stand_visible_after_edit overrides the colour and appends its own
+                         warning independent of apparel_mode_applied, because it is checked
+                         against the delivered image itself rather than trusted from the
+                         mode that produced it — a mode can be an honest "mannequin removed"
+                         and still have left a sliver of one in shot; see
+                         GeminiService::confirmNoStandVisible(). --}}
                     <template x-if="item.view_type">
                         <span class="pointer-events-none absolute bottom-2 left-2 rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
-                              :class="['none', 'cutout_unnamed', 'ghost_redraw_kept', 'mannequin_removed_unverified'].includes(item.apparel_mode_applied) ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'"
+                              :class="(item.stand_visible_after_edit || ['none', 'cutout_unnamed', 'ghost_redraw_kept', 'mannequin_removed_unverified'].includes(item.apparel_mode_applied)) ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'"
                               x-text="item.view_type.replace('_', ' ') + ' view · ' + ({
                                   mannequin_removed: 'mannequin removed',
                                   segmented:         'mannequin segmented out',
@@ -400,7 +406,8 @@
                                        instruction either way: look before you
                                        push this one. --}}
                                   ghost_redraw_kept: 'redrawn · check the print',
-                              }[item.apparel_mode_applied] || 'cutout only')"></span>
+                              }[item.apparel_mode_applied] || 'cutout only')
+                              + (item.stand_visible_after_edit ? ' · check the stand' : '')"></span>
                     </template>
 
                     {{-- Photoroom reports how sure it was of each cutout, free,

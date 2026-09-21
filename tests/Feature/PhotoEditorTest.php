@@ -1658,6 +1658,11 @@ class PhotoEditorTest extends TestCase
         $gemini = \Mockery::mock(\App\Services\GeminiService::class);
         $gemini->shouldReceive('classifyGarmentView')->andReturn($classification);
 
+        // Confirmed clean by default — these tests are about the apparel
+        // route and the redraw pipeline, not this check, so a real photo's
+        // stand genuinely being gone is the ordinary case to assume here.
+        $gemini->shouldReceive('confirmNoStandVisible')->andReturn(true);
+
         \Illuminate\Support\Facades\Http::fake([
             'image-api.photoroom.com/*' => \Illuminate\Support\Facades\Http::response($garment, 200),
         ]);

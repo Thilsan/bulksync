@@ -900,6 +900,52 @@ class EditPhotoItemJob implements ShouldQueue
             }
 
             /*
+             * A stand genuinely gone is checked, not assumed — against the
+             * delivered image itself, not the classification that ran before
+             * any editing happened.
+             *
+             * Two failures on one real batch showed why. A front-view gown,
+             * plainly on a full dress form in the original photo, was read at
+             * classification time as having no mannequin visible at all — so
+             * nothing downstream ever tried to remove one, and the finished
+             * image kept the entire stand, badge green, "READY". A back view
+             * of the same SKU did trigger removal and mostly succeeded, but
+             * left a pale sliver of the mannequin's shoulder still showing
+             * above the neckline, and passed straight through
+             * confirmsAsSameGarment() uncaught — correctly, it genuinely was
+             * the same garment, which was never the question that check was
+             * asking. Neither failure was visible from the mode the item
+             * ended up in; both shipped as an ordinary, unflagged success.
+             *
+             * Run on every apparel photo rather than only the ones the
+             * classification already flagged as risky, because the first
+             * failure was exactly that classification being wrong — checking
+             * only what it already doubted would have asked the same
+             * question of the same photo twice and skipped the one that
+             * needed asking. $classification is non-null only when this run
+             * actually engaged the apparel pipeline (Ghost Mannequin, not an
+             * on-model scene, not a kept background), which is the same
+             * boundary the rest of this feature already uses.
+             */
+            if ($classification !== null) {
+                try {
+                    $standGone = $gemini->confirmNoStandVisible($edited);
+                } catch (\Throwable $e) {
+                    Log::warning("EditPhotoItemJob item {$this->itemId} stand-visibility check failed: " . $e->getMessage());
+                    $standGone = null;
+                }
+
+                $standStillVisible = $standGone !== true;
+
+                if ($standStillVisible) {
+                    $redrawNote = trim(($redrawNote ? $redrawNote . ' ' : '')
+                        . 'A mannequin or stand may still be visible in this image — check before pushing.');
+                }
+            } else {
+                $standStillVisible = null;
+            }
+
+            /*
              * Which tier Photoroom actually gave us. Its app calls 1024, 2048
              * and 4096 standard, advanced and premium; the API documents only
              * "HD" and offers no quality parameter, so the only way to know is
@@ -946,6 +992,12 @@ class EditPhotoItemJob implements ShouldQueue
                 'edited_size_kb'       => (int) round(strlen($edited) / 1024),
                 'view_type'            => $classification['view_type'] ?? null,
                 'mannequin_visible'    => $classification['mannequin_visible'] ?? null,
+
+                // Checked against the delivered image, independent of the
+                // 'mannequin_visible' reading above — see the check itself
+                // for why the two are not allowed to trust one another.
+                'stand_visible_after_edit' => $standStillVisible,
+
                 'apparel_mode_applied' => $appliedMode,
 
                 /*
