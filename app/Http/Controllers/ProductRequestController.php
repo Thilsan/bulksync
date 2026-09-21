@@ -168,7 +168,11 @@ class ProductRequestController extends Controller implements HasMiddleware
             ->with(['user', 'store', 'currentAssignments.user']);
 
         if ($request->filled('status')) {
-            $query->where('status', $request->string('status'));
+            match ($request->string('status')->toString()) {
+                'in_progress' => $query->inProgress(),
+                'on_hold' => $query->onHold(),
+                default => $query->where('status', $request->string('status')),
+            };
         }
 
         if ($request->filled('priority')) {

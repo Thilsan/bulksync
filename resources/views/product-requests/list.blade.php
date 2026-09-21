@@ -57,6 +57,8 @@
                 <label class="block text-xs font-medium text-gray-600 mb-1.5">Status</label>
                 <select name="status" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
                     <option value="">All statuses</option>
+                    <option value="in_progress" @selected(request('status') === 'in_progress')>In Progress</option>
+                    <option value="on_hold" @selected(request('status') === 'on_hold')>On Hold</option>
                     @foreach(\App\Models\ProductRequest::STATUS_LABELS as $value => $label)
                         <option value="{{ $value }}" @selected(request('status') === $value)>{{ $label }}</option>
                     @endforeach
