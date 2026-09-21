@@ -139,6 +139,23 @@
                 <tbody class="divide-y divide-gray-100">
                     @foreach ($sessions as $s)
                     @php
+                        /*
+                         * "Completed" on its own only ever meant the editing
+                         * pass finished — it said nothing about whether any of
+                         * those photos had actually reached Shopify yet, which
+                         * is the thing a run of this list is really being
+                         * checked for. A run edited an hour ago and never
+                         * pushed looked identical to one that went out the
+                         * same green pill as one that had.
+                         *
+                         * Only relevant once the editing pass is actually done
+                         * and produced something to push — a run with nothing
+                         * edited (everything failed, or none of it finished)
+                         * has no push state worth reporting, so it keeps the
+                         * plain status pill below.
+                         */
+                        $statusLabel = ucfirst($s->status);
+
                         // Written out rather than interpolated: Tailwind only ships
                         // the class names it can find as complete strings.
                         $pill = match ($s->status) {
@@ -147,6 +164,15 @@
                             'failed'     => 'bg-red-100 text-red-700',
                             default      => 'bg-gray-100 text-gray-600',
                         };
+
+                        if ($s->status === 'completed' && $s->edited_files > 0) {
+                            if ($s->pushed_files >= $s->edited_files) {
+                                $statusLabel = 'Shopify Completed';
+                            } else {
+                                $statusLabel = 'Push to Shopify';
+                                $pill        = 'bg-amber-100 text-amber-700';
+                            }
+                        }
                     @endphp
                     <tr class="transition-colors hover:bg-gray-50">
                         <td class="px-6 py-3">
@@ -174,7 +200,7 @@
                         <td class="px-6 py-3 text-center tabular-nums {{ $s->failed_files > 0 ? 'text-red-600' : 'text-gray-300' }}">{{ $s->failed_files }}</td>
                         <td class="px-6 py-3">
                             <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium {{ $pill }}">
-                                {{ ucfirst($s->status) }}
+                                {{ $statusLabel }}
                             </span>
                         </td>
                         <td class="whitespace-nowrap px-6 py-3 text-gray-500">{{ $s->created_at->format('d M Y H:i') }}</td>
