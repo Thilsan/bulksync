@@ -465,34 +465,33 @@ class EditPhotoItemJob implements ShouldQueue
              */
             if ($appliedMode === 'ghost_mannequin') {
                 /*
-                 * The redraw is kept. The stand going is the whole of what was
-                 * asked for, and the request for it is the ticked checkbox.
+                 * The redraw is used only where it can be shown to agree with
+                 * the photograph. Where it cannot, the photograph is used and
+                 * the stand stays in it.
                  *
-                 * This used to refuse a redraw the composite could not verify
-                 * and fall back to a plain cutout — the photograph with the
-                 * stand still standing in it. Defensible on paper and wrong in
-                 * practice: the operator ticked "Remove the stand" and was
-                 * handed back the stand, on some photos and not others, with
-                 * no way to tell in advance which. Two views of one dress,
-                 * one setting, one redrawn and one not.
+                 * This was briefly the other way round — publish the redraw
+                 * whatever the measurement said, on the reasoning that the
+                 * operator ticked "Remove the stand" and handing back the
+                 * stand ignores the request. That reasoning was mine and a
+                 * batch of jeans settled it: four cards, every one flagged,
+                 * proportions changed by 38.6%, 46.6%, 46.8% and 49.0%, and
+                 * two of them with the denim drained to a pale grey. Every
+                 * one of those was a picture of a garment nobody photographed
+                 * and nobody sells. Against that, a cutout with a visible
+                 * stand is a picture of the real product with a flaw the
+                 * operator can see and fix.
                  *
-                 * So the composite is now an improvement, never a veto. Where
-                 * the redraw lines up with the photograph it is composited —
-                 * the stand gone at full resolution with the real drape,
-                 * direction and fabric, which is strictly the best result
-                 * available. Where it does not line up, the redraw itself is
-                 * kept rather than thrown away, and the reason the composite
-                 * gave is put on the item so the operator knows to look at the
-                 * print and the cut before pushing.
+                 * Which is the point the measurement was making all along: a
+                 * caveat under a wrong image is not a safeguard, because the
+                 * customer never reads the caveat. The note reaches the
+                 * operator; the image reaches the customer.
                  *
-                 * What that trades: a recut garment can now reach the review
-                 * grid, where before it was refused outright. It reaches it
-                 * flagged, in front of somebody who can see it, which is a
-                 * better place for that judgement than a rule that could not
-                 * tell a recut skirt from a different dress.
+                 * So a refusal ends the matter, including a refusal the
+                 * composite cannot explain — unverifiable and wrong look
+                 * identical from here, and only one of them is safe to
+                 * publish.
                  */
-                $verified   = false;
-                $keptRedraw = false;
+                $verified = false;
 
                 try {
                     $whole = $composite->composite($input, $edited);
@@ -503,17 +502,8 @@ class EditPhotoItemJob implements ShouldQueue
                         $edited      = $whole['image'];
                         $appliedMode = 'ghost_photo_kept';
                     } else {
-                        /*
-                         * $edited already holds the redraw — it is what came
-                         * back from Photoroom and what the composite has just
-                         * measured — so keeping it is a matter of not
-                         * replacing it.
-                         */
-                        $keptRedraw  = true;
-                        $appliedMode = 'ghost_redraw_kept';
-                        $redrawNote  = 'The stand was removed by redrawing the garment. ' . $whole['reason']
-                            . ' The photograph was not used — check the print, the colour and the drape '
-                            . 'before pushing.';
+                        $redrawNote = 'The stand could not be removed without altering the garment, '
+                            . 'so the photo was kept as shot. ' . $whole['reason'];
                     }
 
                     Log::info('Ghost mannequin composite', [
@@ -523,26 +513,39 @@ class EditPhotoItemJob implements ShouldQueue
                         'reason'   => $whole['reason'],
                     ]);
                 } catch (\Throwable $e) {
-                    /*
-                     * The composite could not run at all — a decode failure, a
-                     * subject it could not find. The redraw itself is still
-                     * what came back from Photoroom and the stand is still
-                     * gone in it, so it is kept and said so, rather than the
-                     * whole edit being abandoned over a measurement that could
-                     * not be taken.
-                     */
-                    $keptRedraw  = true;
-                    $appliedMode = 'ghost_redraw_kept';
-                    $redrawNote  = 'The stand was removed by redrawing the garment. The redraw could not be '
-                        . 'measured against the photograph, so nothing here can say how closely it matches — '
-                        . 'check the print, the colour and the drape before pushing.';
+                    $redrawNote = 'The stand could not be removed without altering the garment, '
+                        . 'so the photo was kept as shot.';
 
                     Log::warning(
                         "EditPhotoItemJob item {$this->itemId} composite could not run: " . $e->getMessage()
                     );
                 }
 
-                unset($verified, $keptRedraw);
+                if (!$verified) {
+                    /*
+                     * Back to a plain cutout. The redraw's own bytes are thrown
+                     * away: it is a picture of a garment that was not
+                     * photographed, and there is nothing to salvage from one.
+                     *
+                     * One more credit, spent to publish the real product
+                     * instead of an invented one.
+                     */
+                    $plain = $itemEdits;
+                    $plain['ghost_mannequin']  = false;
+                    $plain['flat_lay']         = false;
+                    $plain['virtual_model']    = false;
+                    $plain['remove_background'] = true;
+
+                    try {
+                        $edited      = $photoroom->edit($input, $plain, $item->filename);
+                        $itemEdits   = $plain;
+                        $appliedMode = 'cutout_unnamed';
+                    } catch (\Throwable $e) {
+                        Log::warning(
+                            "EditPhotoItemJob item {$this->itemId} fallback cutout failed: " . $e->getMessage()
+                        );
+                    }
+                }
             }
 
             /*

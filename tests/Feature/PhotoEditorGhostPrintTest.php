@@ -95,44 +95,43 @@ class PhotoEditorGhostPrintTest extends TestCase
      * The redraw here is Photoroom's own square, unrelated to the photograph
      * it was sent — the case the composite cannot verify.
      *
-     * This used to assert the opposite: that such a redraw was refused and
-     * replaced with a plain cutout, the photograph with the stand still in
-     * it. That was the behaviour the operator kept hitting as "I ticked
-     * Remove the stand and got the stand back", inconsistently, on some
-     * photos of a SKU and not others. The stand going is what the checkbox
-     * asks for, so the redraw is kept and the composite's own reason is put
-     * in front of somebody who can look at it.
+     * It is refused and replaced with a plain cutout: the photograph, stand
+     * and all. Briefly this asserted the opposite — publish the redraw and
+     * put the composite's reason underneath it — which read well until a
+     * batch of jeans came back recut by 38-49% with the denim drained to
+     * grey. A caveat under a wrong image is not a safeguard, because the
+     * note reaches the operator and the image reaches the customer.
      */
-    public function test_a_redraw_the_composite_cannot_verify_is_still_kept(): void
+    public function test_a_redraw_the_composite_cannot_verify_is_refused(): void
     {
         $item = $this->edit($this->photo(withPrint: true), $this->redraw(withPrint: true));
 
         $this->assertSame('edited', $item->status);
 
         $this->assertSame(
-            'ghost_redraw_kept',
+            'cutout_unnamed',
             $item->apparel_mode_applied,
-            'the redraw was thrown away and the stand put back',
+            'a redraw the composite could not verify was published anyway',
         );
 
-        // And the operator is told what to look at, rather than being left to
-        // notice that a garment came back a different shape.
+        // And the operator is told why the stand is still there, rather than
+        // being left to wonder whether the checkbox did anything.
         $this->assertStringContainsString(
-            'check the print',
+            'kept as shot',
             (string) $item->error_message,
-            'nothing told the operator what to check on a redraw that could not be verified',
+            'nothing told the operator why the stand is still in the picture',
         );
     }
 
     /**
-     * And the redraw's own bytes are what reach the file.
+     * And the redraw's own bytes are not what reach the file.
      *
-     * The inverse of what this asserted before. The redraw is no longer
-     * thrown away, so the thing worth pinning is that the image written out
-     * is actually derived from it — not the photograph with the stand back
-     * in it, which is what the old fallback wrote.
+     * The measurement is only worth taking if the image it refuses is
+     * actually kept out of the file. Pinned separately from the mode column,
+     * because a mode string is easy to set and easy to set without the
+     * pixels following it.
      */
-    public function test_the_redraws_pixels_are_what_reach_the_file(): void
+    public function test_the_refused_redraws_pixels_do_not_reach_the_file(): void
     {
         $photo  = $this->photo(withPrint: false);
         $redraw = $this->redraw(withPrint: false);
@@ -140,13 +139,14 @@ class PhotoEditorGhostPrintTest extends TestCase
         $item = $this->edit($photo, $redraw);
 
         $this->assertSame('edited', $item->status);
-        $this->assertSame('ghost_redraw_kept', $item->apparel_mode_applied);
+        $this->assertSame('cutout_unnamed', $item->apparel_mode_applied);
 
         $written = (string) file_get_contents(storage_path('app/' . $item->edited_path));
 
-        // Framed and re-encoded on the way out, so not byte-identical to the
-        // redraw — but it must not be the photograph either.
-        $this->assertNotSame($photo, $written, 'the photograph was written out instead of the redraw');
+        // Framed and re-encoded on the way out, so byte-identical to neither
+        // input — but the redraw's 1024 square is the one that must not be
+        // the source, so its size is what this looks for.
+        $this->assertNotSame($redraw, $written, 'the refused redraw was written out anyway');
     }
 
     // ── Fixtures ───────────────────────────────────────────────────────────

@@ -276,17 +276,21 @@ class PhotoEditorNoRedrawTest extends TestCase
     }
 
     /**
-     * A redraw the composite cannot verify is still the image that is kept.
+     * A redraw the composite cannot verify is thrown away, and the photograph
+     * is published with the stand still in it.
      *
-     * This used to fall back to a plain cutout — the photograph with the
-     * stand still in it — whenever the composite could not line the redraw
-     * up against it. The operator had ticked "Remove the stand" and got the
-     * stand back, on some photos and not others, which is the inconsistency
-     * this whole route was rebuilt to end. The stand going is what was asked
-     * for; the composite is now an improvement on that when it can line up,
-     * never a veto when it cannot.
+     * This briefly asserted the opposite — keep the redraw whatever the
+     * measurement said, because the operator ticked "Remove the stand" and
+     * handing back the stand ignores that. A batch of jeans settled it: four
+     * cards, all four flagged, proportions changed by 38.6%, 46.6%, 46.8%
+     * and 49.0%, two of them with the denim drained to a pale grey. Those
+     * are pictures of garments nobody photographed and nobody sells.
+     *
+     * The note reaches the operator; the image reaches the customer. So a
+     * refusal ends the matter, and the cost of that is a visible stand the
+     * operator can see and fix — not an invented product they cannot.
      */
-    public function test_a_redraw_the_composite_refuses_is_still_kept(): void
+    public function test_a_redraw_the_composite_refuses_falls_back_to_the_photograph(): void
     {
         $calls = 0;
 
@@ -304,14 +308,18 @@ class PhotoEditorNoRedrawTest extends TestCase
 
         $this->assertSame('edited', $item->status, (string) $item->error_message);
 
-        $this->assertSame('ghost_redraw_kept', $item->apparel_mode_applied,
-            'a redraw the composite refused was thrown away and the stand put back');
+        $this->assertSame('cutout_unnamed', $item->apparel_mode_applied,
+            'a redraw the composite refused was published anyway');
 
-        $this->assertStringContainsString('check the print', (string) $item->error_message,
+        $this->assertStringContainsString('kept as shot', (string) $item->error_message,
+            'the operator was not told the stand is still in the picture');
+
+        $this->assertStringContainsString('proportions', (string) $item->error_message,
             'the reason the composite gave should reach the operator');
 
-        // One request. The old fallback cutout would have been a second.
-        $this->assertSame(1, $calls, 'a second credit was spent undoing the redraw');
+        // Two requests: the redraw, then the cutout that replaced it. The
+        // second credit is the price of publishing the real product.
+        $this->assertSame(2, $calls, 'the fallback cutout was not fetched');
     }
 
     /**
