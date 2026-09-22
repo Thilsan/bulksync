@@ -1046,12 +1046,21 @@ class GhostCompositeService
          * Skipped when there was too little garment-coloured pixel on one
          * side to trust an average from — a near-white or pastel product,
          * which this metric was never going to be able to judge either way.
+         *
+         * These reasons say what was measured and why the two images cannot
+         * be blended. They must not say what was then done with either one:
+         * this reason used to end "the photograph was kept instead", which
+         * was true while a failed composite fell back to the photograph and
+         * became a lie the moment the redraw started being kept instead. The
+         * caller appends the outcome, so a reason that names one as well puts
+         * two contradictory sentences on the same card — which is exactly
+         * what reached the review grid.
          */
         if ($metrics['colour_shift'] !== null && $metrics['colour_shift'] > self::MAX_COLOUR_SHIFT) {
             return ['recoloured', sprintf(
                 'The garment\'s own colour shifted by %.1f%% between the photograph and the redraw '
                 . '(limit %.0f%%). Whatever else matched, a customer ordering this colour should '
-                . 'receive it — the photograph was kept instead.',
+                . 'receive it, so the two cannot be blended into one image.',
                 $metrics['colour_shift'] * 100,
                 self::MAX_COLOUR_SHIFT * 100,
             )];

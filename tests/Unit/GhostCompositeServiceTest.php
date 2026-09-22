@@ -157,6 +157,38 @@ class GhostCompositeServiceTest extends TestCase
     }
 
     /**
+     * A reason says what was measured and why the two images cannot be
+     * blended. It must not say which image was then published, because this
+     * service does not decide that — the job does, and the job appends its
+     * own sentence to whatever comes back from here.
+     *
+     * The recoloured reason used to end "the photograph was kept instead".
+     * That was true while a failed composite fell back to the photograph. It
+     * stopped being true when the redraw started being kept instead, and
+     * nothing caught it, so the review grid carried cards reading "the
+     * photograph was kept instead. The photograph was not used" — one card,
+     * two contradictory sentences, in front of the person deciding whether
+     * the image is safe to push.
+     */
+    public function test_a_reason_never_claims_which_image_was_published(): void
+    {
+        $rejections = [
+            'recoloured' => $this->recolouredGhost(),
+            'reshaped'   => $this->ghost(garmentRight: 260),
+            'moved'      => $this->tiltedGhost(),
+        ];
+
+        foreach ($rejections as $verdict => $ghost) {
+            $reason = $this->service->composite($this->original(), $ghost)['reason'];
+
+            foreach (['was kept instead', 'photograph was kept', 'was not used'] as $claim) {
+                $this->assertStringNotContainsString($claim, $reason,
+                    "the {$verdict} reason states an outcome this service does not decide");
+            }
+        }
+    }
+
+    /**
      * Not so sensitive that ordinary rendering variance between a photograph
      * and a generative redraw of the same navy fabric reads as a colour
      * failure — only a colour a person would actually call different.
