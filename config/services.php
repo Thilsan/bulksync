@@ -85,15 +85,29 @@ return [
         /*
          * Images included in the plan each month. Only used to show how much of
          * the allowance a run would take before it is started.
+         *
+         * 2,000 is what the Plus plan actually carries, read off Photoroom's
+         * own dashboard. Both numbers here were wrong until they were checked
+         * against it side by side — this one said 3,000 — and a quota figure
+         * that is only ever compared against itself will stay wrong quietly,
+         * because nothing in this app can tell it is.
          */
-        'monthly_quota' => (int) env('PHOTOROOM_MONTHLY_QUOTA', 1000),
+        'monthly_quota' => (int) env('PHOTOROOM_MONTHLY_QUOTA', 2000),
 
         /*
          * Day of the month the allowance resets. Photoroom bills from the day
          * the plan started, not from the 1st, so a calendar month would report
          * the wrong figure for most of it.
+         *
+         * The 14th, read off Photoroom's own dashboard. It said the 18th here
+         * for months, and that was not only a wrong date on the screen: the
+         * usage figure beside it is counted from this app's own edits since
+         * the last reset, so four days of them were being left out of the
+         * count entirely. Checked against Photoroom the app reported 694
+         * against their 1,069 — the window being four days short is most of
+         * that gap.
          */
-        'quota_resets_on' => (int) env('PHOTOROOM_QUOTA_RESETS_ON', 18),
+        'quota_resets_on' => (int) env('PHOTOROOM_QUOTA_RESETS_ON', 14),
 
         /*
          * Requests per minute to pace the whole worker fleet to. Photoroom's

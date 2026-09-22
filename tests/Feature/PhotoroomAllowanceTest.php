@@ -87,6 +87,32 @@ class PhotoroomAllowanceTest extends TestCase
         $this->assertSame(1, $r['charged_failures']);
     }
 
+    /**
+     * The two figures this whole report is measured against, pinned to what
+     * Photoroom's own dashboard says.
+     *
+     * Nothing in this app can tell when either one is wrong — the usage bar
+     * is only ever compared against itself — and both were, for months.
+     * Checked side by side against Photoroom: the plan carries 2,000 images
+     * and resets on the 14th, where this said 3,000 and the 18th. The wrong
+     * reset day was the worse of the two: usage is counted from this app's
+     * own edits since the last reset, so being four days late meant four
+     * days of edits left out of the count, and the app reported 694 against
+     * Photoroom's 1,069.
+     *
+     * A config default, not a measurement of anything this app can observe —
+     * so if the plan changes, this test is the thing that has to change with
+     * it, deliberately.
+     */
+    public function test_the_plan_figures_match_photorooms_own_dashboard(): void
+    {
+        $this->assertSame(2000, (int) config('services.photoroom.monthly_quota'),
+            'the monthly allowance no longer matches the plan Photoroom bills');
+
+        $this->assertSame(14, (int) config('services.photoroom.quota_resets_on'),
+            'the reset day no longer matches Photoroom, so usage is counted from the wrong date');
+    }
+
     /** Erasing a mannequin is a second request, spent before the edit itself. */
     public function test_mannequin_removal_counts_twice(): void
     {
@@ -96,10 +122,10 @@ class PhotoroomAllowanceTest extends TestCase
     }
 
     /**
-     * An unverified mannequin removal spent the same Photoroom request as a
-     * verified one — the trim check that follows it is a Gemini call, not a
-     * second Photoroom one — so it must count the same or every run this
-     * check actually flags would quietly undercount what was spent.
+     * Neither mannequin-removal mode is produced any more — the erase pass
+     * went when the classifier that routed to it did — but rows carrying
+     * them predate that, and a report of what was spent has to stay right
+     * about the months it is reporting on.
      */
     public function test_an_unverified_mannequin_removal_still_counts_twice(): void
     {

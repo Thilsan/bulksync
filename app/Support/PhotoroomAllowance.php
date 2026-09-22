@@ -60,11 +60,14 @@ class PhotoroomAllowance
         $chargedFailures = $items->where('status', 'failed')
             ->reject(fn ($i) => $this->wasRefusedUncounted((string) $i->error_message));
 
-        // Mannequin removal is its own request, spent before the edit itself.
-        // 'mannequin_removed_unverified' is the same request — the trim check
-        // that comes after it does not cost a Photoroom call, only a Gemini
-        // one — so it is counted here too or this would undercount exactly
-        // the runs the check exists to flag.
+        /*
+         * Mannequin removal was its own request, spent before the edit
+         * itself. No route produces either of these modes any more — the
+         * erase pass went when the classifier that chose it did — but rows
+         * carrying them are still in the table from before, and a historical
+         * report that stopped counting what was genuinely spent would be
+         * wrong about the past to tidy up the present.
+         */
         $extraCalls = $succeeded->whereIn('apparel_mode_applied', ['mannequin_removed', 'mannequin_removed_unverified'])->count();
 
         $spent = $succeeded->count() + $chargedFailures->count() + $extraCalls;
