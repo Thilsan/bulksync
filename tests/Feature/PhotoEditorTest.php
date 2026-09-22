@@ -847,7 +847,6 @@ class PhotoEditorTest extends TestCase
             app(\App\Services\OneDriveService::class),
             app(ImageProcessingService::class),
             app(PhotoroomService::class),
-            app(\App\Services\GeminiService::class),
             app(\App\Services\GhostPrintTransplantService::class),
             app(\App\Services\GhostCompositeService::class),
         );
@@ -1583,7 +1582,6 @@ class PhotoEditorTest extends TestCase
         $oneDrive->shouldReceive('setUser')->andReturnSelf();
         $oneDrive->shouldReceive('downloadFileById')->andReturn($navy);
 
-        $gemini = \Mockery::mock(\App\Services\GeminiService::class);
 
         $calls = 0;
 
@@ -1601,7 +1599,6 @@ class PhotoEditorTest extends TestCase
             $oneDrive,
             app(ImageProcessingService::class),
             app(PhotoroomService::class),
-            $gemini,
             app(\App\Services\GhostPrintTransplantService::class),
             app(\App\Services\GhostCompositeService::class),
         );
@@ -1655,13 +1652,10 @@ class PhotoEditorTest extends TestCase
         $oneDrive->shouldReceive('setUser')->andReturnSelf();
         $oneDrive->shouldReceive('downloadFileById')->andReturn($garment);
 
-        $gemini = \Mockery::mock(\App\Services\GeminiService::class);
-        $gemini->shouldReceive('classifyGarmentView')->andReturn($classification);
 
         // Confirmed clean by default — these tests are about the apparel
         // route and the redraw pipeline, not this check, so a real photo's
         // stand genuinely being gone is the ordinary case to assume here.
-        $gemini->shouldReceive('confirmNoStandVisible')->andReturn(true);
 
         \Illuminate\Support\Facades\Http::fake([
             'image-api.photoroom.com/*' => \Illuminate\Support\Facades\Http::response($garment, 200),
@@ -1671,7 +1665,6 @@ class PhotoEditorTest extends TestCase
             $oneDrive,
             app(ImageProcessingService::class),
             app(PhotoroomService::class),
-            $gemini,
             app(\App\Services\GhostPrintTransplantService::class),
             app(\App\Services\GhostCompositeService::class),
         );
@@ -1703,12 +1696,25 @@ class PhotoEditorTest extends TestCase
         \Illuminate\Support\Facades\Http::assertSentCount(1);
     }
 
-    /** No mannequin in frame means no erase pass and no wasted credit. */
-    public function test_ai_cleanup_spends_nothing_extra_when_there_is_no_mannequin(): void
+    /**
+     * Ticking the box is the instruction, and nothing overrules it.
+     *
+     * This used to assert the opposite — that a photo classified as having
+     * no mannequin in frame skipped the redraw and spent nothing. The
+     * classifier that made that call is gone, because it was wrong often
+     * enough to be the thing making one ticked checkbox unpredictable: a
+     * gown plainly on a dress form read as having no stand in it, so no
+     * removal was ever attempted and the finished image kept the whole
+     * mannequin. The operator ticked Remove the stand while looking at the
+     * photograph; that is the better judgement of the two.
+     */
+    public function test_the_redraw_runs_whenever_it_is_asked_for(): void
     {
-        $item = $this->runCleanupItem([], ['view_type' => 'front', 'mannequin_visible' => false]);
+        $item = $this->runCleanupItem([], []);
 
-        $this->assertSame('none', $item->apparel_mode_applied);
+        $this->assertContains($item->apparel_mode_applied, ['ghost_photo_kept', 'ghost_redraw_kept'],
+            'a ticked Remove the stand did not reach Ghost Mannequin');
+
         \Illuminate\Support\Facades\Http::assertSentCount(1);
     }
 

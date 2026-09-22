@@ -348,36 +348,19 @@
                          not applied, so it is not mistaken for a failure.
                          Bottom-left, clear of both the "Before" hover label
                          and the status badge, so nothing overlaps on hover. --}}
-                    {{-- stand_visible_after_edit overrides the colour and appends its own
-                         warning independent of apparel_mode_applied, because it is checked
-                         against the delivered image itself rather than trusted from the
-                         mode that produced it — a mode can be an honest "mannequin removed"
-                         and still have left a sliver of one in shot; see
-                         GeminiService::confirmNoStandVisible(). --}}
-                    <template x-if="item.view_type">
+                    {{-- No view prefix any more. It came from a Gemini read of the
+                         photograph before editing, which called the same dress's two
+                         views front and back on one run and front and front on the
+                         next — and which is gone along with the rest of the
+                         classification. What is left is what actually happened to the
+                         photo, which is the half worth showing anyway. --}}
+                    <template x-if="item.apparel_mode_applied && item.apparel_mode_applied !== 'none'">
                         <span class="pointer-events-none absolute bottom-2 left-2 rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
-                              :class="(item.stand_visible_after_edit || ['none', 'cutout_unnamed', 'ghost_redraw_kept', 'mannequin_removed_unverified'].includes(item.apparel_mode_applied)) ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'"
-                              x-text="item.view_type.replace('_', ' ') + ' view · ' + ({
-                                  mannequin_removed: 'mannequin removed',
+                              :class="['cutout_unnamed', 'ghost_redraw_kept'].includes(item.apparel_mode_applied) ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'"
+                              x-text="({
                                   segmented:         'mannequin segmented out',
-
-                                  {{-- The erase pass has no equivalent to
-                                       GhostCompositeService checking a redraw
-                                       against its photograph, so this is the
-                                       one place that check runs after the
-                                       fact instead: a real jeans photo came
-                                       back with its leather back-pocket patch
-                                       either relocated to the waistband or,
-                                       once that was fixed in the prompt, gone
-                                       from the pocket while a new one
-                                       appeared at the waistband anyway. The
-                                       stand really is gone either way — this
-                                       is not a refusal — but a plain green
-                                       "mannequin removed" has been wrong
-                                       about the trim twice on this exact
-                                       garment, so it says so instead of
-                                       looking identical to a clean one. --}}
-                                  mannequin_removed_unverified: 'mannequin removed · check trim',
+                                  kept_background:   'background kept',
+                                  on_model:          'on a model',
 
                                   {{-- Named its way to nothing, so it was cut
                                        out on Photoroom's own matting instead.
@@ -386,9 +369,6 @@
                                        well have survived it and somebody has to
                                        look. --}}
                                   cutout_unnamed:    'plain cutout · check the stand',
-                                  generative:        'redrawn by AI',
-                                  ghost_mannequin:   'redrawn by AI · 1K print',
-                                  ghost_print_kept:  'redrawn by AI · real print kept',
 
                                   {{-- The best outcome there is: the stand gone
                                        and the photograph otherwise untouched,
@@ -397,17 +377,14 @@
                                        was borrowed. --}}
                                   ghost_photo_kept:  'stand removed · photo kept',
 
-                                  {{-- Missing until now, so this fell through to
-                                       the "cutout only" default — the one label
-                                       on this list that means nothing generative
-                                       happened, on the one mode where the whole
-                                       picture is Photoroom's redraw. Amber, like
-                                       cutout_unnamed, because it is the same
-                                       instruction either way: look before you
-                                       push this one. --}}
+                                  {{-- The composite could not line the redraw up
+                                       against the photograph, so the redraw itself
+                                       is what was kept. The stand is gone either
+                                       way — amber because the garment in the
+                                       picture is Photoroom's drawing of it, and
+                                       the print is the thing to look at. --}}
                                   ghost_redraw_kept: 'redrawn · check the print',
-                              }[item.apparel_mode_applied] || 'cutout only')
-                              + (item.stand_visible_after_edit ? ' · check the stand' : '')"></span>
+                              }[item.apparel_mode_applied] || 'cutout only')"></span>
                     </template>
 
                     {{-- Photoroom reports how sure it was of each cutout, free,

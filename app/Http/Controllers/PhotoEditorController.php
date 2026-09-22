@@ -497,7 +497,7 @@ class PhotoEditorController extends Controller implements HasMiddleware
     private function editsFromRequest(array $input, array $existing): array
     {
         $booleans = ['remove_background', 'upscale', 'expand', 'ironing', 'remove_price_tag', 'rotate_wide_only',
-            'snap_cropped_sides', 'accept_recut_redraw', 'segmentation_prompt_is_a_guess'];
+            'snap_cropped_sides'];
 
         foreach ($booleans as $key) {
             $input[$key] = !empty($input[$key]);
@@ -698,14 +698,6 @@ class PhotoEditorController extends Controller implements HasMiddleware
             'status'                => $i->status,
             'status_label'          => $i->statusLabel(),
             'status_color'          => $i->statusColor(),
-            'view_type'             => $i->view_type,
-            'mannequin_visible'     => $i->mannequin_visible,
-
-            // Checked against the delivered image itself, independent of
-            // mannequin_visible above — see GeminiService::confirmNoStandVisible()
-            // for why the two are not allowed to trust one another.
-            'stand_visible_after_edit' => $i->stand_visible_after_edit,
-
             'apparel_mode_applied'  => $i->apparel_mode_applied,
 
             // Photoroom's own confidence in the cutout, so the reviewer's

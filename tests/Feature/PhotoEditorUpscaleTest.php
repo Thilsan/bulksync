@@ -73,7 +73,6 @@ class PhotoEditorUpscaleTest extends TestCase
             app(\App\Services\OneDriveService::class),
             app(ImageProcessingService::class),
             app(PhotoroomService::class),
-            app(\App\Services\GeminiService::class),
             app(\App\Services\GhostPrintTransplantService::class),
             app(\App\Services\GhostCompositeService::class),
         );

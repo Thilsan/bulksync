@@ -197,7 +197,6 @@ class PhotoEditorKeepBackgroundTest extends TestCase
             app(\App\Services\OneDriveService::class),
             app(\App\Services\ImageProcessingService::class),
             app(\App\Services\PhotoroomService::class),
-            app(\App\Services\GeminiService::class),
             app(\App\Services\GhostPrintTransplantService::class),
             app(\App\Services\GhostCompositeService::class),
         );

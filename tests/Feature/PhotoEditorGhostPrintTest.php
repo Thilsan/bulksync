@@ -5,7 +5,6 @@ namespace Tests\Feature;
 use App\Models\PhotoEditItem;
 use App\Models\PhotoEditSession;
 use App\Models\User;
-use App\Services\GeminiService;
 use App\Services\GhostPrintTransplantService;
 use App\Services\ImageProcessingService;
 use App\Services\PhotoroomService;
@@ -51,15 +50,6 @@ class PhotoEditorGhostPrintTest extends TestCase
             $mock->shouldReceive('downloadFileById')->andReturn($photo);
         });
 
-        // A front view with a stand in shot is what routes an item to Ghost
-        // Mannequin at all; see EditPhotoItemJob.
-        $gemini = $this->mock(GeminiService::class, function ($mock) {
-            $mock->shouldReceive('classifyGarmentView')->andReturn([
-                'view_type'         => 'front',
-                'mannequin_visible' => true,
-            ]);
-        });
-
         Http::fake([
             'image-api.photoroom.com/*' => fn () => Http::response(
                 $redraw,
@@ -94,7 +84,6 @@ class PhotoEditorGhostPrintTest extends TestCase
             app(\App\Services\OneDriveService::class),
             app(ImageProcessingService::class),
             app(PhotoroomService::class),
-            $gemini,
             app(GhostPrintTransplantService::class),
             app(\App\Services\GhostCompositeService::class),
         );
@@ -103,49 +92,61 @@ class PhotoEditorGhostPrintTest extends TestCase
     }
 
     /**
-     * The redraw here is Photoroom's own square, unrelated to the photograph it
-     * was sent — which is how the real thing behaves and is exactly the case
-     * that must not be published.
+     * The redraw here is Photoroom's own square, unrelated to the photograph
+     * it was sent — the case the composite cannot verify.
+     *
+     * This used to assert the opposite: that such a redraw was refused and
+     * replaced with a plain cutout, the photograph with the stand still in
+     * it. That was the behaviour the operator kept hitting as "I ticked
+     * Remove the stand and got the stand back", inconsistently, on some
+     * photos of a SKU and not others. The stand going is what the checkbox
+     * asks for, so the redraw is kept and the composite's own reason is put
+     * in front of somebody who can look at it.
      */
-    public function test_a_redraw_that_does_not_match_the_photograph_is_not_published(): void
+    public function test_a_redraw_the_composite_cannot_verify_is_still_kept(): void
     {
         $item = $this->edit($this->photo(withPrint: true), $this->redraw(withPrint: true));
 
         $this->assertSame('edited', $item->status);
 
         $this->assertSame(
-            'cutout_unnamed',
+            'ghost_redraw_kept',
             $item->apparel_mode_applied,
-            'an unverified redraw was published',
+            'the redraw was thrown away and the stand put back',
         );
 
-        // And the operator is told why, rather than being left to notice that a
-        // garment came back a different shape.
+        // And the operator is told what to look at, rather than being left to
+        // notice that a garment came back a different shape.
         $this->assertStringContainsString(
-            'without altering the garment',
+            'check the print',
             (string) $item->error_message,
-            'nothing explained why the stand is still in the picture',
+            'nothing told the operator what to check on a redraw that could not be verified',
         );
     }
 
     /**
-     * The redraw's own bytes are thrown away, not kept as a fallback.
+     * And the redraw's own bytes are what reach the file.
      *
-     * A picture of a garment that was not photographed has nothing to salvage
-     * in it, and the tempting half-measure — keep the redraw, note the problem —
-     * is the one that put a cropped top on a product page.
+     * The inverse of what this asserted before. The redraw is no longer
+     * thrown away, so the thing worth pinning is that the image written out
+     * is actually derived from it — not the photograph with the stand back
+     * in it, which is what the old fallback wrote.
      */
-    public function test_the_redraws_pixels_do_not_survive_the_refusal(): void
+    public function test_the_redraws_pixels_are_what_reach_the_file(): void
     {
+        $photo  = $this->photo(withPrint: false);
         $redraw = $this->redraw(withPrint: false);
 
-        $item = $this->edit($this->photo(withPrint: false), $redraw);
+        $item = $this->edit($photo, $redraw);
 
         $this->assertSame('edited', $item->status);
+        $this->assertSame('ghost_redraw_kept', $item->apparel_mode_applied);
 
         $written = (string) file_get_contents(storage_path('app/' . $item->edited_path));
 
-        $this->assertNotSame($redraw, $written, 'the refused redraw was written out anyway');
+        // Framed and re-encoded on the way out, so not byte-identical to the
+        // redraw — but it must not be the photograph either.
+        $this->assertNotSame($photo, $written, 'the photograph was written out instead of the redraw');
     }
 
     // ── Fixtures ───────────────────────────────────────────────────────────

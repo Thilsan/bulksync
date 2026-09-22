@@ -2,11 +2,9 @@
 
 namespace App\Jobs;
 
-use App\Models\PhotoEditGroup;
 use App\Models\PhotoEditItem;
 use App\Models\PhotoEditSession;
 use App\Models\User;
-use App\Services\GeminiService;
 use App\Services\GhostCompositeService;
 use App\Services\GhostPrintTransplantService;
 use App\Services\ImageProcessingService;
@@ -51,7 +49,6 @@ class EditPhotoItemJob implements ShouldQueue
         OneDriveService        $oneDrive,
         ImageProcessingService $imageService,
         PhotoroomService       $photoroom,
-        GeminiService          $gemini,
         // Kept in the signature rather than removed: the container resolves it,
         // several tests and the photoroom:ghost-transplant command still use the
         // service, and dropping the parameter would rewrite every caller for no
@@ -159,21 +156,34 @@ class EditPhotoItemJob implements ShouldQueue
             // produce no image at all. Generation is the feature there, and
             // the operator picked it knowingly.
             //
-            // Classification is only spent on sessions that asked for a redraw
-            // mode in the first place, to know whether a mannequin is actually
-            // in frame to erase. A classification failure fails open: the item
-            // still gets the plain-cutout fallback rather than derailing over
-            // an unrelated API hiccup.
-            $classification = null;
-            $onModel        = !empty($edits['virtual_model']);
-
-            if ($photoroom->generatesOwnCanvas($edits) && !$onModel && !$item->keep_background) {
-                try {
-                    $classification = $gemini->classifyGarmentView($raw);
-                } catch (\Throwable $e) {
-                    Log::warning("EditPhotoItemJob item {$this->itemId} classification failed: " . $e->getMessage());
-                }
-            }
+            /*
+             * Nothing is classified any more, and no second opinion is asked
+             * of anything outside Photoroom.
+             *
+             * Gemini used to read every apparel photo before it was edited —
+             * which side was facing, whether a mannequin was in frame, what
+             * the product was, what was holding it up — and the routing was
+             * built on those answers. It read too many of them wrong to be
+             * worth keeping. A gown plainly on a full dress form came back
+             * classified as having no mannequin in it at all, so nothing ever
+             * tried to remove one; the same dress's two views were labelled
+             * front and back on one run and front and front on the next; and
+             * the whole apparatus turned one ticked checkbox into an outcome
+             * nobody could predict from the outside. Two photos of one SKU,
+             * one setting, four different results.
+             *
+             * Ticking "Remove the stand" is the instruction. It does not need
+             * confirming by a second model that is wrong often enough to
+             * contradict it, and the operator who ticked it is looking at the
+             * photograph anyway.
+             *
+             * What is lost with it, said plainly rather than discovered later:
+             * the front/back badge on the review grid, and the automatic
+             * guess at a product noun for a named cutout. The Keep box is
+             * still there to type one into by hand, which was always the more
+             * reliable half of that feature.
+             */
+            $onModel = !empty($edits['virtual_model']);
 
             $itemEdits   = $edits;
             $appliedMode = 'none';
@@ -211,80 +221,10 @@ class EditPhotoItemJob implements ShouldQueue
 
                     [$appliedMode, $itemEdits] = $this->chooseApparelRoute(
                         $itemEdits,
-                        (bool) ($classification && !empty($classification['mannequin_visible'])),
-                        $classification['product'] ?? null,
-                        $classification['support'] ?? null,
-                        $classification['support_type'] ?? null,
                         (int) ($rawInfo[0] ?? 0),
                         (int) ($rawInfo[1] ?? 0),
-                        $classification['view_type'] ?? null,
                     );
 
-                    /*
-                     * The one route that costs a request of its own before the
-                     * edit even starts, so it is made here rather than in the
-                     * decision. It is also the pass that reinvents prints, which
-                     * is why it is the last resort: reached only when nothing
-                     * names the product and no redraw was asked for.
-                     */
-                    if ($appliedMode === 'needs_erase') {
-                        $appliedMode = 'none';
-
-                        try {
-                            $beforeSize  = $this->describeSize($raw);
-                            $beforeErase = $raw;
-
-                            $raw = $photoroom->removeMannequin(
-                                $raw,
-                                $item->filename,
-                                filled($edits['edit_seed'] ?? null) ? (int) $edits['edit_seed'] : null,
-                            );
-
-                            $appliedMode = 'mannequin_removed';
-
-                            $afterSize = $this->describeSize($raw);
-
-                            if ($beforeSize !== $afterSize) {
-                                Log::warning('Photoroom erase changed the resolution', [
-                                    'item' => $this->itemId,
-                                    'in'   => $beforeSize,
-                                    'out'  => $afterSize,
-                                ]);
-                            }
-
-                            /*
-                             * The redraw has GhostCompositeService checking every
-                             * one of its results against the photograph; this pass
-                             * had nothing, on the theory that inpainting a stand
-                             * away is a narrower job than redrawing a garment and
-                             * so a narrower risk. A real Stefano Ricci jeans photo
-                             * said otherwise twice: the mannequin genuinely gone,
-                             * badge green, "MANNEQUIN REMOVED" — and the leather
-                             * back-pocket patch either relocated to the waistband
-                             * or, on a later run after the prompt named that
-                             * exact failure, missing from the pocket while a new
-                             * one appeared at the waistband anyway. A prompt fix
-                             * alone was tried twice and did not hold, so this is
-                             * the same backstop the redraw already has: asking
-                             * Gemini whether the trim survived, not trusting that
-                             * naming the failure in the prompt was enough to stop
-                             * it. Unconfirmed does not discard the erase — the
-                             * stand is still genuinely gone, which is what was
-                             * asked for — it downgrades the badge so the operator
-                             * checks the trim before pushing instead of trusting a
-                             * green one that has been wrong twice on this exact
-                             * garment.
-                             */
-                            if (!$this->confirmsAsSameGarment($gemini, $beforeErase, $raw)) {
-                                $appliedMode = 'mannequin_removed_unverified';
-                                $redrawNote  = 'The stand was removed, but the result could not be confirmed '
-                                    . 'against the original photograph as an unchanged garment. Check that no '
-                                    . 'stitched patch, label or trim moved or was invented before pushing.';
-                            }
-                        } catch (\Throwable $e) {
-                            Log::warning("EditPhotoItemJob item {$this->itemId} mannequin removal failed: " . $e->getMessage());
-                        }
-                    }
                 }
             }
 
@@ -478,103 +418,35 @@ class EditPhotoItemJob implements ShouldQueue
              * there is no prompt to blame and nothing to retry without.
              */
             if (filled($itemEdits['segmentation_prompt'] ?? null) && $imageService->looksUncut($edited)) {
-                $guess     = (string) $itemEdits['segmentation_prompt'];
-                $wasGuess  = !empty($itemEdits['segmentation_prompt_is_a_guess']);
+                $guess = (string) $itemEdits['segmentation_prompt'];
 
-                /*
-                 * Asked again, without the word.
-                 *
-                 * Two accurate descriptions of the same photograph — "the top"
-                 * and "the cropped top" — both came back as the entire studio,
-                 * which says the word was never the problem: a text-guided
-                 * segmentation found nothing on this picture and, having been
-                 * told to decide the subject from the prompt, had no second
-                 * opinion to fall back on. Photoroom's own matting is that
-                 * second opinion, and it is what every other photo in the
-                 * catalogue already runs on.
-                 *
-                 * The retry is unguarded by design. A guessed word can be wrong
-                 * in ways nothing here can anticipate, so the fallback is the
-                 * route with no guess in it at all rather than another guess.
-                 *
-                 * It does not touch the photograph — the pixels are still the
-                 * camera's — so it cannot reintroduce the redraw this was all
-                 * meant to avoid. What it can leave behind is the mannequin,
-                 * which is visible in the result and is the operator's to judge:
-                 * a cutout with a stand still in it can be looked at and fixed
-                 * with a typed word. A studio photograph published as a product
-                 * cannot be seen at all until a customer sees it.
-                 *
-                 * One credit, spent only where the first was wasted anyway.
-                 */
                 Log::warning('EditPhotoItemJob: the named cutout kept the whole frame', [
-                    'item'    => $this->itemId,
-                    'named'   => $guess,
-                    'guessed' => $wasGuess,
+                    'item'  => $this->itemId,
+                    'named' => $guess,
                 ]);
 
                 /*
-                 * Retried only where the app chose the word.
+                 * Failed rather than retried without the word.
                  *
-                 * A guess can be wrong in ways nothing here can anticipate, so
-                 * dropping it and falling back to Photoroom's own matting is
-                 * worth a credit. A word the operator typed after looking at
-                 * the photograph is different: they have already made the
-                 * judgement this retry would be second-guessing, and spending
-                 * their credit to overrule them is not ours to do. Failing and
-                 * saying why leaves the next move with the person who can make
-                 * it.
+                 * There used to be a retry here, for the case where the app
+                 * had guessed the word itself: drop the guess, fall back to
+                 * Photoroom's own matting, spend a credit finding out. Nothing
+                 * guesses a product noun any more — the classifier that did it
+                 * is gone — so every word in this box was typed by somebody
+                 * looking at the photograph, and they have already made the
+                 * judgement a retry would be overruling. Failing and saying
+                 * why leaves the next move with the person who can make it.
                  */
-                if (!$wasGuess) {
-                    $item->update([
-                        'status'        => 'failed',
-                        'error_message' => "Nothing was cut out — \"{$guess}\" found no product in this photo, "
-                            . 'so the whole studio came back. Try clearing the "Keep" box to use Photoroom\'s own '
-                            . 'background removal, or a different description.',
-                    ]);
+                $item->update([
+                    'status'        => 'failed',
+                    'error_message' => "Nothing was cut out — \"{$guess}\" found no product in this photo, "
+                        . 'so the whole studio came back. Try clearing the "Keep" box to use Photoroom\'s own '
+                        . 'background removal, or a different description.',
+                ]);
 
-                    $this->syncSessionCounts($session->id);
+                $this->syncSessionCounts($session->id);
 
-                    return;
-                }
-
-                $retry = $itemEdits;
-                unset(
-                    $retry['segmentation_prompt'],
-                    $retry['segmentation_prompt_is_a_guess'],
-                    $retry['segmentation_negative_prompt'],
-                );
-
-                try {
-                    $plain = $photoroom->edit($input, $retry, $item->filename);
-
-                    if (!$imageService->looksUncut($plain)) {
-                        $edited      = $plain;
-                        $itemEdits   = $retry;
-                        $appliedMode = 'cutout_unnamed';
-                    }
-                } catch (\Throwable $e) {
-                    Log::warning("EditPhotoItemJob item {$this->itemId} unnamed retry failed: " . $e->getMessage());
-                }
-
-                /*
-                 * Both routes kept the whole frame. There is nothing left to
-                 * try that would not be a guess, and the credits are spent
-                 * either way; what remains to decide is whether a studio
-                 * photograph is published, which is not a decision to take
-                 * silently.
-                 */
-                if ($appliedMode !== 'cutout_unnamed') {
-                    $item->update([
-                        'status'        => 'failed',
-                        'error_message' => "Nothing was cut out, with or without naming the product (tried \"{$guess}\"). "
-                            . 'This photo may need the background removed by hand.',
-                    ]);
-
-                    $this->syncSessionCounts($session->id);
-
-                    return;
-                }
+                return;
             }
 
             /*
@@ -593,33 +465,31 @@ class EditPhotoItemJob implements ShouldQueue
              */
             if ($appliedMode === 'ghost_mannequin') {
                 /*
-                 * A redraw is not published unless it can be shown not to have
-                 * changed the garment.
+                 * The redraw is kept. The stand going is the whole of what was
+                 * asked for, and the request for it is the ticked checkbox.
                  *
-                 * The composite is the check and the repair at once. Where the
-                 * redraw put the garment back exactly where it stood, the only
-                 * thing it knows that the photograph does not is what belongs in
-                 * the hole the mannequin left; borrowing that and keeping every
-                 * other pixel gives the stand removed at full resolution with
-                 * the drape, the direction and the fabric untouched.
+                 * This used to refuse a redraw the composite could not verify
+                 * and fall back to a plain cutout — the photograph with the
+                 * stand still standing in it. Defensible on paper and wrong in
+                 * practice: the operator ticked "Remove the stand" and was
+                 * handed back the stand, on some photos and not others, with
+                 * no way to tell in advance which. Two views of one dress,
+                 * one setting, one redrawn and one not.
                  *
-                 * Where it did not, the redraw is refused outright rather than
-                 * published with a caveat. This was the other way round and was
-                 * wrong: the measurement said "the redraw reworked the garment"
-                 * and the image went out anyway with the reason underneath it.
-                 * Observed on a sequinned poncho, the redraw returned a cropped
-                 * top — the long panel simply gone. A note under a picture of a
-                 * garment that does not exist is not a safeguard.
+                 * So the composite is now an improvement, never a veto. Where
+                 * the redraw lines up with the photograph it is composited —
+                 * the stand gone at full resolution with the real drape,
+                 * direction and fabric, which is strictly the best result
+                 * available. Where it does not line up, the redraw itself is
+                 * kept rather than thrown away, and the reason the composite
+                 * gave is put on the item so the operator knows to look at the
+                 * print and the cut before pushing.
                  *
-                 * A refusal it cannot explain counts as a refusal. Unverifiable
-                 * and wrong look identical from here, and only one of them is
-                 * safe to publish.
-                 *
-                 * The fallback is the plain cutout: the photograph, with
-                 * whatever is holding the garment up still in it. That is a
-                 * picture of the real product, which is the whole of what has
-                 * been asked for. It costs one more credit, and the operator can
-                 * see the stand and decide.
+                 * What that trades: a recut garment can now reach the review
+                 * grid, where before it was refused outright. It reaches it
+                 * flagged, in front of somebody who can see it, which is a
+                 * better place for that judgement than a rule that could not
+                 * tell a recut skirt from a different dress.
                  */
                 $verified   = false;
                 $keptRedraw = false;
@@ -632,82 +502,18 @@ class EditPhotoItemJob implements ShouldQueue
                     if ($verified) {
                         $edited      = $whole['image'];
                         $appliedMode = 'ghost_photo_kept';
-                    } elseif (
-                        $this->wantsRecutKept($edits, $whole['verdict'])
-                        && $this->confirmsAsSameGarment($gemini, $input, $edited)
-                    ) {
-                        /*
-                         * Asked for, and checked.
-                         *
-                         * The refusal above is the right default and stays the
-                         * default: a redraw that reworked the garment is a
-                         * picture of a product that does not exist. But on a
-                         * dress form inside a floor-length skirt the redraw is
-                         * refused every time — measured at 41%, 35% and 32% on
-                         * three runs of the same two photographs — and the
-                         * operator is then handed back a mannequin they asked
-                         * to have removed, with no way through. Where they have
-                         * looked at that and decided the recut is acceptable
-                         * for their catalogue, that is their call to make.
-                         *
-                         * 'reshaped' and 'redrawn' both land here, on the same
-                         * question: is this actually the same garment. There
-                         * used to be a numeric ceiling on 'reshaped' instead —
-                         * 55%, chosen after a batch published 49-69% blindly —
-                         * and it caused exactly the wrong failure on a sequin
-                         * gown's own two views: 53.8% (front) kept, 58.1%
-                         * (back) refused, four points apart on the same
-                         * garment, because a ceiling cannot tell "still the
-                         * same dress" from "a different one" any better than
-                         * the floor it replaced could. Gemini can, and now
-                         * does, for both verdicts, which is why the ceiling is
-                         * gone rather than tuned again.
-                         *
-                         * Only where the garment stayed put. A 'moved' verdict
-                         * means the redraw shifted, tilted or resized it, and
-                         * keeping the position and direction of the photograph
-                         * was the one thing asked for in exchange — so that
-                         * refusal is not negotiable and still falls back,
-                         * whatever Gemini would say about the garment itself.
-                         *
-                         * The whole redraw is kept, not the composite: a
-                         * composite of two garments that do not line up is the
-                         * torn seam this was all written to avoid.
-                         */
+                    } else {
                         /*
                          * $edited already holds the redraw — it is what came
                          * back from Photoroom and what the composite has just
-                         * measured — so keeping it is a matter of not replacing
-                         * it. The flag exists because the fallback below is
-                         * driven by $verified, which is honestly false: the
-                         * composite did refuse. What changed is whether that
-                         * refusal ends the matter.
+                         * measured — so keeping it is a matter of not
+                         * replacing it.
                          */
                         $keptRedraw  = true;
                         $appliedMode = 'ghost_redraw_kept';
-                        $redrawNote  = 'The stand was removed by redrawing the garment, which you allowed for '
-                            . 'this run. ' . $whole['reason'] . ' The redraw was checked against the original '
-                            . 'photograph and confirmed to be the same garment, not a different one in the '
-                            . 'right silhouette. The photograph was not used — check the print, the colour '
-                            . 'and the drape before pushing.';
-                    } elseif ($this->wantsRecutKept($edits, $whole['verdict'])) {
-                        /*
-                         * Checked and not confirmed — worth saying
-                         * differently from a plain refusal, since the
-                         * operator did tick "keep the redraw" and this is the
-                         * one place a second, garment-level opinion was
-                         * actually asked for and came back unable to say it
-                         * was the same garment (or could not be reached at
-                         * all, which is treated the same way on purpose — a
-                         * refusal it cannot explain is the safe default).
-                         */
-                        $redrawNote = 'The stand could not be removed without altering the garment, so the photo '
-                            . 'was kept as shot. ' . $whole['reason'] . ' The redraw was checked against the '
-                            . 'original photograph and could not be confirmed as the same garment, so "keep '
-                            . 'the redraw" did not apply here.';
-                    } else {
-                        $redrawNote = 'The stand could not be removed without altering the garment, '
-                            . 'so the photo was kept as shot. ' . $whole['reason'];
+                        $redrawNote  = 'The stand was removed by redrawing the garment. ' . $whole['reason']
+                            . ' The photograph was not used — check the print, the colour and the drape '
+                            . 'before pushing.';
                     }
 
                     Log::info('Ghost mannequin composite', [
@@ -717,52 +523,26 @@ class EditPhotoItemJob implements ShouldQueue
                         'reason'   => $whole['reason'],
                     ]);
                 } catch (\Throwable $e) {
-                    $redrawNote = 'The stand could not be removed without altering the garment, '
-                        . 'so the photo was kept as shot.';
+                    /*
+                     * The composite could not run at all — a decode failure, a
+                     * subject it could not find. The redraw itself is still
+                     * what came back from Photoroom and the stand is still
+                     * gone in it, so it is kept and said so, rather than the
+                     * whole edit being abandoned over a measurement that could
+                     * not be taken.
+                     */
+                    $keptRedraw  = true;
+                    $appliedMode = 'ghost_redraw_kept';
+                    $redrawNote  = 'The stand was removed by redrawing the garment. The redraw could not be '
+                        . 'measured against the photograph, so nothing here can say how closely it matches — '
+                        . 'check the print, the colour and the drape before pushing.';
 
                     Log::warning(
                         "EditPhotoItemJob item {$this->itemId} composite could not run: " . $e->getMessage()
                     );
                 }
 
-                /*
-                 * Not reached when the redraw was kept on purpose. The fallback
-                 * would overwrite it with a plain cutout, spend a second credit
-                 * doing so, and record the SKU as one whose redraw was refused —
-                 * undoing the choice and stopping the next photo of the same
-                 * product from redrawing at all.
-                 */
-                if (!$verified && !$keptRedraw) {
-                    $this->rememberTheRedrawWasRefused();
-
-                    /*
-                     * Back to a plain cutout. The redraw's own bytes are thrown
-                     * away: it is a picture of a garment that was not
-                     * photographed, and there is nothing to salvage from one.
-                     *
-                     * The print transplant used to sit here, putting the real
-                     * print over the redraw's shape. It is not reached any more
-                     * and that is deliberate — it rescues the fabric, not the
-                     * shape, and it was the shape that was wrong. The service
-                     * and its command remain for work where the geometry is the
-                     * thing being bought.
-                     */
-                    $plain = $itemEdits;
-                    $plain['ghost_mannequin'] = false;
-                    $plain['flat_lay']        = false;
-                    $plain['virtual_model']   = false;
-                    $plain['remove_background'] = true;
-
-                    try {
-                        $edited      = $photoroom->edit($input, $plain, $item->filename);
-                        $itemEdits   = $plain;
-                        $appliedMode = 'cutout_unnamed';
-                    } catch (\Throwable $e) {
-                        Log::warning(
-                            "EditPhotoItemJob item {$this->itemId} fallback cutout failed: " . $e->getMessage()
-                        );
-                    }
-                }
+                unset($verified, $keptRedraw);
             }
 
             /*
@@ -899,51 +679,6 @@ class EditPhotoItemJob implements ShouldQueue
                 ]);
             }
 
-            /*
-             * A stand genuinely gone is checked, not assumed — against the
-             * delivered image itself, not the classification that ran before
-             * any editing happened.
-             *
-             * Two failures on one real batch showed why. A front-view gown,
-             * plainly on a full dress form in the original photo, was read at
-             * classification time as having no mannequin visible at all — so
-             * nothing downstream ever tried to remove one, and the finished
-             * image kept the entire stand, badge green, "READY". A back view
-             * of the same SKU did trigger removal and mostly succeeded, but
-             * left a pale sliver of the mannequin's shoulder still showing
-             * above the neckline, and passed straight through
-             * confirmsAsSameGarment() uncaught — correctly, it genuinely was
-             * the same garment, which was never the question that check was
-             * asking. Neither failure was visible from the mode the item
-             * ended up in; both shipped as an ordinary, unflagged success.
-             *
-             * Run on every apparel photo rather than only the ones the
-             * classification already flagged as risky, because the first
-             * failure was exactly that classification being wrong — checking
-             * only what it already doubted would have asked the same
-             * question of the same photo twice and skipped the one that
-             * needed asking. $classification is non-null only when this run
-             * actually engaged the apparel pipeline (Ghost Mannequin, not an
-             * on-model scene, not a kept background), which is the same
-             * boundary the rest of this feature already uses.
-             */
-            if ($classification !== null) {
-                try {
-                    $standGone = $gemini->confirmNoStandVisible($edited);
-                } catch (\Throwable $e) {
-                    Log::warning("EditPhotoItemJob item {$this->itemId} stand-visibility check failed: " . $e->getMessage());
-                    $standGone = null;
-                }
-
-                $standStillVisible = $standGone !== true;
-
-                if ($standStillVisible) {
-                    $redrawNote = trim(($redrawNote ? $redrawNote . ' ' : '')
-                        . 'A mannequin or stand may still be visible in this image — check before pushing.');
-                }
-            } else {
-                $standStillVisible = null;
-            }
 
             /*
              * Which tier Photoroom actually gave us. Its app calls 1024, 2048
@@ -990,13 +725,6 @@ class EditPhotoItemJob implements ShouldQueue
                 'edited_path'          => $editedRel,
                 'edited_thumb_path'    => $thumbRel,
                 'edited_size_kb'       => (int) round(strlen($edited) / 1024),
-                'view_type'            => $classification['view_type'] ?? null,
-                'mannequin_visible'    => $classification['mannequin_visible'] ?? null,
-
-                // Checked against the delivered image, independent of the
-                // 'mannequin_visible' reading above — see the check itself
-                // for why the two are not allowed to trust one another.
-                'stand_visible_after_edit' => $standStillVisible,
 
                 'apparel_mode_applied' => $appliedMode,
 
@@ -1084,64 +812,6 @@ class EditPhotoItemJob implements ShouldQueue
      * reference set is.
      */
     /**
-     * Which apparel route a photo takes, and the edits that go with it.
-     *
-     * Three questions decide it, so all three are settled before any of them is
-     * acted on: is a stand actually in shot, is the product named, and was a
-     * redraw asked for. Separated from the job's own work because it is a
-     * decision with no request in it — the thing most worth testing here, and
-     * the thing that needed an API and a queue to reach.
-     *
-     * @return array{0:string,1:array} the mode, and the edits to send.
-     *         'needs_erase' is the caller's to act on: it costs a request.
-     */
-    /**
-     * Has this photo's SKU already had a redraw measured and thrown away?
-     *
-     * Read per item rather than passed in, because the items of one SKU are
-     * edited by separate jobs on separate workers and only the database is
-     * shared between them. The first to finish writes it; the rest read it.
-     *
-     * A race is possible and costs one wasted credit, which is the same as not
-     * having this at all. Locking a row to save a penny would be the more
-     * expensive mistake.
-     */
-    /**
-     * May a redraw that changed the garment be considered for "keep the
-     * redraw" at all?
-     *
-     * Off unless the operator turned it on for the run, and never for
-     * 'moved' — a recut garment is a different product and that is a
-     * judgement somebody can make about their own catalogue; a moved one
-     * breaks the promise the redraw prompt exists to keep, which is that the
-     * photograph's position and direction survive, and no confirmation about
-     * the garment itself can buy that back.
-     *
-     * A true answer here is necessary but not sufficient — the call site
-     * also requires confirmsAsSameGarment() before actually keeping the
-     * redraw. This method only asks "is this a verdict the checkbox covers
-     * at all"; whether this particular redraw is really the same garment is
-     * a question only Gemini answers.
-     *
-     * 'reshaped' and 'redrawn' are treated alike on purpose, which they were
-     * not always. 'reshaped' used to also have to clear a 55% ceiling on
-     * aspect_shift before Gemini was ever asked — a number chosen after a
-     * batch published 49-69% blindly, back when the checkbox had no other
-     * check behind it. The ceiling caused the failure it was built to
-     * prevent: a sequin gown's front view measured 58.1% and was refused
-     * outright, its own back view measured 53.8% and was kept, four points
-     * apart on the same dress, because a fixed percentage cannot tell "still
-     * the same garment" from "a different one" any better than the total
-     * absence of a check that came before it. Gemini can tell the difference
-     * directly, so the ceiling was removed rather than moved again — the
-     * same reasoning 'redrawn' was already built on.
-     */
-    private function wantsRecutKept(array $edits, string $verdict): bool
-    {
-        return !empty($edits['accept_recut_redraw']) && in_array($verdict, ['reshaped', 'redrawn'], true);
-    }
-
-    /**
      * How far ironing may shift the subject's own colour before the result
      * is thrown away and retried without it.
      *
@@ -1156,247 +826,42 @@ class EditPhotoItemJob implements ShouldQueue
     private const MAX_IRONING_COLOUR_SHIFT = 0.12;
 
     /**
-     * Ask Gemini whether a redraw being considered for "keep the redraw" is
-     * really the same garment.
+     * Which Photoroom route this photo takes.
      *
-     * Called for two different verdicts, for two different blind spots. For
-     * 'redrawn', a faithful redraw of a heavily draped or sheer garment can
-     * measure the same mask_coverage percentage as a genuine failure — the
-     * number cannot tell them apart. For 'reshaped', aspect_shift only
-     * checks the garment's outline; a men's jeans back view measured well
-     * inside the reshape ceiling and still came back with its back-pocket
-     * patch relocated to the waistband, a real design change the outline
-     * never saw. Neither number was ever measuring what this asks about
-     * directly, so both are checked against the actual garment instead.
+     * Three inputs decide it now, all of them things the operator set on the
+     * screen: whether they typed a product into Keep, whether they ticked
+     * Remove the stand, and the photo's own shape. Nothing is inferred about
+     * the photograph itself any more.
      *
-     * A refusal it cannot explain still counts as a refusal here, the same
-     * rule the composite itself follows: a quota exception, a timeout, or an
-     * answer Gemini would not commit to all come back false, not true. The
-     * cost of asking again on the next run is one Gemini call; the cost of
-     * guessing yes is a picture of a product that does not exist.
+     * It used to take five more, all of them read out of the picture by
+     * Gemini before the edit ran — which side was facing, whether a stand was
+     * in frame, what the product was, what was holding it up — and it routed
+     * on those. They were wrong often enough to make one ticked checkbox
+     * produce four different outcomes across two photos of one dress: a gown
+     * on a plainly visible dress form classified as having no stand in it, so
+     * no removal was attempted at all; the same dress labelled back on one
+     * run and front on the next. Removing the guesswork removes the
+     * inconsistency with it.
+     *
+     * A typed product still wins, and still cuts the stand out of the real
+     * photograph rather than redrawing round it — one request, real pixels,
+     * and the better route whenever the operator knows the word. Ticking
+     * Remove the stand without typing one goes to Ghost Mannequin, every
+     * time, on every view.
      */
-    private function confirmsAsSameGarment(GeminiService $gemini, string $original, string $redraw): bool
-    {
-        try {
-            return $gemini->confirmSameGarment($original, $redraw) === true;
-        } catch (\Throwable $e) {
-            Log::warning(
-                "EditPhotoItemJob item {$this->itemId} same-garment check could not run: " . $e->getMessage()
-            );
-
-            return false;
-        }
-    }
-
-    private function skuAlreadyRefusedARedraw(): bool
-    {
-        $item = PhotoEditItem::find($this->itemId);
-
-        if (!$item || !filled($item->sku_detected)) {
-            return false;
-        }
-
-        return PhotoEditGroup::where('photo_edit_session_id', $item->photo_edit_session_id)
-            ->where('sku', $item->sku_detected)
-            ->value('redraw_refused') ? true : false;
-    }
-
-    private function rememberTheRedrawWasRefused(): void
-    {
-        $item = PhotoEditItem::find($this->itemId);
-
-        if (!$item || !filled($item->sku_detected)) {
-            return;
-        }
-
-        PhotoEditGroup::where('photo_edit_session_id', $item->photo_edit_session_id)
-            ->where('sku', $item->sku_detected)
-            ->update(['redraw_refused' => true]);
-    }
-
     private function chooseApparelRoute(
         array $edits,
-        bool $standVisible,
-        ?string $seen = null,
-        ?string $support = null,
-        ?string $supportType = null,
         int $photoWidth = 0,
         int $photoHeight = 0,
-        ?string $viewType = null,
     ): array {
         $itemEdits   = $edits;
         $named       = filled($edits['segmentation_prompt'] ?? null);
         $wantsRedraw = !empty($edits['ghost_mannequin']);
 
-        /*
-         * Nobody typed a product, but the category knows one.
-         *
-         * PRODUCT_NOUNS has said as much since it was written — "a category has
-         * already been told what the product is, so there is no reason to make
-         * anyone type it" — and nothing ever read it. So a categorised run with
-         * the redraw ticked went to Ghost Mannequin, which does not erase a
-         * mannequin from a photograph: it generates a new garment from what it
-         * sees. On a draped poncho it read a wide sheet of sequinned fabric as
-         * sleeves and hung them straight down, and the back view came back a
-         * different garment from its own front view.
-         *
-         * Naming the product instead cuts the mannequin out of the real
-         * photograph, in one request rather than two, and the pixels that come
-         * back are the ones the camera recorded. That is the point rather than a
-         * saving: nothing downstream can tell a confident redraw from a
-         * photograph, so the only safe moment to refuse one is before it is
-         * asked for.
-         *
-         * Only where a mannequin is actually in shot. A cutout with nothing to
-         * erase is working already, and swapping its matting for a text prompt
-         * would be changing what is not broken.
-         */
-        /*
-         * Whether naming the product can work at all depends on what is holding
-         * it up, and the two cases are not alike.
-         *
-         * A hanger, a rail, a bag stand — these hold the product from outside.
-         * Naming the product cuts them out of the real photograph and every
-         * pixel of the product survives, which is strictly better than any
-         * generative route and is what the naming was built for.
-         *
-         * A dress form is inside the garment. It shows through the neck and
-         * below the hem, and it is what the garment takes its shape from. There
-         * is no cutting that away with a segmentation-based cutout: what is
-         * behind it is the inside of the garment, which the photograph does
-         * not contain. Asked to try, the cutout keeps the form — which is what
-         * was reported, a mannequin returned still wearing the poncho after
-         * the background came away cleanly.
-         *
-         * A generative pass can remove one without cutting anything — either
-         * one. The erase pass inpaints the small gap the form leaves rather
-         * than needing pixels that were never photographed, which is gentler
-         * on the garment's true cut than a full redraw; Ghost Mannequin
-         * redraws the whole picture and can misjudge that cut in the
-         * process, but does not depend on the gap being small enough to
-         * inpaint plausibly, and can finish the job where an erase leaves a
-         * piece of the form visible instead. Both are real failure modes,
-         * on different photos, and the checkbox is what decides which one
-         * the operator is willing to risk on a given run — see the
-         * ghost_mannequin branch below for which view still refuses the
-         * redraw regardless of the checkbox, and why.
-         *
-         * So the guess is offered where it can succeed and withheld where it
-         * cannot. An unknown support falls through to the redraw, because the
-         * operator asked for the stand to go and that is the route that can
-         * always do it when nothing else has claimed the photo first.
-         */
-        $canBeCutAway = $supportType === 'held';
-
-        if (!$named && $standVisible && $canBeCutAway) {
+        if ($wantsRedraw && !$named) {
             /*
-             * What the classifier saw, before what the folder is called.
-             *
-             * The classifier looked at this photograph; the category describes
-             * a folder. A scarf worn as a cape, filed under tops because that is
-             * how it is merchandised, is "the top" to the category and "the
-             * scarf" to anything with eyes — and the cutout is being told what
-             * to find in this picture, not which folder it came from.
-             *
-             * The category stays as the fallback. It is a guess too, but a short
-             * predictable one, and it is there when the classifier fails or is
-             * never called.
-             */
-            $noun = filled($seen)
-                ? $seen
-                : PhotoroomService::productNoun($edits['framing_preset'] ?? null);
-
-            if (filled($noun)) {
-                $itemEdits['segmentation_prompt'] = $noun;
-
-                // A guess about a folder, not a statement about this photograph.
-                // applySegmentation() reads this and keeps Photoroom's own
-                // matting in play rather than betting the cutout on one word.
-                $itemEdits['segmentation_prompt_is_a_guess'] = true;
-
-                /*
-                 * And what to drop, where the classifier saw it.
-                 *
-                 * Naming the product alone was not enough on a garment draped
-                 * over a dress form: the background came off and the form
-                 * stayed, because nothing had said the form was not part of the
-                 * product. Saying so is what the negative prompt is for.
-                 *
-                 * Only what was actually seen. "The mannequin" is wrong for a
-                 * garment on a hanger, and a negative prompt naming something
-                 * that is not in the picture is worse than no negative prompt at
-                 * all — it gives the model a second thing to fail to find.
-                 *
-                 * A typed one is never overwritten, for the same reason a typed
-                 * product is not: somebody looked.
-                 */
-                if (filled($support) && !filled($edits['segmentation_negative_prompt'] ?? null)) {
-                    $itemEdits['segmentation_negative_prompt'] = $support;
-                }
-
-                $named = true;
-            }
-        }
-
-        /*
-         * Already tried on this SKU, already thrown away.
-         *
-         * A refused redraw costs a credit and produces nothing — the image that
-         * gets published is the cutout bought afterwards — so the SKU pays twice
-         * for every photo. Once is the price of finding out. Ten times on one
-         * folder is waste, and a folder is ten photographs of the same garment
-         * on the same stand: whatever the redraw did to the first is what it
-         * will do to the rest.
-         */
-        if ($wantsRedraw && $standVisible && !$named && $this->skuAlreadyRefusedARedraw()) {
-            $itemEdits['ghost_mannequin']   = false;
-            $itemEdits['flat_lay']          = false;
-            $itemEdits['virtual_model']     = false;
-            $itemEdits['remove_background'] = true;
-
-            return ['cutout_unnamed', $itemEdits];
-        }
-
-        if ($wantsRedraw && $standVisible && !$named && $viewType !== 'back' && $viewType !== 'side') {
-            /*
-             * Photoroom's own Ghost Mannequin, for a category nobody has given a
-             * word to. This used to be switched off here and replaced with a
-             * generic editWithAI pass, on the grounds that generative
-             * reconstruction could not be trusted with a garment's colour or
-             * orientation — a fair call, made against the wrong feature.
-             *
-             * Side by side on one shirt: editWithAI reinvented an Aigner
-             * horseshoe monogram as rings, at 4% of the original's print detail.
-             * Ghost Mannequin reproduced the horseshoes. One is apparel-aware;
-             * the other is a general image editor being asked to understand a
-             * garment.
-             *
-             * Ticking "Remove the stand (Ghost Mannequin)" asks for this route
-             * by name, and this is the one place that request is honoured
-             * unconditionally for a worn dress form as well as a hanger. It
-             * was briefly narrowed to hangers only, on the grounds that the
-             * erase pass cannot recut a garment because it does not redraw
-             * one at all — true, but the same erase pass also cannot remove a
-             * dress form that shows through a gap the inpainting cannot
-             * plausibly fill, which is exactly the failure it was reported
-             * doing on a worn dress form: a visible piece of the form left in
-             * the photo the operator had explicitly asked to have it removed
-             * from. Between a redraw that can misjudge the cut and an erase
-             * that can leave the stand half in shot, the operator gets to
-             * choose which risk to take on their own catalogue by ticking the
-             * one checkbox that says so — this route does not choose for them
-             * a second time underneath it.
-             *
-             * Still excluded: a back or side view, which is not a quality
-             * tradeoff to weigh but a hard capability limit — "Ghost Mannequin
-             * only reconstructs front views, so it can't help a back or side
-             * shot where the stand is left visible" (see
-             * MANNEQUIN_REMOVAL_PROMPT's own docblock in PhotoroomService).
-             * Sent anyway, a sequin gown's back view came back as a front
-             * view of the same dress, not a worse redraw of the right one —
-             * there is no operator preference that makes that useful, so it
-             * still falls through to the erase pass below regardless of the
-             * checkbox.
+             * Photoroom's own Ghost Mannequin. Asked for by name on the
+             * screen, and reached without anything second-guessing that.
              *
              * The size is named rather than left open, because Photoroom's app
              * exposes quality tiers that turn out to be resolutions — 1024,
@@ -1424,21 +889,16 @@ class EditPhotoItemJob implements ShouldQueue
         }
 
         /*
-         * Everything else is a plain cutout. Nothing to erase, or no redraw was
-         * asked for, or the product is named — and naming it is the better route
-         * anyway: one request rather than two, cutting the stand out of the real
-         * photograph rather than redrawing round it.
+         * Everything else is a cutout. A typed product name makes it a
+         * text-guided one, which cuts the stand out of the real photograph;
+         * without one it is Photoroom's own matting.
          */
         $itemEdits['ghost_mannequin']   = false;
         $itemEdits['flat_lay']          = false;
         $itemEdits['virtual_model']     = false;
         $itemEdits['remove_background'] = true;
 
-        if ($standVisible && $named) {
-            return ['segmented', $itemEdits];
-        }
-
-        return [$standVisible ? 'needs_erase' : 'none', $itemEdits];
+        return [$named ? 'segmented' : 'none', $itemEdits];
     }
 
     private function caseFill(array $edits): ?float
