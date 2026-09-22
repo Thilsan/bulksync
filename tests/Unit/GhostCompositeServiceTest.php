@@ -226,6 +226,46 @@ class GhostCompositeServiceTest extends TestCase
         $this->assertGreaterThan(0.0, $result['metrics']['mask_coverage']);
     }
 
+    /**
+     * How much stand is in the photograph must not change how much garment
+     * the guard thinks was reworked.
+     *
+     * The coverage guard divided replaced pixels by every non-background
+     * pixel in the subject box, and the subject box contains the form. The
+     * form is also precisely what the mask replaces, so it sat in the
+     * numerator and the denominator at a ratio of one, dragging the whole
+     * figure toward 100% as more of it came into frame — while the reason
+     * printed underneath said "%% of the garment differs from the original".
+     *
+     * Backwards, and it showed. One batch of tops, two views of a SKU
+     * differing only in whether the form's legs were in shot: 47.9% against
+     * 18.2%, and 47.4% and 55.3% against 8.0%. Every high one refused for
+     * reworking a garment nothing had touched, and the operator got the
+     * mannequin back on exactly the photographs where it was most visible.
+     *
+     * So this holds the invariant rather than a number: same garment, same
+     * redraw, a form four times taller, and the figure must barely move.
+     */
+    public function test_a_taller_form_does_not_read_as_a_reworked_garment(): void
+    {
+        $redraw = $this->ghost();
+
+        $short = $this->service->composite($this->original(), $redraw);
+        $tall  = $this->service->composite($this->originalWithTallForm(), $redraw);
+
+        $this->assertLessThan(
+            0.05,
+            abs($tall['metrics']['mask_coverage'] - $short['metrics']['mask_coverage']),
+            'the amount of stand in frame moved a figure that reports how much garment changed',
+        );
+
+        $this->assertTrue($short['accepted']);
+        $this->assertTrue(
+            $tall['accepted'],
+            'a faithful redraw was refused for having too much mannequin to remove',
+        );
+    }
+
     public function test_it_refuses_an_image_it_cannot_read(): void
     {
         $this->expectException(\RuntimeException::class);
@@ -255,6 +295,31 @@ class GhostCompositeServiceTest extends TestCase
 
         // Two-pixel stripes: fine enough that a half-resolution redraw cannot
         // hold them, which is the whole point of the fixture.
+        [$x0, $y0, $x1, $y1] = self::PRINT;
+
+        for ($x = $x0; $x <= $x1; $x += 4) {
+            $this->box($img, [$x, $y0, min($x + 1, $x1), $y1], self::INK);
+        }
+
+        return $this->png($img);
+    }
+
+    /**
+     * The same garment on a form whose legs run four times as far below the
+     * hem — the leg-form mannequin a top or a shirt is shot on, where the
+     * stand is a large part of the frame rather than a neck behind a collar.
+     *
+     * Identical to original() above the hem, so any difference in what the
+     * metrics report comes from the stand and nothing else.
+     */
+    private function originalWithTallForm(): string
+    {
+        $img = $this->canvas(800, 1800);
+
+        $this->box($img, [300, 1000, 500, 1780], self::FORM);
+        $this->box($img, self::GARMENT, self::NAVY);
+        $this->box($img, self::NECK_HOLE, self::FORM);
+
         [$x0, $y0, $x1, $y1] = self::PRINT;
 
         for ($x = $x0; $x <= $x1; $x += 4) {

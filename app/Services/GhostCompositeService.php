@@ -181,6 +181,17 @@ class GhostCompositeService
     private const MIN_GARMENT_SHARE = 0.02;
 
     /**
+     * How much of the subject has to be garment-coloured before coverage is
+     * measured over the garment alone.
+     *
+     * A tenth is enough to draw a ratio from and low enough that a garment
+     * mostly hidden behind a form still qualifies. Below it the colour sample
+     * is too small to divide by, and the whole-subject figure is used instead
+     * — wrong about what it measures, but not noise.
+     */
+    private const MIN_GARMENT_SHARE_OF_SUBJECT = 0.10;
+
+    /**
      * Passes of a max filter to grow the mask before it is feathered.
      *
      * Two things need the growth. The boundary between garment and stand is an
@@ -934,28 +945,74 @@ class GhostCompositeService
     {
         [$minX, $minY, $maxX, $maxY] = $oBox;
 
-        $ow = imagesx($orig);
-
         $step = max(1, (int) floor(($maxX - $minX + 1) / 200));
 
-        $subject = 0;
-        $replaced = 0;
+        $subject          = 0;
+        $replaced         = 0;
+        $garment          = 0;
+        $garmentReplaced  = 0;
 
         for ($y = $minY; $y <= $maxY; $y += $step) {
             for ($x = $minX; $x <= $maxX; $x += $step) {
-                if ($this->isBackground(imagecolorat($orig, $x, $y))) {
+                $rgb = imagecolorat($orig, $x, $y);
+
+                if ($this->isBackground($rgb)) {
                     continue;
                 }
 
                 $subject++;
 
-                if ((imagecolorat($mask, $x, $y) & 0xFF) > 127) {
+                $isReplaced = (imagecolorat($mask, $x, $y) & 0xFF) > 127;
+
+                if ($isReplaced) {
                     $replaced++;
+                }
+
+                if ($this->chroma($rgb) >= self::GARMENT_CHROMA) {
+                    $garment++;
+
+                    if ($isReplaced) {
+                        $garmentReplaced++;
+                    }
                 }
             }
         }
 
-        unset($ow);
+        /*
+         * Measured over the garment, not over the garment plus whatever is
+         * holding it up.
+         *
+         * This used to divide by every non-background pixel in the subject
+         * box, and the subject box contains the stand. The stand is also
+         * exactly what the mask replaces — smooth, near-neutral, disagreed
+         * with by the redraw — so it landed in the numerator and the
+         * denominator both, and the guard read "how much of the picture was
+         * mannequin" while its own reason text said "how much of the garment
+         * differs from the original".
+         *
+         * Which made it backwards: the more stand was in shot, the higher the
+         * score, and the more certain the refusal. The photographs that most
+         * needed the stand removed were the ones it could never pass. Measured
+         * across one batch, on garments where two views of the same SKU
+         * differed only in whether the form's legs were in frame — 47.9%
+         * against 18.2%, and 47.4% and 55.3% against 8.0% — all four of the
+         * high ones refused for reworking a garment that had not been touched.
+         *
+         * The fix is the one registration already made, for the same reason,
+         * in GARMENT_CHROMA's own docblock: compare garment with garment. A
+         * leg is not colourful enough to count, so removing it no longer reads
+         * as reworking the product, while a genuinely repainted sleeve still
+         * does.
+         *
+         * The fallback is the old whole-subject figure, for a garment with too
+         * little colour to sample — a white shirt on a white form. It measures
+         * the wrong thing, and it is still better than a ratio drawn from a
+         * handful of pixels. That case is already called out as the known weak
+         * spot in GARMENT_CHROMA, and this does not change it either way.
+         */
+        if ($garment >= max(1, (int) round($subject * self::MIN_GARMENT_SHARE_OF_SUBJECT))) {
+            return round($garmentReplaced / $garment, 4);
+        }
 
         return $subject === 0 ? 0.0 : round($replaced / $subject, 4);
     }
