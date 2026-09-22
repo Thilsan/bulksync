@@ -1293,6 +1293,33 @@ class PhotoEditorTest extends TestCase
         $this->assertSame('keepSalientObject', $fields['segmentation.mode']);
     }
 
+    /**
+     * And without a Keep word it is sent nowhere, which is why the screen
+     * disables the box that holds it.
+     *
+     * Photoroom's negative prompt narrows a text-guided cutout; with no
+     * prompt to narrow there is nothing for it to attach to, so
+     * applySegmentation() returns before reading it. The box arrived
+     * pre-filled with "the mannequin, dress form, clothes rail, hanger and
+     * stand" — a sentence naming the exact job this catalogue is trying to
+     * do — and an operator reading it had every reason to think it was doing
+     * something. Pinned here so the field's dead case is a stated fact rather
+     * than an accident of an early return.
+     */
+    public function test_a_negative_prompt_alone_is_sent_nowhere(): void
+    {
+        $fields = app(PhotoroomService::class)->buildFields([
+            'remove_background'            => true,
+            'ghost_mannequin'              => true,
+            'segmentation_prompt'          => '',
+            'segmentation_negative_prompt' => 'the mannequin, dress form, clothes rail, hanger and stand',
+        ]);
+
+        $this->assertArrayNotHasKey('segmentation.negativePrompt', $fields,
+            'a negative prompt with no Keep word behind it reached Photoroom');
+        $this->assertArrayNotHasKey('segmentation.prompt', $fields);
+    }
+
     /** Output colour is pinned so one product looks the same on every listing. */
     public function test_srgb_is_sent_by_default(): void
     {

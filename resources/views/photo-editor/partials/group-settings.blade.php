@@ -164,7 +164,8 @@
                    value="{{ $val('segmentation_prompt') }}" placeholder="the dress" maxlength="500"
                    data-auto="{{ $keepIsAGuess ? '1' : '0' }}"
                    @input="$el.dataset.auto = '0';
-                           document.getElementById('seg-keep-guess-{{ $uid }}').value = '0'"
+                           document.getElementById('seg-keep-guess-{{ $uid }}').value = '0';
+                           document.getElementById('seg-drop-{{ $uid }}').disabled = $el.value.trim() === ''"
                    class="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none">
 
             {{-- Whether that word came from the category or from a person.
@@ -185,13 +186,36 @@
         </div>
         <div>
             <label for="seg-drop-{{ $uid }}" class="mb-1 block text-xs text-gray-600">Remove</label>
+            {{-- Only live while Keep has a word in it.
+
+                 Photoroom's negative prompt is part of text-guided
+                 segmentation: PhotoroomService::applySegmentation() returns
+                 before it is ever read when segmentation.prompt is empty, so
+                 with Keep blank this box is sent nowhere and changes nothing.
+
+                 It arrived pre-filled with "the mannequin, dress form,
+                 clothes rail, hanger and stand", which reads exactly like the
+                 control that removes a mannequin — the thing this catalogue
+                 spends most of its time trying to do. An operator with Ghost
+                 Mannequin ticked and Keep empty was looking at a sentence
+                 naming their problem and having no effect on it. Disabled is
+                 the honest state, and it explains itself in the hint below
+                 rather than going quiet.
+
+                 Disabled inputs are not submitted, which is the wanted
+                 behaviour too: the value stops being stored on a session
+                 where it never applied. Kept in step by id rather than
+                 $refs, as the Keep box above documents. --}}
             <input id="seg-drop-{{ $uid }}" type="text" name="{{ $name('segmentation_negative_prompt') }}"
                    value="{{ $val('segmentation_negative_prompt') }}" placeholder="the mannequin and stand" maxlength="500"
-                   class="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none">
+                   @disabled(!filled($val('segmentation_prompt')))
+                   class="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none
+                          disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-400">
         </div>
     </div>
     <p class="mt-1 text-xs text-gray-500">
-        Empty by default — the category's own word shows only as a hint. Type it in and <em>Keep</em> cuts the
+        <em>Remove</em> only does anything once <em>Keep</em> has a word in it — it narrows that cutout, and on
+        its own it is sent nowhere. Empty by default — the category's own word shows only as a hint. Type it in and <em>Keep</em> cuts the
         stand out of the real photograph — nothing is redrawn, so the drape and the direction are the ones that
         were shot, and it costs one credit rather than two. It cannot take out a stand the garment is worn
         <em>on</em> — a dress form <em>inside</em> a garment survives being named, and only
