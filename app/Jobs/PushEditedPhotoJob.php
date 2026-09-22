@@ -130,7 +130,7 @@ class PushEditedPhotoJob implements ShouldQueue
             $variant   = $variants[0];
             $content   = file_get_contents(storage_path('app/' . $item->edited_path));
             $extension = pathinfo($item->edited_path, PATHINFO_EXTENSION) ?: 'jpg';
-            $filename  = pathinfo($item->filename, PATHINFO_FILENAME) . '.' . $extension;
+            $filename  = $this->shopifyFilename($item, $extension);
 
             // Style-code matches are gallery-only; they have no variant to bind to.
             $variantId = $matchingMode === 'style_code' ? null : ($variant['variant_id'] ?? null);
@@ -254,6 +254,38 @@ class PushEditedPhotoJob implements ShouldQueue
         ]);
 
         $this->syncPushedCount($item->photo_edit_session_id);
+    }
+
+    /**
+     * The name this photo reaches Shopify under.
+     *
+     * Built from the SKU, not the file the operator's photo came in on. The
+     * name a supplier gives a raw photo is meaningless once it is on
+     * Shopify's own CDN — the original was carried straight through and it
+     * showed: a media file named after nothing anyone would recognise,
+     * indistinguishable in the library from the next reviewer's next upload,
+     * alt text the only clue what it was actually a picture of.
+     *
+     * Numbered against a sibling only when there is one — a single-photo SKU
+     * gets the bare SKU as its name, with nothing to disambiguate. Counted
+     * the same way galleryPosition() orders the gallery (position, then
+     * filename as the tie-break) so the number on the name and the position
+     * in the gallery agree, rather than being two different orderings that
+     * happen to look similar.
+     */
+    private function shopifyFilename(PhotoEditItem $item, string $extension): string
+    {
+        $siblingIds = PhotoEditItem::where('photo_edit_session_id', $item->photo_edit_session_id)
+            ->where('sku_detected', $item->sku_detected)
+            ->inDisplayOrder()
+            ->pluck('id')
+            ->all();
+
+        $index = array_search($item->getKey(), $siblingIds, true);
+
+        $suffix = ($index !== false && count($siblingIds) > 1) ? '-' . ($index + 1) : '';
+
+        return $item->sku_detected . $suffix . '.' . $extension;
     }
 
     /**

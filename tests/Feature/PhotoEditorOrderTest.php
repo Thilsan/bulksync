@@ -304,4 +304,64 @@ class PhotoEditorOrderTest extends TestCase
         $this->assertFalse($leads->invoke($job, $closeup), 'a close-up must not take the variant image');
         $this->assertTrue($leads->invoke($job, $photo), 'the real photograph should, even sorted later');
     }
+
+    /**
+     * The name a photo reaches Shopify under is built from the SKU, not the
+     * file the operator's photo came in on.
+     *
+     * Reported directly: a Shopify media file named after a supplier's own
+     * filename plus Shopify's own random suffix on top — unrecognisable in
+     * the media library, nothing about it saying which product it belonged
+     * to beyond the alt text underneath it.
+     */
+    public function test_a_single_photo_skus_shopify_name_is_the_bare_sku(): void
+    {
+        $session = $this->makeSession();
+        $photo   = $this->photo($session, 'BRM202BTM00037', 'IMG_9182.jpg', ['position' => 1]);
+
+        $method = new \ReflectionMethod(\App\Jobs\PushEditedPhotoJob::class, 'shopifyFilename');
+        $method->setAccessible(true);
+
+        $this->assertSame(
+            'BRM202BTM00037.jpg',
+            $method->invoke(new \App\Jobs\PushEditedPhotoJob($photo->id), $photo, 'jpg'),
+        );
+    }
+
+    /**
+     * Several photos of the same SKU are numbered against each other, in the
+     * same order the gallery itself uses — position, then filename as the
+     * tie-break — so the number on the name and the position in the gallery
+     * agree rather than being two different orderings that merely look
+     * similar.
+     */
+    public function test_multiple_photos_of_one_sku_are_numbered_in_display_order(): void
+    {
+        $session = $this->makeSession();
+
+        $second = $this->photo($session, 'BRM202BTM00037', 'b.jpg', ['position' => 2]);
+        $first  = $this->photo($session, 'BRM202BTM00037', 'a.jpg', ['position' => 1]);
+
+        $method = new \ReflectionMethod(\App\Jobs\PushEditedPhotoJob::class, 'shopifyFilename');
+        $method->setAccessible(true);
+        $job = new \App\Jobs\PushEditedPhotoJob($first->id);
+
+        $this->assertSame('BRM202BTM00037-1.png', $method->invoke($job, $first, 'png'));
+        $this->assertSame('BRM202BTM00037-2.png', $method->invoke($job, $second, 'png'));
+    }
+
+    /** A different SKU on the same run never numbers against this one. */
+    public function test_a_sku_is_only_ever_numbered_against_its_own_photos(): void
+    {
+        $session = $this->makeSession();
+
+        $mine   = $this->photo($session, 'SKU-A', 'a.jpg', ['position' => 1]);
+        $theirs = $this->photo($session, 'SKU-B', 'b.jpg', ['position' => 1]);
+
+        $method = new \ReflectionMethod(\App\Jobs\PushEditedPhotoJob::class, 'shopifyFilename');
+        $method->setAccessible(true);
+
+        $this->assertSame('SKU-A.jpg', $method->invoke(new \App\Jobs\PushEditedPhotoJob($mine->id), $mine, 'jpg'));
+        $this->assertSame('SKU-B.jpg', $method->invoke(new \App\Jobs\PushEditedPhotoJob($theirs->id), $theirs, 'jpg'));
+    }
 }
