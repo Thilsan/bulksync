@@ -264,77 +264,6 @@ class PhotoEditorTest extends TestCase
     }
 
     /**
-     * The redraw instruction forbids them too, and has more riding on it.
-     *
-     * Ghost Mannequin builds its own picture, and GhostCompositeService then
-     * lines that picture up against the photograph so the print, colour and
-     * drape stay the camera's — only the hole the stand left comes from the
-     * redraw. A tilted garment breaks the registration, the composite refuses,
-     * and the feature falls back to a plain cutout with the stand still in it.
-     *
-     * So a tilt here does not cost some accuracy, it costs the whole feature.
-     * This prompt carried a summary — "the same position, the same angle" —
-     * while the erase prompt beside it refused each movement separately; the
-     * shirts that arrived tilted came from the summary.
-     */
-    public function test_the_redraw_instruction_forbids_moving_the_garment(): void
-    {
-        $prompt = strtolower(PhotoroomService::GHOST_MANNEQUIN_PROMPT);
-
-        foreach ([
-            'do not rotate', 'do not tilt', 'lay it flat', 'up, down or sideways',
-            'same angle', 'same position', 'same size',
-        ] as $rule) {
-            $this->assertStringContainsString($rule, $prompt, "the redraw instruction stopped forbidding: {$rule}");
-        }
-
-        // What it is for, and the one thing it must still ask for.
-        $this->assertStringContainsString('remove the stand', $prompt);
-
-        // The print is the part a redraw is most liable to reinvent.
-        $this->assertStringContainsString('print, logo and lettering', $prompt);
-        $this->assertStringNotContainsString('floating', $prompt);
-    }
-
-    /**
-     * Colour got the same treatment as position: not a summary, a list of the
-     * specific things not to do — after a navy dress's front-view redraw came
-     * back a visibly different shade from its own back view, with only "keep
-     * the same colours" tacked on at the end where position had a full list.
-     */
-    public function test_the_redraw_instruction_forbids_recolouring_the_garment(): void
-    {
-        $prompt = strtolower(PhotoroomService::GHOST_MANNEQUIN_PROMPT);
-
-        foreach ([
-            'exact same colour', 'do not lighten it', 'darken it',
-            'warm it', 'cool it', 'add any tint', 'shift its hue',
-            'different but similar colour', 'match the colour in the photograph exactly',
-        ] as $rule) {
-            $this->assertStringContainsString($rule, $prompt, "the redraw instruction stopped forbidding: {$rule}");
-        }
-    }
-
-    /**
-     * Where to look for the stand, not just what to call it.
-     *
-     * "Mannequin, dress form" named a category and never a place, which left
-     * a piece of one still showing at an off-shoulder neckline free to be
-     * treated as part of the garment rather than the rest of the thing it had
-     * just been told to remove — seen repeatedly on that exact cut, an
-     * otherwise clean redraw with a small pale corner of the form left at the
-     * shoulder.
-     */
-    public function test_the_redraw_instruction_names_where_the_stand_can_still_show(): void
-    {
-        $prompt = strtolower(PhotoroomService::GHOST_MANNEQUIN_PROMPT);
-
-        foreach (['at the shoulder', 'above the collar', 'through the neckline', 'any other opening'] as $rule) {
-            $this->assertStringContainsString($rule, $prompt, "the redraw instruction stopped naming: {$rule}");
-        }
-    }
-
-    /**
      * The price-tag erase pass protects the permanent label wherever it
      * actually sits, not only at the collar.
      *
@@ -1790,9 +1719,18 @@ class PhotoEditorTest extends TestCase
             'ghost mannequin was chosen and Photoroom was never told');
         $this->assertSame('PORTRAIT_HD_3_2', $sent['ghostMannequin.size'] ?? null,
             'no size named to match the photo\'s own shape, so the resolution tier is left to chance');
-        $this->assertStringContainsString('Remove only the hanger',
-            $sent['ghostMannequin.prompt'] ?? '',
-            'the garment was left to the model to reinterpret');
+        /*
+         * And no prompt at all, unless the operator typed one.
+         *
+         * A 1,100-character instruction used to go into this field and the
+         * mannequin kept surviving it. Photoroom's reference calls it "an
+         * optional text prompt to guide the generation style" and gives
+         * "ghost mannequin" as its example — the removal is mode=ai.auto's
+         * job. A wall of prohibitions ending "do not redraw the garment" was
+         * a contradiction handed to the feature whose job is to redraw it.
+         */
+        $this->assertSame('', $sent['ghostMannequin.prompt'] ?? '',
+            'an instruction is being sent into a field Photoroom documents as a style hint');
     }
 
     /**

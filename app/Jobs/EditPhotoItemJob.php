@@ -879,10 +879,30 @@ class EditPhotoItemJob implements ShouldQueue
              * garment's own proportions, since a full-length photograph is shot
              * to fit the garment, not the other way round.
              */
+            /*
+             * No prompt unless the operator typed one.
+             *
+             * This used to force a 1,100-character instruction into
+             * ghostMannequin.prompt — "remove only the stand, change nothing
+             * else, do not rotate, do not recolour, do not move any trim, do
+             * not redraw the garment" — and the mannequin kept surviving it.
+             * Photoroom's own reference says what that field is: "an optional
+             * text prompt to guide the generation style", and the single
+             * example they give for it is the two words "ghost mannequin".
+             * The removal is done by mode=ai.auto on its own.
+             *
+             * So the wall of prohibitions was never being read as
+             * instructions. It was a style hint, and a style hint that ends
+             * "do not redraw the garment" is a contradiction handed to a
+             * feature whose entire job is to redraw it. Sending nothing lets
+             * the model Photoroom tuned for this do it unimpeded, which is
+             * the only version of this that was ever going to be consistent.
+             *
+             * A prompt the operator typed is still sent, because that is a
+             * style choice they are making deliberately.
+             */
             $itemEdits['apparel_size']   ??= PhotoroomService::closestApparelSize($photoWidth, $photoHeight);
-            $itemEdits['apparel_prompt']   = filled($edits['apparel_prompt'] ?? null)
-                ? $edits['apparel_prompt']
-                : PhotoroomService::GHOST_MANNEQUIN_PROMPT;
+            $itemEdits['apparel_prompt']   = (string) ($edits['apparel_prompt'] ?? '');
             $itemEdits['remove_background'] = true;
 
             return ['ghost_mannequin', $itemEdits];

@@ -828,6 +828,24 @@ class PhotoroomService
      * things a redraw is prone to relocate, not only what it is prone to
      * redraw.
      */
+    /**
+     * No longer sent by the edit pipeline. Kept for the ghost-composite
+     * diagnostic command, and as the record of a mistake worth not repeating.
+     *
+     * This was written as though ghostMannequin.prompt were an instruction
+     * field, and grew for months on that assumption — every failure answered
+     * by naming the failure in it. Photoroom's own reference says what the
+     * field actually is: "an optional text prompt to guide the generation
+     * style", whose documented example is the two words "ghost mannequin".
+     * The mannequin removal is done by mode=ai.auto alone.
+     *
+     * So none of this was ever read as instructions, which is why naming each
+     * new failure in it never fixed the next one — and a style hint ending
+     * "do not redraw the garment" is a contradiction handed to the one
+     * feature whose entire job is to redraw it. Read the field's own
+     * documentation before writing a prompt into it; this constant is what
+     * not doing that cost.
+     */
     public const GHOST_MANNEQUIN_PROMPT = 'Remove only the hanger, hook, clothes rail, garment rack, mannequin, '
         . 'dress form, headless body or stand that this garment is displayed on, including any piece of it still '
         . 'showing at the shoulder, above the collar, or through the neckline or any other opening in the garment. '
