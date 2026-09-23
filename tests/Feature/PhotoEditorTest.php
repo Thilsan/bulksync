@@ -1645,11 +1645,58 @@ class PhotoEditorTest extends TestCase
         $this->assertSame('ghost_photo_kept', $item->apparel_mode_applied);
 
         /*
-         * One request, not two. The generic erase needed its own generative
-         * pass before the cutout; Ghost Mannequin does both in one — so this
-         * route is also a credit cheaper per image than the one it replaced.
+         * Two requests: the redraw, then the cutout that takes the studio off
+         * the composite.
+         *
+         * This asserted one, on the reading that Ghost Mannequin removes the
+         * background as part of its own pass. It does — for its own output.
+         * The composite is not its output: it is built on the photograph and
+         * only rewrites where the mask fires, so what survives everywhere else
+         * is the camera's file, studio included. Against a near-white wall
+         * that is invisible, which is how it went unnoticed; against a grey
+         * one it published the whole room under a "stand removed" badge.
          */
-        \Illuminate\Support\Facades\Http::assertSentCount(1);
+        \Illuminate\Support\Facades\Http::assertSentCount(2);
+    }
+
+    /**
+     * An accepted composite has its background taken off in a pass of its own.
+     *
+     * The blend starts from the photograph and only rewrites where the mask
+     * fires, so everything outside the garment is the camera's file — studio
+     * wall included. Ghost Mannequin removes the background from its own
+     * output, not from an image assembled afterwards out of the original.
+     *
+     * Invisible for as long as these were shot on near-white: an untouched
+     * wall at 250 reads as a removed one. A shirt against a grey wall showed
+     * it, published with the whole room behind it under a green "stand
+     * removed · photo kept" badge — the worst shape a bug can take, because
+     * the badge says the image was checked.
+     *
+     * Asserted on the request rather than on pixels: what went wrong was a
+     * cutout never being asked for, and a fake returns whatever it is told to
+     * whatever is sent.
+     */
+    public function test_an_accepted_composite_is_cut_out_before_it_is_published(): void
+    {
+        $item = $this->runCleanupItem([], []);
+
+        $this->assertSame('ghost_photo_kept', $item->apparel_mode_applied);
+
+        $cutouts = 0;
+
+        \Illuminate\Support\Facades\Http::assertSent(function ($request) use (&$cutouts) {
+            $sent = collect($request->data())->keyBy('name')->map->contents;
+
+            if (($sent['removeBackground'] ?? null) === 'true' && !isset($sent['ghostMannequin.mode'])) {
+                $cutouts++;
+            }
+
+            return true;
+        });
+
+        $this->assertSame(1, $cutouts,
+            'the composite was published without the background ever being taken off it');
     }
 
     /**
@@ -1668,10 +1715,13 @@ class PhotoEditorTest extends TestCase
     {
         $item = $this->runCleanupItem([], []);
 
-        $this->assertContains($item->apparel_mode_applied, ['ghost_photo_kept', 'ghost_redraw_kept'],
+        $this->assertContains($item->apparel_mode_applied, ['ghost_photo_kept', 'cutout_unnamed'],
             'a ticked Remove the stand did not reach Ghost Mannequin');
 
-        \Illuminate\Support\Facades\Http::assertSentCount(1);
+        // The redraw, then a cutout — of the composite where it was accepted,
+        // of the photograph where it was not. Either way the background comes
+        // off in a pass of its own.
+        \Illuminate\Support\Facades\Http::assertSentCount(2);
     }
 
     /** A segmentation prompt does the same job inside the one cutout request. */

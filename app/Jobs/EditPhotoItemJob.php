@@ -499,8 +499,42 @@ class EditPhotoItemJob implements ShouldQueue
                     $verified = $whole['accepted'];
 
                     if ($verified) {
-                        $edited      = $whole['image'];
-                        $appliedMode = 'ghost_photo_kept';
+                        /*
+                         * The composite is built on the photograph, and the
+                         * photograph still has the studio behind it — the
+                         * blend starts from $input, the camera's own file,
+                         * and only rewrites where the mask fires. So the
+                         * background has to be taken off afterwards, or the
+                         * accepted path is the one route out of here that
+                         * publishes an uncut picture.
+                         *
+                         * It hid for as long as it did because these are shot
+                         * on near-white: an untouched wall at 250 looks like a
+                         * removed one. A shirt photographed against a grey
+                         * wall is what finally showed it, badged "stand
+                         * removed · photo kept" with the whole studio in
+                         * frame.
+                         *
+                         * A failure here drops through to the plain-cutout
+                         * fallback below rather than publishing the composite
+                         * with its background on.
+                         */
+                        try {
+                            $cut = $this->plainCutoutEdits($itemEdits);
+
+                            $edited      = $photoroom->edit($whole['image'], $cut, $item->filename);
+                            $itemEdits   = $cut;
+                            $appliedMode = 'ghost_photo_kept';
+                        } catch (\Throwable $e) {
+                            $verified = false;
+
+                            $redrawNote = 'The stand was removed, but the background could not be taken off '
+                                . 'the result, so the photo was kept as shot.';
+
+                            Log::warning(
+                                "EditPhotoItemJob item {$this->itemId} composite cutout failed: " . $e->getMessage()
+                            );
+                        }
                     } else {
                         $redrawNote = 'The stand could not be removed without altering the garment, '
                             . 'so the photo was kept as shot. ' . $whole['reason'];
@@ -530,11 +564,7 @@ class EditPhotoItemJob implements ShouldQueue
                      * One more credit, spent to publish the real product
                      * instead of an invented one.
                      */
-                    $plain = $itemEdits;
-                    $plain['ghost_mannequin']  = false;
-                    $plain['flat_lay']         = false;
-                    $plain['virtual_model']    = false;
-                    $plain['remove_background'] = true;
+                    $plain = $this->plainCutoutEdits($itemEdits);
 
                     try {
                         $edited      = $photoroom->edit($input, $plain, $item->filename);
@@ -852,6 +882,25 @@ class EditPhotoItemJob implements ShouldQueue
      * Remove the stand without typing one goes to Ghost Mannequin, every
      * time, on every view.
      */
+    /**
+     * The same edits with every generative apparel mode off and the background
+     * coming away — a plain cutout of whatever image it is handed.
+     *
+     * Used twice and for two different images: on the photograph when a redraw
+     * is refused, and on the composite when one is accepted. Shared because
+     * the two had drifted into being written out separately, and the pair that
+     * matters is that both of them take the background off.
+     */
+    private function plainCutoutEdits(array $itemEdits): array
+    {
+        $itemEdits['ghost_mannequin']   = false;
+        $itemEdits['flat_lay']          = false;
+        $itemEdits['virtual_model']     = false;
+        $itemEdits['remove_background'] = true;
+
+        return $itemEdits;
+    }
+
     private function chooseApparelRoute(
         array $edits,
         int $photoWidth = 0,
