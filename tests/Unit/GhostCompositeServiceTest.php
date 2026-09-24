@@ -290,6 +290,62 @@ class GhostCompositeServiceTest extends TestCase
             'a cream garment has no colour to find, and the figures beside it are fallback figures');
     }
 
+    /**
+     * A cream garment on a cream form is measured by shape when colour fails.
+     *
+     * Chroma is how garment is told from moulded plastic, and a pale garment
+     * has none to offer, so both sides fell back to the subject box —
+     * dress-plus-legs against dress alone. On this fixture, whose redraw is
+     * the same garment at the same proportions with nothing altered, that
+     * fallback reported the proportions as 49.3% changed and containment as
+     * 37.6%: a confident refusal of a perfect redraw.
+     *
+     * It was refusing every cream, white and pale-grey product in the
+     * catalogue that way. Four cream dresses in one run, garment_found false
+     * on all four, aspect shifts of 44.7% to 59.7%.
+     *
+     * Shape carries what colour cannot: a garment is wide and the legs under
+     * it are two narrow columns, so the hem is the lowest row still a good
+     * fraction of the widest one. Asserted against the truth — nothing here
+     * was recut, so the honest figure is zero.
+     */
+    public function test_a_pale_garment_is_measured_by_shape_when_colour_fails(): void
+    {
+        $result = $this->service->composite($this->paleGarment(), $this->paleGhost());
+
+        $this->assertFalse($result['metrics']['garment_found'],
+            'this fixture exists to exercise the path where colour finds nothing');
+
+        $this->assertLessThan(0.07, $result['metrics']['aspect_shift'],
+            'an unaltered redraw was still read as a recut garment');
+
+        $this->assertGreaterThan(0.90, $result['metrics']['containment']);
+        $this->assertTrue($result['accepted'], 'a faithful redraw of a cream dress was refused');
+    }
+
+    /**
+     * A garment's own narrowing is not a stand.
+     *
+     * The hem is found by width — the legs under a dress are two narrow
+     * columns below a wide skirt. A long-sleeved garment has exactly that
+     * shape too: widest across the sleeves, a third of it everywhere below.
+     * The first version of the rule read a T-shirt's whole body as the stand
+     * and cut it off, which four feature tests caught.
+     *
+     * Position is what separates them, so this fixture is the pale case with
+     * the narrow part occupying most of the height rather than the bottom of
+     * it. Nothing may be trimmed, and the figures must stay honest.
+     */
+    public function test_a_long_sleeved_shape_is_not_mistaken_for_a_stand(): void
+    {
+        $result = $this->service->composite($this->wideShouldered(), $this->wideShoulderedGhost());
+
+        $this->assertLessThan(0.07, $result['metrics']['aspect_shift'],
+            'the garment\'s own body was trimmed off as though it were a stand');
+
+        $this->assertTrue($result['accepted']);
+    }
+
     public function test_it_refuses_an_image_it_cannot_read(): void
     {
         $this->expectException(\RuntimeException::class);
@@ -371,14 +427,49 @@ class GhostCompositeServiceTest extends TestCase
         return $this->png($img);
     }
 
-    /** A cream garment on a cream form — no colour anywhere to tell them apart. */
+    /**
+     * A cream garment on a cream form — no colour anywhere to tell them apart.
+     *
+     * Two narrow legs rather than one wide block, because that is what a
+     * leg-form mannequin is and the width of them is the whole signal the
+     * hem is found by.
+     */
     private function paleGarment(): string
     {
-        $img = $this->canvas(800, 1400);
+        $img = $this->canvas(800, 1500);
 
-        $this->box($img, [300, 1000, 500, 1380], self::FORM);
+        $this->box($img, [330, 1000, 390, 1460], [226, 216, 200]);
+        $this->box($img, [410, 1000, 470, 1460], [226, 216, 200]);
         $this->box($img, self::GARMENT, [232, 222, 205]);
         $this->box($img, self::NECK_HOLE, self::FORM);
+
+        return $this->png($img);
+    }
+
+    /**
+     * A pale long-sleeved garment: widest across the sleeves near the top,
+     * narrow for the whole length below them, and no stand anywhere.
+     *
+     * The shape the width rule cannot tell from a hem above two legs, which
+     * is why the rule also asks where the narrowing is.
+     */
+    private function wideShouldered(): string
+    {
+        $img = $this->canvas(800, 1200);
+
+        $this->box($img, [140, 200, 660, 420], [232, 222, 205]);   // sleeves
+        $this->box($img, [320, 200, 480, 1000], [232, 222, 205]);  // body, far narrower
+
+        return $this->png($img);
+    }
+
+    /** Its redraw: the same shape at half scale, nothing altered. */
+    private function wideShoulderedGhost(): string
+    {
+        $img = $this->canvas(400, 600);
+
+        $this->box($img, [70, 100, 330, 210], [232, 222, 205]);
+        $this->box($img, [160, 100, 240, 500], [232, 222, 205]);
 
         return $this->png($img);
     }

@@ -181,6 +181,27 @@ class GhostCompositeService
     private const MIN_GARMENT_SHARE = 0.02;
 
     /**
+     * How wide a row has to be, against the widest row in the subject, to
+     * still be garment rather than the stand below the hem.
+     *
+     * Two legs and the gap between them come to well under half the width of
+     * the garment they hold up; a hem, even a narrow one, is a good deal more
+     * than half of the widest point above it. Six tenths sits between the two
+     * with room either side.
+     */
+    private const HEM_WIDTH_SHARE = 0.60;
+
+    /**
+     * How much of the subject a stand may be before the narrowing is read as
+     * the garment's own cut instead.
+     *
+     * A leg-form's legs run to about half the frame on the tops this
+     * catalogue shoots, and a long-sleeved garment spends rather more than
+     * half its height below its widest point. Half is where the two part.
+     */
+    private const MAX_STAND_SHARE = 0.55;
+
+    /**
      * How much of the subject has to be garment-coloured before coverage is
      * measured over the garment alone.
      *
@@ -336,7 +357,12 @@ class GhostCompositeService
              */
             $garmentFound = $oColoured !== null && $gColoured !== null;
 
-            $oGarment = $oColoured ?? $oBox;
+            /*
+             * The redraw has no stand in it, so its subject is its garment and
+             * there is nothing to trim. Only the photograph needs the hem
+             * found.
+             */
+            $oGarment = $oColoured ?? $this->standTrimmedBox($orig, $oBox);
             $gGarment = $gColoured ?? $gBox;
 
             $registered = $this->register($orig, $redraw, $oGarment, $gGarment);
@@ -486,6 +512,115 @@ class GhostCompositeService
             (int) floor($minY * $sy),
             (int) min($w - 1, ceil(($maxX + 1) * $sx)),
             (int) min($h - 1, ceil(($maxY + 1) * $sy)),
+        ];
+    }
+
+    /**
+     * The subject box with the stand's legs trimmed off the bottom of it.
+     *
+     * The colour test cannot find a cream dress on a cream form — chroma is
+     * how garment is told from moulded plastic, and a pale garment has none
+     * to offer. Shape can. A garment is wide; the legs holding it up are two
+     * narrow columns, and a base is narrower still than the hem above it. So
+     * the hem is the lowest row that is still a reasonable fraction of the
+     * widest row, and everything below it is the stand.
+     *
+     * Colour first and this second, because colour is the stronger signal
+     * where it exists: a navy dress over a cream form is unambiguous, and the
+     * widest-row rule would be fooled by a garment that genuinely narrows to
+     * a point. This only has to carry the case where colour has already
+     * failed, which is every cream, white and pale-grey product.
+     *
+     * Trims nothing when nothing narrows — a dress reaching the bottom of the
+     * frame keeps its whole box, and so does a shot with no stand in it.
+     *
+     * Measured on the batch that prompted it: four cream dresses, all four
+     * refused with garment_found false, aspect shifts of 44.7% to 59.7% on
+     * garments whose redraws contained perfectly.
+     */
+    private function standTrimmedBox(\GdImage $img, array $subject, int $proxyEdge = 240): array
+    {
+        $w = imagesx($img);
+        $h = imagesy($img);
+
+        $proxy = $this->proxy($img, $proxyEdge);
+        $pw    = imagesx($proxy);
+        $ph    = imagesy($proxy);
+
+        $sx = $w / $pw;
+        $sy = $h / $ph;
+
+        // The subject box in the proxy's own coordinates.
+        $top    = max(0, (int) floor($subject[1] / $sy));
+        $bottom = min($ph - 1, (int) ceil($subject[3] / $sy));
+
+        $widths   = [];
+        $maxWidth = 0;
+
+        for ($y = $top; $y <= $bottom; $y++) {
+            $minX = $pw;
+            $maxX = -1;
+
+            for ($x = 0; $x < $pw; $x++) {
+                if ($this->isBackground(imagecolorat($proxy, $x, $y))) {
+                    continue;
+                }
+
+                if ($x < $minX) $minX = $x;
+                if ($x > $maxX) $maxX = $x;
+            }
+
+            $widths[$y] = $maxX < 0 ? 0 : ($maxX - $minX + 1);
+            $maxWidth   = max($maxWidth, $widths[$y]);
+        }
+
+        imagedestroy($proxy);
+
+        if ($maxWidth === 0) {
+            return $subject;
+        }
+
+        $floor = self::HEM_WIDTH_SHARE * $maxWidth;
+
+        $hem = $bottom;
+
+        while ($hem > $top && $widths[$hem] < $floor) {
+            $hem--;
+        }
+
+        // Nothing narrowed, so nothing is a leg. Leave the box alone rather
+        // than trimming a row off every photograph for the sake of it.
+        if ($hem >= $bottom) {
+            return $subject;
+        }
+
+        /*
+         * Where the narrowing happens, not just that it happens.
+         *
+         * A garment narrows too, and for the same reason it is a garment: a
+         * long-sleeved top is at its widest across the sleeves and spends
+         * every row below them at a third of that. Width alone cannot tell
+         * that from a hem above two legs — the step is the same shape — so
+         * this read a T-shirt's whole body as the stand and cut it off.
+         *
+         * Position separates them. A stand is at the bottom by definition;
+         * sleeves are near the top. So a trim that would take more than half
+         * the subject with it is not a stand, it is the garment's own cut,
+         * and the box is left alone.
+         *
+         * Erring towards not trimming on purpose: failing to trim leaves the
+         * old behaviour, which is a refusal the operator can see. Trimming a
+         * garment invents a measurement about a shape that was never there.
+         */
+        if (($bottom - $hem) > self::MAX_STAND_SHARE * ($bottom - $top + 1)) {
+            return $subject;
+        }
+
+        return [
+            $subject[0],
+            $subject[1],
+            $subject[2],
+            (int) min($h - 1, ceil(($hem + 1) * $sy)),
         ];
     }
 
