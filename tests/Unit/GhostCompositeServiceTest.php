@@ -266,6 +266,30 @@ class GhostCompositeServiceTest extends TestCase
         );
     }
 
+    /**
+     * A refusal says whether the garment was found, or whether the figures
+     * beside it came from the fallback.
+     *
+     * The fallback compares garment-plus-stand against garment, and from the
+     * outside its numbers are indistinguishable from real ones: a refusal at
+     * 55% reads as a recut garment whether or not anything was recut. Every
+     * cream, white and pale-grey product in the catalogue lands there, and
+     * without this flag the only way to tell the two apart is to argue about
+     * the photograph.
+     */
+    public function test_it_says_whether_it_found_the_garment(): void
+    {
+        $navy = $this->service->composite($this->original(), $this->ghost());
+
+        $this->assertTrue($navy['metrics']['garment_found'],
+            'a navy garment carries plenty of colour and should have been found');
+
+        $pale = $this->service->composite($this->paleGarment(), $this->paleGhost());
+
+        $this->assertFalse($pale['metrics']['garment_found'],
+            'a cream garment has no colour to find, and the figures beside it are fallback figures');
+    }
+
     public function test_it_refuses_an_image_it_cannot_read(): void
     {
         $this->expectException(\RuntimeException::class);
@@ -343,6 +367,29 @@ class GhostCompositeServiceTest extends TestCase
 
         // The print, averaged into one colour — detail destroyed.
         $this->box($img, [140, 210, 260, 260], [140, 160, 110]);
+
+        return $this->png($img);
+    }
+
+    /** A cream garment on a cream form — no colour anywhere to tell them apart. */
+    private function paleGarment(): string
+    {
+        $img = $this->canvas(800, 1400);
+
+        $this->box($img, [300, 1000, 500, 1380], self::FORM);
+        $this->box($img, self::GARMENT, [232, 222, 205]);
+        $this->box($img, self::NECK_HOLE, self::FORM);
+
+        return $this->png($img);
+    }
+
+    /** Its redraw: same proportions, same colour, stand gone. Nothing recut. */
+    private function paleGhost(): string
+    {
+        $img = $this->canvas(400, 600);
+
+        $this->box($img, [100, 100, 300, 500], [232, 222, 205]);
+        $this->box($img, [175, 100, 225, 150], [214, 205, 189]);
 
         return $this->png($img);
     }

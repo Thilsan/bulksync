@@ -313,8 +313,31 @@ class GhostCompositeService
              * in shot. Falls back to the subject box for a garment with no
              * colour in it to find.
              */
-            $oGarment = $this->colouredBox($orig) ?? $oBox;
-            $gGarment = $this->colouredBox($redraw) ?? $gBox;
+            $oColoured = $this->colouredBox($orig);
+            $gColoured = $this->colouredBox($redraw);
+
+            /*
+             * Whether the garment was actually found, or whether both sides
+             * fell back to the subject box.
+             *
+             * The fallback compares a garment-plus-stand against a garment,
+             * which is two different objects — the 20% error this class's own
+             * GARMENT_CHROMA docblock describes. Measured on a synthetic pale
+             * garment that was not altered at all, it reports the proportions
+             * as 49.3% changed and containment as 37.6%.
+             *
+             * That is every cream, white and pale-grey product in the
+             * catalogue, and from the outside a fallback figure is
+             * indistinguishable from a real one — a refusal at 55% looks like
+             * a recut garment whether or not anything was recut. Carried out
+             * with the metrics and logged, so which of the two a given refusal
+             * was is a question the logs can answer rather than one that has
+             * to be argued from the picture.
+             */
+            $garmentFound = $oColoured !== null && $gColoured !== null;
+
+            $oGarment = $oColoured ?? $oBox;
+            $gGarment = $gColoured ?? $gBox;
 
             $registered = $this->register($orig, $redraw, $oGarment, $gGarment);
 
@@ -323,6 +346,7 @@ class GhostCompositeService
                 $mask    = $this->deriveMask($orig, $registered);
 
                 $metrics['mask_coverage'] = $this->maskCoverage($orig, $mask, $oBox);
+                $metrics['garment_found']  = $garmentFound;
 
                 [$verdict, $reason] = $this->judge($metrics);
 

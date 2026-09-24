@@ -540,11 +540,25 @@ class EditPhotoItemJob implements ShouldQueue
                             . 'so the photo was kept as shot. ' . $whole['reason'];
                     }
 
+                    /*
+                     * garment_found is the one to read on a refusal. False
+                     * means the garment carried too little colour to be told
+                     * apart from the stand, so every figure beside it was
+                     * drawn from garment-plus-stand against garment — two
+                     * different objects — and says nothing about whether the
+                     * redraw was faithful. Every cream, white and pale-grey
+                     * product lands there.
+                     */
                     Log::info('Ghost mannequin composite', [
-                        'item'     => $this->itemId,
-                        'accepted' => $whole['accepted'],
-                        'verdict'  => $whole['verdict'],
-                        'reason'   => $whole['reason'],
+                        'item'          => $this->itemId,
+                        'sku'           => $item->sku_detected,
+                        'accepted'      => $whole['accepted'],
+                        'verdict'       => $whole['verdict'],
+                        'garment_found' => $whole['metrics']['garment_found'] ?? null,
+                        'aspect_shift'  => $whole['metrics']['aspect_shift'] ?? null,
+                        'containment'   => $whole['metrics']['containment'] ?? null,
+                        'mask_coverage' => $whole['metrics']['mask_coverage'] ?? null,
+                        'reason'        => $whole['reason'],
                     ]);
                 } catch (\Throwable $e) {
                     $redrawNote = 'The stand could not be removed without altering the garment, '
