@@ -1320,6 +1320,45 @@ class PhotoEditorTest extends TestCase
         $this->assertArrayNotHasKey('segmentation.prompt', $fields);
     }
 
+    /**
+     * A style hint typed on the screen reaches Ghost Mannequin.
+     *
+     * The field is plumbed end to end but had no input anywhere on the
+     * configure screen, so in practice nothing could ever set it. That was
+     * fine while the app's position was that the field does nothing —
+     * Photoroom document it as an optional style hint, and this app had been
+     * misusing it for 1,100 characters of prohibitions.
+     *
+     * Photoroom's own support then tested our source files: they reproduced
+     * our failures with no prompt, got better results with one, and
+     * recommended we use it. So the wording is an operator's to try rather
+     * than a constant to argue about, and this holds the wiring that lets
+     * them.
+     */
+    public function test_a_typed_style_hint_reaches_ghost_mannequin(): void
+    {
+        $fields = app(PhotoroomService::class)->buildFields([
+            'remove_background' => true,
+            'ghost_mannequin'   => true,
+            'apparel_prompt'    => 'ghost mannequin',
+        ]);
+
+        $this->assertSame('ai.auto', $fields['ghostMannequin.mode']);
+        $this->assertSame('ghost mannequin', $fields['ghostMannequin.prompt']);
+    }
+
+    /** And an empty one is sent as nothing at all, not as an empty string. */
+    public function test_an_empty_style_hint_is_not_sent(): void
+    {
+        $fields = app(PhotoroomService::class)->buildFields([
+            'remove_background' => true,
+            'ghost_mannequin'   => true,
+            'apparel_prompt'    => '   ',
+        ]);
+
+        $this->assertArrayNotHasKey('ghostMannequin.prompt', $fields);
+    }
+
     /** Output colour is pinned so one product looks the same on every listing. */
     public function test_srgb_is_sent_by_default(): void
     {

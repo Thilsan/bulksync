@@ -135,6 +135,38 @@
              photograph kept with the stand still in it — and that no longer
              happens, so the checkbox had nothing left to turn on. Ticking
              Remove the stand keeps the redraw, every time. --}}
+
+        {{-- The style hint Ghost Mannequin is given.
+
+             Photoroom document this as optional, and this app first sent
+             1,100 characters of prohibitions into it — "do not rotate, do not
+             recolour, do not redraw the garment" — handed to the feature whose
+             job is redrawing the garment. That was wrong and was removed.
+
+             Removing it entirely was the over-correction. Photoroom's own
+             support then tested our source files, hit the same failures we did
+             with no prompt, and got noticeably better results with one; their
+             engineer recommended we use it. So the field is back, as a field
+             rather than a constant, because what belongs in it is a short
+             style hint and nobody here can settle the wording by reasoning
+             about it — only by running it against real garments.
+
+             Editable per session and per SKU, so a wording can be tried on a
+             few photographs before a catalogue is committed to it. --}}
+        <div class="sm:col-span-2" x-show="treatment === 'ghost'" x-cloak>
+            <label for="ghost-prompt-{{ $uid }}" class="mb-1 block text-xs text-gray-600">
+                Style hint for the redraw
+            </label>
+            <input id="ghost-prompt-{{ $uid }}" type="text" name="{{ $name('apparel_prompt') }}"
+                   value="{{ $val('apparel_prompt') }}" placeholder="ghost mannequin" maxlength="500"
+                   class="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none">
+            <p class="mt-1 text-xs text-gray-500">
+                Optional, and a <em>style</em> hint rather than an instruction — Photoroom's own documented example
+                is the two words <em>ghost mannequin</em>. Photoroom's support recommend using one: they reproduced
+                our failures without it and got better results with it. Long lists of prohibitions do not work here;
+                this is the field that tells the model what to make, not what to avoid.
+            </p>
+        </div>
     </div>
 
     @php
