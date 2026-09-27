@@ -17,12 +17,7 @@
 
     <div class="flex items-start justify-between">
         <div>
-            <nav class="text-xs text-gray-400 mb-1">
-                <a href="{{ route('dashboard') }}" class="hover:text-gray-600">Home</a>
-                <span class="mx-1.5">&gt;</span>
-                <span class="text-gray-600">Product Creation Request</span>
-            </nav>
-            <h2 class="text-lg font-semibold text-gray-800">My Brands</h2>
+            <h2 class="font-display text-xl text-gray-900">My Brands</h2>
             <p class="text-sm text-gray-500">Every request in your categories, and whether it is live yet.</p>
         </div>
 

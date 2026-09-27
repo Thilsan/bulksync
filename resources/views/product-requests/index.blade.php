@@ -13,11 +13,6 @@
     {{-- Header actions --}}
     <div class="flex items-center justify-between">
         <div>
-            <nav class="text-xs text-gray-400 mb-1">
-                <a href="{{ route('dashboard') }}" class="hover:text-gray-600">Home</a>
-                <span class="mx-1.5">&gt;</span>
-                <span class="text-gray-600">Product Creation Request</span>
-            </nav>
             <p class="text-sm text-gray-500">Track every new product from brand request to live launch.</p>
         </div>
         <div class="flex items-center gap-2">

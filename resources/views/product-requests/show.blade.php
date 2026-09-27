@@ -65,11 +65,9 @@
     {{-- Breadcrumb + actions --}}
     <div class="flex items-start justify-between">
         <nav class="text-xs text-gray-400">
-            <a href="{{ route('dashboard') }}" class="hover:text-gray-600">Home</a>
-            <span class="mx-1.5">&gt;</span>
-            <a href="{{ route('product-requests.index') }}" class="hover:text-gray-600">Product Creation Request</a>
-            <span class="mx-1.5">&gt;</span>
-            <span class="text-gray-600">{{ $request->reference }}</span>
+            <a href="{{ route('product-requests.index') }}" class="transition-colors hover:text-gray-600">All requests</a>
+            <span class="mx-1.5">/</span>
+            <span class="font-medium text-gray-600">{{ $request->reference }}</span>
         </nav>
 
         <div class="flex items-center gap-2">

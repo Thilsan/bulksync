@@ -334,6 +334,38 @@
         main textarea { box-shadow: inset 0 1px 2px rgba(15,23,42,.05); }
 
         /*
+            The page hero. Same petrol as the sidebar so the shell reads as one
+            piece, lit from the top-left, with the champagne thread along its
+            upper edge and a weave of hairlines for texture — the thing that
+            separates a premium surface from a coloured rectangle is that it
+            catches light unevenly.
+        */
+        .page-hero {
+            position: relative;
+            overflow: hidden;
+            border-radius: 1.15rem;
+            padding: 1.6rem 1.75rem 1.75rem;
+            background:
+                radial-gradient(520px 200px at 6% -30%, rgba(140,214,238,.28), transparent 70%),
+                radial-gradient(460px 260px at 94% 130%, rgba(201,164,91,.20), transparent 72%),
+                linear-gradient(112deg, #1f6280 0%, #1a5069 46%, #123642 100%);
+            box-shadow: 0 18px 40px -28px rgba(11,42,53,.9);
+        }
+        .page-hero::before {
+            content: ''; position: absolute; inset: 0; pointer-events: none;
+            background-image: repeating-linear-gradient(115deg, rgba(255,255,255,.05) 0 1px, transparent 1px 22px);
+            mask-image: linear-gradient(105deg, #000, transparent 62%);
+        }
+        .page-hero::after {
+            content: ''; position: absolute; inset: 0 0 auto 0; height: 1px; pointer-events: none;
+            background: linear-gradient(90deg, transparent, rgba(221,192,134,.75) 22%, rgba(221,192,134,.25) 55%, transparent);
+        }
+
+        /* Softer corners across the working area: closer to the hero's radius,
+           so panels and the band read as one family. */
+        main .rounded-xl { border-radius: .9rem; }
+
+        /*
             Waiting, made legible. A flat spinner says only "something is
             happening"; these say what kind of waiting it is — a ring for a
             request in flight, a shimmer for a shape that is about to be filled
@@ -715,7 +747,7 @@
     <div class="flex-1 flex flex-col overflow-hidden" x-data="{ scrolled: false }">
 
         {{-- Top bar --}}
-        <header class="relative z-20 flex shrink-0 items-center justify-between gap-3 border-b bg-white/85 px-4 py-3 backdrop-blur-xl transition-shadow after:absolute after:inset-x-0 after:bottom-[-1px] after:h-px after:bg-gradient-to-r after:from-gold-300/60 after:via-gold-300/10 after:to-transparent sm:px-8"
+        <header class="relative z-20 flex shrink-0 items-center justify-between gap-3 border-b bg-white/85 px-4 py-2.5 backdrop-blur-xl transition-shadow after:absolute after:inset-x-0 after:bottom-[-1px] after:h-px after:bg-gradient-to-r after:from-gold-300/60 after:via-gold-300/10 after:to-transparent sm:px-8"
                 :class="scrolled ? 'border-transparent shadow-[0_1px_3px_rgba(15,23,42,.10),0_8px_24px_-16px_rgba(15,23,42,.25)]' : 'border-gray-200'">
             <div class="flex min-w-0 items-center gap-3">
                 <button type="button" @click="nav = true"
@@ -725,25 +757,6 @@
                         <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16"/>
                     </svg>
                 </button>
-                <div class="min-w-0">
-                    @if($crumbs)
-                        <nav class="flex items-center gap-1 text-[11px] font-medium text-gray-400" aria-label="Breadcrumb">
-                            @foreach($crumbs as $i => $crumb)
-                                @if($i > 0)
-                                    <svg class="h-3 w-3 shrink-0 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
-                                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
-                                    </svg>
-                                @endif
-                                @if(!empty($crumb['url']))
-                                    <a href="{{ $crumb['url'] }}" class="truncate transition-colors hover:text-gray-600">{{ $crumb['label'] }}</a>
-                                @else
-                                    <span class="truncate">{{ $crumb['label'] }}</span>
-                                @endif
-                            @endforeach
-                        </nav>
-                    @endif
-                    <h1 class="truncate font-display text-xl font-medium leading-tight tracking-[-.01em] text-gray-900 sm:text-[1.6rem]">@yield('page-title', 'Dashboard')</h1>
-                </div>
             </div>
 
             <div class="flex items-center gap-2">
@@ -1052,6 +1065,35 @@
              shadow has to be driven from here. --}}
         <main class="relative flex-1 overflow-y-auto px-4 py-6 sm:px-8"
               @scroll.passive="scrolled = $event.target.scrollTop > 4">
+
+            {{--
+                The page header, lifted off the white bar and given a stage of
+                its own. Every screen yields page-title already, so one band
+                here re-frames all thirty-nine of them: the dark shell now runs
+                sidebar → header → page, and the working area reads as light
+                content held inside it rather than as a form on a grey sheet.
+            --}}
+            <header class="page-hero mb-6">
+                @if($crumbs)
+                    <nav class="mb-2 flex items-center gap-1.5 text-[11px] font-medium text-white/45" aria-label="Breadcrumb">
+                        @foreach($crumbs as $i => $crumb)
+                            @if($i > 0)
+                                <span class="text-white/25">/</span>
+                            @endif
+                            @if(!empty($crumb['url']))
+                                <a href="{{ $crumb['url'] }}" class="truncate transition-colors hover:text-gold-200">{{ $crumb['label'] }}</a>
+                            @else
+                                <span class="truncate">{{ $crumb['label'] }}</span>
+                            @endif
+                        @endforeach
+                    </nav>
+                @endif
+
+                <h1 class="font-display text-[1.9rem] leading-none tracking-[-.015em] text-white sm:text-[2.35rem]">
+                    @yield('page-title', 'Dashboard')
+                </h1>
+            </header>
+
             @yield('content')
         </main>
 
