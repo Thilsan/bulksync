@@ -78,9 +78,9 @@ class BuildVariantBreakdownCsvJob implements ShouldQueue
             $out = fopen(storage_path("app/sku-checks/{$this->sessionId}-variants.csv"), 'w');
             fputcsv($out, [
                 'SKU Checked', 'Status', 'Product ID', 'Product Name', 'Published',
-                'Colour', 'Size', 'Variant SKU', 'Variant ID', 'Stock',
+                'Colour', 'Size', 'Variant SKU', 'Variant ID',
                 'Has Image', 'Image Count',
-                'Sizes In Colour', 'Sizes With Image', 'Colour Stock', 'Gallery Images',
+                'Sizes In Colour', 'Sizes With Image', 'Gallery Images',
             ]);
 
             $grouped = $this->groupSkusByProduct($sourcePath);
@@ -99,7 +99,7 @@ class BuildVariantBreakdownCsvJob implements ShouldQueue
                 if (strtolower($row[1] ?? '') !== 'available') {
                     // Kept in the file rather than dropped: a SKU missing from
                     // the export would read as "no colours", not "not in Shopify".
-                    fputcsv($out, [$sku, 'Not Available', '', '', '', '', '', '', '', '', '', '', '', '', '', '']);
+                    fputcsv($out, [$sku, 'Not Available', '', '', '', '', '', '', '', '', '', '', '', '']);
                     $scanned++;
                     continue;
                 }
@@ -129,14 +129,14 @@ class BuildVariantBreakdownCsvJob implements ShouldQueue
                     // query Shopify refuses, a scope, a throttle — is one fact,
                     // and reading it off the page beats hunting the log.
                     $firstFailure ??= $e->getMessage();
-                    fputcsv($out, [$checked, 'Lookup Failed', $row[2] ?? '', $row[3] ?? '', '', '', '', '', '', '', '', '', '', '', '', '']);
+                    fputcsv($out, [$checked, 'Lookup Failed', $row[2] ?? '', $row[3] ?? '', '', '', '', '', '', '', '', '', '', '']);
                     $failed++;
                     $scanned++;
                     continue;
                 }
 
                 if ($breakdown === null) {
-                    fputcsv($out, [$checked, 'No Variants Found', $row[2] ?? '', $row[3] ?? '', '', '', '', '', '', '', '', '', '', '', '', '']);
+                    fputcsv($out, [$checked, 'No Variants Found', $row[2] ?? '', $row[3] ?? '', '', '', '', '', '', '', '', '', '', '']);
                     $scanned++;
                     continue;
                 }
@@ -153,15 +153,10 @@ class BuildVariantBreakdownCsvJob implements ShouldQueue
                             $size['size'],
                             $size['sku'],
                             $size['variant_id'],
-                            // Blank, not 0, when the store would not report it:
-                            // a zero here reads as "out of stock", which is a
-                            // different and possibly wrong answer.
-                            $size['stock'] ?? '',
                             $size['has_image'] ? 'YES' : 'NO',
                             $size['image_count'],
                             $colour['variant_count'],
                             $colour['with_image_count'],
-                            $colour['stock'] ?? '',
                             $breakdown['gallery_count'],
                         ]);
                     }

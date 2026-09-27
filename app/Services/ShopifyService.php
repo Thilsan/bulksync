@@ -467,30 +467,45 @@ class ShopifyService
             return null;
         }
 
+        $this->throttle();
+
         try {
-            try {
-                $matched = $this->fetchSkuBreakdown($sku, true);
-                $stockKnown = true;
-            } catch (\RuntimeException $e) {
-                // Losing the colours and sizes over a stock column would be
-                // the wrong trade, so the question is asked again without it
-                // and the file says stock is unknown rather than writing a zero
-                // that reads as "out of stock".
-                if (!$this->isStockFieldUnavailable($e->getMessage())) {
-                    throw $e;
+            $response = $this->http->post(
+                "admin/api/{$this->apiVersion}/graphql.json",
+                [
+                    'json' => [
+                        'query'     => $this->skuBreakdownQuery(),
+                        'variables' => ['q' => $this->skuSearchExpression([$sku])],
+                    ],
+                ]
+            );
+
+            $data = json_decode((string) $response->getBody(), true);
+            $this->assertNoGraphQlErrors($data, "getSkuVariantBreakdown({$sku})");
+
+            $edges = $data['data']['productVariants']['edges'] ?? [];
+
+            // The search is not promised to be case-exact, and a sku: term can
+            // match more than one variant, so the asked-for spelling wins and
+            // anything else is a fallback rather than a silent substitution.
+            $matched = null;
+
+            foreach ($edges as $edge) {
+                $node = $edge['node'] ?? [];
+
+                if (mb_strtolower(trim((string) ($node['sku'] ?? ''))) === mb_strtolower($sku)) {
+                    $matched = $node;
+                    break;
                 }
-
-                Log::warning("Shopify getSkuVariantBreakdown({$sku}): stock unavailable ({$e->getMessage()}), reporting variants without it");
-
-                $matched = $this->fetchSkuBreakdown($sku, false);
-                $stockKnown = false;
             }
+
+            $matched ??= $edges[0]['node'] ?? null;
 
             if (!is_array($matched) || empty($matched['product'])) {
                 return null;
             }
 
-            return $this->shapeSkuBreakdown($sku, $matched, $stockKnown);
+            return $this->shapeSkuBreakdown($sku, $matched);
 
         } catch (\Throwable $e) {
             Log::error("Shopify getSkuVariantBreakdown({$sku}) failed: " . $e->getMessage());
@@ -504,74 +519,13 @@ class ShopifyService
     }
 
     /**
-     * The one variant a SKU names, with its whole product attached.
-     *
-     * @return array<string, mixed>|null
-     */
-    private function fetchSkuBreakdown(string $sku, bool $withStock): ?array
-    {
-        $this->throttle();
-
-        $response = $this->http->post(
-            "admin/api/{$this->apiVersion}/graphql.json",
-            [
-                'json' => [
-                    'query'     => $this->skuBreakdownQuery($withStock),
-                    'variables' => ['q' => $this->skuSearchExpression([$sku])],
-                ],
-            ]
-        );
-
-        $data = json_decode((string) $response->getBody(), true);
-        $this->assertNoGraphQlErrors($data, "getSkuVariantBreakdown({$sku})");
-
-        $edges = $data['data']['productVariants']['edges'] ?? [];
-
-        // The search is not promised to be case-exact, and a sku: term can
-        // match more than one variant, so the asked-for spelling wins and
-        // anything else is a fallback rather than a silent substitution.
-        foreach ($edges as $edge) {
-            $node = $edge['node'] ?? [];
-            if (mb_strtolower(trim((string) ($node['sku'] ?? ''))) === mb_strtolower($sku)) {
-                return $node;
-            }
-        }
-
-        return $edges[0]['node'] ?? null;
-    }
-
-    /**
-     * Is this Shopify saying it will not, or cannot, report stock?
-     *
-     * Two ways that happens: the app lacks read_inventory or read_locations, or
-     * the field has been removed from the version actually being served — which
-     * is how an export that had been working returned Lookup Failed on every
-     * row overnight, for asking after InventoryLevel.available.
-     *
-     * Only those may fall back. A throttle or a network failure must still
-     * fail, or the retry quietly reports stock unknown for a whole catalogue.
-     */
-    private function isStockFieldUnavailable(string $message): bool
-    {
-        foreach (['read_inventory', 'read_locations', "doesn't exist on type", "isn't defined on type"] as $sign) {
-            if (stripos($message, $sign) !== false) {
-                return true;
-            }
-        }
-
-        return stripos($message, 'access denied') !== false
-            && (stripos($message, 'inventor') !== false || stripos($message, 'location') !== false);
-    }
-
-    /**
      * Turn one matched variant's product into the colour/size shape the SKU
      * checker renders.
      *
      * @param  array<string, mixed>  $matched
-     * @param  bool  $stockKnown  false when the store would not report inventory
      * @return array<string, mixed>
      */
-    private function shapeSkuBreakdown(string $sku, array $matched, bool $stockKnown = true): array
+    private function shapeSkuBreakdown(string $sku, array $matched): array
     {
         $product    = $matched['product'];
         $matchedGid = $matched['id'] ?? '';
@@ -584,10 +538,9 @@ class ShopifyService
         $colourOption = $this->optionNamed($optionNames, '/colou?r|shade/i', 0);
         $sizeOption   = $this->optionNamed($optionNames, '/size/i', 1);
 
-        $colours    = [];
-        $total      = 0;
-        $withImg    = 0;
-        $totalStock = 0;
+        $colours = [];
+        $total   = 0;
+        $withImg = 0;
 
         foreach ($product['variants']['edges'] ?? [] as $edge) {
             $node = $edge['node'] ?? [];
@@ -613,11 +566,8 @@ class ShopifyService
                 'sizes'             => [],
                 'variant_count'     => 0,
                 'with_image_count'  => 0,
-                'stock'             => $stockKnown ? 0 : null,
                 'preview'           => null,
             ];
-
-            $stock = $stockKnown ? $this->variantAvailable($node) : null;
 
             $colours[$colourKey]['sizes'][] = [
                 'size'       => $size !== '' ? $size : ($node['title'] ?? ''),
@@ -627,16 +577,10 @@ class ShopifyService
                 'image_count'=> count($images),
                 'preview'    => $images[0] ?? null,
                 'is_match'   => ($node['id'] ?? '') === $matchedGid,
-                'stock'      => $stock,
             ];
 
             $colours[$colourKey]['variant_count']++;
             $total++;
-
-            if ($stockKnown) {
-                $colours[$colourKey]['stock'] += $stock;
-                $totalStock += $stock;
-            }
 
             if ($hasImage) {
                 $colours[$colourKey]['with_image_count']++;
@@ -655,51 +599,8 @@ class ShopifyService
             'gallery_count'   => count($product['media']['edges'] ?? []),
             'variant_count'   => $total,
             'with_image_count'=> $withImg,
-            'stock_known'     => $stockKnown,
-            'stock'           => $stockKnown ? $totalStock : null,
             'colours'         => array_values($colours),
         ];
-    }
-
-    /**
-     * What this variant actually has on the shelf.
-     *
-     * Available at each active location, added up — the number Shopify Admin
-     * shows on the variant page. inventoryQuantity is not that number: it is
-     * the sellable total, which also counts locations the variant page no
-     * longer lists, and a deactivated location holding a stray unit is why a
-     * size read 1 in the export while the shop floor had 0.
-     *
-     * Untracked inventory has no levels to add up, so the sellable total stands
-     * in — for those, it is the only answer Shopify has.
-     *
-     * @param  array<string, mixed>  $node
-     */
-    private function variantAvailable(array $node): int
-    {
-        $edges = $node['inventoryItem']['inventoryLevels']['edges'] ?? [];
-
-        if (($node['inventoryItem']['tracked'] ?? true) === false || $edges === []) {
-            return (int) ($node['inventoryQuantity'] ?? 0);
-        }
-
-        $available = 0;
-
-        foreach ($edges as $edge) {
-            $level = $edge['node'] ?? [];
-
-            if (($level['location']['isActive'] ?? true) === false) {
-                continue;
-            }
-
-            foreach ($level['quantities'] ?? [] as $quantity) {
-                if (($quantity['name'] ?? '') === 'available') {
-                    $available += (int) ($quantity['quantity'] ?? 0);
-                }
-            }
-        }
-
-        return $available;
     }
 
     /**
@@ -747,31 +648,21 @@ class ShopifyService
      * The whole product behind one SKU in a single call: its options, its
      * gallery size, and every variant with the photos it owns.
      */
-    private function skuBreakdownQuery(bool $withStock): string
+    private function skuBreakdownQuery(): string
     {
-        // Stock needs read_inventory (and read_locations for the per-location
-        // split); an app without them fails the whole query rather than
-        // dropping a field, so it is asked for separately and can be dropped.
-        //
-        // quantities(names:) — not InventoryLevel.available, which no longer
-        // exists. This service asks for API 2024-01, which is past Shopify's
-        // support window, so Shopify quietly serves the oldest supported
-        // version instead: a field that was fine when this version number was
-        // written can be gone at runtime with no warning but a failed query.
-        $stock = $withStock
-            ? ' inventoryQuantity inventoryItem{tracked inventoryLevels(first:10){edges{node{'
-                . 'location{name isActive} quantities(names:["available"]){name quantity}'
-                . '}}}}'
-            : '';
-
-        return 'query($q:String!){productVariants(first:10,query:$q){edges{node{
+        // No stock field here. Availability lives under inventoryLevels, and
+        // nested inside variants(250) inside this search it took the query to
+        // 1306 points against Shopify's 1000-point ceiling — refused outright,
+        // colours and all. first:3 rather than 10 on the same budget: one SKU
+        // names one variant, and each extra multiplies the product body below.
+        return 'query($q:String!){productVariants(first:3,query:$q){edges{node{
             id sku
             product{
                 id title status
                 options{name}
                 media(first:250){edges{node{id}}}
                 variants(first:250){edges{node{
-                    id sku title' . $stock . '
+                    id sku title
                     selectedOptions{name value}
                     image{url}
                     media(first:10){edges{node{... on MediaImage{image{url}}}}}

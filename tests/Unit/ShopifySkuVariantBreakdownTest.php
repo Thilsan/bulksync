@@ -37,17 +37,6 @@ class ShopifySkuVariantBreakdownTest extends TestCase
     private function payload(array $variants, int $galleryCount = 3, string $matchSku = ''): Response
     {
         $edges = array_map(fn ($v) => ['node' => [
-            'inventoryQuantity' => $v['stock'] ?? 0,
-            'inventoryItem'     => [
-                'tracked'         => $v['tracked'] ?? true,
-                'inventoryLevels' => ['edges' => array_map(
-                    fn ($level) => ['node' => [
-                        'location'   => ['name' => $level[0], 'isActive' => $level[2] ?? true],
-                        'quantities' => [['name' => 'available', 'quantity' => $level[1]]],
-                    ]],
-                    $v['levels'] ?? [['Blue Salon', $v['stock'] ?? 0]]
-                )],
-            ],
             'id'                => 'gid://shopify/ProductVariant/' . crc32($v['sku']),
             'sku'               => $v['sku'],
             'title'             => $v['colour'] . ' / ' . $v['size'],
@@ -81,9 +70,9 @@ class ShopifySkuVariantBreakdownTest extends TestCase
     public function test_variants_are_grouped_by_colour_with_the_sizes_under_each(): void
     {
         $service = $this->service($this->payload([
-            ['sku' => 'RED-M', 'colour' => 'Red',  'size' => 'M', 'image' => 'red.jpg', 'stock' => 4],
-            ['sku' => 'RED-L', 'colour' => 'Red',  'size' => 'L', 'media' => ['red-2.jpg', 'red-3.jpg'], 'stock' => 2],
-            ['sku' => 'BLU-M', 'colour' => 'Blue', 'size' => 'M', 'stock' => 0],
+            ['sku' => 'RED-M', 'colour' => 'Red',  'size' => 'M', 'image' => 'red.jpg'],
+            ['sku' => 'RED-L', 'colour' => 'Red',  'size' => 'L', 'media' => ['red-2.jpg', 'red-3.jpg']],
+            ['sku' => 'BLU-M', 'colour' => 'Blue', 'size' => 'M'],
         ]));
 
         $breakdown = $service->getSkuVariantBreakdown('RED-M');
@@ -110,12 +99,6 @@ class ShopifySkuVariantBreakdownTest extends TestCase
         // Two media images on one variant count as two photos, not two variants.
         $this->assertSame(2, $red['sizes'][1]['image_count']);
 
-        // Stock rides along per size, and totals per colour.
-        $this->assertTrue($breakdown['stock_known']);
-        $this->assertSame(6, $breakdown['stock']);
-        $this->assertSame(6, $red['stock']);
-        $this->assertSame([4, 2], array_column($red['sizes'], 'stock'));
-        $this->assertSame(0, $blue['stock']);
 
         // A gallery of three pictures does not make the blue variant covered.
         $this->assertSame(0, $blue['with_image_count']);
@@ -141,111 +124,19 @@ class ShopifySkuVariantBreakdownTest extends TestCase
         $this->assertSame('Right Product', $breakdown['product_title']);
     }
 
-    public function test_a_store_that_will_not_report_stock_still_reports_its_colours(): void
+    public function test_the_query_stays_inside_shopifys_cost_ceiling(): void
     {
-        // inventoryQuantity needs the read_inventory scope and an app without
-        // it fails the whole query — the colours must survive that, because
-        // they are what the screen is for.
-        $refused = new Response(200, [], json_encode(['errors' => [[
-            'message' => "Access denied for inventoryQuantity field. Required access: `read_inventory` access scope.",
-        ]]]));
-
-        $service = $this->service($refused, $this->payload([
-            ['sku' => 'RED-M', 'colour' => 'Red', 'size' => 'M', 'image' => 'red.jpg'],
-        ]));
-
-        $breakdown = $service->getSkuVariantBreakdown('RED-M', true);
-
-        $this->assertFalse($breakdown['stock_known']);
-        $this->assertSame('Red', $breakdown['colours'][0]['colour']);
-        $this->assertTrue($breakdown['colours'][0]['sizes'][0]['has_image']);
-
-        // Null, never 0 — a zero here would read as "out of stock".
-        $this->assertNull($breakdown['stock']);
-        $this->assertNull($breakdown['colours'][0]['stock']);
-        $this->assertNull($breakdown['colours'][0]['sizes'][0]['stock']);
-    }
-
-    public function test_a_throttle_is_not_mistaken_for_a_missing_stock_scope(): void
-    {
-        // Retrying without stock would turn a throttle into a quiet half-answer
-        // on every variant, so only a scope refusal may fall back.
-        $throttled = new Response(200, [], json_encode(['errors' => [['message' => 'Throttled']]]));
-
-        $this->expectExceptionMessage('Shopify variant breakdown failed for RED-M');
-
-        $this->service($throttled)->getSkuVariantBreakdown('RED-M', true);
-    }
-
-    public function test_the_query_asks_for_stock_the_way_the_served_api_spells_it(): void
-    {
-        // InventoryLevel.available is gone. This service names API 2024-01,
-        // which is past Shopify's support window, so Shopify serves the oldest
-        // supported version instead and the field that was there when the
-        // version number was written is not there at runtime — every row came
-        // back Lookup Failed until this became quantities(names:).
+        // Shopify refuses a query costing more than 1000 points, and refuses
+        // all of it — so a stock field nested under the variant list takes the
+        // colours down with it. Per-location availability brought this query to
+        // 1306 and every row came back Lookup Failed until it came out.
         $query = (new ReflectionClass(ShopifyService::class))->getMethod('skuBreakdownQuery');
         $query->setAccessible(true);
 
-        $sent = $query->invoke(
-            (new ReflectionClass(ShopifyService::class))->newInstanceWithoutConstructor(),
-            true
-        );
+        $sent = $query->invoke((new ReflectionClass(ShopifyService::class))->newInstanceWithoutConstructor());
 
-        $this->assertStringContainsString('quantities(names:["available"])', $sent);
-        $this->assertDoesNotMatchRegularExpression('/node\{\s*available/', $sent);
-    }
-
-    public function test_stock_is_what_the_active_locations_hold(): void
-    {
-        // The variant page showed 31 at Blue Salon while the export wrote 32:
-        // inventoryQuantity counts a location the page no longer lists.
-        $service = $this->service($this->payload([
-            ['sku' => 'RED-M', 'colour' => 'Red', 'size' => 'M', 'stock' => 32, 'levels' => [
-                ['Blue Salon', 31],
-                ['Old Warehouse', 1, false],
-            ]],
-        ]));
-
-        $breakdown = $service->getSkuVariantBreakdown('RED-M');
-
-        $this->assertSame(31, $breakdown['colours'][0]['sizes'][0]['stock']);
-        $this->assertSame(31, $breakdown['stock']);
-    }
-
-    public function test_untracked_inventory_falls_back_to_the_sellable_total(): void
-    {
-        // Nothing to add up, so the only number Shopify has is the right one.
-        $service = $this->service($this->payload([
-            ['sku' => 'RED-M', 'colour' => 'Red', 'size' => 'M', 'stock' => 7,
-             'tracked' => false, 'levels' => []],
-        ]));
-
-        $this->assertSame(7, $this->firstSize($service->getSkuVariantBreakdown('RED-M'))['stock']);
-    }
-
-    public function test_a_field_the_served_api_no_longer_has_costs_the_stock_not_the_colours(): void
-    {
-        // Exactly the outage: a removed field failed the whole query, so every
-        // row said Lookup Failed and the colours went down with the stock.
-        $removed = new Response(200, [], json_encode(['errors' => [[
-            'message' => "Field 'available' doesn't exist on type 'InventoryLevel'",
-        ]]]));
-
-        $service = $this->service($removed, $this->payload([
-            ['sku' => 'RED-M', 'colour' => 'Red', 'size' => 'M', 'image' => 'red.jpg'],
-        ]));
-
-        $breakdown = $service->getSkuVariantBreakdown('RED-M', true);
-
-        $this->assertFalse($breakdown['stock_known']);
-        $this->assertSame('Red', $breakdown['colours'][0]['colour']);
-        $this->assertTrue($breakdown['colours'][0]['sizes'][0]['has_image']);
-    }
-
-    private function firstSize(array $breakdown): array
-    {
-        return $breakdown['colours'][0]['sizes'][0];
+        $this->assertStringNotContainsString('inventoryLevels', $sent);
+        $this->assertStringNotContainsString('inventoryQuantity', $sent);
     }
 
     public function test_a_sku_no_variant_carries_comes_back_as_nothing(): void

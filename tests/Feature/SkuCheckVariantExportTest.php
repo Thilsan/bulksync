@@ -79,37 +79,33 @@ class SkuCheckVariantExportTest extends TestCase
         $this->app->bind(ShopifyService::class, fn () => new FakeExportLookup($answers));
     }
 
-    private function breakdown(string $title, array $colours, bool $stockKnown = true): array
+    private function breakdown(string $title, array $colours): array
     {
         return [
             'product_id'    => '77',
             'product_title' => $title,
             'published'     => true,
             'gallery_count' => 9,
-            'stock_known'   => $stockKnown,
             'colours'       => $colours,
         ];
     }
 
     private function colour(string $name, array $sizes): array
     {
-        $stocks = array_column($sizes, 'stock');
-
         return [
             'colour'           => $name,
             'variant_count'    => count($sizes),
             'with_image_count' => count(array_filter($sizes, fn ($s) => $s['has_image'])),
-            'stock'            => in_array(null, $stocks, true) ? null : array_sum($stocks),
             'sizes'            => $sizes,
         ];
     }
 
-    private function variantSize(string $size, bool $hasImage, int $count = 0, ?int $stock = 0): array
+    private function variantSize(string $size, bool $hasImage, int $count = 0): array
     {
         return [
             'size' => $size, 'sku' => "SKU-{$size}", 'variant_id' => '5' . strlen($size),
             'has_image' => $hasImage, 'image_count' => $count, 'preview' => null,
-            'is_match' => false, 'stock' => $stock,
+            'is_match' => false,
         ];
     }
 
@@ -118,8 +114,8 @@ class SkuCheckVariantExportTest extends TestCase
         $session = $this->checkSession([['AAA', 'Available', '77', 'A Dress', 'TRUE']]);
 
         $this->fake(['AAA' => $this->breakdown('A Dress', [
-            $this->colour('Red',  [$this->variantSize('M', true, 2, 4), $this->variantSize('L', false, 0, 1)]),
-            $this->colour('Blue', [$this->variantSize('M', false, 0, 0)]),
+            $this->colour('Red',  [$this->variantSize('M', true, 2), $this->variantSize('L', false)]),
+            $this->colour('Blue', [$this->variantSize('M', false)]),
         ])]);
 
         (new BuildVariantBreakdownCsvJob($session->id))->handle();
@@ -128,21 +124,21 @@ class SkuCheckVariantExportTest extends TestCase
 
         $this->assertSame([
             'SKU Checked', 'Status', 'Product ID', 'Product Name', 'Published',
-            'Colour', 'Size', 'Variant SKU', 'Variant ID', 'Stock',
-            'Has Image', 'Image Count', 'Sizes In Colour', 'Sizes With Image', 'Colour Stock', 'Gallery Images',
+            'Colour', 'Size', 'Variant SKU', 'Variant ID',
+            'Has Image', 'Image Count', 'Sizes In Colour', 'Sizes With Image', 'Gallery Images',
         ], $rows[0]);
 
         $this->assertCount(4, $rows); // header + three variants
 
         $this->assertSame(
-            ['AAA', 'Available', '77', 'A Dress', 'TRUE', 'Red', 'M', 'SKU-M', '51', '4', 'YES', '2', '2', '1', '5', '9'],
+            ['AAA', 'Available', '77', 'A Dress', 'TRUE', 'Red', 'M', 'SKU-M', '51', 'YES', '2', '2', '1', '9'],
             $rows[1]
         );
-        $this->assertSame('NO', $rows[2][10]);
+        $this->assertSame('NO', $rows[2][9]);
 
         // The colour totals travel on every row of that colour, so a pivot on
         // Colour answers "which colours have nothing" without a second pass.
-        $this->assertSame(['1', '0'], [$rows[3][12], $rows[3][13]]);
+        $this->assertSame(['1', '0'], [$rows[3][11], $rows[3][12]]);
 
         $session->refresh();
         $this->assertSame('completed', $session->variant_export_status);
@@ -211,27 +207,6 @@ class SkuCheckVariantExportTest extends TestCase
 
         $this->assertSame('AAA', $rows[1][0]);
         $this->assertSame('BBB', $rows[2][0]);
-    }
-
-    public function test_stock_is_left_blank_rather_than_zero_when_the_store_will_not_report_it(): void
-    {
-        $session = $this->checkSession([['AAA', 'Available', '77', 'A Dress', 'TRUE']]);
-
-        $this->fake(['AAA' => $this->breakdown(
-            'A Dress',
-            [$this->colour('Red', [$this->variantSize('M', true, 1, null)])],
-            false
-        )]);
-
-        (new BuildVariantBreakdownCsvJob($session->id))->handle();
-
-        $row = $this->exportRows($session->id)[1];
-
-        // A 0 in this column would be read as "out of stock" and reorder
-        // decisions made on it; blank says the store did not answer.
-        $this->assertSame('', $row[9]);  // Stock
-        $this->assertSame('', $row[14]); // Colour Stock
-        $this->assertSame('YES', $row[10]);
     }
 
     public function test_a_not_mapped_sku_stays_in_the_file(): void

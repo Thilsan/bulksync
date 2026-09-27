@@ -200,9 +200,6 @@
                                     <span x-text="breakdown.variant_count"></span> variant(s) —
                                     <span x-text="breakdown.with_image_count"></span> with a photo of their own,
                                     <span x-text="breakdown.gallery_count"></span> image(s) in the product gallery.
-                                    <span x-show="!breakdown.stock_known" class="text-amber-700">
-                                        Stock is not readable for this store.
-                                    </span>
                                 </p>
 
                                 <template x-for="colour in breakdown.colours" :key="colour.colour">
@@ -221,9 +218,6 @@
                                                 <p class="text-xs text-gray-500">
                                                     <span x-text="colour.with_image_count"></span> of
                                                     <span x-text="colour.variant_count"></span> size(s) have a photo
-                                                    <span x-show="colour.stock !== null">
-                                                        · <span x-text="colour.stock"></span> in stock
-                                                    </span>
                                                 </p>
                                             </div>
 
@@ -249,9 +243,6 @@
                                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
                                                     </svg>
                                                     <span x-text="size.size || '—'"></span>
-                                                    <span x-show="size.stock !== null"
-                                                          class="text-[10px] opacity-70"
-                                                          x-text="'· ' + size.stock"></span>
                                                     <span x-show="size.image_count > 1" class="text-[10px] opacity-70"
                                                           x-text="'×' + size.image_count"></span>
                                                     <span x-show="size.is_match" class="text-[10px] font-semibold uppercase tracking-wide opacity-70">searched</span>
