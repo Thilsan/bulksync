@@ -38,11 +38,14 @@
     {{-- ── Greeting ─────────────────────────────────────────────────────── --}}
     <div class="flex flex-wrap items-end justify-between gap-3">
         <div>
-            <h2 class="text-lg font-semibold text-gray-900">{{ $greeting }}, {{ Str::before($user->name, ' ') }}</h2>
+            <h2 class="font-display text-2xl leading-tight text-gray-900">{{ $greeting }}, {{ Str::before($user->name, ' ') }}</h2>
             <p class="text-sm text-gray-500">
                 {{ now()->format('l, d F Y') }}
                 @if($running->isNotEmpty())
-                    · <span class="text-brand-600 font-medium">{{ $running->count() }} {{ Str::plural('job', $running->count()) }} running right now</span>
+                    · <span class="inline-flex items-center gap-1.5 font-medium text-brand-600">
+                        <span class="pulse-dot h-1.5 w-1.5 rounded-full bg-brand-500 text-brand-500"></span>
+                        {{ $running->count() }} {{ Str::plural('job', $running->count()) }} running right now
+                      </span>
                 @else
                     · Nothing is running right now
                 @endif
@@ -50,9 +53,12 @@
         </div>
         <div class="flex items-center gap-2">
             @if($user->hasFeature('bulk_upload'))
-                <a href="{{ route('upload.create') }}"
-                   class="inline-flex items-center gap-2 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
-                   style="background-color:#1d5a74" onmouseover="this.style.backgroundColor='#164659'" onmouseout="this.style.backgroundColor='#1d5a74'">
+                {{-- data-action, not a colour: this button's presence is asserted
+                     against, and the sidebar carries a New Upload link on every
+                     page, so it needs a hook of its own that styling can move
+                     without breaking. --}}
+                <a href="{{ route('upload.create') }}" data-action="new-upload"
+                   class="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-700">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
                     </svg>
@@ -74,7 +80,8 @@
         @foreach($headline as $tile)
             @php $t = $tones[$tile['tone']] ?? $tones['gray']; @endphp
             <a href="{{ route($tile['route']) }}"
-               class="bg-white rounded-xl border border-gray-200 shadow-sm p-5 hover:border-gray-300 hover:shadow transition-all group">
+               class="group relative overflow-hidden rounded-xl border border-gray-200 bg-white p-5 shadow-sm transition-all hover:border-gray-300 hover:shadow">
+                <span class="absolute inset-x-0 top-0 h-0.5 {{ $t['fill'] }} opacity-70"></span>
                 <div class="flex items-start justify-between">
                     <div class="w-10 h-10 rounded-lg {{ $t['bg'] }} {{ $t['text'] }} flex items-center justify-center">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -85,7 +92,7 @@
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
                     </svg>
                 </div>
-                <p class="mt-4 text-3xl font-semibold text-gray-900 tabular-nums leading-none">{{ number_format($tile['value']) }}</p>
+                <p class="figure mt-4 text-4xl leading-none text-gray-900">{{ number_format($tile['value']) }}</p>
                 <p class="mt-1.5 text-sm font-medium text-gray-700">{{ $tile['label'] }}</p>
                 <p class="text-xs text-gray-400 mt-0.5">{{ $tile['note'] }}</p>
             </a>

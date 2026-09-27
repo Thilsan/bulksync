@@ -943,9 +943,11 @@ class OrdersDashboardTest extends TestCase
             );
         }
 
-        // The hover colour belongs to the New Upload button and nothing else.
-        $this->assertStringNotContainsString("this.style.backgroundColor='#164659'", $studio);
-        $this->assertStringContainsString("this.style.backgroundColor='#164659'", $home);
+        // The hook belongs to the New Upload button and nothing else — it used
+        // to be pinned by an inline hover colour, which made a styling change
+        // read as the button having gone missing.
+        $this->assertStringNotContainsString('data-action="new-upload"', $studio);
+        $this->assertStringContainsString('data-action="new-upload"', $home);
 
         // The throughput chart, the live-work panel and the pipeline card all
         // go the same way — each stays on the home dashboard.
@@ -1125,11 +1127,18 @@ class OrdersDashboardTest extends TestCase
         );
     }
 
-    /** The uppercase headings down the sidebar, in the order they are shown. */
+    /**
+     * The uppercase headings down the sidebar, in the order they are shown.
+     *
+     * Matched on the heading's own shape rather than its colour: each section
+     * is tinted with its own hue now, so pinning a single text-white/… class
+     * here would break every time the palette moved without a heading having
+     * actually gone anywhere.
+     */
     private function sidebarSections(string $html): array
     {
-        preg_match_all('/tracking-\[\.14em\] text-white\/35">\s*([^<]+?)\s*</', $html, $found);
+        preg_match_all('/tracking-\[\.14em\][^"]*">\s*([^<]+?)\s*</', $html, $found);
 
-        return $found[1];
+        return array_map('trim', $found[1]);
     }
 }

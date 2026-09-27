@@ -146,8 +146,10 @@ class TeamChartTest extends TestCase
     /** Where a sidebar section heading starts in the page. */
     private function sectionHeading(string $html, string $label): int
     {
+        // The heading's shape, not its colour: sections are tinted per module
+        // now, and this test is about where a heading sits, not what hue it is.
         $found = preg_match(
-            '/tracking-\\[\\.14em\\] text-white\\/35">\\s*' . preg_quote($label, '/') . '\\s*</',
+            '/tracking-\\[\\.14em\\][^"]*">\\s*' . preg_quote($label, '/') . '\\s*</',
             $html,
             $match,
             PREG_OFFSET_CAPTURE,

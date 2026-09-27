@@ -130,7 +130,14 @@
                             700: '#276b89',
                             800: '#215873',
                             900: '#1c4961',
-                        }
+                        },
+                        gold: {
+                            100: '#f7ecd6',
+                            200: '#ecd9ae',
+                            300: '#ddc086',
+                            400: '#c9a45b',
+                            500: '#ad8642',
+                        },
                     }
                 }
             }
@@ -168,11 +175,22 @@
     <style>
         [x-cloak] { display: none !important; }
 
-        /* Sidebar ground: same gradient language as the sign-in showcase. */
+        /*
+            Sidebar ground. Deeper than the sign-in showcase and lit from two
+            directions — a cool wash at the brand mark, a warm one low down —
+            so the panel has somewhere to stand rather than reading as flat
+            paint. The hairline down the right edge is where the champagne
+            shows: one thread of it, the length of the panel.
+        */
         .app-sidebar {
             background:
-                radial-gradient(620px 260px at 50% -10%, rgba(105,187,217,.20), transparent 70%),
-                linear-gradient(180deg, #1d5a74 0%, #1a5069 48%, #12333f 100%);
+                radial-gradient(660px 280px at 50% -12%, rgba(120,198,226,.22), transparent 70%),
+                radial-gradient(420px 320px at 8% 108%, rgba(201,164,91,.13), transparent 72%),
+                linear-gradient(176deg, #1f6280 0%, #1a5069 42%, #123642 78%, #0e2a33 100%);
+        }
+        .app-sidebar::after {
+            content: ''; position: absolute; inset: 0 0 0 auto; width: 1px; pointer-events: none;
+            background: linear-gradient(180deg, transparent, rgba(221,192,134,.45) 18%, rgba(221,192,134,.16) 60%, transparent);
         }
         /* A full-height scrollbar would cut the panel in half, so keep it hairline. */
         .nav-scroll { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.18) transparent; }
@@ -196,9 +214,10 @@
         /* Canvas: a barely-there wash so white panels sit on something. */
         body {
             background:
-                radial-gradient(820px 420px at 78% -12%, rgba(67,159,193,.07), transparent 68%),
+                radial-gradient(880px 440px at 80% -14%, rgba(67,159,193,.09), transparent 68%),
+                radial-gradient(520px 380px at 100% 100%, rgba(201,164,91,.07), transparent 70%),
                 radial-gradient(640px 360px at -8% 8%, rgba(67,159,193,.05), transparent 62%),
-                #f6f7f9;
+                #f5f6f8;
         }
 
         /* Figures read as figures: serif, aligned, never re-flowing mid-count. */
@@ -279,6 +298,41 @@
         /* Focus that is visible without being loud, everywhere. */
         :focus-visible { outline: 2px solid #439fc1; outline-offset: 2px; border-radius: 6px; }
 
+        /*
+            ── Premium defaults every page inherits ─────────────────────────
+            Keyed off the classes the views already use, so the whole panel
+            lifts without forty files being touched.
+        */
+
+        /* Primary actions catch light across the top and throw a coloured
+           shadow on hover — the one place saturation is allowed to bloom. */
+        main .bg-brand-600, header .bg-brand-600 {
+            background-image: linear-gradient(180deg, rgba(255,255,255,.16), rgba(255,255,255,0) 60%);
+        }
+        main .bg-brand-600:hover {
+            box-shadow: 0 8px 22px -8px rgba(48,131,166,.65);
+        }
+
+        /* Tinted pills get a hairline of their own colour, so a status reads as
+           a token rather than a coloured rectangle. */
+        main [class*="rounded-full"][class*="bg-green-"],
+        main [class*="rounded-full"][class*="bg-red-"],
+        main [class*="rounded-full"][class*="bg-amber-"],
+        main [class*="rounded-full"][class*="bg-blue-"],
+        main [class*="rounded-full"][class*="bg-brand-"] {
+            box-shadow: inset 0 0 0 1px rgba(15,23,42,.06);
+        }
+
+        /* Table headers: small caps, wide tracking. Rarely set per page, so it
+           lands everywhere and makes every table part of one family. */
+        main thead th { text-transform: uppercase; letter-spacing: .1em; }
+        main tbody tr { transition: background-color .18s ease; }
+
+        /* Fields sit in the page rather than on it. */
+        main input:not([type="checkbox"]):not([type="radio"]),
+        main select,
+        main textarea { box-shadow: inset 0 1px 2px rgba(15,23,42,.05); }
+
         @media (prefers-reduced-motion: reduce) {
             .live-dot, .bar-live::after, .pulse-dot::before { animation: none }
             main > *, main > * > * { animation: none }
@@ -321,7 +375,8 @@
 
         $navGroups = [
             [
-                'label' => null,
+                'label'  => null,
+                'accent' => 'brand',
                 'items' => [
                     ['label' => 'Dashboard', 'url' => route('dashboard'), 'icon' => 'home', 'on' => request()->routeIs('dashboard')],
                     ['label' => 'Chat', 'url' => route('chat.index'), 'icon' => 'chat', 'on' => request()->routeIs('chat.*'), 'badge' => $chatUnreadCount ?? 0],
@@ -332,6 +387,7 @@
                 // what it sold, and who owns what. 'gap' leaves extra room
                 // beneath so the two do not run into the modules below.
                 'label' => 'Management',
+                'accent' => 'gold',
                 'gap'   => true,
                 'items' => [
                     ['label' => 'Management Dashboard', 'url' => route('orders.dashboard'), 'icon' => 'chart', 'on' => request()->routeIs('orders.*'), 'show' => $u->hasFeature('orders_dashboard')],
@@ -340,6 +396,7 @@
             ],
             [
                 'label' => 'Media',
+                'accent' => 'violet',
                 'items' => [
                     [
                         'label' => 'Image Upload',
@@ -369,6 +426,7 @@
             ],
             [
                 'label' => 'Catalogue',
+                'accent' => 'brand',
                 'items' => [
                     ['label' => 'Product Migration',    'url' => route('store-image-sync.index'),  'icon' => 'swap',   'on' => request()->routeIs('store-image-sync.*'),  'show' => $u->hasFeature('store_sync')],
                     ['label' => 'SKU Checker',          'url' => route('sku-checker.index'),       'icon' => 'check',  'on' => request()->routeIs('sku-checker.*'),       'show' => $u->hasFeature('sku_checker')],
@@ -404,6 +462,7 @@
             ],
             [
                 'label' => 'Configuration',
+                'accent' => 'sky',
                 'items' => [
                     ['label' => 'Stores',   'url' => route('stores.index'),   'icon' => 'store', 'on' => request()->routeIs('stores.*')],
                     ['label' => 'Settings', 'url' => route('settings.index'), 'icon' => 'cog',   'on' => request()->routeIs('settings.*')],
@@ -411,6 +470,7 @@
             ],
             [
                 'label' => 'Super Admin',
+                'accent' => 'rose',
                 'items' => [
                     ['label' => 'Admin Panel',  'url' => route('super-admin.index'),    'icon' => 'shield', 'on' => request()->routeIs('super-admin.index'),    'show' => (bool) $u?->is_super_admin],
                     ['label' => 'Activity Log', 'url' => route('super-admin.activity'), 'icon' => 'clock',  'on' => request()->routeIs('super-admin.activity'), 'show' => (bool) $u?->is_super_admin],
@@ -421,6 +481,20 @@
 
         // Drop hidden items, then any group left with nothing in it — so a
         // section heading never sits above an empty space.
+        /*
+            Sections are colour-coded, one hue each, showing only on the icon
+            and the rail of the page you are on. It is orientation, not
+            decoration: Media work and Catalogue work look different at a
+            glance, and the current section names itself in colour.
+        */
+        $accents = [
+            'brand'  => ['on' => 'text-brand-200',  'off' => 'text-brand-200/45',  'rail' => 'bg-brand-300',  'label' => 'text-brand-200/60'],
+            'gold'   => ['on' => 'text-gold-200',   'off' => 'text-gold-200/40',   'rail' => 'bg-gold-300',   'label' => 'text-gold-200/60'],
+            'violet' => ['on' => 'text-violet-200', 'off' => 'text-violet-200/40', 'rail' => 'bg-violet-300', 'label' => 'text-violet-200/60'],
+            'sky'    => ['on' => 'text-sky-200',    'off' => 'text-sky-200/40',    'rail' => 'bg-sky-300',    'label' => 'text-sky-200/60'],
+            'rose'   => ['on' => 'text-rose-200',   'off' => 'text-rose-200/40',   'rail' => 'bg-rose-300',   'label' => 'text-rose-200/60'],
+        ];
+
         $navGroups = collect($navGroups)
             ->map(fn ($g) => [...$g, 'items' => array_values(array_filter($g['items'], fn ($i) => $i['show'] ?? true))])
             ->filter(fn ($g) => count($g['items']) > 0)
@@ -481,19 +555,21 @@
                 </button>
             </div>
             <div>
-                <p class="text-sm font-semibold leading-tight text-white">Ai Ecommerce Studio</p>
-                <p class="mt-0.5 text-[10px] uppercase tracking-[.14em] text-white/40">Abuissa Holding</p>
+                <p class="font-display text-[15px] leading-tight text-white">Ai Ecommerce Studio</p>
+                <p class="mt-0.5 text-[10px] uppercase tracking-[.14em] text-gold-200/55">Abuissa Holding</p>
             </div>
         </div>
 
-        <div class="relative mx-4 h-px bg-gradient-to-r from-transparent via-white/15 to-transparent"></div>
+        <div class="relative mx-4 h-px bg-gradient-to-r from-transparent via-gold-300/45 to-transparent"></div>
 
         {{-- Navigation --}}
         <nav class="nav-scroll relative flex-1 overflow-y-auto px-3 py-4">
             @foreach($navGroups as $gi => $group)
+                @php $tone = $accents[$group['accent'] ?? 'brand'] ?? $accents['brand']; @endphp
                 @if($group['label'])
-                    <p class="{{ $gi === 0 ? '' : 'mt-5' }} mb-1.5 px-3 text-[10px] font-semibold uppercase tracking-[.14em] text-white/35">
+                    <p class="{{ $gi === 0 ? '' : 'mt-5' }} mb-1.5 flex items-center gap-2 px-3 text-[10px] font-semibold uppercase tracking-[.14em] {{ $tone['label'] }}">
                         {{ $group['label'] }}
+                        <span class="h-px flex-1 bg-gradient-to-r from-white/10 to-transparent"></span>
                     </p>
                 @endif
 
@@ -509,15 +585,15 @@
                                  It starts open whenever you are anywhere inside its section. --}}
                             <div x-data="{ open: {{ $item['on'] ? 'true' : 'false' }} }">
                                 <div class="relative flex items-stretch rounded-lg transition-colors
-                                            {{ $item['on'] ? 'bg-white/[.13] ring-1 ring-inset ring-white/10' : 'hover:bg-white/[.07]' }}">
+                                            {{ $item['on'] ? 'bg-gradient-to-r from-white/[.16] to-white/[.04] ring-1 ring-inset ring-white/10' : 'hover:bg-white/[.07]' }}">
                                     @if($item['on'])
-                                        <span class="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-brand-300"></span>
+                                        <span class="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full {{ $tone['rail'] }}"></span>
                                     @endif
                                     <a href="{{ $item['url'] }}" @click="open = true"
                                        @if($item['on']) aria-current="page" @endif
                                        class="flex min-w-0 flex-1 items-center gap-2.5 px-3 py-2 text-[13px] font-medium
                                               {{ $item['on'] ? 'text-white' : 'text-white/65 hover:text-white' }}">
-                                        <svg class="h-4 w-4 shrink-0 {{ $item['on'] ? 'text-brand-200' : 'text-white/45' }}"
+                                        <svg class="h-4 w-4 shrink-0 {{ $item['on'] ? $tone['on'] : $tone['off'] }}"
                                              fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.85">
                                             @foreach($ico[$item['icon']] as $d)
                                                 <path stroke-linecap="round" stroke-linejoin="round" d="{{ $d }}"/>
@@ -568,13 +644,13 @@
                                @if($item['on']) aria-current="page" @endif
                                class="relative flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium transition-colors
                                       {{ $item['on']
-                                          ? 'bg-white/[.13] text-white ring-1 ring-inset ring-white/10'
+                                          ? 'bg-gradient-to-r from-white/[.16] to-white/[.04] text-white ring-1 ring-inset ring-white/10'
                                           : 'text-white/65 hover:bg-white/[.07] hover:text-white' }}">
                                 @if($item['on'])
                                     {{-- Accent rail: marks the current page without relying on tint alone --}}
-                                    <span class="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-brand-300"></span>
+                                    <span class="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full {{ $tone['rail'] }}"></span>
                                 @endif
-                                <svg class="h-4 w-4 shrink-0 {{ $item['on'] ? 'text-brand-200' : 'text-white/45' }}"
+                                <svg class="h-4 w-4 shrink-0 {{ $item['on'] ? $tone['on'] : $tone['off'] }}"
                                      fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.85">
                                     @foreach($ico[$item['icon']] as $d)
                                         <path stroke-linecap="round" stroke-linejoin="round" d="{{ $d }}"/>
@@ -616,7 +692,7 @@
     <div class="flex-1 flex flex-col overflow-hidden" x-data="{ scrolled: false }">
 
         {{-- Top bar --}}
-        <header class="relative z-20 flex shrink-0 items-center justify-between gap-3 border-b bg-white/85 px-4 py-3 backdrop-blur-xl transition-shadow sm:px-8"
+        <header class="relative z-20 flex shrink-0 items-center justify-between gap-3 border-b bg-white/85 px-4 py-3 backdrop-blur-xl transition-shadow after:absolute after:inset-x-0 after:bottom-[-1px] after:h-px after:bg-gradient-to-r after:from-gold-300/60 after:via-gold-300/10 after:to-transparent sm:px-8"
                 :class="scrolled ? 'border-transparent shadow-[0_1px_3px_rgba(15,23,42,.10),0_8px_24px_-16px_rgba(15,23,42,.25)]' : 'border-gray-200'">
             <div class="flex min-w-0 items-center gap-3">
                 <button type="button" @click="nav = true"
