@@ -50,67 +50,24 @@
           class="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_20rem] xl:grid-cols-[minmax(0,1fr)_23rem]">
         @csrf
 
-        {{-- ─────────────────────────── Main column ─────────────────────────── --}}
-        <div class="overflow-hidden rounded-xl border border-gray-200 bg-white">
+        {{--
+            Four steps, numbered, because this genuinely is a sequence: you
+            cannot choose how folders are matched before you have said where
+            they are. Each step is its own card rather than a band in one long
+            panel — a heading followed by a sentence of explanation, four times
+            over, read as a document instead of as a form.
+        --}}
+        <div class="space-y-4">
 
-            {{-- Matching mode --}}
-            <fieldset class="px-6 py-5">
-                <legend class="text-sm font-semibold text-gray-800">How should images find their product?</legend>
-                <p class="mt-1 text-sm text-gray-500">This decides what each folder name is compared against.</p>
-
-                <div class="mt-4 grid gap-3 sm:grid-cols-2">
-                    <label class="mode-card relative cursor-pointer rounded-xl border p-4 transition-colors"
-                           :class="matchingMode === 'sku_barcode'
-                               ? 'border-brand-500 bg-brand-50/60 ring-1 ring-brand-500'
-                               : 'border-gray-200 hover:border-gray-300'">
-                        {{-- @checked keeps a mode selected even before Alpine boots --}}
-                        <input type="radio" name="matching_mode" value="sku_barcode" x-model="matchingMode" class="sr-only"
-                               @checked(old('matching_mode', 'sku_barcode') === 'sku_barcode')>
-                        <div class="flex items-start justify-between gap-2">
-                            <span class="text-sm font-semibold text-gray-800">SKU / Barcode</span>
-                            <svg class="h-4 w-4 shrink-0 text-brand-600" x-show="matchingMode === 'sku_barcode'" x-cloak
-                                 fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
-                            </svg>
-                        </div>
-                        <p class="mt-1 text-xs leading-relaxed text-gray-500">
-                            Folder name is matched to the product SKU, falling back to the barcode.
-                            Images join the variant and the gallery.
-                        </p>
-                    </label>
-
-                    <label class="mode-card relative cursor-pointer rounded-xl border p-4 transition-colors"
-                           :class="matchingMode === 'style_code'
-                               ? 'border-brand-500 bg-brand-50/60 ring-1 ring-brand-500'
-                               : 'border-gray-200 hover:border-gray-300'">
-                        <input type="radio" name="matching_mode" value="style_code" x-model="matchingMode" class="sr-only"
-                               @checked(old('matching_mode') === 'style_code')>
-                        <div class="flex items-start justify-between gap-2">
-                            <span class="text-sm font-semibold text-gray-800">Style Code</span>
-                            <svg class="h-4 w-4 shrink-0 text-brand-600" x-show="matchingMode === 'style_code'" x-cloak
-                                 fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
-                            </svg>
-                        </div>
-                        <p class="mt-1 text-xs leading-relaxed text-gray-500">
-                            Folder or filename is matched to the style code starting the product title.
-                            Images join the gallery only.
-                        </p>
-                    </label>
+            {{-- 1 · Source --}}
+            <section class="rounded-xl border border-gray-200 bg-white p-5">
+                <div class="mb-4 flex items-center gap-3">
+                    <span class="figure grid h-7 w-7 place-items-center rounded-full bg-brand-600 text-sm text-white">1</span>
+                    <h2 class="font-display text-lg leading-none text-gray-900">Where are the images?</h2>
                 </div>
-            </fieldset>
 
-            {{-- Source --}}
-            <div class="border-t border-gray-100 px-6 py-5">
-                <h2 class="text-sm font-semibold text-gray-800">Where are the images?</h2>
-
-                {{-- Side by side only at 2xl: below that the helper column leaves the
-                     main column too narrow, and a truncated OneDrive URL is worse than a wide one. --}}
-                <div class="mt-4 grid gap-4 2xl:grid-cols-2">
+                <div class="grid gap-4 2xl:grid-cols-2">
                     <div>
-                        <label for="onedrive_link" class="mb-1.5 block text-sm font-medium text-gray-700">
-                            OneDrive shared folder link <span class="text-red-500">*</span>
-                        </label>
                         <div class="relative">
                             <svg class="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400"
                                  fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.8">
@@ -118,169 +75,168 @@
                             </svg>
                             <input id="onedrive_link" name="onedrive_link" type="url"
                                    value="{{ old('onedrive_link') }}"
-                                   placeholder="https://1drv.ms/f/s!…  or  https://company.sharepoint.com/:f:/…"
+                                   placeholder="Paste the OneDrive folder link"
                                    required
-                                   class="w-full rounded-lg border py-2.5 pl-10 pr-4 text-sm transition focus:border-brand-500 focus:outline-none focus:ring-4 focus:ring-brand-500/15 {{ $errors->has('onedrive_link') ? 'border-red-400' : 'border-gray-300' }}">
+                                   class="w-full rounded-lg border py-3 pl-10 pr-4 text-sm transition focus:border-brand-500 focus:outline-none focus:ring-4 focus:ring-brand-500/15 {{ $errors->has('onedrive_link') ? 'border-red-400' : 'border-gray-300' }}">
                         </div>
                         @error('onedrive_link')
-                            <p class="mt-1 text-xs text-red-600">{{ $message }}</p>
+                            <p class="mt-1.5 text-xs text-red-600">{{ $message }}</p>
+                        @else
+                            <p class="mt-1.5 text-xs text-gray-400">Shared as <strong class="font-semibold text-gray-500">anyone with the link can view</strong>.</p>
                         @enderror
-                        <p class="mt-1.5 text-xs text-gray-400">
-                            Share the folder with <strong class="font-semibold text-gray-500">"Anyone with the link can view"</strong>, then paste the link.
-                        </p>
                     </div>
 
                     <div>
-                        <label for="name" class="mb-1.5 block text-sm font-medium text-gray-700">
-                            Session name <span class="font-normal text-gray-400">(optional)</span>
-                        </label>
                         <input id="name" name="name" type="text" value="{{ old('name') }}"
-                               placeholder="e.g. Summer 2024 Product Photos"
-                               class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm transition focus:border-brand-500 focus:outline-none focus:ring-4 focus:ring-brand-500/15">
-                        <p class="mt-1.5 text-xs text-gray-400">Helps you find this run later in Upload History.</p>
+                               placeholder="Name this run (optional)"
+                               class="w-full rounded-lg border border-gray-300 px-4 py-3 text-sm transition focus:border-brand-500 focus:outline-none focus:ring-4 focus:ring-brand-500/15">
+                        <p class="mt-1.5 text-xs text-gray-400">Helps you find it in Upload History.</p>
                     </div>
                 </div>
-            </div>
+            </section>
 
-            {{-- Output size --}}
-            <div class="border-t border-gray-100 px-6 py-5">
-                <h2 class="text-sm font-semibold text-gray-800">Output image size</h2>
-                <p class="mt-1 text-sm text-gray-500">Leave on <em>keep original</em> unless your theme needs a fixed size.</p>
+            {{-- 2 · Matching --}}
+            <fieldset class="rounded-xl border border-gray-200 bg-white p-5">
+                <div class="mb-4 flex items-center gap-3">
+                    <span class="figure grid h-7 w-7 place-items-center rounded-full bg-brand-600 text-sm text-white">2</span>
+                    <legend class="font-display text-lg leading-none text-gray-900">How should a folder find its product?</legend>
+                </div>
 
-                <div class="mt-4 flex flex-wrap gap-2">
+                <div class="grid gap-3 sm:grid-cols-2">
+                    @foreach ([
+                        ['sku_barcode', 'SKU / Barcode', 'Matched to the SKU, then the barcode. Joins the variant and the gallery.'],
+                        ['style_code',  'Style Code',    'Matched to the code starting the product title. Joins the gallery only.'],
+                    ] as [$value, $label, $help])
+                        <label class="mode-card group relative cursor-pointer rounded-xl border p-4 transition-all"
+                               :class="matchingMode === '{{ $value }}'
+                                   ? 'border-brand-600 bg-brand-50/70 ring-1 ring-brand-600'
+                                   : 'border-gray-200 hover:border-brand-300 hover:bg-brand-50/30'">
+                            {{-- @checked keeps a mode selected even before Alpine boots --}}
+                            <input type="radio" name="matching_mode" value="{{ $value }}" x-model="matchingMode" class="sr-only"
+                                   @checked(old('matching_mode', 'sku_barcode') === $value)>
+                            <div class="flex items-start justify-between gap-3">
+                                <div>
+                                    <span class="text-sm font-semibold text-gray-900">{{ $label }}</span>
+                                    <p class="mt-1 text-xs leading-relaxed text-gray-500">{{ $help }}</p>
+                                </div>
+                                <span class="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full border transition-colors"
+                                      :class="matchingMode === '{{ $value }}' ? 'border-brand-600 bg-brand-600' : 'border-gray-300'">
+                                    <svg class="h-3 w-3 text-white" x-show="matchingMode === '{{ $value }}'" x-cloak
+                                         fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="3">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
+                                    </svg>
+                                </span>
+                            </div>
+                        </label>
+                    @endforeach
+                </div>
+            </fieldset>
+
+            {{-- 3 · Size --}}
+            <section class="rounded-xl border border-gray-200 bg-white p-5">
+                <div class="mb-4 flex flex-wrap items-center gap-3">
+                    <span class="figure grid h-7 w-7 place-items-center rounded-full bg-brand-600 text-sm text-white">3</span>
+                    <h2 class="font-display text-lg leading-none text-gray-900">Output size</h2>
+                    {{-- The consequence of the choice, where the choice is made. --}}
+                    <span class="ml-auto rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-600">
+                        <span x-show="!width || !height">Original size · under 1 MB</span>
+                        <span x-show="width && height" x-cloak x-text="width + ' × ' + height + ' px · cropped to fill'"></span>
+                    </span>
+                </div>
+
+                <div class="inline-flex flex-wrap gap-1 rounded-xl bg-gray-100 p-1">
                     <button type="button" @click="clearDimensions()"
-                        :class="!width && !height && !customMode
-                            ? 'border-gray-800 bg-gray-800 text-white'
-                            : 'border-gray-300 bg-white text-gray-600 hover:border-gray-400'"
-                        class="rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors">
-                        No resize (keep original)
-                    </button>
+                        :class="!width && !height && !customMode ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-800'"
+                        class="rounded-lg px-3 py-1.5 text-xs font-semibold transition-all">Keep original</button>
                     @foreach ($dimensionPresets as $preset)
-                    <button type="button" @click="setDimensions({{ $preset['width'] }}, {{ $preset['height'] }})"
-                        :class="width == {{ $preset['width'] }} && height == {{ $preset['height'] }}
-                            ? 'border-brand-600 bg-brand-600 text-white'
-                            : 'border-gray-300 bg-white text-gray-700 hover:border-brand-400 hover:text-brand-600'"
-                        class="rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors">
-                        {{ $preset['width'] }} × {{ $preset['height'] }}
-                        @if(str_contains($preset['label'], 'recommended'))
-                            <span class="ml-1 opacity-70">(recommended)</span>
-                        @endif
-                    </button>
+                        <button type="button" @click="setDimensions({{ $preset['width'] }}, {{ $preset['height'] }})"
+                            :class="width == {{ $preset['width'] }} && height == {{ $preset['height'] }} ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-800'"
+                            class="rounded-lg px-3 py-1.5 text-xs font-semibold transition-all">
+                            {{ $preset['width'] }} × {{ $preset['height'] }}
+                        </button>
                     @endforeach
                     <button type="button" @click="customMode = true; width = width || ''; height = height || ''"
-                        :class="customMode
-                            ? 'border-gray-800 bg-gray-800 text-white'
-                            : 'border-gray-300 bg-white text-gray-600 hover:border-gray-400'"
-                        class="rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors">
-                        Custom…
-                    </button>
+                        :class="customMode ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-800'"
+                        class="rounded-lg px-3 py-1.5 text-xs font-semibold transition-all">Custom</button>
                 </div>
 
                 {{-- Width × Height only matter once you leave the default, so they stay out of the way until then --}}
                 <div x-show="customMode || width || height" x-cloak class="mt-4 flex items-end gap-3">
                     <div class="flex-1">
-                        <label for="image_width" class="mb-1 block text-xs text-gray-500">Width (px)</label>
+                        <label for="image_width" class="mb-1 block text-xs text-gray-500">Width</label>
                         <input type="number" name="image_width" id="image_width" x-model="width"
                                min="100" max="5000" @input="customMode = true"
                                class="w-full rounded-lg border px-4 py-2.5 text-center text-sm font-semibold transition focus:border-brand-500 focus:outline-none focus:ring-4 focus:ring-brand-500/15 {{ $errors->has('image_width') ? 'border-red-400' : 'border-gray-300' }}">
                     </div>
-                    <div class="pb-2.5 text-lg font-bold text-gray-400">×</div>
+                    <div class="pb-2.5 text-lg font-bold text-gray-300">×</div>
                     <div class="flex-1">
-                        <label for="image_height" class="mb-1 block text-xs text-gray-500">Height (px)</label>
+                        <label for="image_height" class="mb-1 block text-xs text-gray-500">Height</label>
                         <input type="number" name="image_height" id="image_height" x-model="height"
                                min="100" max="5000" @input="customMode = true"
                                class="w-full rounded-lg border px-4 py-2.5 text-center text-sm font-semibold transition focus:border-brand-500 focus:outline-none focus:ring-4 focus:ring-brand-500/15 {{ $errors->has('image_height') ? 'border-red-400' : 'border-gray-300' }}">
                     </div>
-                    <div class="pb-3 text-xs text-gray-400">px</div>
                 </div>
 
-                @error('image_width') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
-                @error('image_height') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                @error('image_width') <p class="mt-1.5 text-xs text-red-600">{{ $message }}</p> @enderror
+                @error('image_height') <p class="mt-1.5 text-xs text-red-600">{{ $message }}</p> @enderror
+            </section>
 
-                <div class="mt-3 flex items-center gap-3 rounded-lg border border-brand-100 bg-brand-50 px-4 py-3">
-                    <svg class="h-4 w-4 shrink-0 text-brand-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
-                        <path stroke-linecap="round" stroke-linejoin="round"
-                            d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
-                    </svg>
-                    <p class="text-xs text-brand-700" x-show="width && height">
-                        Images will be resized to exactly
-                        <strong x-text="width + ' × ' + height + ' px'"></strong>, cropped to fill if needed.
-                        Quality starts at <strong>100%</strong> and drops only if the file exceeds <strong>1 MB</strong>.
-                    </p>
-                    <p class="text-xs text-brand-700" x-show="!width || !height">
-                        <strong>Original dimensions kept</strong> — images are only compressed to stay under <strong>1 MB</strong> if needed.
-                    </p>
-                </div>
-            </div>
-
-            {{-- What to do when the SKU already has a photo on Shopify --}}
-            <fieldset class="border-t border-gray-100 px-6 py-5">
-                <legend class="text-sm font-semibold text-gray-800">If the SKU already has an image</legend>
-                <p class="mt-1 text-sm text-gray-500">Only applies to SKUs Shopify already shows a photo for.</p>
-
-                <div class="mt-4 grid gap-3 sm:grid-cols-2">
-                    <label class="mode-card relative cursor-pointer rounded-xl border p-4 transition-colors"
-                           :class="duplicateHandling === 'replace'
-                               ? 'border-brand-500 bg-brand-50/60 ring-1 ring-brand-500'
-                               : 'border-gray-200 hover:border-gray-300'">
-                        {{-- @checked keeps a choice selected even before Alpine boots --}}
-                        <input type="radio" name="duplicate_handling" value="replace" x-model="duplicateHandling" class="sr-only"
-                               @checked(old('duplicate_handling', 'replace') === 'replace')>
-                        <div class="flex items-start justify-between gap-2">
-                            <span class="text-sm font-semibold text-gray-800">Overwrite it</span>
-                            <svg class="h-4 w-4 shrink-0 text-brand-600" x-show="duplicateHandling === 'replace'" x-cloak
-                                 fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
-                            </svg>
-                        </div>
-                        <p class="mt-1 text-xs leading-relaxed text-gray-500">
-                            The old photo is deleted and the new one takes its place.
-                            A photo shared with another colour is left alone.
-                        </p>
-                    </label>
-
-                    <label class="mode-card relative cursor-pointer rounded-xl border p-4 transition-colors"
-                           :class="duplicateHandling === 'skip'
-                               ? 'border-brand-500 bg-brand-50/60 ring-1 ring-brand-500'
-                               : 'border-gray-200 hover:border-gray-300'">
-                        <input type="radio" name="duplicate_handling" value="skip" x-model="duplicateHandling" class="sr-only"
-                               @checked(old('duplicate_handling') === 'skip')>
-                        <div class="flex items-start justify-between gap-2">
-                            <span class="text-sm font-semibold text-gray-800">Leave it alone</span>
-                            <svg class="h-4 w-4 shrink-0 text-brand-600" x-show="duplicateHandling === 'skip'" x-cloak
-                                 fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
-                            </svg>
-                        </div>
-                        <p class="mt-1 text-xs leading-relaxed text-gray-500">
-                            The file is reported as <em>Already Has Image</em> and nothing on Shopify changes.
-                        </p>
-                    </label>
+            {{-- 4 · Existing images --}}
+            <fieldset class="rounded-xl border border-gray-200 bg-white p-5">
+                <div class="mb-4 flex items-center gap-3">
+                    <span class="figure grid h-7 w-7 place-items-center rounded-full bg-brand-600 text-sm text-white">4</span>
+                    <legend class="font-display text-lg leading-none text-gray-900">If the SKU already has an image</legend>
                 </div>
 
+                <div class="grid gap-3 sm:grid-cols-2">
+                    @foreach ([
+                        ['replace', 'Overwrite it', 'The old photo is deleted. One shared with another colour is left alone.'],
+                        ['skip',    'Leave it alone', 'Reported as Already Has Image. Nothing on Shopify changes.'],
+                    ] as [$value, $label, $help])
+                        <label class="mode-card group relative cursor-pointer rounded-xl border p-4 transition-all"
+                               :class="duplicateHandling === '{{ $value }}'
+                                   ? 'border-brand-600 bg-brand-50/70 ring-1 ring-brand-600'
+                                   : 'border-gray-200 hover:border-brand-300 hover:bg-brand-50/30'">
+                            {{-- @checked keeps a choice selected even before Alpine boots --}}
+                            <input type="radio" name="duplicate_handling" value="{{ $value }}" x-model="duplicateHandling" class="sr-only"
+                                   @checked(old('duplicate_handling', 'replace') === $value)>
+                            <div class="flex items-start justify-between gap-3">
+                                <div>
+                                    <span class="text-sm font-semibold text-gray-900">{{ $label }}</span>
+                                    <p class="mt-1 text-xs leading-relaxed text-gray-500">{{ $help }}</p>
+                                </div>
+                                <span class="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full border transition-colors"
+                                      :class="duplicateHandling === '{{ $value }}' ? 'border-brand-600 bg-brand-600' : 'border-gray-300'">
+                                    <svg class="h-3 w-3 text-white" x-show="duplicateHandling === '{{ $value }}'" x-cloak
+                                         fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="3">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
+                                    </svg>
+                                </span>
+                            </div>
+                        </label>
+                    @endforeach
+                </div>
+
+                {{-- The one thing on this page that cannot be undone. --}}
                 <div x-show="duplicateHandling === 'replace'" x-cloak
-                     class="mt-3 flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
+                     class="mt-3 flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
                     <svg class="mt-px h-4 w-4 shrink-0 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
                     </svg>
                     <p class="text-xs leading-relaxed text-amber-800">
-                        Deleting a photo on Shopify cannot be undone from here — including photos added
-                        by hand in the Shopify admin. Re-running this folder would only bring back the
-                        files it contains.
+                        Deleting a Shopify photo cannot be undone from here, including photos added by hand in the admin.
                     </p>
                 </div>
             </fieldset>
 
-            {{-- Actions --}}
-            <div class="flex items-center justify-between gap-3 border-t border-gray-100 bg-gray-50 px-6 py-4">
-                <a href="{{ route('upload.dashboard') }}" x-show="!loading" class="text-sm text-gray-500 hover:text-gray-700">Cancel</a>
+            {{-- Start. Sticky, so it is reachable from any step rather than only
+                 from the bottom of a page four cards long. --}}
+            <div class="sticky bottom-4 z-10 flex items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white/95 px-5 py-3.5 shadow-lg backdrop-blur">
+                <a href="{{ route('upload.dashboard') }}" x-show="!loading" class="text-sm text-gray-500 transition-colors hover:text-gray-800">Cancel</a>
                 <button type="submit" :disabled="loading"
                     class="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-6 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60">
-                    <svg x-show="loading" x-cloak class="h-4 w-4 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
-                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 22 6.477 22 12h-4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
-                    </svg>
-                    <span x-text="loading ? 'Starting…' : 'Start Upload'"></span>
+                    <span x-show="loading" x-cloak class="spinner h-4 w-4"></span>
+                    <span x-text="loading ? 'Starting…' : 'Start upload'"></span>
                 </button>
             </div>
         </div>
