@@ -38,6 +38,11 @@ class ShopifySkuVariantBreakdownTest extends TestCase
     {
         $edges = array_map(fn ($v) => ['node' => [
             'inventoryQuantity' => $v['stock'] ?? 0,
+            'inventoryItem'     => ['inventoryLevels' => ['edges' => array_map(
+                fn ($name, $qty) => ['node' => ['available' => $qty, 'location' => ['name' => $name]]],
+                array_keys($v['locations'] ?? []),
+                array_values($v['locations'] ?? [])
+            )]],
             'id'                => 'gid://shopify/ProductVariant/' . crc32($v['sku']),
             'sku'               => $v['sku'],
             'title'             => $v['colour'] . ' / ' . $v['size'],
@@ -71,7 +76,8 @@ class ShopifySkuVariantBreakdownTest extends TestCase
     public function test_variants_are_grouped_by_colour_with_the_sizes_under_each(): void
     {
         $service = $this->service($this->payload([
-            ['sku' => 'RED-M', 'colour' => 'Red',  'size' => 'M', 'image' => 'red.jpg', 'stock' => 4],
+            ['sku' => 'RED-M', 'colour' => 'Red',  'size' => 'M', 'image' => 'red.jpg', 'stock' => 4,
+             'locations' => ['Blue Salon' => 3, 'Warehouse' => 1]],
             ['sku' => 'RED-L', 'colour' => 'Red',  'size' => 'L', 'media' => ['red-2.jpg', 'red-3.jpg'], 'stock' => 2],
             ['sku' => 'BLU-M', 'colour' => 'Blue', 'size' => 'M', 'stock' => 0],
         ]));
@@ -105,6 +111,10 @@ class ShopifySkuVariantBreakdownTest extends TestCase
         $this->assertSame(6, $breakdown['stock']);
         $this->assertSame(6, $red['stock']);
         $this->assertSame([4, 2], array_column($red['sizes'], 'stock'));
+
+        // Where that stock sits, because Shopify Admin filtered to one location
+        // shows 3 here while the sellable total is 4.
+        $this->assertSame(['Blue Salon' => 3, 'Warehouse' => 1], $red['sizes'][0]['stock_by_location']);
         $this->assertSame(0, $blue['stock']);
 
         // A gallery of three pictures does not make the blue variant covered.

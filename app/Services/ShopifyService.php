@@ -612,7 +612,8 @@ class ShopifyService
                 'preview'           => null,
             ];
 
-            $stock = $stockKnown ? (int) ($node['inventoryQuantity'] ?? 0) : null;
+            $stock     = $stockKnown ? (int) ($node['inventoryQuantity'] ?? 0) : null;
+            $locations = $stockKnown ? $this->variantStockByLocation($node) : [];
 
             $colours[$colourKey]['sizes'][] = [
                 'size'       => $size !== '' ? $size : ($node['title'] ?? ''),
@@ -623,6 +624,7 @@ class ShopifyService
                 'preview'    => $images[0] ?? null,
                 'is_match'   => ($node['id'] ?? '') === $matchedGid,
                 'stock'      => $stock,
+                'stock_by_location' => $locations,
             ];
 
             $colours[$colourKey]['variant_count']++;
@@ -654,6 +656,36 @@ class ShopifyService
             'stock'           => $stockKnown ? $totalStock : null,
             'colours'         => array_values($colours),
         ];
+    }
+
+    /**
+     * What each location holds of this variant, named.
+     *
+     * Shopify Admin's variant list shows one location's availability when it is
+     * filtered to one, while inventoryQuantity is every location added up. A
+     * file reporting only the sum cannot be reconciled against the screen
+     * somebody is looking at — including the case that prompted this: a size
+     * showing 1 in the export and 0 in the shop, because another location was
+     * carrying the odd unit.
+     *
+     * @param  array<string, mixed>  $node
+     * @return array<string, int>
+     */
+    private function variantStockByLocation(array $node): array
+    {
+        $levels = [];
+
+        foreach ($node['inventoryItem']['inventoryLevels']['edges'] ?? [] as $edge) {
+            $name = $edge['node']['location']['name'] ?? '';
+
+            if ($name === '') {
+                continue;
+            }
+
+            $levels[$name] = ($levels[$name] ?? 0) + (int) ($edge['node']['available'] ?? 0);
+        }
+
+        return $levels;
     }
 
     /**
@@ -705,7 +737,13 @@ class ShopifyService
     {
         // inventoryQuantity needs the read_inventory scope; an app without it
         // fails the whole query, so the field is asked for separately.
-        $stock = $withStock ? ' inventoryQuantity' : '';
+        // Per location as well as the total. inventoryQuantity is the sellable
+        // sum across every location, which is not the number Shopify Admin
+        // shows when its variant list is filtered to one — reporting only the
+        // sum makes a variant read as 1 in stock when the shop floor has none.
+        $stock = $withStock
+            ? ' inventoryQuantity inventoryItem{inventoryLevels(first:20){edges{node{available location{name}}}}}'
+            : '';
 
         return 'query($q:String!){productVariants(first:10,query:$q){edges{node{
             id sku
