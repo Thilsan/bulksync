@@ -13,9 +13,28 @@ use Illuminate\Http\Request;
 
 class SkuCheckerController extends Controller
 {
+    /**
+     * The check form, with the work already done beside it.
+     *
+     * Somebody arriving here has usually run this before and wants to know how
+     * the last run went as much as they want to start the next one — so the
+     * recent runs and the running totals sit on the same screen rather than
+     * behind a History link.
+     */
     public function index()
     {
-        return view('sku-checker.index');
+        $mine = SkuCheckSession::where('user_id', auth()->id());
+
+        $totals = (clone $mine)->where('status', 'completed')
+            ->selectRaw('COUNT(*) AS runs')
+            ->selectRaw('COALESCE(SUM(total_skus), 0) AS skus')
+            ->selectRaw('COALESCE(SUM(available_count), 0) AS mapped')
+            ->selectRaw('COALESCE(SUM(not_available_count), 0) AS missing')
+            ->first();
+
+        $recent = (clone $mine)->with('store')->latest()->take(6)->get();
+
+        return view('sku-checker.index', compact('totals', 'recent'));
     }
 
     public function history()

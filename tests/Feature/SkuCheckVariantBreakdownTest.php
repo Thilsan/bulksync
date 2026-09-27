@@ -99,6 +99,37 @@ class SkuCheckVariantBreakdownTest extends TestCase
         $this->assertSame(['ACB'], array_column($searched['rows'], 'sku'));
     }
 
+    public function test_the_checker_opens_on_the_work_already_done(): void
+    {
+        $this->completedSession([
+            ['AAA', 'Available',     '1', 'A Thing', 'TRUE'],
+            ['BBB', 'Not Available', '',  '',        ''],
+        ])->update([
+            'total_skus'          => 2,
+            'available_count'     => 1,
+            'not_available_count' => 1,
+        ]);
+
+        $page = $this->actingAs($this->user)->get(route('sku-checker.index'))->assertOk();
+
+        // The totals are one aggregate query, which is the kind of thing that
+        // works until a driver disagrees about COALESCE or aliases.
+        $page->assertSee('Checks run')
+             ->assertSee('Recent checks')
+             ->assertSee('SKUs checked');
+    }
+
+    public function test_the_history_page_renders(): void
+    {
+        $this->completedSession([['AAA', 'Available', '1', 'A Thing', 'TRUE']])
+            ->update(['total_skus' => 1, 'available_count' => 1]);
+
+        $this->actingAs($this->user)
+            ->get(route('sku-checker.history'))
+            ->assertOk()
+            ->assertSee('Coverage');
+    }
+
     public function test_the_results_page_renders(): void
     {
         $session = $this->completedSession([['AAA', 'Available', '1', 'A Thing', 'TRUE']]);

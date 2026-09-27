@@ -3,7 +3,7 @@
 @section('page-title', 'SKU Check Results')
 
 @section('content')
-<div class="max-w-5xl mx-auto space-y-6"
+<div class="space-y-5"
      x-data="skuCheckPage({{ $skuCheckSession->id }}, '{{ $skuCheckSession->status }}')"
      x-init="init()">
 
