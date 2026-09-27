@@ -31,11 +31,11 @@
 
         <div class="mt-3 grid grid-cols-3 gap-4">
             <div>
-                <p class="text-2xl font-semibold tabular-nums text-gray-900">{{ number_format($allowance['spent']) }}</p>
+                <p class="figure text-3xl leading-none text-gray-900">{{ number_format($allowance['spent']) }}</p>
                 <p class="text-xs text-gray-500">Credits used</p>
             </div>
             <div>
-                <p class="text-2xl font-semibold tabular-nums {{ $allowance['left'] ? 'text-emerald-600' : 'text-red-600' }}">
+                <p class="figure text-3xl leading-none {{ $allowance['left'] ? 'text-emerald-600' : 'text-red-600' }}">
                     {{ number_format($allowance['left']) }}
                 </p>
                 <p class="text-xs text-gray-500">Left</p>
@@ -47,7 +47,7 @@
                      was set to — which means a top-up bought this morning is
                      invisible here until somebody raises it. That looked like a
                      stale reading rather than an unasked question. --}}
-                <p class="text-2xl font-semibold tabular-nums text-gray-400"
+                <p class="figure text-3xl leading-none text-gray-400"
                    title="Set by hand in PHOTOROOM_MONTHLY_QUOTA. Photoroom is never asked, so a top-up has to be added here.">
                     {{ number_format($allowance['quota']) }}
                 </p>
@@ -83,7 +83,7 @@
         ] as [$key, $label, $color])
         <div class="rounded-xl border border-gray-200 bg-white p-4">
             <p class="text-xs font-medium uppercase tracking-wider text-gray-400">{{ $label }}</p>
-            <p class="mt-1.5 text-2xl font-semibold tabular-nums {{ (int) $totals->{$key} === 0 && $color === 'red' ? 'text-gray-300' : 'text-' . $color . '-600' }}">
+            <p class="mt-1.5 figure text-3xl leading-none {{ (int) $totals->{$key} === 0 && $color === 'red' ? 'text-gray-300' : 'text-' . $color . '-600' }}">
                 {{ number_format((int) $totals->{$key}) }}
             </p>
         </div>

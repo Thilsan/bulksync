@@ -16,10 +16,7 @@
          class="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/60 p-4 backdrop-blur-sm">
         <div class="w-full max-w-sm space-y-5 rounded-2xl bg-white px-10 py-8 text-center shadow-2xl">
             <div class="flex justify-center">
-                <svg class="h-12 w-12 animate-spin text-brand-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle class="opacity-20" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
-                    <path class="opacity-80" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 22 6.477 22 12h-4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
-                </svg>
+                <div class="spinner h-12 w-12"></div>
             </div>
             <div>
                 <p class="text-lg font-semibold text-gray-900">Uploading to Shopify</p>
@@ -324,42 +321,40 @@
                 </div>
             </div>
 
-            {{-- Facts worth knowing before committing a few thousand images --}}
+            {{--
+                What this run will actually do, as its own settings rather than
+                as advice. It was four sentences of prose; the two that change
+                what happens are now chips that track the form, and the one
+                warning that matters stays as a line.
+            --}}
             <div class="overflow-hidden rounded-xl border border-gray-200 bg-white">
                 <div class="border-b border-gray-100 px-4 py-3">
-                    <h2 class="text-sm font-semibold text-gray-800">Before you start</h2>
+                    <h2 class="text-sm font-semibold text-gray-800">This run</h2>
                 </div>
-                <ul class="divide-y divide-gray-100 text-xs">
-                    <li class="flex gap-2.5 px-4 py-3">
-                        <svg class="mt-px h-3.5 w-3.5 shrink-0 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
-                        </svg>
-                        <span class="text-gray-600">
-                            Uploading to
-                            <strong class="font-semibold text-gray-800">{{ $activeStore?->name ?? 'no store selected' }}</strong>
-                            — switch stores from the top bar.
+                <div class="space-y-2.5 px-4 py-4">
+                    <div class="flex items-center gap-2">
+                        <span class="h-1.5 w-1.5 shrink-0 rounded-full {{ $activeStore ? 'bg-emerald-500' : 'bg-red-400' }}"></span>
+                        <span class="text-xs text-gray-500">Uploads to</span>
+                        <span class="truncate rounded-md bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-800">
+                            {{ $activeStore?->name ?? 'No store selected' }}
                         </span>
-                    </li>
-                    <li class="flex gap-2.5 px-4 py-3">
-                        <svg class="mt-px h-3.5 w-3.5 shrink-0 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
-                        </svg>
-                        <span class="text-gray-600">SKUs that already have an image are overwritten by default — switch to <em>leave it alone</em> above if a re-run should change nothing.</span>
-                    </li>
-                    <li class="flex gap-2.5 px-4 py-3">
-                        <svg class="mt-px h-3.5 w-3.5 shrink-0 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
-                        </svg>
-                        <span class="text-gray-600">Folders that match nothing are reported as <em>no match</em> rather than failing the run.</span>
-                    </li>
-                    <li class="flex gap-2.5 px-4 py-3">
-                        <svg class="mt-px h-3.5 w-3.5 shrink-0 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m0 3.25h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
-                        </svg>
-                        <span class="text-gray-600">Keep this tab open while the run scans and uploads.</span>
-                    </li>
-                </ul>
+                    </div>
+
+                    <div class="flex items-center gap-2">
+                        <span class="h-1.5 w-1.5 shrink-0 rounded-full"
+                              :class="duplicateHandling === 'replace' ? 'bg-amber-500' : 'bg-gray-300'"></span>
+                        <span class="text-xs text-gray-500">Existing images</span>
+                        <span class="rounded-md px-2 py-0.5 text-xs font-semibold"
+                              :class="duplicateHandling === 'replace' ? 'bg-amber-50 text-amber-800' : 'bg-gray-100 text-gray-700'"
+                              x-text="duplicateHandling === 'replace' ? 'Overwritten' : 'Left alone'"></span>
+                    </div>
+
+                    <p class="border-t border-gray-100 pt-2.5 text-xs text-gray-400">
+                        Keep this tab open while the run scans and uploads.
+                    </p>
+                </div>
             </div>
+
         </aside>
     </form>
 </div>

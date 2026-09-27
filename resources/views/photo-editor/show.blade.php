@@ -137,7 +137,7 @@
         ] as [$key, $label, $color])
         <div class="rounded-xl border border-gray-200 bg-white p-4">
             <p class="text-xs font-medium uppercase tracking-wider text-gray-400">{{ $label }}</p>
-            <p class="mt-1.5 text-2xl font-semibold tabular-nums text-{{ $color }}-600" x-text="stats.{{ $key }}"></p>
+            <p class="mt-1.5 figure text-3xl leading-none text-{{ $color }}-600" x-text="stats.{{ $key }}"></p>
         </div>
         @endforeach
     </div>

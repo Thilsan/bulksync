@@ -93,7 +93,7 @@
 
             <div class="rounded-xl border border-gray-200 bg-white p-5">
                 <p class="text-xs font-medium uppercase tracking-wider text-gray-400">Images uploaded</p>
-                <p class="mt-2 text-3xl font-semibold tabular-nums text-gray-900">{{ number_format($uploaded) }}</p>
+                <p class="mt-2 figure text-4xl leading-none text-gray-900">{{ number_format($uploaded) }}</p>
                 @if ($rate !== null)
                     <div class="mt-3">
                         <div class="flex items-center justify-between text-xs">
@@ -109,7 +109,7 @@
 
             <div class="rounded-xl border border-gray-200 bg-white p-5">
                 <p class="text-xs font-medium uppercase tracking-wider text-gray-400">Sessions</p>
-                <p class="mt-2 text-3xl font-semibold tabular-nums text-gray-900">{{ number_format($sessions) }}</p>
+                <p class="mt-2 figure text-4xl leading-none text-gray-900">{{ number_format($sessions) }}</p>
                 <p class="mt-3 text-xs text-gray-500">
                     {{ $running->isNotEmpty() ? $running->count() . ' running now' : 'None running' }}
                 </p>
@@ -118,7 +118,7 @@
             {{-- Amber only earns its colour when there is actually something to look at --}}
             <div class="rounded-xl border bg-white p-5 {{ $skipped > 0 ? 'border-amber-200' : 'border-gray-200' }}">
                 <p class="text-xs font-medium uppercase tracking-wider text-gray-400">No match</p>
-                <p class="mt-2 text-3xl font-semibold tabular-nums {{ $skipped > 0 ? 'text-amber-600' : 'text-gray-900' }}">
+                <p class="mt-2 figure text-4xl leading-none {{ $skipped > 0 ? 'text-amber-600' : 'text-gray-900' }}">
                     {{ number_format($skipped) }}
                 </p>
                 <p class="mt-3 text-xs text-gray-500">
@@ -128,7 +128,7 @@
 
             <div class="rounded-xl border bg-white p-5 {{ $failed > 0 ? 'border-red-200' : 'border-gray-200' }}">
                 <p class="text-xs font-medium uppercase tracking-wider text-gray-400">Failed</p>
-                <p class="mt-2 text-3xl font-semibold tabular-nums {{ $failed > 0 ? 'text-red-600' : 'text-gray-900' }}">
+                <p class="mt-2 figure text-4xl leading-none {{ $failed > 0 ? 'text-red-600' : 'text-gray-900' }}">
                     {{ number_format($failed) }}
                 </p>
                 <p class="mt-3 text-xs text-gray-500">

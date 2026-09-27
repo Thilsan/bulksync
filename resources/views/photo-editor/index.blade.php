@@ -3,9 +3,10 @@
 @section('page-title', 'Photo Editor')
 
 @section('content')
-{{-- The option cards hide their radios, so the card itself has to show focus. --}}
+{{-- The option cards hide their radios; :focus-visible in the layout does not
+     fire on a hidden input, so the card still needs focus-within of its own. --}}
 <style>
-    .opt-card:focus-within { outline: 2px solid #439fc1; outline-offset: 2px; }
+    .opt-card:focus-within { outline: 2px solid #439fc1; outline-offset: 2px; border-radius: .75rem; }
 </style>
 
 <div x-data="photoEditForm()">
@@ -15,10 +16,7 @@
          class="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/60 p-4 backdrop-blur-sm">
         <div class="w-full max-w-sm space-y-5 rounded-2xl bg-white px-10 py-8 text-center shadow-2xl">
             <div class="flex justify-center">
-                <svg class="h-12 w-12 animate-spin text-brand-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle class="opacity-20" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
-                    <path class="opacity-80" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 22 6.477 22 12h-4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
-                </svg>
+                <div class="spinner h-12 w-12"></div>
             </div>
             <p class="text-lg font-semibold text-gray-900">Starting the edit</p>
             <p class="text-sm text-gray-500">Reading your OneDrive folder…</p>
@@ -58,13 +56,12 @@
         <svg class="mt-0.5 h-5 w-5 shrink-0 text-brand-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.8">
             <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
         </svg>
-        <div>
-            <p class="text-sm font-medium text-brand-800">Sandbox key in use</p>
-            <p class="mt-0.5 text-sm text-brand-700">
-                Edits are free (1,000 a month) but every result comes back <strong>watermarked</strong>.
-                Swap to the live key when you're ready to push real images to Shopify.
-            </p>
-        </div>
+        {{-- Two sentences became one fact: what is wrong with the output. The
+             rest was advice nobody needs twice. --}}
+        <p class="text-sm text-brand-800">
+            <span class="font-semibold">Sandbox key</span> — edits are free, results come back
+            <strong class="font-semibold">watermarked</strong>.
+        </p>
     </div>
     @endif
 
@@ -88,17 +85,17 @@
 
         <div class="mt-3 grid grid-cols-3 gap-4">
             <div>
-                <p class="text-2xl font-semibold tabular-nums text-gray-900">{{ number_format($allowance['spent']) }}</p>
+                <p class="figure text-3xl leading-none text-gray-900">{{ number_format($allowance['spent']) }}</p>
                 <p class="text-xs text-gray-500">Edited</p>
             </div>
             <div>
-                <p class="text-2xl font-semibold tabular-nums {{ $allowance['left'] ? 'text-emerald-600' : 'text-red-600' }}">
+                <p class="figure text-3xl leading-none {{ $allowance['left'] ? 'text-emerald-600' : 'text-red-600' }}">
                     {{ number_format($allowance['left']) }}
                 </p>
                 <p class="text-xs text-gray-500">Left</p>
             </div>
             <div>
-                <p class="text-2xl font-semibold tabular-nums text-gray-400">{{ number_format($allowance['quota']) }}</p>
+                <p class="figure text-3xl leading-none text-gray-400">{{ number_format($allowance['quota']) }}</p>
                 <p class="text-xs text-gray-500">Total</p>
             </div>
         </div>
