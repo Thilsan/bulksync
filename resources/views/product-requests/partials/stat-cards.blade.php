@@ -11,10 +11,27 @@
     ];
 @endphp
 
+@php
+    // The hairline along a tile's top edge, matched to its icon. Written out
+    // rather than derived: Tailwind's runtime build only sees class names that
+    // appear whole in the markup.
+    $fills = [
+        'text-brand-600 bg-brand-50'     => 'bg-brand-500',
+        'text-amber-600 bg-amber-50'     => 'bg-amber-500',
+        'text-orange-600 bg-orange-50'   => 'bg-orange-500',
+        'text-blue-600 bg-blue-50'       => 'bg-blue-500',
+        'text-purple-600 bg-purple-50'   => 'bg-purple-500',
+        'text-sky-600 bg-sky-50'         => 'bg-sky-500',
+        'text-red-600 bg-red-50'         => 'bg-red-500',
+        'text-emerald-600 bg-emerald-50' => 'bg-emerald-500',
+    ];
+@endphp
+
 <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
     @foreach($tiles as $tile)
         <a href="{{ $tile['filter'] ? route('product-requests.list', ['status' => $tile['filter']]) : route('product-requests.list') }}"
-           class="bg-white rounded-xl border border-gray-200 shadow-sm px-4 py-3.5 hover:border-brand-300 hover:shadow transition-all group">
+           class="group relative overflow-hidden rounded-xl border border-gray-200 bg-white px-4 py-3.5 shadow-sm transition-all hover:border-brand-300 hover:shadow">
+            <span class="absolute inset-x-0 top-0 h-0.5 opacity-70 {{ $fills[$tile['tone']] ?? 'bg-gray-300' }}"></span>
             <div class="flex items-start gap-3">
                 <div class="w-9 h-9 rounded-lg flex items-center justify-center shrink-0 {{ $tile['tone'] }}">
                     <svg class="w-4.5 h-4.5" style="width:1.125rem;height:1.125rem" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -23,7 +40,7 @@
                 </div>
                 <div class="min-w-0">
                     <p class="text-xs font-medium text-gray-500 leading-tight">{{ $tile['label'] }}</p>
-                    <p class="text-2xl font-semibold text-gray-900 leading-tight mt-0.5">{{ number_format($tile['value']) }}</p>
+                    <p class="figure mt-0.5 text-3xl leading-none text-gray-900">{{ number_format($tile['value']) }}</p>
                     <p class="text-xs text-gray-400 truncate group-hover:text-brand-600 transition-colors">{{ $tile['hint'] }}</p>
                 </div>
             </div>

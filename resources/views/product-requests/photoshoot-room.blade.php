@@ -346,8 +346,7 @@
                                         Cancel
                                     </button>
                                     <button type="submit"
-                                            class="flex-1 text-white text-sm font-medium px-4 py-2.5 rounded-lg"
-                                            style="background-color:#1d5a74">
+                                            class="flex-1 text-white text-sm font-medium px-4 py-2.5 rounded-lg bg-brand-600 hover:bg-brand-700 transition-colors">
                                         Save Shoot
                                     </button>
                                 </div>

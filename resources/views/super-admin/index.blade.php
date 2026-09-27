@@ -88,8 +88,7 @@
 
                 {{-- User row --}}
                 <div class="flex items-center gap-3 px-5 py-3">
-                    <div class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold shrink-0"
-                         style="background-color:#1d5a74; color:white">
+                    <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-700 text-xs font-semibold text-white ring-1 ring-inset ring-white/20">
                         {{ strtoupper(substr($user->name, 0, 2)) }}
                     </div>
 

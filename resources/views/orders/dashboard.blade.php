@@ -155,7 +155,7 @@
             </div>
 
             <button type="submit" name="preset" value="custom"
-                    class="px-3 py-1.5 text-xs font-medium text-white rounded-lg" style="background-color:#1d5a74">
+                    class="px-3 py-1.5 text-xs font-medium text-white rounded-lg bg-brand-600 hover:bg-brand-700 transition-colors">
                 <span x-show="!busy">Apply</span>
                 <span x-show="busy" x-cloak>Loading…</span>
             </button>
@@ -191,7 +191,7 @@
                 @endunless
                 @if($fallback)
                     <a href="{{ route('orders.dashboard', $fallback) }}"
-                       class="px-3 py-1.5 text-xs font-medium rounded-lg text-white" style="background-color:#1d5a74">
+                       class="px-3 py-1.5 text-xs font-medium rounded-lg text-white bg-brand-600 hover:bg-brand-700 transition-colors">
                         Try 2024 onwards
                     </a>
                 @endif

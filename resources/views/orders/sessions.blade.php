@@ -52,7 +52,7 @@
                class="rounded-lg border border-gray-300 px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500">
 
         <button type="submit" name="preset" value="custom"
-                class="px-3 py-1.5 text-xs font-medium text-white rounded-lg" style="background-color:#1d5a74">
+                class="px-3 py-1.5 text-xs font-medium text-white rounded-lg bg-brand-600 hover:bg-brand-700 transition-colors">
             <span x-show="!busy">Apply</span>
             <span x-show="busy" x-cloak>Loading…</span>
         </button>

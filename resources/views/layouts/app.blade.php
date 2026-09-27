@@ -333,7 +333,30 @@
         main select,
         main textarea { box-shadow: inset 0 1px 2px rgba(15,23,42,.05); }
 
+        /*
+            Waiting, made legible. A flat spinner says only "something is
+            happening"; these say what kind of waiting it is — a ring for a
+            request in flight, a shimmer for a shape that is about to be filled
+            with real content.
+        */
+        .spinner {
+            border-radius: 9999px;
+            background: conic-gradient(from 0deg, transparent 0turn, #439fc1 .72turn, #1d5a74 1turn);
+            -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 3px));
+                    mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 3px));
+            animation: spin 900ms linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(1turn) } }
+
+        .skeleton {
+            background: linear-gradient(100deg, #eef1f4 30%, #f8fafc 50%, #eef1f4 70%) 0 0 / 220% 100%;
+            animation: skeleton 1.4s ease-in-out infinite;
+            border-radius: .5rem;
+        }
+        @keyframes skeleton { to { background-position: -220% 0 } }
+
         @media (prefers-reduced-motion: reduce) {
+            .spinner, .skeleton { animation: none }
             .live-dot, .bar-live::after, .pulse-dot::before { animation: none }
             main > *, main > * > * { animation: none }
             main .rounded-xl.bg-white, main .rounded-2xl.bg-white,

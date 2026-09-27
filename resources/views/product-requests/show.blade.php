@@ -92,8 +92,7 @@
 
                 @if(!empty($transitions))
                 <button type="button" @click="showTransition = true"
-                        class="inline-flex items-center gap-2 text-white text-sm font-medium px-3.5 py-1.5 rounded-lg transition-colors"
-                        style="background-color:#1d5a74" onmouseover="this.style.backgroundColor='#164659'" onmouseout="this.style.backgroundColor='#1d5a74'">
+                        class="inline-flex items-center gap-2 text-white text-sm font-medium px-3.5 py-1.5 rounded-lg transition-colors bg-brand-600 hover:bg-brand-700 transition-colors">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7"/>
                     </svg>
@@ -193,8 +192,7 @@
                             <form method="POST" action="{{ route('product-requests.photoshoot-decision', $request) }}">
                                 @csrf
                                 <input type="hidden" name="needed" value="yes">
-                                <button type="submit" class="text-xs font-medium text-white px-3 py-1.5 rounded-lg"
-                                        style="background-color:#1d5a74">
+                                <button type="submit" class="text-xs font-medium text-white px-3 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 transition-colors">
                                     Yes — we need photos
                                 </button>
                             </form>
@@ -223,8 +221,7 @@
                             <form method="POST" action="{{ route('product-requests.image-request-decision', $request) }}">
                                 @csrf
                                 <input type="hidden" name="ask" value="yes">
-                                <button type="submit" class="text-xs font-medium text-white px-3 py-1.5 rounded-lg"
-                                        style="background-color:#1d5a74">
+                                <button type="submit" class="text-xs font-medium text-white px-3 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 transition-colors">
                                     Request images from the brand manager
                                 </button>
                             </form>
@@ -284,8 +281,7 @@
                                 @csrf
                                 <input type="hidden" name="scope" value="missing_description">
                                 <input type="hidden" name="answer" value="generate">
-                                <button type="submit" class="text-xs font-medium text-white px-3 py-1.5 rounded-lg"
-                                        style="background-color:#1d5a74">
+                                <button type="submit" class="text-xs font-medium text-white px-3 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 transition-colors">
                                     Generate AI content for {{ number_format($needsCopy) }}
                                 </button>
                             </form>
@@ -313,8 +309,7 @@
                         <span class="inline-flex flex-wrap items-center gap-2 mt-2">
                             <form method="POST" action="{{ route('product-requests.check-sheet-copy', $request) }}">
                                 @csrf
-                                <button type="submit" class="text-xs font-medium text-white px-3 py-1.5 rounded-lg"
-                                        style="background-color:#1d5a74">
+                                <button type="submit" class="text-xs font-medium text-white px-3 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 transition-colors">
                                     Check the sheet for descriptions
                                 </button>
                             </form>
@@ -472,8 +467,7 @@
 
                     @if(!empty($transitions))
                     <button type="button" @click="showTransition = true"
-                            class="inline-flex items-center justify-center gap-2 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
-                            style="background-color:#1d5a74" onmouseover="this.style.backgroundColor='#164659'" onmouseout="this.style.backgroundColor='#1d5a74'">
+                            class="inline-flex items-center justify-center gap-2 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors bg-brand-600 hover:bg-brand-700 transition-colors">
                         Move to next stage
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7"/>
@@ -722,7 +716,7 @@
                                             </p>
                                             <div class="flex flex-wrap gap-2 mt-2">
                                                 <button type="submit" name="ai_content" value="generate"
-                                                        class="text-xs font-medium text-white px-3 py-1.5 rounded-lg" style="background-color:#1d5a74">
+                                                        class="text-xs font-medium text-white px-3 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 transition-colors">
                                                     Yes — generate it now
                                                 </button>
                                                 <button type="submit" name="ai_content" value="skip"
@@ -733,8 +727,7 @@
                                         </div>
 
                                         <button type="button" x-show="!asked" @click="asked = true"
-                                                class="inline-flex items-center gap-1.5 text-xs font-medium text-white px-3 py-1.5 rounded-lg"
-                                                style="background-color:#1d5a74">
+                                                class="inline-flex items-center gap-1.5 text-xs font-medium text-white px-3 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 transition-colors">
                                             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7"/>
                                             </svg>
@@ -784,8 +777,7 @@
                                     @csrf
                                     <input type="hidden" name="scope" value="missing_description">
                                     <input type="hidden" name="answer" value="generate">
-                                    <button type="submit" class="text-xs font-medium text-white px-3 py-1.5 rounded-lg"
-                                            style="background-color:#1d5a74">
+                                    <button type="submit" class="text-xs font-medium text-white px-3 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 transition-colors">
                                         Generate AI content for these {{ number_format($blank) }}
                                     </button>
                                 </form>

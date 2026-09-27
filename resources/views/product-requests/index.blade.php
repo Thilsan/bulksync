@@ -21,9 +21,8 @@
             <p class="text-sm text-gray-500">Track every new product from brand request to live launch.</p>
         </div>
         <div class="flex items-center gap-2">
-            <button type="button" @click="newRequestOpen = true"
-                    class="inline-flex items-center gap-2 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
-                    style="background-color:#1d5a74" onmouseover="this.style.backgroundColor='#164659'" onmouseout="this.style.backgroundColor='#1d5a74'">
+            <button type="button" @click="newRequestOpen = true" data-action="new-request"
+                    class="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-700">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
                 </svg>
@@ -49,79 +48,96 @@
         </div>
     </div>
 
-    {{-- First-timer orientation. Auto-open when there is nothing to look at yet,
-         collapsed once the team is up and running. --}}
-    <div class="bg-white rounded-xl border border-gray-200 shadow-sm"
+    {{--
+        The pipeline, as the picture it is. This replaced a collapsible panel
+        of ordered lists explaining the same six stages in prose: the stages
+        are a sequence with live counts on them, so showing them is both the
+        explanation and the state of the department — and it is read in a
+        glance rather than expanded and studied.
+    --}}
+    @php
+        $phases = [
+            ['label' => 'Submitted',  'colour' => '#34d399', 'of' => [\App\Models\ProductRequest::SUBMITTED, \App\Models\ProductRequest::WAITING_MAPPING]],
+            ['label' => 'SKUs',       'colour' => '#2dd4bf', 'of' => [\App\Models\ProductRequest::SKU_VERIFIED]],
+            ['label' => 'Photoshoot', 'colour' => '#c084fc', 'of' => [\App\Models\ProductRequest::WAITING_IMAGES, \App\Models\ProductRequest::PHOTOSHOOT_SCHEDULED, \App\Models\ProductRequest::PHOTOSHOOT_COMPLETED, \App\Models\ProductRequest::IMAGE_EDITING]],
+            ['label' => 'Content',    'colour' => '#f59e0b', 'of' => [\App\Models\ProductRequest::AI_CONTENT]],
+            ['label' => 'QA',         'colour' => '#38bdf8', 'of' => [\App\Models\ProductRequest::QA_REVIEW, \App\Models\ProductRequest::READY_FOR_UPLOAD]],
+            ['label' => 'Published',  'colour' => '#10b981', 'of' => [\App\Models\ProductRequest::PUBLISHED, \App\Models\ProductRequest::COMPLETED]],
+        ];
+
+        $phases = array_map(function ($phase) use ($breakdown) {
+            $phase['count'] = collect($phase['of'])->sum(fn ($status) => (int) ($breakdown[$status] ?? 0));
+            return $phase;
+        }, $phases);
+
+        $busiest = max(1, max(array_column($phases, 'count')));
+    @endphp
+
+    <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+        <div class="grid grid-cols-3 gap-2 lg:grid-cols-6 lg:gap-0">
+            @foreach($phases as $i => $phase)
+                <a href="{{ route('product-requests.list', ['status' => $phase['of'][0]]) }}"
+                   class="group relative rounded-lg px-3 py-3 transition-colors hover:bg-gray-50">
+                    {{-- The thread between stages: the work moves left to right. --}}
+                    @if($i > 0)
+                        <span class="absolute -left-px top-[1.15rem] hidden h-px w-full -translate-x-1/2 bg-gradient-to-r from-gray-200 to-gray-100 lg:block"></span>
+                    @endif
+
+                    <span class="relative z-10 flex h-6 w-6 items-center justify-center rounded-full ring-4 ring-white"
+                          style="background-color: {{ $phase['count'] > 0 ? $phase['colour'] : '#e5e7eb' }}">
+                        @if($phase['count'] > 0)
+                            <span class="h-1.5 w-1.5 rounded-full bg-white/90"></span>
+                        @endif
+                    </span>
+
+                    <p class="figure mt-3 text-2xl leading-none text-gray-900">{{ number_format($phase['count']) }}</p>
+                    <p class="mt-1 text-xs font-medium text-gray-500 transition-colors group-hover:text-gray-800">{{ $phase['label'] }}</p>
+
+                    {{-- Weight, not just count: where the department is banked up. --}}
+                    <span class="mt-2 block h-1 rounded-full bg-gray-100">
+                        <span class="block h-1 rounded-full transition-all duration-700"
+                              style="width: {{ round($phase['count'] / $busiest * 100) }}%; background-color: {{ $phase['colour'] }}"></span>
+                    </span>
+                </a>
+            @endforeach
+        </div>
+    </div>
+
+    {{--
+        Orientation, kept but cut to the bone. It used to be two five-step
+        ordered lists and a paragraph, open by default on an empty dashboard —
+        the stages are the pipeline above now, so what is left is the one thing
+        that picture cannot show: who does which part. Closed unless there is
+        nothing else on the page to look at yet.
+    --}}
+    <div class="rounded-xl border border-gray-200 bg-white shadow-sm"
          x-data="{ how: {{ $stats['total'] === 0 ? 'true' : 'false' }} }">
         <button type="button" @click="how = !how"
-                class="w-full flex items-center justify-between px-5 py-3.5 text-left hover:bg-gray-50/70 transition-colors rounded-xl">
-            <div class="flex items-center gap-2.5">
-                <div class="w-7 h-7 rounded-lg bg-brand-50 text-brand-600 flex items-center justify-center shrink-0">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                            d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                    </svg>
-                </div>
-                <div>
-                    <p class="text-sm font-semibold text-gray-800">New here? How this works</p>
-                    <p class="text-xs text-gray-400">What a product creation request is, and who does what.</p>
-                </div>
-            </div>
-            <svg :class="how ? 'rotate-180' : ''" class="w-4 h-4 text-gray-400 transition-transform shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                class="flex w-full items-center justify-between rounded-xl px-5 py-3 text-left transition-colors hover:bg-gray-50/70">
+            <span class="text-sm font-medium text-gray-600">How this works</span>
+            <svg :class="how ? 'rotate-180' : ''" class="h-4 w-4 shrink-0 text-gray-400 transition-transform"
+                 fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
             </svg>
         </button>
 
-        <div x-show="how" x-cloak class="px-5 pb-5 border-t border-gray-100 pt-4">
-            <p class="text-sm text-gray-600 mb-4">
-                A <span class="font-medium text-gray-800">product creation request</span> is how the brand team asks for new
-                products to be listed on the website. It replaces the old email chain: one request holds the SKUs, the launch
-                dates and every update, so anyone can see exactly where things stand without chasing people.
-            </p>
-
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-4">
-                <div>
-                    <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">If you are raising a request</p>
-                    <ol class="space-y-1.5 text-sm text-gray-600 list-decimal list-inside">
-                        <li>Click <span class="font-medium text-gray-800">New Request</span> and pick the website.</li>
-                        <li>Enter the brand, category and the SKUs — typed in or from a CSV.</li>
-                        <li>Set the store and online launch dates.</li>
-                        <li>Say whether a photoshoot is needed, and whether AI should write the content.</li>
-                        <li>Submit. You do not need the SKUs mapped first.</li>
-                    </ol>
-                </div>
-
-                <div>
-                    <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">If work has been assigned to you</p>
-                    <ol class="space-y-1.5 text-sm text-gray-600 list-decimal list-inside">
-                        <li>Open <span class="font-medium text-gray-800">Assigned to Me</span> in the menu, or the bell at the top.</li>
-                        <li>Open the request — the panel at the top says exactly what is needed.</li>
-                        <li>Do the work, then click <span class="font-medium text-gray-800">Move to next stage</span>.</li>
-                        <li>Add a remark if anything needs explaining. It is kept in the activity log.</li>
-                    </ol>
-                </div>
+        <div x-show="how" x-cloak class="border-t border-gray-100 px-5 py-4">
+            <p class="mb-3 text-[11px] font-semibold uppercase tracking-[.12em] text-gray-400">Who does what</p>
+            <div class="grid gap-3 sm:grid-cols-3">
+                @foreach([
+                    ['Brand Manager', 'Raises the request, supplies samples, approves the copy.', '#c084fc'],
+                    ['E-Commerce Team', 'Runs it end to end — images, copy, QA, publishing.', '#38bdf8'],
+                    ['Photoshoot Coordinator', 'Books the shoot, delivers website-ready images.', '#f59e0b'],
+                ] as [$team, $does, $colour])
+                    <div class="rounded-lg border border-gray-100 bg-gray-50/60 p-3">
+                        <p class="flex items-center gap-2 text-xs font-semibold text-gray-800">
+                            <span class="h-1.5 w-1.5 rounded-full" style="background-color: {{ $colour }}"></span>
+                            {{ $team }}
+                        </p>
+                        <p class="mt-1 text-xs leading-relaxed text-gray-500">{{ $does }}</p>
+                    </div>
+                @endforeach
             </div>
-
-            <div class="mt-5 pt-4 border-t border-gray-100">
-                <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2.5">Who does what</p>
-                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-2">
-                    @foreach([
-                        'Brand Manager'    => 'Supplies the product information and samples, and approves the content.',
-                        'E-Commerce Team'  => 'Runs the request end to end — images, copy, QA and publishing.',
-                        'Photoshoot Coordinator' => 'Arranges the shoot and delivers finished, website-ready images.',
-                    ] as $team => $does)
-                        <div class="flex gap-2">
-                            <span class="w-1.5 h-1.5 rounded-full bg-brand-400 shrink-0 mt-1.5"></span>
-                            <p class="text-xs text-gray-600"><span class="font-medium text-gray-800">{{ $team }}</span> — {{ $does }}</p>
-                        </div>
-                    @endforeach
-                </div>
-            </div>
-
-            <p class="text-xs text-gray-400 mt-4">
-                Stages run: Submitted &rsaquo; SKU Verified &rsaquo; Photoshoot &rsaquo; Content &rsaquo; QA &rsaquo; Published.
-                If SKUs are not mapped yet the request waits with the brand manager and then continues on its own.
-            </p>
         </div>
     </div>
 
@@ -246,7 +262,7 @@
                             @endforeach
                         </svg>
                         <div class="absolute inset-0 flex flex-col items-center justify-center">
-                            <span class="text-2xl font-semibold text-gray-900">{{ number_format($breakdown->sum()) }}</span>
+                            <span class="figure text-3xl text-gray-900">{{ number_format($breakdown->sum()) }}</span>
                             <span class="text-xs text-gray-400">Total</span>
                         </div>
                     </div>
@@ -413,8 +429,7 @@
                       @submit="syncAsking = false; syncing = true">
                     @csrf
                     <button type="submit"
-                            class="inline-flex items-center gap-2 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
-                            style="background-color:#1d5a74">
+                            class="inline-flex items-center gap-2 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors bg-brand-600 hover:bg-brand-700 transition-colors">
                         Start sync
                     </button>
                 </form>
