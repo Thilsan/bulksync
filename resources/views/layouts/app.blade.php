@@ -120,24 +120,31 @@
                     },
                     colors: {
                         brand: {
-                            50:  '#eff7fd',
-                            100: '#d9ecfa',
-                            200: '#b7dbf5',
-                            300: '#8cc4ec',
-                            400: '#5da9e0',
-                            500: '#3a8ed2',
-                            600: '#2e7cbf',
-                            700: '#245f93',
-                            800: '#1c4a73',
-                            900: '#143654',
+                            50:  '#fbf5f6',
+                            100: '#f6e7e9',
+                            200: '#ecccd2',
+                            300: '#dda6b0',
+                            400: '#c4707f',
+                            500: '#a44b5d',
+                            600: '#7b2d3b',
+                            700: '#67252f',
+                            800: '#551f28',
+                            900: '#3f1720',
                         },
-                        /* The trim: red on the light blue, used the way a kit
-                           uses it — piping and numbers, never a panel. */
-                        kit: {
-                            300: '#f4a3a5',
-                            400: '#ea6367',
-                            500: '#e03a3e',
-                            600: '#c22b2f',
+                        /* The shell's cloth and ink. Warm through the whole
+                           ramp — a grey neutral next to parchment reads as a
+                           mistake rather than as restraint. */
+                        parch: {
+                            50:  '#faf8f4',
+                            100: '#f3efe7',
+                            200: '#e9e3d7',
+                            300: '#dcd4c4',
+                            400: '#a89e8e',
+                            500: '#7c7468',
+                            600: '#5d564c',
+                            700: '#3a352e',
+                            800: '#2b2723',
+                            900: '#191715',
                         },
                     }
                 }
@@ -185,21 +192,21 @@
         */
         .app-sidebar {
             background:
-                radial-gradient(660px 300px at 50% -14%, rgba(255,255,255,.30), transparent 70%),
-                linear-gradient(176deg, #5ea8de 0%, #3a8ed2 38%, #2e7cbf 72%, #245f93 100%);
+                radial-gradient(620px 280px at 50% -14%, rgba(255,255,255,.65), transparent 70%),
+                linear-gradient(172deg, #f3efe7 0%, #ece6da 46%, #e4ddce 100%);
         }
-        /* Red piping, the length of the panel. */
+        /* One line of oxblood down the edge — the only colour on the cloth. */
         .app-sidebar::after {
-            content: ''; position: absolute; inset: 0 0 0 auto; width: 2px; pointer-events: none;
-            background: linear-gradient(180deg, transparent, rgba(224,58,62,.85) 14%, rgba(224,58,62,.55) 62%, transparent);
+            content: ''; position: absolute; inset: 0 0 0 auto; width: 1px; pointer-events: none;
+            background: linear-gradient(180deg, transparent, rgba(123,45,59,.55) 16%, rgba(123,45,59,.22) 64%, transparent);
         }
 
         /* A full-height scrollbar would cut the panel in half, so keep it hairline. */
-        .nav-scroll { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.35) transparent; }
+        .nav-scroll { scrollbar-width: thin; scrollbar-color: rgba(93,86,76,.30) transparent; }
         .nav-scroll::-webkit-scrollbar { width: 6px; }
         .nav-scroll::-webkit-scrollbar-track { background: transparent; }
-        .nav-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,.35); border-radius: 999px; }
-        .nav-scroll::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,.3); }
+        .nav-scroll::-webkit-scrollbar-thumb { background: rgba(93,86,76,.30); border-radius: 999px; }
+        .nav-scroll::-webkit-scrollbar-thumb:hover { background: rgba(93,86,76,.45); }
 
         .live-dot { animation: live 2.4s ease-in-out infinite; }
         @keyframes live { 0%,100% { opacity: 1 } 50% { opacity: .35 } }
@@ -216,10 +223,9 @@
         /* Canvas: a barely-there wash so white panels sit on something. */
         body {
             background:
-                radial-gradient(880px 440px at 80% -14%, rgba(58,142,210,.10), transparent 68%),
-                radial-gradient(560px 380px at 100% 102%, rgba(224,58,62,.05), transparent 72%),
-                radial-gradient(640px 360px at -8% 8%, rgba(58,142,210,.06), transparent 62%),
-                #f3f7fb;
+                radial-gradient(880px 440px at 80% -14%, rgba(220,212,196,.35), transparent 68%),
+                radial-gradient(560px 380px at 100% 102%, rgba(123,45,59,.05), transparent 72%),
+                #faf8f4;
         }
 
         /* Figures read as figures: serif, aligned, never re-flowing mid-count. */
@@ -239,7 +245,7 @@
         main .rounded-xl.bg-white:hover,
         main .rounded-2xl.bg-white:hover {
             box-shadow: 0 1px 2px rgba(15,23,42,.05), 0 22px 44px -26px rgba(15,23,42,.42);
-            border-color: rgba(46,124,191,.25);
+            border-color: rgba(123,45,59,.22);
         }
 
         /*
@@ -298,7 +304,7 @@
         main button, main a[class*="rounded-lg"] { transition: transform .12s ease, background-color .2s, color .2s, border-color .2s, box-shadow .2s; }
 
         /* Focus that is visible without being loud, everywhere. */
-        :focus-visible { outline: 2px solid #2e7cbf; outline-offset: 2px; border-radius: 6px; }
+        :focus-visible { outline: 2px solid #7b2d3b; outline-offset: 2px; border-radius: 6px; }
 
         /*
             ── Premium defaults every page inherits ─────────────────────────
@@ -312,7 +318,7 @@
             background-image: linear-gradient(180deg, rgba(255,255,255,.16), rgba(255,255,255,0) 60%);
         }
         main .bg-brand-600:hover {
-            box-shadow: 0 8px 22px -8px rgba(46,124,191,.7);
+            box-shadow: 0 10px 24px -10px rgba(123,45,59,.62);
         }
 
         /* Tinted pills get a hairline of their own colour, so a status reads as
@@ -348,19 +354,18 @@
             border-radius: 1.15rem;
             padding: 1.6rem 1.75rem 1.75rem;
             background:
-                radial-gradient(520px 220px at 6% -30%, rgba(255,255,255,.26), transparent 70%),
-                linear-gradient(112deg, #3a8ed2 0%, #2e7cbf 48%, #245f93 100%);
-            box-shadow: 0 18px 40px -28px rgba(20,54,84,.85);
+                radial-gradient(520px 220px at 6% -30%, rgba(214,198,174,.20), transparent 70%),
+                linear-gradient(112deg, #2b2723 0%, #221f1b 52%, #191715 100%);
+            box-shadow: 0 18px 40px -28px rgba(25,23,21,.95);
         }
         .page-hero::before {
             content: ''; position: absolute; inset: 0; pointer-events: none;
-            background-image: repeating-linear-gradient(115deg, rgba(255,255,255,.06) 0 1px, transparent 1px 22px);
+            background-image: repeating-linear-gradient(115deg, rgba(243,239,231,.045) 0 1px, transparent 1px 22px);
             mask-image: linear-gradient(105deg, #000, transparent 62%);
         }
-        /* The trim again, so the band and the sidebar are the same garment. */
         .page-hero::after {
             content: ''; position: absolute; inset: 0 0 auto 0; height: 2px; pointer-events: none;
-            background: linear-gradient(90deg, #e03a3e, rgba(224,58,62,.35) 46%, transparent 78%);
+            background: linear-gradient(90deg, #7b2d3b, rgba(123,45,59,.4) 48%, transparent 80%);
         }
 
         /* Softer corners across the working area: closer to the hero's radius,
@@ -375,7 +380,7 @@
         */
         .spinner {
             border-radius: 9999px;
-            background: conic-gradient(from 0deg, transparent 0turn, #5ea8de .55turn, #e03a3e 1turn);
+            background: conic-gradient(from 0deg, transparent 0turn, #dda6b0 .5turn, #7b2d3b 1turn);
             -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 3px));
                     mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 3px));
             animation: spin 900ms linear infinite;
@@ -383,7 +388,7 @@
         @keyframes spin { to { transform: rotate(1turn) } }
 
         .skeleton {
-            background: linear-gradient(100deg, #eef1f4 30%, #f8fafc 50%, #eef1f4 70%) 0 0 / 220% 100%;
+            background: linear-gradient(100deg, #efe9de 30%, #faf8f4 50%, #efe9de 70%) 0 0 / 220% 100%;
             animation: skeleton 1.4s ease-in-out infinite;
             border-radius: .5rem;
         }
@@ -545,11 +550,11 @@
             glance, and the current section names itself in colour.
         */
         $accents = [
-            'brand'  => ['on' => 'text-brand-700',  'off' => 'text-white/60', 'rail' => 'bg-kit-500',    'label' => 'text-white/70'],
-            'gold'   => ['on' => 'text-amber-600',  'off' => 'text-white/60', 'rail' => 'bg-amber-500',  'label' => 'text-white/70'],
-            'violet' => ['on' => 'text-violet-600', 'off' => 'text-white/60', 'rail' => 'bg-violet-500', 'label' => 'text-white/70'],
-            'sky'    => ['on' => 'text-sky-700',    'off' => 'text-white/60', 'rail' => 'bg-sky-500',    'label' => 'text-white/70'],
-            'rose'   => ['on' => 'text-kit-600',    'off' => 'text-white/60', 'rail' => 'bg-kit-500',    'label' => 'text-white/70'],
+            'brand'  => ['on' => 'text-brand-600',  'off' => 'text-parch-400', 'rail' => 'bg-brand-600',  'label' => 'text-parch-500'],
+            'gold'   => ['on' => 'text-amber-700',  'off' => 'text-parch-400', 'rail' => 'bg-amber-600',  'label' => 'text-parch-500'],
+            'violet' => ['on' => 'text-violet-700', 'off' => 'text-parch-400', 'rail' => 'bg-violet-600', 'label' => 'text-parch-500'],
+            'sky'    => ['on' => 'text-sky-700',    'off' => 'text-parch-400', 'rail' => 'bg-sky-600',    'label' => 'text-parch-500'],
+            'rose'   => ['on' => 'text-rose-700',   'off' => 'text-parch-400', 'rail' => 'bg-rose-600',   'label' => 'text-parch-500'],
         ];
 
         $navGroups = collect($navGroups)
@@ -602,9 +607,9 @@
         {{-- Brand --}}
         <div class="relative flex flex-col gap-3 px-4 pb-4 pt-5">
             <div class="flex items-start justify-between gap-2">
-                <img src="{{ asset('aih_logo_whitegray-3.png') }}" alt="Abuissa Holding" class="h-9 w-auto">
+                <img src="{{ asset('aih_logo-1.png') }}" alt="Abuissa Holding" class="h-9 w-auto">
                 <button type="button" @click="nav = false"
-                        class="-mr-1 grid h-8 w-8 shrink-0 place-items-center rounded-lg text-white/60 transition hover:bg-white/10 hover:text-white lg:hidden"
+                        class="-mr-1 grid h-8 w-8 shrink-0 place-items-center rounded-lg text-parch-500 transition hover:bg-white/70 hover:text-parch-900 lg:hidden"
                         aria-label="Close menu">
                     <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
@@ -612,12 +617,12 @@
                 </button>
             </div>
             <div>
-                <p class="font-display text-[15px] leading-tight text-white">Ai Ecommerce Studio</p>
-                <p class="mt-0.5 text-[10px] uppercase tracking-[.14em] text-white/65">Abuissa Holding</p>
+                <p class="font-display text-[15px] leading-tight text-parch-900">Ai Ecommerce Studio</p>
+                <p class="mt-0.5 text-[10px] uppercase tracking-[.14em] text-parch-500">Abuissa Holding</p>
             </div>
         </div>
 
-        <div class="relative mx-4 h-px bg-gradient-to-r from-transparent via-white/55 to-transparent"></div>
+        <div class="relative mx-4 h-px bg-gradient-to-r from-transparent via-parch-300 to-transparent"></div>
 
         {{-- Navigation --}}
         <nav class="nav-scroll relative flex-1 overflow-y-auto px-3 py-4">
@@ -626,7 +631,7 @@
                 @if($group['label'])
                     <p class="{{ $gi === 0 ? '' : 'mt-5' }} mb-1.5 flex items-center gap-2 px-3 text-[10px] font-semibold uppercase tracking-[.14em] {{ $tone['label'] }}">
                         {{ $group['label'] }}
-                        <span class="h-px flex-1 bg-gradient-to-r from-white/10 to-transparent"></span>
+                        <span class="h-px flex-1 bg-gradient-to-r from-parch-300 to-transparent"></span>
                     </p>
                 @endif
 
@@ -642,14 +647,14 @@
                                  It starts open whenever you are anywhere inside its section. --}}
                             <div x-data="{ open: {{ $item['on'] ? 'true' : 'false' }} }">
                                 <div class="relative flex items-stretch rounded-lg transition-colors
-                                            {{ $item['on'] ? 'bg-white shadow-sm' : 'hover:bg-white/[.12]' }}">
+                                            {{ $item['on'] ? 'bg-white shadow-sm ring-1 ring-parch-200' : 'hover:bg-white/70' }}">
                                     @if($item['on'])
                                         <span class="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full {{ $tone['rail'] }}"></span>
                                     @endif
                                     <a href="{{ $item['url'] }}" @click="open = true"
                                        @if($item['on']) aria-current="page" @endif
                                        class="flex min-w-0 flex-1 items-center gap-2.5 px-3 py-2 text-[13px] font-medium
-                                              {{ $item['on'] ? 'text-brand-900' : 'text-white/80 hover:text-white' }}">
+                                              {{ $item['on'] ? 'text-parch-900' : 'text-parch-600 hover:text-parch-900' }}">
                                         <svg class="h-4 w-4 shrink-0 {{ $item['on'] ? $tone['on'] : $tone['off'] }}"
                                              fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.85">
                                             @foreach($ico[$item['icon']] as $d)
@@ -666,7 +671,7 @@
                                         </span>
                                     @endif
                                     <button type="button" @click.stop="open = !open"
-                                            class="flex shrink-0 items-center px-2 {{ $item['on'] ? 'text-brand-500' : 'text-white/55 hover:text-white' }}"
+                                            class="flex shrink-0 items-center px-2 {{ $item['on'] ? 'text-brand-500' : 'text-parch-400 hover:text-parch-700' }}"
                                             :aria-expanded="open" aria-label="Toggle {{ $item['label'] }} menu">
                                         <svg :class="open ? 'rotate-180' : ''" class="h-3.5 w-3.5 transition-transform"
                                              fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5">
@@ -679,16 +684,16 @@
                                      x-transition:enter="transition ease-out duration-150"
                                      x-transition:enter-start="opacity-0 -translate-y-1"
                                      x-transition:enter-end="opacity-100 translate-y-0"
-                                     class="ml-[1.4rem] mt-0.5 space-y-0.5 border-l border-white/25 pl-3">
+                                     class="ml-[1.4rem] mt-0.5 space-y-0.5 border-l border-parch-300 pl-3">
                                     @foreach($kids as $kid)
                                         @php $kidBadge = (int) ($kid['badge'] ?? 0); @endphp
                                         <a href="{{ $kid['url'] }}"
                                            @if($kid['on']) aria-current="page" @endif
                                            class="flex items-center gap-2 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors
-                                                  {{ $kid['on'] ? 'bg-white/[.22] text-white' : 'text-white/70 hover:bg-white/[.12] hover:text-white' }}">
+                                                  {{ $kid['on'] ? 'bg-white text-parch-900 shadow-sm' : 'text-parch-500 hover:bg-white/70 hover:text-parch-900' }}">
                                             <span class="flex-1 truncate">{{ $kid['label'] }}</span>
                                             @if($kidBadge > 0)
-                                                <span class="shrink-0 text-[10px] font-semibold tabular-nums text-red-300">
+                                                <span class="shrink-0 text-[10px] font-semibold tabular-nums text-brand-600">
                                                     {{ $kidBadge > 99 ? '99+' : $kidBadge }}
                                                 </span>
                                             @endif
@@ -701,8 +706,8 @@
                                @if($item['on']) aria-current="page" @endif
                                class="relative flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium transition-colors
                                       {{ $item['on']
-                                          ? 'bg-white text-brand-900 shadow-sm'
-                                          : 'text-white/80 hover:bg-white/[.12] hover:text-white' }}">
+                                          ? 'bg-white text-parch-900 shadow-sm ring-1 ring-parch-200'
+                                          : 'text-parch-600 hover:bg-white/70 hover:text-parch-900' }}">
                                 @if($item['on'])
                                     {{-- Accent rail: marks the current page without relying on tint alone --}}
                                     <span class="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full {{ $tone['rail'] }}"></span>
@@ -722,7 +727,7 @@
         </nav>
 
         {{-- Clock --}}
-        <div class="relative border-t border-white/25 px-4 py-3"
+        <div class="relative border-t border-parch-300 px-4 py-3"
              x-data="{
                  tz: '{{ config('app.timezone') }}',
                  time: '',
@@ -735,11 +740,11 @@
              }"
              x-init="tick(); setInterval(() => tick(), 1000)">
             <div class="flex items-baseline justify-between gap-2">
-                <p class="flex items-center gap-2 text-base font-semibold tabular-nums text-white">
+                <p class="flex items-center gap-2 text-base font-semibold tabular-nums text-parch-900">
                     <span class="live-dot h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400"></span>
                     <span x-text="time">{{ now()->format('H:i') }}</span>
                 </p>
-                <p class="truncate text-[11px] text-white/70" x-text="date">{{ now()->format('D, d M Y') }}</p>
+                <p class="truncate text-[11px] text-parch-500" x-text="date">{{ now()->format('D, d M Y') }}</p>
             </div>
         </div>
 
@@ -749,7 +754,7 @@
     <div class="flex-1 flex flex-col overflow-hidden" x-data="{ scrolled: false }">
 
         {{-- Top bar --}}
-        <header class="relative z-20 flex shrink-0 items-center justify-between gap-3 border-b bg-white/85 px-4 py-2.5 backdrop-blur-xl transition-shadow after:absolute after:inset-x-0 after:bottom-[-1px] after:h-px after:bg-gradient-to-r after:from-kit-500/70 after:via-kit-500/15 after:to-transparent sm:px-8"
+        <header class="relative z-20 flex shrink-0 items-center justify-between gap-3 border-b bg-white/85 px-4 py-2.5 backdrop-blur-xl transition-shadow after:absolute after:inset-x-0 after:bottom-[-1px] after:h-px after:bg-gradient-to-r after:from-brand-600/60 after:via-brand-600/15 after:to-transparent sm:px-8"
                 :class="scrolled ? 'border-transparent shadow-[0_1px_3px_rgba(15,23,42,.10),0_8px_24px_-16px_rgba(15,23,42,.25)]' : 'border-gray-200'">
             <div class="flex min-w-0 items-center gap-3">
                 <button type="button" @click="nav = true"
@@ -1077,13 +1082,13 @@
             --}}
             <header class="page-hero mb-6">
                 @if($crumbs)
-                    <nav class="mb-2 flex items-center gap-1.5 text-[11px] font-medium text-white/45" aria-label="Breadcrumb">
+                    <nav class="mb-2 flex items-center gap-1.5 text-[11px] font-medium text-white/55" aria-label="Breadcrumb">
                         @foreach($crumbs as $i => $crumb)
                             @if($i > 0)
-                                <span class="text-white/25">/</span>
+                                <span class="text-white/30">/</span>
                             @endif
                             @if(!empty($crumb['url']))
-                                <a href="{{ $crumb['url'] }}" class="truncate transition-colors hover:text-white">{{ $crumb['label'] }}</a>
+                                <a href="{{ $crumb['url'] }}" class="truncate transition-colors hover:text-brand-300">{{ $crumb['label'] }}</a>
                             @else
                                 <span class="truncate">{{ $crumb['label'] }}</span>
                             @endif
