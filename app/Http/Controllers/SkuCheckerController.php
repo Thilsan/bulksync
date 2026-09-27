@@ -7,6 +7,7 @@ use App\Jobs\RunSkuCheckJob;
 use App\Models\SkuCheckItem;
 use App\Models\SkuCheckSession;
 use App\Models\Store;
+use App\Services\ShopifyService;
 use Illuminate\Http\Request;
 
 class SkuCheckerController extends Controller
@@ -72,6 +73,109 @@ class SkuCheckerController extends Controller
         RunSkuCheckJob::dispatch($session->id)->onQueue('bulkupload');
 
         return redirect()->route('sku-checker.show', $session);
+    }
+
+    /**
+     * One page of the result file, for the on-page table.
+     *
+     * The results live only as a CSV — a run of ten thousand SKUs writes no DB
+     * rows — so paging reads the file and keeps just the slice asked for.
+     */
+    public function results(SkuCheckSession $skuCheckSession, Request $request)
+    {
+        abort_if($skuCheckSession->user_id !== auth()->id(), 403);
+
+        $filePath = storage_path("app/sku-checks/{$skuCheckSession->id}.csv");
+
+        if (!file_exists($filePath)) {
+            return response()->json(['rows' => [], 'total' => 0, 'page' => 1, 'pages' => 0]);
+        }
+
+        $filter  = $request->get('filter', 'all');
+        $search  = mb_strtolower(trim((string) $request->get('q', '')));
+        $page    = max(1, (int) $request->get('page', 1));
+        $perPage = 50;
+
+        $from = ($page - 1) * $perPage;
+        $to   = $from + $perPage;
+
+        $rows    = [];
+        $matched = 0;
+
+        $handle = fopen($filePath, 'r');
+        fgetcsv($handle); // header
+
+        while (($row = fgetcsv($handle)) !== false) {
+            $status = strtolower($row[1] ?? '');
+
+            if ($filter === 'available' && $status !== 'available') {
+                continue;
+            }
+            if ($filter === 'not_available' && $status !== 'not available') {
+                continue;
+            }
+            if ($search !== '' && !str_contains(mb_strtolower($row[0] ?? ''), $search)) {
+                continue;
+            }
+
+            if ($matched >= $from && $matched < $to) {
+                $rows[] = [
+                    'sku'           => $row[0] ?? '',
+                    'status'        => $row[1] ?? '',
+                    'product_id'    => $row[2] ?? '',
+                    'product_title' => $row[3] ?? '',
+                    'published'     => ($row[4] ?? '') === 'TRUE',
+                ];
+            }
+
+            $matched++;
+        }
+
+        fclose($handle);
+
+        return response()->json([
+            'rows'  => $rows,
+            'total' => $matched,
+            'page'  => $page,
+            'pages' => (int) ceil($matched / $perPage),
+        ]);
+    }
+
+    /**
+     * The colour/size breakdown behind one SKU, read live from Shopify.
+     *
+     * Asked for a row at a time rather than collected during the run: the check
+     * itself answers "is this SKU there", and only a handful of rows are ever
+     * opened, so paying one call per row on demand is far cheaper than paying
+     * one for every SKU in the list.
+     */
+    public function variants(SkuCheckSession $skuCheckSession, Request $request)
+    {
+        abort_if($skuCheckSession->user_id !== auth()->id(), 403);
+
+        $sku = trim((string) $request->get('sku', ''));
+
+        if ($sku === '') {
+            return response()->json(['error' => 'No SKU given.'], 422);
+        }
+
+        $store = $skuCheckSession->store_id
+            ? Store::find($skuCheckSession->store_id)
+            : Store::getActive($skuCheckSession->user_id);
+
+        $shopify = app(ShopifyService::class, ['store' => $store]);
+
+        try {
+            $breakdown = $shopify->getSkuVariantBreakdown($sku, true);
+        } catch (\Throwable $e) {
+            return response()->json(['error' => $e->getMessage()], 502);
+        }
+
+        if ($breakdown === null) {
+            return response()->json(['error' => "No variant in Shopify carries the SKU {$sku}."], 404);
+        }
+
+        return response()->json($breakdown);
     }
 
     public function download(SkuCheckSession $skuCheckSession, Request $request)

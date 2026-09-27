@@ -439,6 +439,230 @@ class ShopifyService
         return $m[0] ?? '';
     }
 
+
+    /**
+     * Every variant of the product a SKU belongs to, grouped by colour.
+     *
+     * A SKU check answers "is this SKU in Shopify"; this answers the question
+     * that follows it — which colours the product actually carries, which of
+     * them have a photo, and which sizes within a colour are still missing one.
+     *
+     * "Has an image" means the variant owns a photo, not that its product's
+     * gallery holds one: the classic image_id link and the newer variant media
+     * attachment both count, because a photo added by hand in the admin may
+     * arrive under either — the same rule variantHasOwnImage() applies when it
+     * decides whether an upload would duplicate.
+     *
+     * One call per SKU, on demand. It is deliberately not folded into the bulk
+     * job: a run of ten thousand SKUs would pay for ten thousand of these to
+     * answer a question asked about a handful of rows.
+     *
+     * @return array<string, mixed>|null  null when no variant carries the SKU
+     */
+    public function getSkuVariantBreakdown(string $sku, bool $throwOnFailure = false): ?array
+    {
+        $sku = trim($sku);
+
+        if ($sku === '') {
+            return null;
+        }
+
+        $this->throttle();
+
+        try {
+            $response = $this->http->post(
+                "admin/api/{$this->apiVersion}/graphql.json",
+                [
+                    'json' => [
+                        'query'     => $this->skuBreakdownQuery(),
+                        'variables' => ['q' => $this->skuSearchExpression([$sku])],
+                    ],
+                ]
+            );
+
+            $data = json_decode((string) $response->getBody(), true);
+            $this->assertNoGraphQlErrors($data, "getSkuVariantBreakdown({$sku})");
+
+            $edges = $data['data']['productVariants']['edges'] ?? [];
+
+            // The search is not promised to be case-exact, and a sku: term can
+            // match more than one variant, so the asked-for spelling wins and
+            // anything else is a fallback rather than a silent substitution.
+            $matched = null;
+            foreach ($edges as $edge) {
+                $node = $edge['node'] ?? [];
+                if (mb_strtolower(trim((string) ($node['sku'] ?? ''))) === mb_strtolower($sku)) {
+                    $matched = $node;
+                    break;
+                }
+            }
+            $matched ??= $edges[0]['node'] ?? null;
+
+            if (!is_array($matched) || empty($matched['product'])) {
+                return null;
+            }
+
+            return $this->shapeSkuBreakdown($sku, $matched);
+
+        } catch (\Throwable $e) {
+            Log::error("Shopify getSkuVariantBreakdown({$sku}) failed: " . $e->getMessage());
+
+            if ($throwOnFailure) {
+                throw new \RuntimeException("Shopify variant breakdown failed for {$sku}: " . $e->getMessage(), 0, $e);
+            }
+
+            return null;
+        }
+    }
+
+    /**
+     * Turn one matched variant's product into the colour/size shape the SKU
+     * checker renders.
+     *
+     * @param  array<string, mixed>  $matched
+     * @return array<string, mixed>
+     */
+    private function shapeSkuBreakdown(string $sku, array $matched): array
+    {
+        $product    = $matched['product'];
+        $matchedGid = $matched['id'] ?? '';
+
+        $optionNames = array_map(
+            fn ($o) => (string) ($o['name'] ?? ''),
+            $product['options'] ?? []
+        );
+
+        $colourOption = $this->optionNamed($optionNames, '/colou?r|shade/i', 0);
+        $sizeOption   = $this->optionNamed($optionNames, '/size/i', 1);
+
+        $colours = [];
+        $total   = 0;
+        $withImg = 0;
+
+        foreach ($product['variants']['edges'] ?? [] as $edge) {
+            $node = $edge['node'] ?? [];
+
+            $options  = [];
+            foreach ($node['selectedOptions'] ?? [] as $opt) {
+                $options[(string) ($opt['name'] ?? '')] = (string) ($opt['value'] ?? '');
+            }
+
+            $colour = $colourOption !== null ? ($options[$colourOption] ?? '') : '';
+            $size   = $sizeOption   !== null ? ($options[$sizeOption]   ?? '') : '';
+
+            // A single-option product still has to land somewhere, and its one
+            // option is already the colour by the fallback above — so an empty
+            // label means the product genuinely has none to show.
+            $colourKey = $colour !== '' ? $colour : '—';
+
+            $images   = $this->variantImageUrls($node);
+            $hasImage = count($images) > 0;
+
+            $colours[$colourKey] ??= [
+                'colour'            => $colourKey,
+                'sizes'             => [],
+                'variant_count'     => 0,
+                'with_image_count'  => 0,
+                'preview'           => null,
+            ];
+
+            $colours[$colourKey]['sizes'][] = [
+                'size'       => $size !== '' ? $size : ($node['title'] ?? ''),
+                'sku'        => $node['sku'] ?? '',
+                'variant_id' => ltrim(str_replace('gid://shopify/ProductVariant/', '', $node['id'] ?? ''), '/'),
+                'has_image'  => $hasImage,
+                'image_count'=> count($images),
+                'preview'    => $images[0] ?? null,
+                'is_match'   => ($node['id'] ?? '') === $matchedGid,
+            ];
+
+            $colours[$colourKey]['variant_count']++;
+            $total++;
+
+            if ($hasImage) {
+                $colours[$colourKey]['with_image_count']++;
+                $colours[$colourKey]['preview'] ??= $images[0];
+                $withImg++;
+            }
+        }
+
+        return [
+            'sku'             => $sku,
+            'product_id'      => ltrim(str_replace('gid://shopify/Product/', '', $product['id'] ?? ''), '/'),
+            'product_title'   => $product['title'] ?? '',
+            'published'       => ($product['status'] ?? '') === 'ACTIVE',
+            'colour_option'   => $colourOption,
+            'size_option'     => $sizeOption,
+            'gallery_count'   => count($product['media']['edges'] ?? []),
+            'variant_count'   => $total,
+            'with_image_count'=> $withImg,
+            'colours'         => array_values($colours),
+        ];
+    }
+
+    /**
+     * The option whose name reads as colour (or size), falling back to position
+     * when a store names its options something else entirely.
+     *
+     * @param  list<string>  $names
+     */
+    private function optionNamed(array $names, string $pattern, int $fallbackIndex): ?string
+    {
+        foreach ($names as $name) {
+            if ($name !== '' && preg_match($pattern, $name)) {
+                return $name;
+            }
+        }
+
+        return $names[$fallbackIndex] ?? null;
+    }
+
+    /**
+     * Photos this variant owns, legacy image link and variant media together.
+     *
+     * @param  array<string, mixed>  $node
+     * @return list<string>
+     */
+    private function variantImageUrls(array $node): array
+    {
+        $urls = [];
+
+        if (!empty($node['image']['url'])) {
+            $urls[] = $node['image']['url'];
+        }
+
+        foreach ($node['media']['edges'] ?? [] as $edge) {
+            $url = $edge['node']['image']['url'] ?? null;
+            if ($url) {
+                $urls[] = $url;
+            }
+        }
+
+        return array_values(array_unique($urls));
+    }
+
+    /**
+     * The whole product behind one SKU in a single call: its options, its
+     * gallery size, and every variant with the photos it owns.
+     */
+    private function skuBreakdownQuery(): string
+    {
+        return 'query($q:String!){productVariants(first:10,query:$q){edges{node{
+            id sku
+            product{
+                id title status
+                options{name}
+                media(first:250){edges{node{id}}}
+                variants(first:250){edges{node{
+                    id sku title
+                    selectedOptions{name value}
+                    image{url}
+                    media(first:10){edges{node{... on MediaImage{image{url}}}}}
+                }}}
+            }
+        }}}}';
+    }
+
     // ── Image upload ───────────────────────────────────────────────────────
 
     public function uploadImageToProduct(
