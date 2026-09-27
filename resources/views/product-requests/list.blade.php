@@ -17,79 +17,72 @@
         },
      }">
 
-    <div class="flex items-center justify-between">
-        <div>
-            <nav class="text-xs text-gray-400 mb-1">
-                <a href="{{ route('product-requests.index') }}" class="hover:text-gray-600">Product Creation Request</a>
-                <span class="mx-1.5">&gt;</span>
-                <span class="text-gray-600">All Requests</span>
-            </nav>
-            <p class="text-sm text-gray-500">{{ number_format($requests->total()) }} request(s) found.</p>
-        </div>
-        <div class="flex items-center gap-2">
-            <button type="button" @click="newRequestOpen = true"
-                    class="inline-flex items-center gap-2 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors bg-brand-600 hover:bg-brand-700 transition-colors">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
-                </svg>
-                New Request
-            </button>
-            <a href="{{ route('product-requests.index') }}"
-               class="inline-flex items-center gap-2 border border-gray-300 text-gray-700 text-sm font-medium px-4 py-2 rounded-lg hover:bg-gray-50 transition-colors">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/>
-                </svg>
-                Back to Dashboard
-            </a>
-        </div>
+    <div class="flex flex-wrap items-center justify-between gap-3">
+        <p class="text-sm text-gray-500">
+            <span class="figure text-base text-gray-900">{{ number_format($requests->total()) }}</span> requests
+        </p>
+        <button type="button" @click="newRequestOpen = true" data-action="new-request"
+                class="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-700">
+            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+            </svg>
+            New Request
+        </button>
     </div>
 
-    {{-- Filters --}}
-    <form method="GET" class="bg-white rounded-xl border border-gray-200 shadow-sm px-5 py-4">
-        <div class="grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
-            <div class="md:col-span-2">
-                <label class="block text-xs font-medium text-gray-600 mb-1.5">Search</label>
-                <input type="text" name="search" value="{{ request('search') }}" placeholder="Request name, brand or category"
-                       class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent">
-            </div>
-            <div>
-                <label class="block text-xs font-medium text-gray-600 mb-1.5">Status</label>
-                <select name="status" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
-                    <option value="">All statuses</option>
-                    <option value="pending" @selected(request('status') === 'pending')>Pending</option>
-                    <option value="{{ \App\Models\ProductRequest::WAITING_MAPPING }}" @selected(request('status') === \App\Models\ProductRequest::WAITING_MAPPING)>Waiting for Mapping</option>
-                    <option value="in_progress" @selected(request('status') === 'in_progress')>In Progress</option>
-                    <option value="{{ \App\Models\ProductRequest::PHOTOSHOOT_SCHEDULED }}" @selected(request('status') === \App\Models\ProductRequest::PHOTOSHOOT_SCHEDULED)>Waiting for Photoshoot</option>
-                    <option value="{{ \App\Models\ProductRequest::QA_REVIEW }}" @selected(request('status') === \App\Models\ProductRequest::QA_REVIEW)>QA Review</option>
-                    <option value="on_hold" @selected(request('status') === 'on_hold')>On Hold</option>
-                    <option value="{{ \App\Models\ProductRequest::PUBLISHED }}" @selected(request('status') === \App\Models\ProductRequest::PUBLISHED)>Published</option>
-                </select>
-            </div>
-            <div>
-                <label class="block text-xs font-medium text-gray-600 mb-1.5">Priority</label>
-                <select name="priority" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
-                    <option value="">All priorities</option>
-                    @foreach(\App\Models\ProductRequest::PRIORITIES as $value => $label)
-                        <option value="{{ $value }}" @selected(request('priority') === $value)>{{ $label }}</option>
-                    @endforeach
-                </select>
-            </div>
-            <div>
-                <label class="block text-xs font-medium text-gray-600 mb-1.5">Brand</label>
-                <select name="brand" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
-                    <option value="">All brands</option>
-                    @foreach($brands as $brand)
-                        <option value="{{ $brand }}" @selected(request('brand') === $brand)>{{ $brand }}</option>
-                    @endforeach
-                </select>
-            </div>
+    {{--
+        One row, no labels, and the selects apply themselves on change. It was
+        four labelled fields above an Apply button — four words of chrome per
+        control, and a filter that did nothing until you found the button.
+    --}}
+    <form method="GET" class="flex flex-wrap items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm">
+        <div class="relative min-w-[13rem] flex-1">
+            <svg class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400"
+                 fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.35-4.35M17 11a6 6 0 11-12 0 6 6 0 0112 0z"/>
+            </svg>
+            <input type="text" name="search" value="{{ request('search') }}"
+                   placeholder="Search name, brand or category"
+                   class="w-full rounded-lg border border-gray-300 py-2 pl-9 pr-3 text-sm transition focus:border-transparent focus:outline-none focus:ring-2 focus:ring-brand-500">
         </div>
-        <div class="flex gap-2 mt-3">
-            <button type="submit" class="bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">Apply Filters</button>
-            @if(request()->hasAny(['search', 'status', 'priority', 'brand']))
-                <a href="{{ route('product-requests.list') }}" class="text-sm text-gray-500 hover:text-gray-700 px-3 py-2">Clear</a>
-            @endif
-        </div>
+
+        <select name="status" @change="$el.form.submit()"
+                class="rounded-lg border border-gray-300 px-3 py-2 text-sm transition focus:outline-none focus:ring-2 focus:ring-brand-500">
+            <option value="">All statuses</option>
+            <option value="pending" @selected(request('status') === 'pending')>Pending</option>
+            <option value="{{ \App\Models\ProductRequest::WAITING_MAPPING }}" @selected(request('status') === \App\Models\ProductRequest::WAITING_MAPPING)>Waiting for Mapping</option>
+            <option value="in_progress" @selected(request('status') === 'in_progress')>In Progress</option>
+            <option value="{{ \App\Models\ProductRequest::PHOTOSHOOT_SCHEDULED }}" @selected(request('status') === \App\Models\ProductRequest::PHOTOSHOOT_SCHEDULED)>Waiting for Photoshoot</option>
+            <option value="{{ \App\Models\ProductRequest::QA_REVIEW }}" @selected(request('status') === \App\Models\ProductRequest::QA_REVIEW)>QA Review</option>
+            <option value="on_hold" @selected(request('status') === 'on_hold')>On Hold</option>
+            <option value="{{ \App\Models\ProductRequest::PUBLISHED }}" @selected(request('status') === \App\Models\ProductRequest::PUBLISHED)>Published</option>
+        </select>
+
+        <select name="priority" @change="$el.form.submit()"
+                class="rounded-lg border border-gray-300 px-3 py-2 text-sm transition focus:outline-none focus:ring-2 focus:ring-brand-500">
+            <option value="">All priorities</option>
+            @foreach(\App\Models\ProductRequest::PRIORITIES as $value => $label)
+                <option value="{{ $value }}" @selected(request('priority') === $value)>{{ $label }}</option>
+            @endforeach
+        </select>
+
+        <select name="brand" @change="$el.form.submit()"
+                class="max-w-[12rem] rounded-lg border border-gray-300 px-3 py-2 text-sm transition focus:outline-none focus:ring-2 focus:ring-brand-500">
+            <option value="">All brands</option>
+            @foreach($brands as $brand)
+                <option value="{{ $brand }}" @selected(request('brand') === $brand)>{{ $brand }}</option>
+            @endforeach
+        </select>
+
+        {{-- Typing needs a button; the selects do not. --}}
+        <button type="submit" class="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-brand-700">
+            Search
+        </button>
+
+        @if(request()->hasAny(['search', 'status', 'priority', 'brand']))
+            <a href="{{ route('product-requests.list') }}"
+               class="rounded-lg px-3 py-2 text-sm text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-800">Clear</a>
+        @endif
     </form>
 
     {{-- Bulk action bar — appears only when something is selected. --}}

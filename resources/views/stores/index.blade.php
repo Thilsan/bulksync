@@ -3,7 +3,7 @@
 @section('page-title', 'Stores')
 
 @section('content')
-<div class="max-w-2xl mx-auto space-y-4" x-data="storesPage()">
+<div class="mx-auto max-w-3xl space-y-3" x-data="storesPage()">
 
     {{-- Store list --}}
     @forelse($stores as $store)
@@ -14,71 +14,82 @@
 
         {{-- View mode --}}
         <div x-show="!editing">
-            <div class="px-6 py-4 flex items-center justify-between gap-4">
-                <div class="flex items-center gap-3 min-w-0">
-                    <div class="w-2.5 h-2.5 rounded-full shrink-0 {{ $isActive ? 'bg-green-500' : 'bg-gray-300' }}"></div>
+            <div class="flex items-center justify-between gap-4 px-5 py-4">
+                <div class="flex min-w-0 items-center gap-3">
+                    <span class="h-2 w-2 shrink-0 rounded-full {{ $isActive ? 'pulse-dot bg-emerald-500 text-emerald-500' : 'bg-gray-300' }}"></span>
                     <div class="min-w-0">
                         <div class="flex items-center gap-2">
-                            <p class="font-semibold text-gray-900 truncate">{{ $store->name }}</p>
+                            <p class="truncate font-semibold text-gray-900">{{ $store->name }}</p>
                             @if($isActive)
-                            <span class="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">Active</span>
+                                <span class="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">Active</span>
                             @endif
                         </div>
-                        <p class="text-sm text-gray-400 truncate">{{ $store->shopify_domain }}</p>
+                        <p class="flex items-center gap-2 truncate text-sm text-gray-400">
+                            <span class="truncate">{{ $store->shopify_domain }}</span>
+                            @if($store->shopify_access_token)
+                                <span class="shrink-0 text-emerald-600">· Connected</span>
+                            @else
+                                <span class="shrink-0 text-amber-600">· Not connected</span>
+                            @endif
+                        </p>
                     </div>
                 </div>
 
-                <div class="flex items-center gap-2 shrink-0">
-                    {{-- Shopify connect status + button --}}
-                    @if($store->shopify_access_token)
-                    <span class="flex items-center gap-1 text-xs text-green-600">
-                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
-                        </svg>
-                        Connected
-                    </span>
-                    @else
-                    @if($isActive && $store->shopify_client_id)
-                    <a href="{{ route('shopify.auth.redirect') }}"
-                       class="text-xs bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded-lg transition-colors font-medium">
-                        Connect Shopify
-                    </a>
-                    @endif
+                {{--
+                    One visible action, the rest behind a menu. The row used to
+                    carry five buttons of equal weight — Connect, Test, Set
+                    Active, Edit and Delete — so removing a store looked exactly
+                    as routine as renaming one.
+                --}}
+                <div class="flex shrink-0 items-center gap-2">
+                    @if(!$store->shopify_access_token && $isActive && $store->shopify_client_id)
+                        <a href="{{ route('shopify.auth.redirect') }}"
+                           class="rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-brand-700">
+                            Connect Shopify
+                        </a>
+                    @elseif(!$isActive)
+                        <form method="POST" action="{{ route('stores.switch', $store) }}">
+                            @csrf
+                            <button type="submit"
+                                class="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-600 transition-colors hover:border-brand-300 hover:text-brand-700">
+                                Switch to this
+                            </button>
+                        </form>
                     @endif
 
-                    {{-- Test --}}
-                    <button type="button" @click="testStore({{ $store->id }}, $event)"
-                        class="text-xs border border-gray-200 text-gray-500 px-3 py-1.5 rounded-lg hover:bg-gray-50 transition-colors">
-                        Test
-                    </button>
-
-                    {{-- Set active --}}
-                    @if(!$isActive)
-                    <form method="POST" action="{{ route('stores.switch', $store) }}">
-                        @csrf
-                        <button type="submit"
-                            class="text-xs border border-gray-200 text-gray-500 px-3 py-1.5 rounded-lg hover:bg-gray-50 transition-colors">
-                            Set Active
+                    <div x-data="{ menu: false }" class="relative" @click.outside="menu = false">
+                        <button type="button" @click="menu = !menu" aria-label="More actions for {{ $store->name }}"
+                                class="grid h-8 w-8 place-items-center rounded-lg text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700">
+                            <svg class="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
+                                <path d="M10 6a1.5 1.5 0 110-3 1.5 1.5 0 010 3zm0 5.5a1.5 1.5 0 110-3 1.5 1.5 0 010 3zm0 5.5a1.5 1.5 0 110-3 1.5 1.5 0 010 3z"/>
+                            </svg>
                         </button>
-                    </form>
-                    @endif
 
-                    {{-- Edit --}}
-                    <button type="button" @click="editing = true"
-                        class="text-xs border border-gray-200 text-gray-500 px-3 py-1.5 rounded-lg hover:bg-gray-50 transition-colors">
-                        Edit
-                    </button>
-
-                    {{-- Delete --}}
-                    <form method="POST" action="{{ route('stores.destroy', $store) }}"
-                          onsubmit="return confirm('Remove {{ addslashes($store->name) }}?')">
-                        @csrf
-                        @method('DELETE')
-                        <button type="submit"
-                            class="text-xs border border-red-200 text-red-500 px-3 py-1.5 rounded-lg hover:bg-red-50 transition-colors">
-                            Delete
-                        </button>
-                    </form>
+                        <div x-show="menu" x-cloak @click="menu = false"
+                             x-transition:enter="transition ease-out duration-150"
+                             x-transition:enter-start="opacity-0 -translate-y-1"
+                             x-transition:enter-end="opacity-100 translate-y-0"
+                             class="absolute right-0 z-20 mt-1 w-48 overflow-hidden rounded-xl border border-gray-200 bg-white py-1 shadow-lg">
+                            <button type="button" @click="testStore({{ $store->id }}, $event)"
+                                class="block w-full px-4 py-2 text-left text-sm text-gray-600 transition-colors hover:bg-gray-50 hover:text-gray-900">
+                                Test connection
+                            </button>
+                            <button type="button" @click="editing = true"
+                                class="block w-full px-4 py-2 text-left text-sm text-gray-600 transition-colors hover:bg-gray-50 hover:text-gray-900">
+                                Edit details
+                            </button>
+                            <form method="POST" action="{{ route('stores.destroy', $store) }}"
+                                  onsubmit="return confirm('Remove {{ addslashes($store->name) }}? Anything pointing at it stops working.')"
+                                  class="border-t border-gray-100">
+                                @csrf
+                                @method('DELETE')
+                                <button type="submit"
+                                    class="block w-full px-4 py-2 text-left text-sm text-red-600 transition-colors hover:bg-red-50">
+                                    Remove store
+                                </button>
+                            </form>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -171,8 +182,9 @@
 
     </div>
     @empty
-    <div class="bg-white rounded-xl border border-gray-200 px-6 py-10 text-center">
-        <p class="text-gray-400 text-sm">No stores added yet. Add your first store below.</p>
+    <div class="rounded-xl border border-dashed border-gray-300 bg-white px-6 py-12 text-center">
+        <p class="font-display text-xl text-gray-900">No stores yet</p>
+        <p class="mt-1 text-sm text-gray-400">Add one below to start syncing.</p>
     </div>
     @endforelse
 
@@ -181,8 +193,8 @@
          x-data="{ open: {{ $stores->isEmpty() ? 'true' : 'false' }} }">
 
         <button type="button" @click="open = !open"
-            class="w-full flex items-center justify-between px-6 py-4 text-left hover:bg-gray-50 transition-colors">
-            <span class="text-sm font-semibold text-gray-700">Add New Store</span>
+            class="flex w-full items-center justify-between px-5 py-4 text-left transition-colors hover:bg-gray-50">
+            <span class="text-sm font-semibold text-brand-700">Add a store</span>
             <svg :class="open ? 'rotate-45' : ''" class="w-5 h-5 text-gray-400 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
             </svg>

@@ -71,14 +71,6 @@
         </nav>
 
         <div class="flex items-center gap-2">
-            <a href="{{ route('product-requests.list') }}"
-               class="inline-flex items-center gap-2 border border-gray-300 text-gray-700 text-sm font-medium px-3.5 py-1.5 rounded-lg hover:bg-gray-50 transition-colors">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/>
-                </svg>
-                Back to Requests
-            </a>
-
             @unless($request->isClosed())
                 <button type="button" @click="editing = !editing"
                         class="inline-flex items-center gap-2 border border-gray-300 text-gray-700 text-sm font-medium px-3.5 py-1.5 rounded-lg hover:bg-gray-50 transition-colors">
@@ -90,7 +82,7 @@
 
                 @if(!empty($transitions))
                 <button type="button" @click="showTransition = true"
-                        class="inline-flex items-center gap-2 text-white text-sm font-medium px-3.5 py-1.5 rounded-lg transition-colors bg-brand-600 hover:bg-brand-700 transition-colors">
+                        class="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-700">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7"/>
                     </svg>
@@ -114,7 +106,7 @@
                     </div>
                     <div>
                         <div class="flex items-center gap-2.5">
-                            <h2 class="text-xl font-semibold text-gray-900">{{ $request->displayName() }}</h2>
+                            <h2 class="font-display text-2xl leading-tight text-gray-900">{{ $request->displayName() }}</h2>
                             <span class="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium border {{ $request->statusColor() }}">
                                 {{ $request->statusLabel() }}
                             </span>
@@ -136,7 +128,7 @@
                         'Category'   => $request->category,
                     ] as $label => $value)
                         <div>
-                            <p class="text-xs text-gray-400">{{ $label }}</p>
+                            <p class="text-[11px] font-medium uppercase tracking-[.1em] text-gray-400">{{ $label }}</p>
                             <p class="text-sm font-medium text-gray-800 truncate">{{ $value }}</p>
                         </div>
                     @endforeach
