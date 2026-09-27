@@ -120,23 +120,24 @@
                     },
                     colors: {
                         brand: {
-                            50:  '#e9f7fc',
-                            100: '#d2eef8',
-                            200: '#b0e0f2',
-                            300: '#8fcfea',
-                            400: '#69bbd9',
-                            500: '#439fc1',
-                            600: '#3083a6',
-                            700: '#276b89',
-                            800: '#215873',
-                            900: '#1c4961',
+                            50:  '#eff7fd',
+                            100: '#d9ecfa',
+                            200: '#b7dbf5',
+                            300: '#8cc4ec',
+                            400: '#5da9e0',
+                            500: '#3a8ed2',
+                            600: '#2e7cbf',
+                            700: '#245f93',
+                            800: '#1c4a73',
+                            900: '#143654',
                         },
-                        gold: {
-                            100: '#f7ecd6',
-                            200: '#ecd9ae',
-                            300: '#ddc086',
-                            400: '#c9a45b',
-                            500: '#ad8642',
+                        /* The trim: red on the light blue, used the way a kit
+                           uses it — piping and numbers, never a panel. */
+                        kit: {
+                            300: '#f4a3a5',
+                            400: '#ea6367',
+                            500: '#e03a3e',
+                            600: '#c22b2f',
                         },
                     }
                 }
@@ -184,19 +185,20 @@
         */
         .app-sidebar {
             background:
-                radial-gradient(660px 280px at 50% -12%, rgba(120,198,226,.22), transparent 70%),
-                radial-gradient(420px 320px at 8% 108%, rgba(201,164,91,.13), transparent 72%),
-                linear-gradient(176deg, #1f6280 0%, #1a5069 42%, #123642 78%, #0e2a33 100%);
+                radial-gradient(660px 300px at 50% -14%, rgba(255,255,255,.30), transparent 70%),
+                linear-gradient(176deg, #5ea8de 0%, #3a8ed2 38%, #2e7cbf 72%, #245f93 100%);
         }
+        /* Red piping, the length of the panel. */
         .app-sidebar::after {
-            content: ''; position: absolute; inset: 0 0 0 auto; width: 1px; pointer-events: none;
-            background: linear-gradient(180deg, transparent, rgba(221,192,134,.45) 18%, rgba(221,192,134,.16) 60%, transparent);
+            content: ''; position: absolute; inset: 0 0 0 auto; width: 2px; pointer-events: none;
+            background: linear-gradient(180deg, transparent, rgba(224,58,62,.85) 14%, rgba(224,58,62,.55) 62%, transparent);
         }
+
         /* A full-height scrollbar would cut the panel in half, so keep it hairline. */
-        .nav-scroll { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.18) transparent; }
+        .nav-scroll { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.35) transparent; }
         .nav-scroll::-webkit-scrollbar { width: 6px; }
         .nav-scroll::-webkit-scrollbar-track { background: transparent; }
-        .nav-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,.18); border-radius: 999px; }
+        .nav-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,.35); border-radius: 999px; }
         .nav-scroll::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,.3); }
 
         .live-dot { animation: live 2.4s ease-in-out infinite; }
@@ -214,10 +216,10 @@
         /* Canvas: a barely-there wash so white panels sit on something. */
         body {
             background:
-                radial-gradient(880px 440px at 80% -14%, rgba(67,159,193,.09), transparent 68%),
-                radial-gradient(520px 380px at 100% 100%, rgba(201,164,91,.07), transparent 70%),
-                radial-gradient(640px 360px at -8% 8%, rgba(67,159,193,.05), transparent 62%),
-                #f5f6f8;
+                radial-gradient(880px 440px at 80% -14%, rgba(58,142,210,.10), transparent 68%),
+                radial-gradient(560px 380px at 100% 102%, rgba(224,58,62,.05), transparent 72%),
+                radial-gradient(640px 360px at -8% 8%, rgba(58,142,210,.06), transparent 62%),
+                #f3f7fb;
         }
 
         /* Figures read as figures: serif, aligned, never re-flowing mid-count. */
@@ -237,7 +239,7 @@
         main .rounded-xl.bg-white:hover,
         main .rounded-2xl.bg-white:hover {
             box-shadow: 0 1px 2px rgba(15,23,42,.05), 0 22px 44px -26px rgba(15,23,42,.42);
-            border-color: rgba(48,131,166,.22);
+            border-color: rgba(46,124,191,.25);
         }
 
         /*
@@ -296,7 +298,7 @@
         main button, main a[class*="rounded-lg"] { transition: transform .12s ease, background-color .2s, color .2s, border-color .2s, box-shadow .2s; }
 
         /* Focus that is visible without being loud, everywhere. */
-        :focus-visible { outline: 2px solid #439fc1; outline-offset: 2px; border-radius: 6px; }
+        :focus-visible { outline: 2px solid #2e7cbf; outline-offset: 2px; border-radius: 6px; }
 
         /*
             ── Premium defaults every page inherits ─────────────────────────
@@ -310,7 +312,7 @@
             background-image: linear-gradient(180deg, rgba(255,255,255,.16), rgba(255,255,255,0) 60%);
         }
         main .bg-brand-600:hover {
-            box-shadow: 0 8px 22px -8px rgba(48,131,166,.65);
+            box-shadow: 0 8px 22px -8px rgba(46,124,191,.7);
         }
 
         /* Tinted pills get a hairline of their own colour, so a status reads as
@@ -346,19 +348,19 @@
             border-radius: 1.15rem;
             padding: 1.6rem 1.75rem 1.75rem;
             background:
-                radial-gradient(520px 200px at 6% -30%, rgba(140,214,238,.28), transparent 70%),
-                radial-gradient(460px 260px at 94% 130%, rgba(201,164,91,.20), transparent 72%),
-                linear-gradient(112deg, #1f6280 0%, #1a5069 46%, #123642 100%);
-            box-shadow: 0 18px 40px -28px rgba(11,42,53,.9);
+                radial-gradient(520px 220px at 6% -30%, rgba(255,255,255,.26), transparent 70%),
+                linear-gradient(112deg, #3a8ed2 0%, #2e7cbf 48%, #245f93 100%);
+            box-shadow: 0 18px 40px -28px rgba(20,54,84,.85);
         }
         .page-hero::before {
             content: ''; position: absolute; inset: 0; pointer-events: none;
-            background-image: repeating-linear-gradient(115deg, rgba(255,255,255,.05) 0 1px, transparent 1px 22px);
+            background-image: repeating-linear-gradient(115deg, rgba(255,255,255,.06) 0 1px, transparent 1px 22px);
             mask-image: linear-gradient(105deg, #000, transparent 62%);
         }
+        /* The trim again, so the band and the sidebar are the same garment. */
         .page-hero::after {
-            content: ''; position: absolute; inset: 0 0 auto 0; height: 1px; pointer-events: none;
-            background: linear-gradient(90deg, transparent, rgba(221,192,134,.75) 22%, rgba(221,192,134,.25) 55%, transparent);
+            content: ''; position: absolute; inset: 0 0 auto 0; height: 2px; pointer-events: none;
+            background: linear-gradient(90deg, #e03a3e, rgba(224,58,62,.35) 46%, transparent 78%);
         }
 
         /* Softer corners across the working area: closer to the hero's radius,
@@ -373,7 +375,7 @@
         */
         .spinner {
             border-radius: 9999px;
-            background: conic-gradient(from 0deg, transparent 0turn, #439fc1 .72turn, #1d5a74 1turn);
+            background: conic-gradient(from 0deg, transparent 0turn, #5ea8de .55turn, #e03a3e 1turn);
             -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 3px));
                     mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 3px));
             animation: spin 900ms linear infinite;
@@ -543,11 +545,11 @@
             glance, and the current section names itself in colour.
         */
         $accents = [
-            'brand'  => ['on' => 'text-brand-200',  'off' => 'text-brand-200/45',  'rail' => 'bg-brand-300',  'label' => 'text-brand-200/60'],
-            'gold'   => ['on' => 'text-gold-200',   'off' => 'text-gold-200/40',   'rail' => 'bg-gold-300',   'label' => 'text-gold-200/60'],
-            'violet' => ['on' => 'text-violet-200', 'off' => 'text-violet-200/40', 'rail' => 'bg-violet-300', 'label' => 'text-violet-200/60'],
-            'sky'    => ['on' => 'text-sky-200',    'off' => 'text-sky-200/40',    'rail' => 'bg-sky-300',    'label' => 'text-sky-200/60'],
-            'rose'   => ['on' => 'text-rose-200',   'off' => 'text-rose-200/40',   'rail' => 'bg-rose-300',   'label' => 'text-rose-200/60'],
+            'brand'  => ['on' => 'text-brand-700',  'off' => 'text-white/60', 'rail' => 'bg-kit-500',    'label' => 'text-white/70'],
+            'gold'   => ['on' => 'text-amber-600',  'off' => 'text-white/60', 'rail' => 'bg-amber-500',  'label' => 'text-white/70'],
+            'violet' => ['on' => 'text-violet-600', 'off' => 'text-white/60', 'rail' => 'bg-violet-500', 'label' => 'text-white/70'],
+            'sky'    => ['on' => 'text-sky-700',    'off' => 'text-white/60', 'rail' => 'bg-sky-500',    'label' => 'text-white/70'],
+            'rose'   => ['on' => 'text-kit-600',    'off' => 'text-white/60', 'rail' => 'bg-kit-500',    'label' => 'text-white/70'],
         ];
 
         $navGroups = collect($navGroups)
@@ -611,11 +613,11 @@
             </div>
             <div>
                 <p class="font-display text-[15px] leading-tight text-white">Ai Ecommerce Studio</p>
-                <p class="mt-0.5 text-[10px] uppercase tracking-[.14em] text-gold-200/55">Abuissa Holding</p>
+                <p class="mt-0.5 text-[10px] uppercase tracking-[.14em] text-white/65">Abuissa Holding</p>
             </div>
         </div>
 
-        <div class="relative mx-4 h-px bg-gradient-to-r from-transparent via-gold-300/45 to-transparent"></div>
+        <div class="relative mx-4 h-px bg-gradient-to-r from-transparent via-white/55 to-transparent"></div>
 
         {{-- Navigation --}}
         <nav class="nav-scroll relative flex-1 overflow-y-auto px-3 py-4">
@@ -640,14 +642,14 @@
                                  It starts open whenever you are anywhere inside its section. --}}
                             <div x-data="{ open: {{ $item['on'] ? 'true' : 'false' }} }">
                                 <div class="relative flex items-stretch rounded-lg transition-colors
-                                            {{ $item['on'] ? 'bg-gradient-to-r from-white/[.16] to-white/[.04] ring-1 ring-inset ring-white/10' : 'hover:bg-white/[.07]' }}">
+                                            {{ $item['on'] ? 'bg-white shadow-sm' : 'hover:bg-white/[.12]' }}">
                                     @if($item['on'])
                                         <span class="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full {{ $tone['rail'] }}"></span>
                                     @endif
                                     <a href="{{ $item['url'] }}" @click="open = true"
                                        @if($item['on']) aria-current="page" @endif
                                        class="flex min-w-0 flex-1 items-center gap-2.5 px-3 py-2 text-[13px] font-medium
-                                              {{ $item['on'] ? 'text-white' : 'text-white/65 hover:text-white' }}">
+                                              {{ $item['on'] ? 'text-brand-900' : 'text-white/80 hover:text-white' }}">
                                         <svg class="h-4 w-4 shrink-0 {{ $item['on'] ? $tone['on'] : $tone['off'] }}"
                                              fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.85">
                                             @foreach($ico[$item['icon']] as $d)
@@ -664,7 +666,7 @@
                                         </span>
                                     @endif
                                     <button type="button" @click.stop="open = !open"
-                                            class="flex shrink-0 items-center px-2 {{ $item['on'] ? 'text-white/70' : 'text-white/40 hover:text-white' }}"
+                                            class="flex shrink-0 items-center px-2 {{ $item['on'] ? 'text-brand-500' : 'text-white/55 hover:text-white' }}"
                                             :aria-expanded="open" aria-label="Toggle {{ $item['label'] }} menu">
                                         <svg :class="open ? 'rotate-180' : ''" class="h-3.5 w-3.5 transition-transform"
                                              fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5">
@@ -677,13 +679,13 @@
                                      x-transition:enter="transition ease-out duration-150"
                                      x-transition:enter-start="opacity-0 -translate-y-1"
                                      x-transition:enter-end="opacity-100 translate-y-0"
-                                     class="ml-[1.4rem] mt-0.5 space-y-0.5 border-l border-white/15 pl-3">
+                                     class="ml-[1.4rem] mt-0.5 space-y-0.5 border-l border-white/25 pl-3">
                                     @foreach($kids as $kid)
                                         @php $kidBadge = (int) ($kid['badge'] ?? 0); @endphp
                                         <a href="{{ $kid['url'] }}"
                                            @if($kid['on']) aria-current="page" @endif
                                            class="flex items-center gap-2 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors
-                                                  {{ $kid['on'] ? 'bg-white/[.12] text-white' : 'text-white/55 hover:bg-white/[.07] hover:text-white' }}">
+                                                  {{ $kid['on'] ? 'bg-white/[.22] text-white' : 'text-white/70 hover:bg-white/[.12] hover:text-white' }}">
                                             <span class="flex-1 truncate">{{ $kid['label'] }}</span>
                                             @if($kidBadge > 0)
                                                 <span class="shrink-0 text-[10px] font-semibold tabular-nums text-red-300">
@@ -699,8 +701,8 @@
                                @if($item['on']) aria-current="page" @endif
                                class="relative flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium transition-colors
                                       {{ $item['on']
-                                          ? 'bg-gradient-to-r from-white/[.16] to-white/[.04] text-white ring-1 ring-inset ring-white/10'
-                                          : 'text-white/65 hover:bg-white/[.07] hover:text-white' }}">
+                                          ? 'bg-white text-brand-900 shadow-sm'
+                                          : 'text-white/80 hover:bg-white/[.12] hover:text-white' }}">
                                 @if($item['on'])
                                     {{-- Accent rail: marks the current page without relying on tint alone --}}
                                     <span class="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full {{ $tone['rail'] }}"></span>
@@ -720,7 +722,7 @@
         </nav>
 
         {{-- Clock --}}
-        <div class="relative border-t border-white/10 px-4 py-3"
+        <div class="relative border-t border-white/25 px-4 py-3"
              x-data="{
                  tz: '{{ config('app.timezone') }}',
                  time: '',
@@ -737,7 +739,7 @@
                     <span class="live-dot h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400"></span>
                     <span x-text="time">{{ now()->format('H:i') }}</span>
                 </p>
-                <p class="truncate text-[11px] text-white/45" x-text="date">{{ now()->format('D, d M Y') }}</p>
+                <p class="truncate text-[11px] text-white/70" x-text="date">{{ now()->format('D, d M Y') }}</p>
             </div>
         </div>
 
@@ -747,7 +749,7 @@
     <div class="flex-1 flex flex-col overflow-hidden" x-data="{ scrolled: false }">
 
         {{-- Top bar --}}
-        <header class="relative z-20 flex shrink-0 items-center justify-between gap-3 border-b bg-white/85 px-4 py-2.5 backdrop-blur-xl transition-shadow after:absolute after:inset-x-0 after:bottom-[-1px] after:h-px after:bg-gradient-to-r after:from-gold-300/60 after:via-gold-300/10 after:to-transparent sm:px-8"
+        <header class="relative z-20 flex shrink-0 items-center justify-between gap-3 border-b bg-white/85 px-4 py-2.5 backdrop-blur-xl transition-shadow after:absolute after:inset-x-0 after:bottom-[-1px] after:h-px after:bg-gradient-to-r after:from-kit-500/70 after:via-kit-500/15 after:to-transparent sm:px-8"
                 :class="scrolled ? 'border-transparent shadow-[0_1px_3px_rgba(15,23,42,.10),0_8px_24px_-16px_rgba(15,23,42,.25)]' : 'border-gray-200'">
             <div class="flex min-w-0 items-center gap-3">
                 <button type="button" @click="nav = true"
@@ -1081,7 +1083,7 @@
                                 <span class="text-white/25">/</span>
                             @endif
                             @if(!empty($crumb['url']))
-                                <a href="{{ $crumb['url'] }}" class="truncate transition-colors hover:text-gold-200">{{ $crumb['label'] }}</a>
+                                <a href="{{ $crumb['url'] }}" class="truncate transition-colors hover:text-white">{{ $crumb['label'] }}</a>
                             @else
                                 <span class="truncate">{{ $crumb['label'] }}</span>
                             @endif
