@@ -119,10 +119,13 @@
             </div>
 
             {{-- A lookup that failed is named, not folded into the file silently --}}
-            <p x-show="exportStatus === 'completed' && exportFailed > 0" x-cloak class="text-xs text-amber-700">
-                <span x-text="exportFailed.toLocaleString()"></span> SKU(s) could not be read from Shopify and are marked
-                <span class="font-mono">Lookup Failed</span> in the file — rebuild to try those again.
-            </p>
+            <div x-show="exportStatus === 'completed' && exportFailed > 0" x-cloak class="text-xs text-amber-700 space-y-1">
+                <p>
+                    <span x-text="exportFailed.toLocaleString()"></span> SKU(s) could not be read from Shopify and are marked
+                    <span class="font-mono">Lookup Failed</span> in the file — rebuild to try those again.
+                </p>
+                <p x-show="exportError" class="font-mono text-[11px] text-amber-800/80" x-text="exportError"></p>
+            </div>
 
             <p x-show="exportStatus === 'failed'" x-cloak class="text-xs text-red-600" x-text="exportError"></p>
         </div>
@@ -241,9 +244,7 @@
                                                       :class="size.has_image
                                                           ? 'bg-green-50 border-green-200 text-green-800'
                                                           : 'bg-white border-gray-200 text-gray-500'"
-                                                      :title="size.sku + (size.stock_by_location && Object.keys(size.stock_by_location).length
-                                                          ? ' — ' + Object.entries(size.stock_by_location).map(([l, q]) => l + ': ' + q).join(' | ')
-                                                          : '')">
+                                                      :title="size.sku">
                                                     <svg x-show="size.has_image" class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
                                                     </svg>

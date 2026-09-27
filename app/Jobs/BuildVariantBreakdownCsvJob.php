@@ -78,16 +78,17 @@ class BuildVariantBreakdownCsvJob implements ShouldQueue
             $out = fopen(storage_path("app/sku-checks/{$this->sessionId}-variants.csv"), 'w');
             fputcsv($out, [
                 'SKU Checked', 'Status', 'Product ID', 'Product Name', 'Published',
-                'Colour', 'Size', 'Variant SKU', 'Variant ID', 'Stock', 'Stock By Location',
+                'Colour', 'Size', 'Variant SKU', 'Variant ID', 'Stock',
                 'Has Image', 'Image Count',
                 'Sizes In Colour', 'Sizes With Image', 'Colour Stock', 'Gallery Images',
             ]);
 
             $grouped = $this->groupSkusByProduct($sourcePath);
 
-            $scanned = 0;
-            $failed  = 0;
-            $written = [];
+            $scanned     = 0;
+            $failed      = 0;
+            $written     = [];
+            $firstFailure = null;
 
             $in = fopen($sourcePath, 'r');
             fgetcsv($in); // header
@@ -98,7 +99,7 @@ class BuildVariantBreakdownCsvJob implements ShouldQueue
                 if (strtolower($row[1] ?? '') !== 'available') {
                     // Kept in the file rather than dropped: a SKU missing from
                     // the export would read as "no colours", not "not in Shopify".
-                    fputcsv($out, [$sku, 'Not Available', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '']);
+                    fputcsv($out, [$sku, 'Not Available', '', '', '', '', '', '', '', '', '', '', '', '', '', '']);
                     $scanned++;
                     continue;
                 }
@@ -123,14 +124,19 @@ class BuildVariantBreakdownCsvJob implements ShouldQueue
                     // One product's failure must not silently become "no colours",
                     // and must not throw away the thousands already written.
                     Log::warning("Variant export: lookup failed for {$sku}: " . $e->getMessage());
-                    fputcsv($out, [$checked, 'Lookup Failed', $row[2] ?? '', $row[3] ?? '', '', '', '', '', '', '', '', '', '', '', '', '', '']);
+
+                    // Why, not just how many. A failure every row shares — a
+                    // query Shopify refuses, a scope, a throttle — is one fact,
+                    // and reading it off the page beats hunting the log.
+                    $firstFailure ??= $e->getMessage();
+                    fputcsv($out, [$checked, 'Lookup Failed', $row[2] ?? '', $row[3] ?? '', '', '', '', '', '', '', '', '', '', '', '', '']);
                     $failed++;
                     $scanned++;
                     continue;
                 }
 
                 if ($breakdown === null) {
-                    fputcsv($out, [$checked, 'No Variants Found', $row[2] ?? '', $row[3] ?? '', '', '', '', '', '', '', '', '', '', '', '', '', '']);
+                    fputcsv($out, [$checked, 'No Variants Found', $row[2] ?? '', $row[3] ?? '', '', '', '', '', '', '', '', '', '', '', '', '']);
                     $scanned++;
                     continue;
                 }
@@ -151,7 +157,6 @@ class BuildVariantBreakdownCsvJob implements ShouldQueue
                             // a zero here reads as "out of stock", which is a
                             // different and possibly wrong answer.
                             $size['stock'] ?? '',
-                            $this->formatLocations($size['stock_by_location'] ?? []),
                             $size['has_image'] ? 'YES' : 'NO',
                             $size['image_count'],
                             $colour['variant_count'],
@@ -179,6 +184,7 @@ class BuildVariantBreakdownCsvJob implements ShouldQueue
                 'variant_export_status'  => 'completed',
                 'variant_export_scanned' => $scanned,
                 'variant_export_failed'  => $failed,
+                'variant_export_error'   => $firstFailure,
             ]);
 
             Log::info("Variant export for session {$this->sessionId}: {$scanned} lookups, {$failed} failed.");
@@ -191,23 +197,6 @@ class BuildVariantBreakdownCsvJob implements ShouldQueue
                 'variant_export_error'  => $e->getMessage(),
             ]);
         }
-    }
-
-    /**
-     * "Blue Salon: 31 | Warehouse: 1" — one cell, so the file stays one row per
-     * variant however many locations a store keeps.
-     *
-     * @param  array<string, int>  $locations
-     */
-    private function formatLocations(array $locations): string
-    {
-        $parts = [];
-
-        foreach ($locations as $name => $quantity) {
-            $parts[] = "{$name}: {$quantity}";
-        }
-
-        return implode(' | ', $parts);
     }
 
     /**

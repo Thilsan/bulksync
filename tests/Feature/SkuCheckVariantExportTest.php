@@ -104,12 +104,12 @@ class SkuCheckVariantExportTest extends TestCase
         ];
     }
 
-    private function variantSize(string $size, bool $hasImage, int $count = 0, ?int $stock = 0, array $locations = []): array
+    private function variantSize(string $size, bool $hasImage, int $count = 0, ?int $stock = 0): array
     {
         return [
             'size' => $size, 'sku' => "SKU-{$size}", 'variant_id' => '5' . strlen($size),
             'has_image' => $hasImage, 'image_count' => $count, 'preview' => null,
-            'is_match' => false, 'stock' => $stock, 'stock_by_location' => $locations,
+            'is_match' => false, 'stock' => $stock,
         ];
     }
 
@@ -118,10 +118,7 @@ class SkuCheckVariantExportTest extends TestCase
         $session = $this->checkSession([['AAA', 'Available', '77', 'A Dress', 'TRUE']]);
 
         $this->fake(['AAA' => $this->breakdown('A Dress', [
-            $this->colour('Red',  [
-                $this->variantSize('M', true, 2, 4, ['Blue Salon' => 3, 'Warehouse' => 1]),
-                $this->variantSize('L', false, 0, 1),
-            ]),
+            $this->colour('Red',  [$this->variantSize('M', true, 2, 4), $this->variantSize('L', false, 0, 1)]),
             $this->colour('Blue', [$this->variantSize('M', false, 0, 0)]),
         ])]);
 
@@ -131,22 +128,21 @@ class SkuCheckVariantExportTest extends TestCase
 
         $this->assertSame([
             'SKU Checked', 'Status', 'Product ID', 'Product Name', 'Published',
-            'Colour', 'Size', 'Variant SKU', 'Variant ID', 'Stock', 'Stock By Location',
+            'Colour', 'Size', 'Variant SKU', 'Variant ID', 'Stock',
             'Has Image', 'Image Count', 'Sizes In Colour', 'Sizes With Image', 'Colour Stock', 'Gallery Images',
         ], $rows[0]);
 
         $this->assertCount(4, $rows); // header + three variants
 
         $this->assertSame(
-            ['AAA', 'Available', '77', 'A Dress', 'TRUE', 'Red', 'M', 'SKU-M', '51', '4',
-             'Blue Salon: 3 | Warehouse: 1', 'YES', '2', '2', '1', '5', '9'],
+            ['AAA', 'Available', '77', 'A Dress', 'TRUE', 'Red', 'M', 'SKU-M', '51', '4', 'YES', '2', '2', '1', '5', '9'],
             $rows[1]
         );
-        $this->assertSame('NO', $rows[2][11]);
+        $this->assertSame('NO', $rows[2][10]);
 
         // The colour totals travel on every row of that colour, so a pivot on
         // Colour answers "which colours have nothing" without a second pass.
-        $this->assertSame(['1', '0'], [$rows[3][13], $rows[3][14]]);
+        $this->assertSame(['1', '0'], [$rows[3][12], $rows[3][13]]);
 
         $session->refresh();
         $this->assertSame('completed', $session->variant_export_status);
@@ -234,9 +230,8 @@ class SkuCheckVariantExportTest extends TestCase
         // A 0 in this column would be read as "out of stock" and reorder
         // decisions made on it; blank says the store did not answer.
         $this->assertSame('', $row[9]);  // Stock
-        $this->assertSame('', $row[10]); // Stock By Location
-        $this->assertSame('', $row[15]); // Colour Stock
-        $this->assertSame('YES', $row[11]);
+        $this->assertSame('', $row[14]); // Colour Stock
+        $this->assertSame('YES', $row[10]);
     }
 
     public function test_a_not_mapped_sku_stays_in_the_file(): void
@@ -280,6 +275,10 @@ class SkuCheckVariantExportTest extends TestCase
         $session->refresh();
         $this->assertSame('completed', $session->variant_export_status);
         $this->assertSame(1, $session->variant_export_failed);
+
+        // Why it failed, not just that it did — one refused query fails every
+        // row the same way, and that fact belongs on the page.
+        $this->assertStringContainsString('Throttled', $session->variant_export_error);
     }
 
     public function test_a_sku_shopify_no_longer_carries_is_marked_rather_than_left_blank(): void
