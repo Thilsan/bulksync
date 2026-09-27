@@ -165,30 +165,54 @@
         <div x-show="!rowsLoading && rows.length > 0" class="divide-y divide-gray-100">
             <template x-for="row in rows" :key="row.sku">
                 <div>
-                    {{-- The SKU row --}}
-                    <div class="px-6 py-3 flex items-center gap-3">
-                        <button type="button"
-                                @click="toggle(row)"
-                                :disabled="row.status !== 'Available'"
-                                class="w-6 h-6 flex items-center justify-center rounded text-gray-400 hover:text-gray-700 disabled:opacity-30 disabled:cursor-not-allowed">
-                            <svg class="w-4 h-4 transition-transform" :class="open === row.sku ? 'rotate-90' : ''"
+                    {{--
+                        The whole row opens it, not a 24px arrow. The arrow was
+                        the only hint the row did anything, and it carried no
+                        hover state — so a SKU that had colours and sizes behind
+                        it looked exactly like one that did not.
+                    --}}
+                    <div class="flex cursor-pointer items-center gap-3 px-6 py-3 transition-colors"
+                         :class="[
+                            row.status === 'Available' ? 'hover:bg-brand-50/50' : 'cursor-default',
+                            open === row.sku ? 'bg-brand-50/60' : ''
+                         ]"
+                         role="button" tabindex="0"
+                         @click="toggle(row)"
+                         @keydown.enter.prevent="toggle(row)"
+                         @keydown.space.prevent="toggle(row)">
+
+                        <span class="grid h-6 w-6 shrink-0 place-items-center rounded text-gray-400"
+                              :class="row.status !== 'Available' && 'opacity-25'">
+                            <svg class="h-4 w-4 transition-transform duration-200" :class="open === row.sku ? 'rotate-90' : ''"
                                  fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
                             </svg>
-                        </button>
+                        </span>
 
-                        <div class="flex-1 min-w-0">
+                        <div class="min-w-0 flex-1">
                             <p class="font-mono text-sm text-gray-800" x-text="row.sku"></p>
-                            <p class="text-xs text-gray-500 truncate" x-text="row.product_title"></p>
+                            <p class="truncate text-xs text-gray-500" x-text="row.product_title"></p>
                         </div>
 
-                        <span class="text-xs px-2 py-1 rounded-full font-medium"
+                        {{-- Says what the row does, on the row it does it to. --}}
+                        <span x-show="row.status === 'Available'"
+                              class="hidden text-xs font-medium text-brand-600 sm:block"
+                              x-text="open === row.sku ? 'Hide colours' : 'Colours & sizes'"></span>
+
+                        <span class="rounded-full px-2 py-1 text-xs font-medium"
                               :class="row.status === 'Available' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'"
                               x-text="row.status === 'Available' ? 'Mapped' : 'Not mapped'"></span>
                     </div>
 
                     {{-- Its variants --}}
-                    <div x-show="open === row.sku" x-cloak class="px-6 pb-5 pl-14 bg-gray-50/60">
+                    <div x-show="open === row.sku" x-cloak
+                         x-transition:enter="transition ease-out duration-200"
+                         x-transition:enter-start="opacity-0 -translate-y-1"
+                         x-transition:enter-end="opacity-100 translate-y-0"
+                         x-transition:leave="transition ease-in duration-150"
+                         x-transition:leave-start="opacity-100"
+                         x-transition:leave-end="opacity-0"
+                         class="border-t border-brand-100 bg-gray-50/70 px-6 pb-5 pl-14">
                         <template x-if="breakdownLoading">
                             <p class="text-sm text-gray-500 py-3">Reading variants from Shopify…</p>
                         </template>
