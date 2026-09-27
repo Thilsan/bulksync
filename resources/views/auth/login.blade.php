@@ -40,7 +40,7 @@
         ],
         [
             'key'    => 'requests',
-            'module' => 'Product Creation Requests',
+            'module' => 'Product Creation',
             'title'  => 'From request to live listing',
             'text'   => 'Track every new product through photoshoot, content and publishing — with tasks, owners and notifications built in.',
             'mock'   => 'kanban',

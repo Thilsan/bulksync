@@ -935,7 +935,7 @@ class OrdersDashboardTest extends TestCase
         // Both phrases also name links in the sidebar, which is on every page,
         // so presence alone proves nothing — the tab must have exactly one
         // fewer of each than the home screen it was copied from.
-        foreach (['New Upload', 'Product Creation Requests'] as $label) {
+        foreach (['New Upload', 'Product Creation'] as $label) {
             $this->assertSame(
                 substr_count($home, $label) - 1,
                 substr_count($studio, $label),

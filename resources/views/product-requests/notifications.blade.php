@@ -1,7 +1,7 @@
 @extends('layouts.app')
 
 @section('title', 'Notifications')
-@section('page-title', 'Product Creation Request')
+@section('page-title', 'Product Creation')
 
 @section('content')
 <div class="max-w-3xl space-y-5">
@@ -9,7 +9,7 @@
     <div class="flex items-start justify-between gap-4">
         <div>
             <nav class="text-xs text-gray-400 mb-1">
-                <a href="{{ route('product-requests.index') }}" class="hover:text-gray-600">Product Creation Request</a>
+                <a href="{{ route('product-requests.index') }}" class="hover:text-gray-600">Product Creation</a>
                 <span class="mx-1.5">&gt;</span>
                 <span class="text-gray-600">Notifications</span>
             </nav>

@@ -166,7 +166,7 @@
                                     'store_sync'  => 'Store Image Sync',
                                     'ai_content'       => 'AI Content',
                                     'metafield_update' => 'Metafield Update',
-                                    'product_request'  => 'Product Creation Request',
+                                    'product_request'  => 'Product Creation',
                                     'photo_editor'     => 'Photo Editor (Photoroom)',
                                     'orders_dashboard' => 'Management Dashboard (company revenue)',
                                 ];

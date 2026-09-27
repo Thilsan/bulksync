@@ -1,7 +1,7 @@
 @extends('layouts.app')
 
 @section('title', $request->reference)
-@section('page-title', 'Product Creation Request')
+@section('page-title', 'Product Creation')
 
 @section('content')
 @php

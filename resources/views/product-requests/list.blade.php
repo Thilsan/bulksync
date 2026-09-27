@@ -1,7 +1,7 @@
 @extends('layouts.app')
 
 @section('title', 'All Requests')
-@section('page-title', 'Product Creation Request')
+@section('page-title', 'Product Creation')
 
 @section('content')
 {{-- Same slide-over as the dashboard; re-opens itself if submission failed. --}}

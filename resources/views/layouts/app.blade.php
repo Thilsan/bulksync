@@ -505,7 +505,7 @@
                 'items' => [
                     ['label' => 'SKU Checker', 'url' => route('sku-checker.index'), 'icon' => 'check', 'on' => request()->routeIs('sku-checker.*'), 'show' => $u->hasFeature('sku_checker')],
                     [
-                        'label' => 'Product Creation Requests',
+                        'label' => 'Product Creation',
                         'url'   => route('product-requests.index'),
                         'icon'  => 'tasks',
                         'on'    => request()->routeIs('product-requests.*'),

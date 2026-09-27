@@ -1,7 +1,7 @@
 @extends('layouts.app')
 
 @section('title', 'Assigned to Me')
-@section('page-title', 'Product Creation Request')
+@section('page-title', 'Product Creation')
 
 @section('content')
 @php $me = auth()->user(); @endphp
@@ -11,7 +11,7 @@
     <div class="flex items-start justify-between">
         <div>
             <nav class="text-xs text-gray-400 mb-1">
-                <a href="{{ route('product-requests.index') }}" class="hover:text-gray-600">Product Creation Request</a>
+                <a href="{{ route('product-requests.index') }}" class="hover:text-gray-600">Product Creation</a>
                 <span class="mx-1.5">&gt;</span>
                 <span class="text-gray-600">Assigned to Me</span>
             </nav>

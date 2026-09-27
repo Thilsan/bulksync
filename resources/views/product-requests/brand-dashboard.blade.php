@@ -1,7 +1,7 @@
 @extends('layouts.app')
 
-@section('title', 'Product Creation Request')
-@section('page-title', 'Product Creation Request')
+@section('title', 'Product Creation')
+@section('page-title', 'Product Creation')
 
 @section('content')
 {{--

@@ -1,7 +1,7 @@
 @extends('layouts.app')
 
 @section('title', $request->reference . ' – Activity')
-@section('page-title', 'Product Creation Request')
+@section('page-title', 'Product Creation')
 
 @section('content')
 <div class="max-w-5xl space-y-5">
@@ -9,7 +9,7 @@
     <div class="flex items-center justify-between">
         <div>
             <nav class="text-xs text-gray-400 mb-1">
-                <a href="{{ route('product-requests.index') }}" class="hover:text-gray-600">Product Creation Request</a>
+                <a href="{{ route('product-requests.index') }}" class="hover:text-gray-600">Product Creation</a>
                 <span class="mx-1.5">&gt;</span>
                 <a href="{{ route('product-requests.show', $request) }}" class="hover:text-gray-600">{{ $request->reference }}</a>
                 <span class="mx-1.5">&gt;</span>
