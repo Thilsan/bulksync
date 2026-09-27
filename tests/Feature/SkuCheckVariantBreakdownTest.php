@@ -99,6 +99,20 @@ class SkuCheckVariantBreakdownTest extends TestCase
         $this->assertSame(['ACB'], array_column($searched['rows'], 'sku'));
     }
 
+    public function test_the_results_page_renders(): void
+    {
+        $session = $this->completedSession([['AAA', 'Available', '1', 'A Thing', 'TRUE']]);
+
+        $page = $this->actingAs($this->user)
+            ->get(route('sku-checker.show', $session))
+            ->assertOk();
+
+        // The figures count up rather than snapping, so the tiles read from a
+        // display mirror — a typo in it would leave four blank cards.
+        $page->assertSee('shown.total.toLocaleString()', false)
+             ->assertSee('skuCheckPage(', false);
+    }
+
     public function test_another_users_results_are_not_readable(): void
     {
         $session = $this->completedSession([['AAA', 'Available', '1', 'A Thing', 'TRUE']]);

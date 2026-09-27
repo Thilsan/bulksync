@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" class="h-full bg-gray-50">
+<html lang="en" class="h-full">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -104,11 +104,20 @@
             };
         })();
     </script>
+    {{-- Newsreader carries the page titles and the figures; Plus Jakarta Sans
+         does the interface work. Two families, each with one job. --}}
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
             theme: {
                 extend: {
+                    fontFamily: {
+                        sans:    ['"Plus Jakarta Sans"', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+                        display: ['Newsreader', 'ui-serif', 'Georgia', 'serif'],
+                    },
                     colors: {
                         brand: {
                             50:  '#e9f7fc',
@@ -126,6 +135,34 @@
                 }
             }
         }
+    </script>
+    <script>
+        /*
+            Figures count to their value rather than snapping to it — on a page
+            that polls a running job, the movement itself says the number is
+            live. Returns immediately at the target when the reader has asked
+            for less motion, or when the jump is a single unit.
+        */
+        window.countUp = function (from, to, onFrame, ms = 650) {
+            from = Number(from) || 0;
+            to   = Number(to)   || 0;
+
+            const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+            if (still || from === to || Math.abs(to - from) < 2) {
+                onFrame(to);
+                return;
+            }
+
+            const started = performance.now();
+
+            (function frame(now) {
+                const t = Math.min(1, (now - started) / ms);
+                // Ease out: fast off the mark, settles onto the number.
+                onFrame(Math.round(from + (to - from) * (1 - Math.pow(1 - t, 3))));
+                if (t < 1) requestAnimationFrame(frame);
+            })(started);
+        };
     </script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <style>
@@ -146,10 +183,112 @@
 
         .live-dot { animation: live 2.4s ease-in-out infinite; }
         @keyframes live { 0%,100% { opacity: 1 } 50% { opacity: .35 } }
-        @media (prefers-reduced-motion: reduce) { .live-dot { animation: none } }
+
+        /*
+            ── The work is always happening somewhere else ──────────────────
+            Queues run, images upload, checks tick along. So motion here
+            reports state rather than decorating: panels arrive in the order
+            they are read, figures count to their value, a running bar carries
+            light across it, and a live dot breathes. Everything below is
+            switched off wholesale for prefers-reduced-motion.
+        */
+
+        /* Canvas: a barely-there wash so white panels sit on something. */
+        body {
+            background:
+                radial-gradient(820px 420px at 78% -12%, rgba(67,159,193,.07), transparent 68%),
+                radial-gradient(640px 360px at -8% 8%, rgba(67,159,193,.05), transparent 62%),
+                #f6f7f9;
+        }
+
+        /* Figures read as figures: serif, aligned, never re-flowing mid-count. */
+        .figure { font-family: 'Newsreader', ui-serif, Georgia, serif; font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+
+        /*
+            Panels. Keyed off the shape every page already uses, so each screen
+            gets the softer surface without forty files being edited: a hairline
+            ring instead of a flat border, and a shadow with some depth to it.
+        */
+        main .rounded-xl.bg-white,
+        main .rounded-2xl.bg-white {
+            border-color: rgba(15,23,42,.07);
+            box-shadow: 0 1px 2px rgba(15,23,42,.04), 0 12px 28px -22px rgba(15,23,42,.35);
+            transition: box-shadow .28s cubic-bezier(.22,.61,.36,1), transform .28s cubic-bezier(.22,.61,.36,1), border-color .28s;
+        }
+        main .rounded-xl.bg-white:hover,
+        main .rounded-2xl.bg-white:hover {
+            box-shadow: 0 1px 2px rgba(15,23,42,.05), 0 22px 44px -26px rgba(15,23,42,.42);
+            border-color: rgba(48,131,166,.22);
+        }
+
+        /*
+            Arrival. Direct children of the page wrapper come up in sequence,
+            about a tenth of a second apart — the eye lands top-left and the
+            page assembles under it.
+
+            backwards, not both: the fill holds the start state through the
+            delay and then lets go. A forwards fill would keep asserting the end
+            state for the life of the page, and Alpine's own show/hide
+            transitions on these same panels would stop working — an animation
+            outranks a transition. The last keyframe is transform:none for the
+            same kind of reason: a transform that lingers makes the panel a
+            containing block, and a fixed overlay inside it — a loading screen,
+            a modal — would be trapped in the card.
+        */
+        @keyframes rise { from { opacity: 0; transform: translateY(10px) } to { opacity: 1; transform: none } }
+        main > *,
+        main > * > * { animation: rise .52s cubic-bezier(.22,.61,.36,1) backwards; }
+        main > * > *:nth-child(1) { animation-delay: .02s }
+        main > * > *:nth-child(2) { animation-delay: .08s }
+        main > * > *:nth-child(3) { animation-delay: .14s }
+        main > * > *:nth-child(4) { animation-delay: .20s }
+        main > * > *:nth-child(5) { animation-delay: .26s }
+        main > * > *:nth-child(6) { animation-delay: .32s }
+        main > * > *:nth-child(n+7) { animation-delay: .36s }
+
+        /*
+            A running bar. The fill is the truth; the light crossing it says the
+            work has not stalled — which is the question somebody watching a
+            queue is actually asking.
+        */
+        .bar-live { position: relative; overflow: hidden; }
+        .bar-live::after {
+            content: ''; position: absolute; inset: 0;
+            background: linear-gradient(100deg, transparent 18%, rgba(255,255,255,.55) 50%, transparent 82%);
+            animation: sweep 1.6s linear infinite;
+        }
+        @keyframes sweep { from { transform: translateX(-100%) } to { transform: translateX(100%) } }
+
+        /* A dot with a pulse ring: something is live right now. */
+        .pulse-dot { position: relative; }
+        .pulse-dot::before {
+            content: ''; position: absolute; inset: -4px; border-radius: 9999px;
+            background: currentColor; opacity: .35; animation: pulse-ring 1.9s ease-out infinite;
+        }
+        @keyframes pulse-ring {
+            0%   { transform: scale(.65); opacity: .45 }
+            70%  { transform: scale(1.5);  opacity: 0 }
+            100% { transform: scale(1.5);  opacity: 0 }
+        }
+
+        /* Press: buttons give, rather than just changing colour. */
+        main button:not(:disabled):active,
+        main a[class*="rounded-lg"]:active { transform: translateY(.5px) scale(.985); }
+        main button, main a[class*="rounded-lg"] { transition: transform .12s ease, background-color .2s, color .2s, border-color .2s, box-shadow .2s; }
+
+        /* Focus that is visible without being loud, everywhere. */
+        :focus-visible { outline: 2px solid #439fc1; outline-offset: 2px; border-radius: 6px; }
+
+        @media (prefers-reduced-motion: reduce) {
+            .live-dot, .bar-live::after, .pulse-dot::before { animation: none }
+            main > *, main > * > * { animation: none }
+            main .rounded-xl.bg-white, main .rounded-2xl.bg-white,
+            main button, main a[class*="rounded-lg"] { transition: none }
+            main button:not(:disabled):active { transform: none }
+        }
     </style>
 </head>
-<body class="h-full flex bg-gray-50" x-data="{ nav: false }" @keydown.escape.window="nav = false">
+<body class="h-full flex" x-data="{ nav: false }" @keydown.escape.window="nav = false">
 
     {{--
         Sidebar. The nav is described as data rather than 12 near-identical
@@ -477,7 +616,7 @@
     <div class="flex-1 flex flex-col overflow-hidden" x-data="{ scrolled: false }">
 
         {{-- Top bar --}}
-        <header class="relative z-20 flex shrink-0 items-center justify-between gap-3 border-b bg-white px-4 py-3 transition-shadow sm:px-8"
+        <header class="relative z-20 flex shrink-0 items-center justify-between gap-3 border-b bg-white/85 px-4 py-3 backdrop-blur-xl transition-shadow sm:px-8"
                 :class="scrolled ? 'border-transparent shadow-[0_1px_3px_rgba(15,23,42,.10),0_8px_24px_-16px_rgba(15,23,42,.25)]' : 'border-gray-200'">
             <div class="flex min-w-0 items-center gap-3">
                 <button type="button" @click="nav = true"
@@ -504,7 +643,7 @@
                             @endforeach
                         </nav>
                     @endif
-                    <h1 class="truncate text-lg font-semibold leading-tight text-gray-900 sm:text-xl">@yield('page-title', 'Dashboard')</h1>
+                    <h1 class="truncate font-display text-xl font-medium leading-tight tracking-[-.01em] text-gray-900 sm:text-[1.6rem]">@yield('page-title', 'Dashboard')</h1>
                 </div>
             </div>
 
@@ -514,7 +653,7 @@
                 <div x-data="{ open: false }" class="relative">
                     <button @click="open = !open" :aria-expanded="open"
                         class="flex h-9 max-w-[13rem] items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 text-sm transition-colors hover:border-gray-300 hover:bg-gray-50">
-                        <span class="h-2 w-2 shrink-0 rounded-full {{ $activeStore ? 'bg-emerald-500' : 'bg-gray-300' }}"></span>
+                        <span class="h-2 w-2 shrink-0 rounded-full {{ $activeStore ? 'pulse-dot bg-emerald-500 text-emerald-500' : 'bg-gray-300' }}"></span>
                         <span class="truncate font-medium text-gray-700">{{ $activeStore?->name ?? 'No store selected' }}</span>
                         <svg class="h-3 w-3 shrink-0 text-gray-400 transition-transform" :class="open && 'rotate-180'"
                              fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">

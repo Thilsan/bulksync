@@ -13,22 +13,25 @@
     {{-- Stats --}}
     <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div class="bg-white rounded-xl border border-gray-200 p-5">
-            <p class="text-xs text-gray-500 mb-1">Status</p>
-            <p class="text-sm font-semibold capitalize"
-               :class="{'text-green-600': status==='completed','text-brand-600': status==='running','text-red-500': status==='failed','text-gray-500': status==='pending'}"
-               x-text="status"></p>
+            <p class="text-[11px] font-medium uppercase tracking-[.12em] text-gray-400 mb-2">Status</p>
+            <p class="flex items-center gap-2 text-sm font-semibold capitalize"
+               :class="{'text-green-600': status==='completed','text-brand-600': status==='running','text-red-500': status==='failed','text-gray-500': status==='pending'}">
+                <span class="h-1.5 w-1.5 rounded-full bg-current"
+                      :class="(status==='running' || status==='pending') && 'pulse-dot'"></span>
+                <span x-text="status"></span>
+            </p>
         </div>
         <div class="bg-white rounded-xl border border-gray-200 p-5">
-            <p class="text-xs text-gray-500 mb-1">Total SKUs</p>
-            <p class="text-2xl font-bold text-gray-800" x-text="totalSkus.toLocaleString()">{{ $skuCheckSession->total_skus }}</p>
+            <p class="text-[11px] font-medium uppercase tracking-[.12em] text-gray-400 mb-2">Total SKUs</p>
+            <p class="figure text-3xl text-gray-900" x-text="shown.total.toLocaleString()">{{ $skuCheckSession->total_skus }}</p>
         </div>
         <div class="bg-white rounded-xl border border-green-100 p-5">
-            <p class="text-xs text-gray-500 mb-1">Mapped</p>
-            <p class="text-2xl font-bold text-green-600" x-text="available.toLocaleString()">{{ $skuCheckSession->available_count }}</p>
+            <p class="text-[11px] font-medium uppercase tracking-[.12em] text-gray-400 mb-2">Mapped</p>
+            <p class="figure text-3xl text-green-600" x-text="shown.available.toLocaleString()">{{ $skuCheckSession->available_count }}</p>
         </div>
         <div class="bg-white rounded-xl border border-red-100 p-5">
-            <p class="text-xs text-gray-500 mb-1">Not Mapped</p>
-            <p class="text-2xl font-bold text-red-500" x-text="notAvailable.toLocaleString()">{{ $skuCheckSession->not_available_count }}</p>
+            <p class="text-[11px] font-medium uppercase tracking-[.12em] text-gray-400 mb-2">Not Mapped</p>
+            <p class="figure text-3xl text-red-500" x-text="shown.notAvailable.toLocaleString()">{{ $skuCheckSession->not_available_count }}</p>
         </div>
     </div>
 
@@ -38,8 +41,9 @@
             <p class="text-sm font-medium text-gray-700">Checking SKUs in background…</p>
             <p class="text-sm text-gray-500"><span x-text="scanned.toLocaleString()"></span> / <span x-text="totalSkus.toLocaleString()"></span></p>
         </div>
-        <div class="w-full bg-gray-100 rounded-full h-3 overflow-hidden">
-            <div class="bg-brand-600 h-3 rounded-full transition-all duration-500" :style="'width: ' + progress + '%'"></div>
+        <div class="w-full bg-gray-100 rounded-full h-2.5 overflow-hidden">
+            <div class="bar-live bg-brand-600 h-2.5 rounded-full transition-all duration-700 ease-out"
+                 :style="'width: ' + Math.max(progress, 2) + '%'"></div>
         </div>
         <p class="text-xs text-gray-400 mt-2 text-center" x-text="progress + '% complete'"></p>
     </div>
@@ -283,6 +287,13 @@ function skuCheckPage(sessionId, initialStatus) {
         progress:    {{ $skuCheckSession->progressPercent() }},
         pollTimer:   null,
 
+        // What the tiles display, walked up to the real figures above.
+        shown: {
+            total:        {{ $skuCheckSession->total_skus }},
+            available:    {{ $skuCheckSession->available_count }},
+            notAvailable: {{ $skuCheckSession->not_available_count }},
+        },
+
         // Results table
         rows:        [],
         rowsLoading: false,
@@ -307,7 +318,18 @@ function skuCheckPage(sessionId, initialStatus) {
         breakdownLoading: false,
         breakdownError:   null,
 
+        // One place that moves a tile's figure, so a poll cannot leave two of
+        // them counting from different starting points.
+        settle(key, to) {
+            window.countUp(this.shown[key], to, v => this.shown[key] = v);
+        },
+
         init() {
+            this.shown = { total: 0, available: 0, notAvailable: 0 };
+            this.settle('total', this.totalSkus);
+            this.settle('available', this.available);
+            this.settle('notAvailable', this.notAvailable);
+
             if (this.status !== 'completed' && this.status !== 'failed') {
                 this.startPolling();
             } else if (this.status === 'completed') {
@@ -441,6 +463,10 @@ function skuCheckPage(sessionId, initialStatus) {
             this.available    = data.available;
             this.notAvailable = data.not_available;
             this.progress     = data.progress;
+
+            this.settle('total', data.total_skus);
+            this.settle('available', data.available);
+            this.settle('notAvailable', data.not_available);
             if (data.status === 'completed' || data.status === 'failed') {
                 clearInterval(this.pollTimer);
                 if (data.status === 'completed') {
