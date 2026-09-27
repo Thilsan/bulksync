@@ -223,22 +223,40 @@
 
                         <template x-if="!breakdownLoading && breakdown">
                             <div class="space-y-3 pt-3">
-                                <p class="text-xs text-gray-500">
-                                    <span x-text="breakdown.colours.length"></span> colour(s),
-                                    <span x-text="breakdown.variant_count"></span> variant(s) —
-                                    <span x-text="breakdown.with_image_count"></span> with a photo of their own,
-                                    <span x-text="breakdown.gallery_count"></span> image(s) in the product gallery.
-                                </p>
+                                {{--
+                                    The same facts the CSV carries, in the same
+                                    order: the product, then a row per variant.
+                                    The panel used to show only what a colour
+                                    covered, so anyone who wanted the variant's
+                                    own SKU or id had to build the export.
+                                --}}
+                                <div class="flex flex-wrap items-center gap-2 text-xs">
+                                    <span class="font-medium text-gray-700" x-text="breakdown.product_title"></span>
+                                    <span class="rounded-md bg-white px-2 py-0.5 font-mono text-[11px] text-gray-500 ring-1 ring-gray-200"
+                                          x-text="'ID ' + breakdown.product_id"></span>
+                                    <span class="rounded-full px-2 py-0.5 text-[11px] font-semibold"
+                                          :class="breakdown.published ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-100 text-gray-500'"
+                                          x-text="breakdown.published ? 'Published' : 'Draft'"></span>
+                                    <span class="text-gray-400">·</span>
+                                    <span class="text-gray-500">
+                                        <span class="figure text-gray-800" x-text="breakdown.with_image_count"></span> of
+                                        <span class="figure text-gray-800" x-text="breakdown.variant_count"></span> variants have their own photo
+                                    </span>
+                                    <span class="text-gray-400">·</span>
+                                    <span class="text-gray-500">
+                                        <span class="figure text-gray-800" x-text="breakdown.gallery_count"></span> in the gallery
+                                    </span>
+                                </div>
 
                                 <template x-for="colour in breakdown.colours" :key="colour.colour">
-                                    <div class="bg-white rounded-lg border border-gray-200 p-4">
-                                        <div class="flex items-center gap-3 mb-3">
+                                    <div class="overflow-hidden rounded-lg border border-gray-200 bg-white">
+                                        <div class="flex items-center gap-3 border-b border-gray-100 px-4 py-3">
                                             <template x-if="colour.preview">
                                                 <img :src="colour.preview" alt=""
-                                                     class="w-10 h-10 rounded object-cover border border-gray-200">
+                                                     class="h-10 w-10 rounded border border-gray-200 object-cover">
                                             </template>
                                             <template x-if="!colour.preview">
-                                                <div class="w-10 h-10 rounded border border-dashed border-gray-300"></div>
+                                                <div class="h-10 w-10 rounded border border-dashed border-gray-300"></div>
                                             </template>
 
                                             <div class="flex-1">
@@ -249,7 +267,7 @@
                                                 </p>
                                             </div>
 
-                                            <span class="text-xs px-2 py-1 rounded-full font-medium"
+                                            <span class="rounded-full px-2 py-1 text-xs font-medium"
                                                   :class="colour.with_image_count === 0
                                                       ? 'bg-red-50 text-red-600'
                                                       : (colour.with_image_count === colour.variant_count
@@ -260,22 +278,42 @@
                                                       : (colour.with_image_count === colour.variant_count ? 'All sizes covered' : 'Partly covered')"></span>
                                         </div>
 
-                                        <div class="flex flex-wrap gap-2">
-                                            <template x-for="size in colour.sizes" :key="size.variant_id">
-                                                <span class="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border"
-                                                      :class="size.has_image
-                                                          ? 'bg-green-50 border-green-200 text-green-800'
-                                                          : 'bg-white border-gray-200 text-gray-500'"
-                                                      :title="size.sku">
-                                                    <svg x-show="size.has_image" class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
-                                                    </svg>
-                                                    <span x-text="size.size || '—'"></span>
-                                                    <span x-show="size.image_count > 1" class="text-[10px] opacity-70"
-                                                          x-text="'×' + size.image_count"></span>
-                                                    <span x-show="size.is_match" class="text-[10px] font-semibold uppercase tracking-wide opacity-70">searched</span>
-                                                </span>
-                                            </template>
+                                        {{-- One row per variant, the shape the export uses. --}}
+                                        <div class="overflow-x-auto">
+                                            <table class="w-full text-xs">
+                                                <thead>
+                                                    <tr class="bg-gray-50/70 text-left text-[10px] text-gray-400">
+                                                        <th class="px-4 py-2 font-semibold">Size</th>
+                                                        <th class="px-4 py-2 font-semibold">Variant SKU</th>
+                                                        <th class="px-4 py-2 font-semibold">Variant ID</th>
+                                                        <th class="px-4 py-2 text-right font-semibold">Photos</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody class="divide-y divide-gray-50">
+                                                    <template x-for="size in colour.sizes" :key="size.variant_id">
+                                                        <tr :class="size.is_match && 'bg-brand-50/40'">
+                                                            <td class="px-4 py-2">
+                                                                <span class="inline-flex items-center gap-1.5 font-medium text-gray-800">
+                                                                    <svg x-show="size.has_image" class="h-3 w-3 text-emerald-500"
+                                                                         fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="3">
+                                                                        <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
+                                                                    </svg>
+                                                                    <span x-text="size.size || '—'"></span>
+                                                                </span>
+                                                                <span x-show="size.is_match"
+                                                                      class="ml-1.5 text-[9px] font-semibold uppercase tracking-wide text-brand-600">searched</span>
+                                                            </td>
+                                                            <td class="px-4 py-2 font-mono text-gray-600" x-text="size.sku || '—'"></td>
+                                                            <td class="px-4 py-2 font-mono text-gray-400" x-text="size.variant_id"></td>
+                                                            <td class="px-4 py-2 text-right">
+                                                                <span class="figure"
+                                                                      :class="size.has_image ? 'text-gray-800' : 'text-red-500'"
+                                                                      x-text="size.has_image ? size.image_count : 'none'"></span>
+                                                            </td>
+                                                        </tr>
+                                                    </template>
+                                                </tbody>
+                                            </table>
                                         </div>
                                     </div>
                                 </template>

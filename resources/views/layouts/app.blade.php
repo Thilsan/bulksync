@@ -499,10 +499,26 @@
             [
                 'label' => 'Catalogue',
                 'accent' => 'brand',
+                // Ordered the way the team works: check the SKUs, raise the
+                // request, write the content — then the tools reached for less
+                // often.
                 'items' => [
-                    ['label' => 'Product Migration',    'url' => route('store-image-sync.index'),  'icon' => 'swap',   'on' => request()->routeIs('store-image-sync.*'),  'show' => $u->hasFeature('store_sync')],
-                    ['label' => 'SKU Checker',          'url' => route('sku-checker.index'),       'icon' => 'check',  'on' => request()->routeIs('sku-checker.*'),       'show' => $u->hasFeature('sku_checker')],
-                    ['label' => 'Metafield Checker',    'url' => route('metafield-update.index'),  'icon' => 'doc',    'on' => request()->routeIs('metafield-update.*'),  'show' => $u->hasFeature('metafield_update')],
+                    ['label' => 'SKU Checker', 'url' => route('sku-checker.index'), 'icon' => 'check', 'on' => request()->routeIs('sku-checker.*'), 'show' => $u->hasFeature('sku_checker')],
+                    [
+                        'label' => 'Product Creation Requests',
+                        'url'   => route('product-requests.index'),
+                        'icon'  => 'tasks',
+                        'on'    => request()->routeIs('product-requests.*'),
+                        'show'  => $u->hasFeature('product_request'),
+                        'badge' => $bellUnreadCount ?? 0,
+                        // No "Dashboard" entry — the parent link already goes there.
+                        'children' => [
+                            ['label' => 'All Requests',        'url' => route('product-requests.list'),            'on' => request()->routeIs('product-requests.list')],
+                            ['label' => 'Photoshoot Schedule', 'url' => route('product-requests.photoshoot-room'), 'on' => request()->routeIs('product-requests.photoshoot-room*')],
+                            ['label' => 'Assigned to Me',      'url' => route('product-requests.my-tasks'),        'on' => request()->routeIs('product-requests.my-tasks')],
+                            ['label' => 'Notifications',       'url' => route('product-requests.notifications'),   'on' => request()->routeIs('product-requests.notifications'), 'badge' => $bellUnreadCount ?? 0],
+                        ],
+                    ],
                     [
                         'label' => 'AI Content Generator',
                         'url'   => route('ai-content.dashboard'),
@@ -515,21 +531,8 @@
                             ['label' => 'All Sessions', 'url' => route('ai-content.history'), 'on' => request()->routeIs('ai-content.history')],
                         ],
                     ],
-                    [
-                        'label' => 'Product Creation Requests',
-                        'url'   => route('product-requests.index'),
-                        'icon'  => 'tasks',
-                        'on'    => request()->routeIs('product-requests.*'),
-                        'show'  => $u->hasFeature('product_request'),
-                        'badge' => $bellUnreadCount ?? 0,
-                        // No "Dashboard" entry — the parent link already goes there.
-                        'children' => [
-                            ['label' => 'All Requests',    'url' => route('product-requests.list'),            'on' => request()->routeIs('product-requests.list')],
-                            ['label' => 'Photoshoot Schedule', 'url' => route('product-requests.photoshoot-room'), 'on' => request()->routeIs('product-requests.photoshoot-room*')],
-                            ['label' => 'Assigned to Me',  'url' => route('product-requests.my-tasks'),        'on' => request()->routeIs('product-requests.my-tasks')],
-                            ['label' => 'Notifications',   'url' => route('product-requests.notifications'),   'on' => request()->routeIs('product-requests.notifications'), 'badge' => $bellUnreadCount ?? 0],
-                        ],
-                    ],
+                    ['label' => 'Product Migration',  'url' => route('store-image-sync.index'), 'icon' => 'swap', 'on' => request()->routeIs('store-image-sync.*'), 'show' => $u->hasFeature('store_sync')],
+                    ['label' => 'Metafield Checker',  'url' => route('metafield-update.index'), 'icon' => 'doc',  'on' => request()->routeIs('metafield-update.*'), 'show' => $u->hasFeature('metafield_update')],
                 ],
             ],
             [
