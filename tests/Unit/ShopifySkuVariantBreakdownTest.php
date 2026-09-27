@@ -20,14 +20,14 @@ use Tests\TestCase;
  */
 class ShopifySkuVariantBreakdownTest extends TestCase
 {
-    private function service(Response $response): ShopifyService
+    private function service(Response ...$responses): ShopifyService
     {
         $service = (new ReflectionClass(ShopifyService::class))->newInstanceWithoutConstructor();
 
         $prop = (new ReflectionClass(ShopifyService::class))->getProperty('http');
         $prop->setAccessible(true);
         $prop->setValue($service, new Client([
-            'handler' => HandlerStack::create(new MockHandler([$response])),
+            'handler' => HandlerStack::create(new MockHandler($responses)),
         ]));
 
         return $service;
@@ -37,6 +37,7 @@ class ShopifySkuVariantBreakdownTest extends TestCase
     private function payload(array $variants, int $galleryCount = 3, string $matchSku = ''): Response
     {
         $edges = array_map(fn ($v) => ['node' => [
+            'inventoryQuantity' => $v['stock'] ?? 0,
             'id'                => 'gid://shopify/ProductVariant/' . crc32($v['sku']),
             'sku'               => $v['sku'],
             'title'             => $v['colour'] . ' / ' . $v['size'],
@@ -70,9 +71,9 @@ class ShopifySkuVariantBreakdownTest extends TestCase
     public function test_variants_are_grouped_by_colour_with_the_sizes_under_each(): void
     {
         $service = $this->service($this->payload([
-            ['sku' => 'RED-M', 'colour' => 'Red',  'size' => 'M', 'image' => 'red.jpg'],
-            ['sku' => 'RED-L', 'colour' => 'Red',  'size' => 'L', 'media' => ['red-2.jpg', 'red-3.jpg']],
-            ['sku' => 'BLU-M', 'colour' => 'Blue', 'size' => 'M'],
+            ['sku' => 'RED-M', 'colour' => 'Red',  'size' => 'M', 'image' => 'red.jpg', 'stock' => 4],
+            ['sku' => 'RED-L', 'colour' => 'Red',  'size' => 'L', 'media' => ['red-2.jpg', 'red-3.jpg'], 'stock' => 2],
+            ['sku' => 'BLU-M', 'colour' => 'Blue', 'size' => 'M', 'stock' => 0],
         ]));
 
         $breakdown = $service->getSkuVariantBreakdown('RED-M');
@@ -99,6 +100,13 @@ class ShopifySkuVariantBreakdownTest extends TestCase
         // Two media images on one variant count as two photos, not two variants.
         $this->assertSame(2, $red['sizes'][1]['image_count']);
 
+        // Stock rides along per size, and totals per colour.
+        $this->assertTrue($breakdown['stock_known']);
+        $this->assertSame(6, $breakdown['stock']);
+        $this->assertSame(6, $red['stock']);
+        $this->assertSame([4, 2], array_column($red['sizes'], 'stock'));
+        $this->assertSame(0, $blue['stock']);
+
         // A gallery of three pictures does not make the blue variant covered.
         $this->assertSame(0, $blue['with_image_count']);
         $this->assertNull($blue['preview']);
@@ -121,6 +129,42 @@ class ShopifySkuVariantBreakdownTest extends TestCase
         $breakdown = $this->service($response)->getSkuVariantBreakdown('red-m');
 
         $this->assertSame('Right Product', $breakdown['product_title']);
+    }
+
+    public function test_a_store_that_will_not_report_stock_still_reports_its_colours(): void
+    {
+        // inventoryQuantity needs the read_inventory scope and an app without
+        // it fails the whole query — the colours must survive that, because
+        // they are what the screen is for.
+        $refused = new Response(200, [], json_encode(['errors' => [[
+            'message' => "Access denied for inventoryQuantity field. Required access: `read_inventory` access scope.",
+        ]]]));
+
+        $service = $this->service($refused, $this->payload([
+            ['sku' => 'RED-M', 'colour' => 'Red', 'size' => 'M', 'image' => 'red.jpg'],
+        ]));
+
+        $breakdown = $service->getSkuVariantBreakdown('RED-M', true);
+
+        $this->assertFalse($breakdown['stock_known']);
+        $this->assertSame('Red', $breakdown['colours'][0]['colour']);
+        $this->assertTrue($breakdown['colours'][0]['sizes'][0]['has_image']);
+
+        // Null, never 0 — a zero here would read as "out of stock".
+        $this->assertNull($breakdown['stock']);
+        $this->assertNull($breakdown['colours'][0]['stock']);
+        $this->assertNull($breakdown['colours'][0]['sizes'][0]['stock']);
+    }
+
+    public function test_a_throttle_is_not_mistaken_for_a_missing_stock_scope(): void
+    {
+        // Retrying without stock would turn a throttle into a quiet half-answer
+        // on every variant, so only a scope refusal may fall back.
+        $throttled = new Response(200, [], json_encode(['errors' => [['message' => 'Throttled']]]));
+
+        $this->expectExceptionMessage('Shopify variant breakdown failed for RED-M');
+
+        $this->service($throttled)->getSkuVariantBreakdown('RED-M', true);
     }
 
     public function test_a_sku_no_variant_carries_comes_back_as_nothing(): void

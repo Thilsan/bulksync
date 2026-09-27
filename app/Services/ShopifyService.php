@@ -467,42 +467,32 @@ class ShopifyService
             return null;
         }
 
-        $this->throttle();
-
         try {
-            $response = $this->http->post(
-                "admin/api/{$this->apiVersion}/graphql.json",
-                [
-                    'json' => [
-                        'query'     => $this->skuBreakdownQuery(),
-                        'variables' => ['q' => $this->skuSearchExpression([$sku])],
-                    ],
-                ]
-            );
-
-            $data = json_decode((string) $response->getBody(), true);
-            $this->assertNoGraphQlErrors($data, "getSkuVariantBreakdown({$sku})");
-
-            $edges = $data['data']['productVariants']['edges'] ?? [];
-
-            // The search is not promised to be case-exact, and a sku: term can
-            // match more than one variant, so the asked-for spelling wins and
-            // anything else is a fallback rather than a silent substitution.
-            $matched = null;
-            foreach ($edges as $edge) {
-                $node = $edge['node'] ?? [];
-                if (mb_strtolower(trim((string) ($node['sku'] ?? ''))) === mb_strtolower($sku)) {
-                    $matched = $node;
-                    break;
+            try {
+                $matched = $this->fetchSkuBreakdown($sku, true);
+                $stockKnown = true;
+            } catch (\RuntimeException $e) {
+                // Stock needs the read_inventory scope, and an app without it
+                // fails the whole query rather than dropping one field. Losing
+                // the colours and sizes over a stock column nobody asked for
+                // first would be the wrong trade, so the question is asked
+                // again without it and the file says stock is unknown rather
+                // than writing a zero that reads as "out of stock".
+                if (!$this->isInventoryScopeError($e->getMessage())) {
+                    throw $e;
                 }
+
+                Log::warning("Shopify getSkuVariantBreakdown({$sku}): no inventory scope, reporting variants without stock");
+
+                $matched = $this->fetchSkuBreakdown($sku, false);
+                $stockKnown = false;
             }
-            $matched ??= $edges[0]['node'] ?? null;
 
             if (!is_array($matched) || empty($matched['product'])) {
                 return null;
             }
 
-            return $this->shapeSkuBreakdown($sku, $matched);
+            return $this->shapeSkuBreakdown($sku, $matched, $stockKnown);
 
         } catch (\Throwable $e) {
             Log::error("Shopify getSkuVariantBreakdown({$sku}) failed: " . $e->getMessage());
@@ -516,13 +506,67 @@ class ShopifyService
     }
 
     /**
+     * The one variant a SKU names, with its whole product attached.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function fetchSkuBreakdown(string $sku, bool $withStock): ?array
+    {
+        $this->throttle();
+
+        $response = $this->http->post(
+            "admin/api/{$this->apiVersion}/graphql.json",
+            [
+                'json' => [
+                    'query'     => $this->skuBreakdownQuery($withStock),
+                    'variables' => ['q' => $this->skuSearchExpression([$sku])],
+                ],
+            ]
+        );
+
+        $data = json_decode((string) $response->getBody(), true);
+        $this->assertNoGraphQlErrors($data, "getSkuVariantBreakdown({$sku})");
+
+        $edges = $data['data']['productVariants']['edges'] ?? [];
+
+        // The search is not promised to be case-exact, and a sku: term can
+        // match more than one variant, so the asked-for spelling wins and
+        // anything else is a fallback rather than a silent substitution.
+        foreach ($edges as $edge) {
+            $node = $edge['node'] ?? [];
+            if (mb_strtolower(trim((string) ($node['sku'] ?? ''))) === mb_strtolower($sku)) {
+                return $node;
+            }
+        }
+
+        return $edges[0]['node'] ?? null;
+    }
+
+    /**
+     * Is this the store telling us it will not report stock?
+     *
+     * Only a scope refusal may fall back — a throttle or a network failure must
+     * still fail, or the retry silently reports every variant as stock unknown.
+     */
+    private function isInventoryScopeError(string $message): bool
+    {
+        if (stripos($message, 'inventoryQuantity') !== false) {
+            return true;
+        }
+
+        return stripos($message, 'read_inventory') !== false
+            || (stripos($message, 'access denied') !== false && stripos($message, 'inventor') !== false);
+    }
+
+    /**
      * Turn one matched variant's product into the colour/size shape the SKU
      * checker renders.
      *
      * @param  array<string, mixed>  $matched
+     * @param  bool  $stockKnown  false when the store would not report inventory
      * @return array<string, mixed>
      */
-    private function shapeSkuBreakdown(string $sku, array $matched): array
+    private function shapeSkuBreakdown(string $sku, array $matched, bool $stockKnown = true): array
     {
         $product    = $matched['product'];
         $matchedGid = $matched['id'] ?? '';
@@ -535,9 +579,10 @@ class ShopifyService
         $colourOption = $this->optionNamed($optionNames, '/colou?r|shade/i', 0);
         $sizeOption   = $this->optionNamed($optionNames, '/size/i', 1);
 
-        $colours = [];
-        $total   = 0;
-        $withImg = 0;
+        $colours    = [];
+        $total      = 0;
+        $withImg    = 0;
+        $totalStock = 0;
 
         foreach ($product['variants']['edges'] ?? [] as $edge) {
             $node = $edge['node'] ?? [];
@@ -563,8 +608,11 @@ class ShopifyService
                 'sizes'             => [],
                 'variant_count'     => 0,
                 'with_image_count'  => 0,
+                'stock'             => $stockKnown ? 0 : null,
                 'preview'           => null,
             ];
+
+            $stock = $stockKnown ? (int) ($node['inventoryQuantity'] ?? 0) : null;
 
             $colours[$colourKey]['sizes'][] = [
                 'size'       => $size !== '' ? $size : ($node['title'] ?? ''),
@@ -574,10 +622,16 @@ class ShopifyService
                 'image_count'=> count($images),
                 'preview'    => $images[0] ?? null,
                 'is_match'   => ($node['id'] ?? '') === $matchedGid,
+                'stock'      => $stock,
             ];
 
             $colours[$colourKey]['variant_count']++;
             $total++;
+
+            if ($stockKnown) {
+                $colours[$colourKey]['stock'] += $stock;
+                $totalStock += $stock;
+            }
 
             if ($hasImage) {
                 $colours[$colourKey]['with_image_count']++;
@@ -596,6 +650,8 @@ class ShopifyService
             'gallery_count'   => count($product['media']['edges'] ?? []),
             'variant_count'   => $total,
             'with_image_count'=> $withImg,
+            'stock_known'     => $stockKnown,
+            'stock'           => $stockKnown ? $totalStock : null,
             'colours'         => array_values($colours),
         ];
     }
@@ -645,8 +701,12 @@ class ShopifyService
      * The whole product behind one SKU in a single call: its options, its
      * gallery size, and every variant with the photos it owns.
      */
-    private function skuBreakdownQuery(): string
+    private function skuBreakdownQuery(bool $withStock): string
     {
+        // inventoryQuantity needs the read_inventory scope; an app without it
+        // fails the whole query, so the field is asked for separately.
+        $stock = $withStock ? ' inventoryQuantity' : '';
+
         return 'query($q:String!){productVariants(first:10,query:$q){edges{node{
             id sku
             product{
@@ -654,7 +714,7 @@ class ShopifyService
                 options{name}
                 media(first:250){edges{node{id}}}
                 variants(first:250){edges{node{
-                    id sku title
+                    id sku title' . $stock . '
                     selectedOptions{name value}
                     image{url}
                     media(first:10){edges{node{... on MediaImage{image{url}}}}}

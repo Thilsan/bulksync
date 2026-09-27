@@ -79,32 +79,37 @@ class SkuCheckVariantExportTest extends TestCase
         $this->app->bind(ShopifyService::class, fn () => new FakeExportLookup($answers));
     }
 
-    private function breakdown(string $title, array $colours): array
+    private function breakdown(string $title, array $colours, bool $stockKnown = true): array
     {
         return [
             'product_id'    => '77',
             'product_title' => $title,
             'published'     => true,
             'gallery_count' => 9,
+            'stock_known'   => $stockKnown,
             'colours'       => $colours,
         ];
     }
 
     private function colour(string $name, array $sizes): array
     {
+        $stocks = array_column($sizes, 'stock');
+
         return [
             'colour'           => $name,
             'variant_count'    => count($sizes),
             'with_image_count' => count(array_filter($sizes, fn ($s) => $s['has_image'])),
+            'stock'            => in_array(null, $stocks, true) ? null : array_sum($stocks),
             'sizes'            => $sizes,
         ];
     }
 
-    private function variantSize(string $size, bool $hasImage, int $count = 0): array
+    private function variantSize(string $size, bool $hasImage, int $count = 0, ?int $stock = 0): array
     {
         return [
             'size' => $size, 'sku' => "SKU-{$size}", 'variant_id' => '5' . strlen($size),
-            'has_image' => $hasImage, 'image_count' => $count, 'preview' => null, 'is_match' => false,
+            'has_image' => $hasImage, 'image_count' => $count, 'preview' => null,
+            'is_match' => false, 'stock' => $stock,
         ];
     }
 
@@ -113,8 +118,8 @@ class SkuCheckVariantExportTest extends TestCase
         $session = $this->checkSession([['AAA', 'Available', '77', 'A Dress', 'TRUE']]);
 
         $this->fake(['AAA' => $this->breakdown('A Dress', [
-            $this->colour('Red',  [$this->variantSize('M', true, 2), $this->variantSize('L', false)]),
-            $this->colour('Blue', [$this->variantSize('M', false)]),
+            $this->colour('Red',  [$this->variantSize('M', true, 2, 4), $this->variantSize('L', false, 0, 1)]),
+            $this->colour('Blue', [$this->variantSize('M', false, 0, 0)]),
         ])]);
 
         (new BuildVariantBreakdownCsvJob($session->id))->handle();
@@ -123,26 +128,110 @@ class SkuCheckVariantExportTest extends TestCase
 
         $this->assertSame([
             'SKU Checked', 'Status', 'Product ID', 'Product Name', 'Published',
-            'Colour', 'Size', 'Variant SKU', 'Variant ID',
-            'Has Image', 'Image Count', 'Sizes In Colour', 'Sizes With Image', 'Gallery Images',
+            'Colour', 'Size', 'Variant SKU', 'Variant ID', 'Stock',
+            'Has Image', 'Image Count', 'Sizes In Colour', 'Sizes With Image', 'Colour Stock', 'Gallery Images',
         ], $rows[0]);
 
         $this->assertCount(4, $rows); // header + three variants
 
         $this->assertSame(
-            ['AAA', 'Available', '77', 'A Dress', 'TRUE', 'Red', 'M', 'SKU-M', '51', 'YES', '2', '2', '1', '9'],
+            ['AAA', 'Available', '77', 'A Dress', 'TRUE', 'Red', 'M', 'SKU-M', '51', '4', 'YES', '2', '2', '1', '5', '9'],
             $rows[1]
         );
-        $this->assertSame('NO', $rows[2][9]);
+        $this->assertSame('NO', $rows[2][10]);
 
         // The colour totals travel on every row of that colour, so a pivot on
         // Colour answers "which colours have nothing" without a second pass.
-        $this->assertSame(['1', '0'], [$rows[3][11], $rows[3][12]]);
+        $this->assertSame(['1', '0'], [$rows[3][12], $rows[3][13]]);
 
         $session->refresh();
         $this->assertSame('completed', $session->variant_export_status);
         $this->assertSame(1, $session->variant_export_scanned);
         $this->assertSame(0, $session->variant_export_failed);
+    }
+
+    public function test_two_skus_of_one_product_are_written_once_and_both_named(): void
+    {
+        // Both are sizes of AMERICAN TOURISTER TRAILON, so the product's six
+        // variants must not be written twice under one SKU each.
+        $session = $this->checkSession([
+            ['GAT207LUG00325', 'Available', '10622287642934', 'AMERICAN TOURISTER TRAILON LUGGAGE', 'TRUE'],
+            ['GAT207LUG00323', 'Available', '10622287642934', 'AMERICAN TOURISTER TRAILON LUGGAGE', 'TRUE'],
+        ]);
+
+        $answers = ['GAT207LUG00325' => $this->breakdown('AMERICAN TOURISTER TRAILON LUGGAGE', [
+            $this->colour('DARK FOREST', [
+                $this->variantSize('Cabin', true, 1), $this->variantSize('Medium', true, 1), $this->variantSize('Large', true, 1),
+            ]),
+            $this->colour('BLACK', [
+                $this->variantSize('Cabin', true, 1), $this->variantSize('Medium', true, 1), $this->variantSize('Large', true, 1),
+            ]),
+        ])];
+
+        $fake = new FakeExportLookup($answers);
+        $this->app->bind(ShopifyService::class, fn () => $fake);
+
+        (new BuildVariantBreakdownCsvJob($session->id))->handle();
+
+        $rows = $this->exportRows($session->id);
+
+        // Six variants, six rows — not twelve.
+        $this->assertCount(7, $rows);
+
+        // And the same product is asked about once, not once per SKU.
+        $this->assertSame(['GAT207LUG00325'], $fake->asked);
+
+        // Either pasted SKU finds the rows.
+        foreach (array_slice($rows, 1) as $row) {
+            $this->assertSame('GAT207LUG00325, GAT207LUG00323', $row[0]);
+        }
+
+        $session->refresh();
+        $this->assertSame(1, $session->variant_export_total);
+        $this->assertSame(1, $session->variant_export_scanned);
+    }
+
+    public function test_skus_with_no_product_id_are_not_merged_into_one_block(): void
+    {
+        // An empty product id is not a product they share — grouping on it
+        // would collapse unrelated SKUs into a single block.
+        $session = $this->checkSession([
+            ['AAA', 'Available', '', 'A Dress', 'TRUE'],
+            ['BBB', 'Available', '', 'A Shirt', 'TRUE'],
+        ]);
+
+        $this->fake([
+            'AAA' => $this->breakdown('A Dress', [$this->colour('Red',   [$this->variantSize('M', true, 1)])]),
+            'BBB' => $this->breakdown('A Shirt', [$this->colour('Green', [$this->variantSize('S', true, 1)])]),
+        ]);
+
+        (new BuildVariantBreakdownCsvJob($session->id))->handle();
+
+        $rows = $this->exportRows($session->id);
+
+        $this->assertSame('AAA', $rows[1][0]);
+        $this->assertSame('BBB', $rows[2][0]);
+    }
+
+    public function test_stock_is_left_blank_rather_than_zero_when_the_store_will_not_report_it(): void
+    {
+        $session = $this->checkSession([['AAA', 'Available', '77', 'A Dress', 'TRUE']]);
+
+        $this->fake(['AAA' => $this->breakdown(
+            'A Dress',
+            [$this->colour('Red', [$this->variantSize('M', true, 1, null)])],
+            false
+        )]);
+
+        (new BuildVariantBreakdownCsvJob($session->id))->handle();
+
+        $row = $this->exportRows($session->id)[1];
+
+        // A 0 in this column would be read as "out of stock" and reorder
+        // decisions made on it; blank says the store did not answer.
+        $this->assertSame('', $row[9]);  // Stock
+        $this->assertSame('', $row[14]); // Colour Stock
+        $this->assertSame('YES', $row[10]);
     }
 
     public function test_a_not_mapped_sku_stays_in_the_file(): void
@@ -254,13 +343,13 @@ class SkuCheckVariantExportTest extends TestCase
     public function test_progress_is_readable_while_the_export_runs(): void
     {
         $session = $this->checkSession(array_map(
-            fn ($n) => ["SKU{$n}", 'Available', '77', 'A Dress', 'TRUE'],
+            fn ($n) => ["SKU{$n}", 'Available', "77{$n}", "Dress {$n}", 'TRUE'],
             range(1, 25)
         ));
 
         $answers = [];
         foreach (range(1, 25) as $n) {
-            $answers["SKU{$n}"] = $this->breakdown('A Dress', [$this->colour('Red', [$this->variantSize('M', true, 1)])]);
+            $answers["SKU{$n}"] = $this->breakdown("Dress {$n}", [$this->colour('Red', [$this->variantSize('M', true, 1)])]);
         }
         $this->fake($answers);
 
@@ -275,11 +364,16 @@ class SkuCheckVariantExportTest extends TestCase
 
 class FakeExportLookup extends ShopifyService
 {
+    /** @var list<string> the SKUs Shopify was actually asked about */
+    public array $asked = [];
+
     /** @param  array<string, array|RuntimeException|null>  $answers */
     public function __construct(private array $answers) {}
 
     public function getSkuVariantBreakdown(string $sku, bool $throwOnFailure = false): ?array
     {
+        $this->asked[] = $sku;
+
         $answer = $this->answers[$sku] ?? null;
 
         if ($answer instanceof RuntimeException) {
