@@ -348,23 +348,19 @@
             separates a premium surface from a coloured rectangle is that it
             catches light unevenly.
         */
-        .page-hero {
-            position: relative;
-            overflow: hidden;
-            border-radius: 1.15rem;
-            padding: 1.6rem 1.75rem 1.75rem;
+        .topbar {
             background:
-                radial-gradient(520px 220px at 6% -30%, rgba(214,198,174,.20), transparent 70%),
-                linear-gradient(112deg, #2b2723 0%, #221f1b 52%, #191715 100%);
-            box-shadow: 0 18px 40px -28px rgba(25,23,21,.95);
+                radial-gradient(520px 180px at 4% -40%, rgba(214,198,174,.18), transparent 72%),
+                linear-gradient(104deg, #2b2723 0%, #221f1b 54%, #191715 100%);
         }
-        .page-hero::before {
+        .topbar::before {
             content: ''; position: absolute; inset: 0; pointer-events: none;
-            background-image: repeating-linear-gradient(115deg, rgba(243,239,231,.045) 0 1px, transparent 1px 22px);
-            mask-image: linear-gradient(105deg, #000, transparent 62%);
+            background-image: repeating-linear-gradient(115deg, rgba(243,239,231,.04) 0 1px, transparent 1px 22px);
+            mask-image: linear-gradient(105deg, #000, transparent 58%);
         }
-        .page-hero::after {
-            content: ''; position: absolute; inset: 0 0 auto 0; height: 2px; pointer-events: none;
+        /* The oxblood thread, now along the bottom edge where the page begins. */
+        .topbar::after {
+            content: ''; position: absolute; inset: auto 0 0 0; height: 2px; pointer-events: none;
             background: linear-gradient(90deg, #7b2d3b, rgba(123,45,59,.4) 48%, transparent 80%);
         }
 
@@ -754,16 +750,34 @@
     <div class="flex-1 flex flex-col overflow-hidden" x-data="{ scrolled: false }">
 
         {{-- Top bar --}}
-        <header class="relative z-20 flex shrink-0 items-center justify-between gap-3 border-b bg-white/85 px-4 py-2.5 backdrop-blur-xl transition-shadow after:absolute after:inset-x-0 after:bottom-[-1px] after:h-px after:bg-gradient-to-r after:from-brand-600/60 after:via-brand-600/15 after:to-transparent sm:px-8"
-                :class="scrolled ? 'border-transparent shadow-[0_1px_3px_rgba(15,23,42,.10),0_8px_24px_-16px_rgba(15,23,42,.25)]' : 'border-gray-200'">
+        <header class="topbar relative z-20 flex shrink-0 items-center justify-between gap-3 px-4 py-3 transition-shadow sm:px-8"
+                :class="scrolled ? 'shadow-[0_10px_26px_-18px_rgba(25,23,21,.9)]' : ''">
             <div class="flex min-w-0 items-center gap-3">
                 <button type="button" @click="nav = true"
-                        class="-ml-1 grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-gray-200 text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-700 lg:hidden"
+                        class="-ml-1 grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-white/15 text-white/70 transition-colors hover:bg-white/10 hover:text-white lg:hidden"
                         aria-label="Open menu">
                     <svg class="h-4.5 w-4.5" style="width:1.125rem;height:1.125rem" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16"/>
                     </svg>
                 </button>
+
+                <div class="min-w-0">
+                    @if($crumbs)
+                        <nav class="mb-0.5 flex items-center gap-1.5 text-[11px] font-medium text-white/55" aria-label="Breadcrumb">
+                            @foreach($crumbs as $i => $crumb)
+                                @if($i > 0)<span class="text-white/30">/</span>@endif
+                                @if(!empty($crumb['url']))
+                                    <a href="{{ $crumb['url'] }}" class="truncate transition-colors hover:text-brand-300">{{ $crumb['label'] }}</a>
+                                @else
+                                    <span class="truncate">{{ $crumb['label'] }}</span>
+                                @endif
+                            @endforeach
+                        </nav>
+                    @endif
+                    <h1 class="truncate font-display text-xl leading-none tracking-[-.015em] text-white sm:text-[1.7rem]">
+                        @yield('page-title', 'Dashboard')
+                    </h1>
+                </div>
             </div>
 
             <div class="flex items-center gap-2">
@@ -771,10 +785,10 @@
                 @if($allStores->isNotEmpty())
                 <div x-data="{ open: false }" class="relative">
                     <button @click="open = !open" :aria-expanded="open"
-                        class="flex h-9 max-w-[13rem] items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 text-sm transition-colors hover:border-gray-300 hover:bg-gray-50">
+                        class="flex h-9 max-w-[13rem] items-center gap-2 rounded-lg border border-white/15 bg-white/10 px-3 text-sm backdrop-blur transition-colors hover:border-white/25 hover:bg-white/[.18]">
                         <span class="h-2 w-2 shrink-0 rounded-full {{ $activeStore ? 'pulse-dot bg-emerald-500 text-emerald-500' : 'bg-gray-300' }}"></span>
-                        <span class="truncate font-medium text-gray-700">{{ $activeStore?->name ?? 'No store selected' }}</span>
-                        <svg class="h-3 w-3 shrink-0 text-gray-400 transition-transform" :class="open && 'rotate-180'"
+                        <span class="truncate font-medium text-white/90">{{ $activeStore?->name ?? 'No store selected' }}</span>
+                        <svg class="h-3 w-3 shrink-0 text-white/50 transition-transform" :class="open && 'rotate-180'"
                              fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
                         </svg>
@@ -857,8 +871,8 @@
                              setInterval(() => poll(), 30000)"
                      class="relative">
                     <button @click="bell = !bell" :aria-expanded="bell"
-                            class="relative flex h-9 w-9 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-500 transition-colors hover:border-gray-300 hover:bg-gray-50 hover:text-gray-700"
-                            :class="ring && 'ring-2 ring-red-400 border-red-300 text-red-600'"
+                            class="relative flex h-9 w-9 items-center justify-center rounded-lg border border-white/15 bg-white/10 text-white/70 backdrop-blur transition-colors hover:border-white/25 hover:bg-white/[.18] hover:text-white"
+                            :class="ring && 'ring-2 ring-brand-400 border-brand-300 text-brand-200'"
                             aria-label="Notifications">
                         <svg class="w-4.5 h-4.5" style="width:1.125rem;height:1.125rem" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -974,13 +988,13 @@
                 {{-- User menu --}}
                 <div x-data="{ user: false }" class="relative">
                     <button @click="user = !user" :aria-expanded="user"
-                            class="flex h-9 items-center gap-2 rounded-lg border border-gray-200 bg-white py-1 pl-1 pr-2 transition-colors hover:border-gray-300 hover:bg-gray-50"
+                            class="flex h-9 items-center gap-2 rounded-lg border border-white/15 bg-white/10 py-1 pl-1 pr-2 backdrop-blur transition-colors hover:border-white/25 hover:bg-white/[.18]"
                             aria-label="Account menu">
                         <span class="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-brand-600 text-xs font-semibold text-white">
                             {{ strtoupper(substr(auth()->user()->name, 0, 2)) }}
                         </span>
-                        <span class="hidden max-w-32 truncate text-sm font-medium text-gray-700 sm:block">{{ auth()->user()->name }}</span>
-                        <svg class="h-3 w-3 shrink-0 text-gray-400 transition-transform" :class="user && 'rotate-180'"
+                        <span class="hidden max-w-32 truncate text-sm font-medium text-white/90 sm:block">{{ auth()->user()->name }}</span>
+                        <svg class="h-3 w-3 shrink-0 text-white/50 transition-transform" :class="user && 'rotate-180'"
                              fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
                         </svg>
@@ -1072,34 +1086,6 @@
              shadow has to be driven from here. --}}
         <main class="relative flex-1 overflow-y-auto px-4 py-6 sm:px-8"
               @scroll.passive="scrolled = $event.target.scrollTop > 4">
-
-            {{--
-                The page header, lifted off the white bar and given a stage of
-                its own. Every screen yields page-title already, so one band
-                here re-frames all thirty-nine of them: the dark shell now runs
-                sidebar → header → page, and the working area reads as light
-                content held inside it rather than as a form on a grey sheet.
-            --}}
-            <header class="page-hero mb-6">
-                @if($crumbs)
-                    <nav class="mb-2 flex items-center gap-1.5 text-[11px] font-medium text-white/55" aria-label="Breadcrumb">
-                        @foreach($crumbs as $i => $crumb)
-                            @if($i > 0)
-                                <span class="text-white/30">/</span>
-                            @endif
-                            @if(!empty($crumb['url']))
-                                <a href="{{ $crumb['url'] }}" class="truncate transition-colors hover:text-brand-300">{{ $crumb['label'] }}</a>
-                            @else
-                                <span class="truncate">{{ $crumb['label'] }}</span>
-                            @endif
-                        @endforeach
-                    </nav>
-                @endif
-
-                <h1 class="font-display text-[1.9rem] leading-none tracking-[-.015em] text-white sm:text-[2.35rem]">
-                    @yield('page-title', 'Dashboard')
-                </h1>
-            </header>
 
             @yield('content')
         </main>
