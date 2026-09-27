@@ -38,6 +38,16 @@ class ShopifySkuVariantBreakdownTest extends TestCase
     {
         $edges = array_map(fn ($v) => ['node' => [
             'inventoryQuantity' => $v['stock'] ?? 0,
+            'inventoryItem'     => [
+                'tracked'         => $v['tracked'] ?? true,
+                'inventoryLevels' => ['edges' => array_map(
+                    fn ($level) => ['node' => [
+                        'location'   => ['name' => $level[0], 'isActive' => $level[2] ?? true],
+                        'quantities' => [['name' => 'available', 'quantity' => $level[1]]],
+                    ]],
+                    $v['levels'] ?? [['Blue Salon', $v['stock'] ?? 0]]
+                )],
+            ],
             'id'                => 'gid://shopify/ProductVariant/' . crc32($v['sku']),
             'sku'               => $v['sku'],
             'title'             => $v['colour'] . ' / ' . $v['size'],
@@ -167,15 +177,14 @@ class ShopifySkuVariantBreakdownTest extends TestCase
         $this->service($throttled)->getSkuVariantBreakdown('RED-M', true);
     }
 
-    public function test_the_query_stays_inside_shopifys_cost_ceiling(): void
+    public function test_the_query_asks_for_stock_the_way_the_served_api_spells_it(): void
     {
-        // Shopify refuses a single query costing more than 1000 points, and
-        // refuses all of it — so a stock field nested under the variant list
-        // takes the colours and sizes down with it. inventoryLevels under
-        // variants(250) under productVariants(10) asks for up to fifty thousand
-        // nodes and returned Lookup Failed for every row until it came out.
-        $query = (new ReflectionClass(ShopifyService::class))
-            ->getMethod('skuBreakdownQuery');
+        // InventoryLevel.available is gone. This service names API 2024-01,
+        // which is past Shopify's support window, so Shopify serves the oldest
+        // supported version instead and the field that was there when the
+        // version number was written is not there at runtime — every row came
+        // back Lookup Failed until this became quantities(names:).
+        $query = (new ReflectionClass(ShopifyService::class))->getMethod('skuBreakdownQuery');
         $query->setAccessible(true);
 
         $sent = $query->invoke(
@@ -183,8 +192,60 @@ class ShopifySkuVariantBreakdownTest extends TestCase
             true
         );
 
-        $this->assertStringContainsString('inventoryQuantity', $sent);
-        $this->assertStringNotContainsString('inventoryLevels', $sent);
+        $this->assertStringContainsString('quantities(names:["available"])', $sent);
+        $this->assertDoesNotMatchRegularExpression('/node\{\s*available/', $sent);
+    }
+
+    public function test_stock_is_what_the_active_locations_hold(): void
+    {
+        // The variant page showed 31 at Blue Salon while the export wrote 32:
+        // inventoryQuantity counts a location the page no longer lists.
+        $service = $this->service($this->payload([
+            ['sku' => 'RED-M', 'colour' => 'Red', 'size' => 'M', 'stock' => 32, 'levels' => [
+                ['Blue Salon', 31],
+                ['Old Warehouse', 1, false],
+            ]],
+        ]));
+
+        $breakdown = $service->getSkuVariantBreakdown('RED-M');
+
+        $this->assertSame(31, $breakdown['colours'][0]['sizes'][0]['stock']);
+        $this->assertSame(31, $breakdown['stock']);
+    }
+
+    public function test_untracked_inventory_falls_back_to_the_sellable_total(): void
+    {
+        // Nothing to add up, so the only number Shopify has is the right one.
+        $service = $this->service($this->payload([
+            ['sku' => 'RED-M', 'colour' => 'Red', 'size' => 'M', 'stock' => 7,
+             'tracked' => false, 'levels' => []],
+        ]));
+
+        $this->assertSame(7, $this->firstSize($service->getSkuVariantBreakdown('RED-M'))['stock']);
+    }
+
+    public function test_a_field_the_served_api_no_longer_has_costs_the_stock_not_the_colours(): void
+    {
+        // Exactly the outage: a removed field failed the whole query, so every
+        // row said Lookup Failed and the colours went down with the stock.
+        $removed = new Response(200, [], json_encode(['errors' => [[
+            'message' => "Field 'available' doesn't exist on type 'InventoryLevel'",
+        ]]]));
+
+        $service = $this->service($removed, $this->payload([
+            ['sku' => 'RED-M', 'colour' => 'Red', 'size' => 'M', 'image' => 'red.jpg'],
+        ]));
+
+        $breakdown = $service->getSkuVariantBreakdown('RED-M', true);
+
+        $this->assertFalse($breakdown['stock_known']);
+        $this->assertSame('Red', $breakdown['colours'][0]['colour']);
+        $this->assertTrue($breakdown['colours'][0]['sizes'][0]['has_image']);
+    }
+
+    private function firstSize(array $breakdown): array
+    {
+        return $breakdown['colours'][0]['sizes'][0];
     }
 
     public function test_a_sku_no_variant_carries_comes_back_as_nothing(): void

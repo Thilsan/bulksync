@@ -472,17 +472,15 @@ class ShopifyService
                 $matched = $this->fetchSkuBreakdown($sku, true);
                 $stockKnown = true;
             } catch (\RuntimeException $e) {
-                // Stock needs the read_inventory scope, and an app without it
-                // fails the whole query rather than dropping one field. Losing
-                // the colours and sizes over a stock column nobody asked for
-                // first would be the wrong trade, so the question is asked
-                // again without it and the file says stock is unknown rather
-                // than writing a zero that reads as "out of stock".
-                if (!$this->isInventoryScopeError($e->getMessage())) {
+                // Losing the colours and sizes over a stock column would be
+                // the wrong trade, so the question is asked again without it
+                // and the file says stock is unknown rather than writing a zero
+                // that reads as "out of stock".
+                if (!$this->isStockFieldUnavailable($e->getMessage())) {
                     throw $e;
                 }
 
-                Log::warning("Shopify getSkuVariantBreakdown({$sku}): no inventory scope, reporting variants without stock");
+                Log::warning("Shopify getSkuVariantBreakdown({$sku}): stock unavailable ({$e->getMessage()}), reporting variants without it");
 
                 $matched = $this->fetchSkuBreakdown($sku, false);
                 $stockKnown = false;
@@ -543,19 +541,26 @@ class ShopifyService
     }
 
     /**
-     * Is this the store telling us it will not report stock?
+     * Is this Shopify saying it will not, or cannot, report stock?
      *
-     * Only a scope refusal may fall back — a throttle or a network failure must
-     * still fail, or the retry silently reports every variant as stock unknown.
+     * Two ways that happens: the app lacks read_inventory or read_locations, or
+     * the field has been removed from the version actually being served — which
+     * is how an export that had been working returned Lookup Failed on every
+     * row overnight, for asking after InventoryLevel.available.
+     *
+     * Only those may fall back. A throttle or a network failure must still
+     * fail, or the retry quietly reports stock unknown for a whole catalogue.
      */
-    private function isInventoryScopeError(string $message): bool
+    private function isStockFieldUnavailable(string $message): bool
     {
-        if (stripos($message, 'inventoryQuantity') !== false) {
-            return true;
+        foreach (['read_inventory', 'read_locations', "doesn't exist on type", "isn't defined on type"] as $sign) {
+            if (stripos($message, $sign) !== false) {
+                return true;
+            }
         }
 
-        return stripos($message, 'read_inventory') !== false
-            || (stripos($message, 'access denied') !== false && stripos($message, 'inventor') !== false);
+        return stripos($message, 'access denied') !== false
+            && (stripos($message, 'inventor') !== false || stripos($message, 'location') !== false);
     }
 
     /**
@@ -612,7 +617,7 @@ class ShopifyService
                 'preview'           => null,
             ];
 
-            $stock = $stockKnown ? (int) ($node['inventoryQuantity'] ?? 0) : null;
+            $stock = $stockKnown ? $this->variantAvailable($node) : null;
 
             $colours[$colourKey]['sizes'][] = [
                 'size'       => $size !== '' ? $size : ($node['title'] ?? ''),
@@ -654,6 +659,47 @@ class ShopifyService
             'stock'           => $stockKnown ? $totalStock : null,
             'colours'         => array_values($colours),
         ];
+    }
+
+    /**
+     * What this variant actually has on the shelf.
+     *
+     * Available at each active location, added up — the number Shopify Admin
+     * shows on the variant page. inventoryQuantity is not that number: it is
+     * the sellable total, which also counts locations the variant page no
+     * longer lists, and a deactivated location holding a stray unit is why a
+     * size read 1 in the export while the shop floor had 0.
+     *
+     * Untracked inventory has no levels to add up, so the sellable total stands
+     * in — for those, it is the only answer Shopify has.
+     *
+     * @param  array<string, mixed>  $node
+     */
+    private function variantAvailable(array $node): int
+    {
+        $edges = $node['inventoryItem']['inventoryLevels']['edges'] ?? [];
+
+        if (($node['inventoryItem']['tracked'] ?? true) === false || $edges === []) {
+            return (int) ($node['inventoryQuantity'] ?? 0);
+        }
+
+        $available = 0;
+
+        foreach ($edges as $edge) {
+            $level = $edge['node'] ?? [];
+
+            if (($level['location']['isActive'] ?? true) === false) {
+                continue;
+            }
+
+            foreach ($level['quantities'] ?? [] as $quantity) {
+                if (($quantity['name'] ?? '') === 'available') {
+                    $available += (int) ($quantity['quantity'] ?? 0);
+                }
+            }
+        }
+
+        return $available;
     }
 
     /**
@@ -703,16 +749,20 @@ class ShopifyService
      */
     private function skuBreakdownQuery(bool $withStock): string
     {
-        // inventoryQuantity needs the read_inventory scope; an app without it
-        // fails the whole query, so the field is asked for separately.
+        // Stock needs read_inventory (and read_locations for the per-location
+        // split); an app without them fails the whole query rather than
+        // dropping a field, so it is asked for separately and can be dropped.
         //
-        // It is the only stock field this query can afford. Per-location
-        // availability lives under inventoryLevels, which nested inside
-        // variants(250) inside productVariants(10) asks for up to fifty
-        // thousand nodes — Shopify caps one query at a thousand cost points and
-        // refuses the lot, breaking the colours and sizes to carry a stock
-        // split. Locations need their own cheap call, not this one.
-        $stock = $withStock ? ' inventoryQuantity' : '';
+        // quantities(names:) — not InventoryLevel.available, which no longer
+        // exists. This service asks for API 2024-01, which is past Shopify's
+        // support window, so Shopify quietly serves the oldest supported
+        // version instead: a field that was fine when this version number was
+        // written can be gone at runtime with no warning but a failed query.
+        $stock = $withStock
+            ? ' inventoryQuantity inventoryItem{tracked inventoryLevels(first:10){edges{node{'
+                . 'location{name isActive} quantities(names:["available"]){name quantity}'
+                . '}}}}'
+            : '';
 
         return 'query($q:String!){productVariants(first:10,query:$q){edges{node{
             id sku
