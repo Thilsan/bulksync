@@ -96,7 +96,7 @@ class PhotoEditorTest extends TestCase
         $this->actingAs($this->editor())
             ->get(route('photo-editor.index'))
             ->assertOk()
-            ->assertSee('What should Photoroom do to them?')
+            ->assertSee('What should Photoroom do?')
             ->assertSee('name="edits[background_mode]"', false)
             ->assertSee('name="edits[shadow]"', false)
             ->assertSee('name="edits[padding]"', false)

@@ -71,7 +71,7 @@
          the one place it was previously available was a shell command. --}}
     <div class="mb-5 rounded-xl border border-gray-200 bg-white px-5 py-4">
         <div class="flex flex-wrap items-baseline justify-between gap-2">
-            <p class="text-xs font-medium uppercase tracking-wider text-gray-400">
+            <p class="text-[11px] font-medium uppercase tracking-[.12em] text-gray-400">
                 Photoroom {{ $allowance['is_sandbox'] ? 'sandbox allowance' : 'monthly allowance' }}
             </p>
             <p class="text-xs text-gray-500">
@@ -122,32 +122,30 @@
         <div class="space-y-6">
 
             {{-- ── 1 · Source ────────────────────────────────────────────── --}}
-            <div class="overflow-hidden rounded-xl border border-gray-200 bg-white">
-                <div class="border-b border-gray-100 px-6 py-4">
-                    <h2 class="text-sm font-semibold text-gray-800">1 &middot; Where are the photos?</h2>
+            <div class="rounded-xl border border-gray-200 bg-white p-5">
+                <div class="mb-4 flex items-center gap-3">
+                    <span class="figure grid h-7 w-7 place-items-center rounded-full bg-brand-600 text-sm text-white">1</span>
+                    <h2 class="font-display text-lg leading-none text-gray-900">Where are the photos?</h2>
                 </div>
 
-                <div class="space-y-4 px-6 py-5">
-                    <div>
-                        <label for="onedrive_link" class="mb-1.5 block text-sm font-medium text-gray-700">
-                            OneDrive shared folder link <span class="text-red-500">*</span>
-                        </label>
-                        <input id="onedrive_link" name="onedrive_link" type="url" required
-                               value="{{ old('onedrive_link') }}"
-                               placeholder="https://1drv.ms/f/s!…  or  https://company.sharepoint.com/:f:/…"
-                               class="w-full rounded-lg border px-4 py-2.5 text-sm transition focus:border-brand-500 focus:outline-none focus:ring-4 focus:ring-brand-500/15 {{ $errors->has('onedrive_link') ? 'border-red-400' : 'border-gray-300' }}">
-                        <p class="mt-1.5 text-xs text-gray-400">
-                            Share it as <strong class="font-semibold text-gray-500">"Anyone with the link can view"</strong>, then paste the link.
-                        </p>
-                    </div>
+                <div class="space-y-4">
+                    <div class="grid gap-4 2xl:grid-cols-2">
+                        <div>
+                            <input id="onedrive_link" name="onedrive_link" type="url" required
+                                   value="{{ old('onedrive_link') }}"
+                                   placeholder="Paste the OneDrive folder link"
+                                   class="w-full rounded-lg border px-4 py-3 text-sm transition focus:border-brand-500 focus:outline-none focus:ring-4 focus:ring-brand-500/15 {{ $errors->has('onedrive_link') ? 'border-red-400' : 'border-gray-300' }}">
+                            <p class="mt-1.5 text-xs text-gray-400">
+                                Shared as <strong class="font-semibold text-gray-500">anyone with the link can view</strong>.
+                            </p>
+                        </div>
 
-                    <div>
-                        <label for="name" class="mb-1.5 block text-sm font-medium text-gray-700">
-                            Session name <span class="font-normal text-gray-400">(optional)</span>
-                        </label>
-                        <input id="name" name="name" type="text" value="{{ old('name') }}"
-                               placeholder="e.g. Autumn dresses — cutouts"
-                               class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:border-brand-500 focus:outline-none focus:ring-4 focus:ring-brand-500/15">
+                        <div>
+                            <input id="name" name="name" type="text" value="{{ old('name') }}"
+                                   placeholder="Name this run (optional)"
+                                   class="w-full rounded-lg border border-gray-300 px-4 py-3 text-sm focus:border-brand-500 focus:outline-none focus:ring-4 focus:ring-brand-500/15">
+                            <p class="mt-1.5 text-xs text-gray-400">Helps you find it in Edit History.</p>
+                        </div>
                     </div>
 
                     <div>
@@ -157,12 +155,25 @@
                                 ['sku_barcode', 'SKU / Barcode', 'Folder name is matched to the product SKU, falling back to the barcode.'],
                                 ['style_code',  'Style Code',    'Folder or filename is matched to the style code starting the product title.'],
                             ] as [$value, $label, $help])
-                            <label class="opt-card cursor-pointer rounded-xl border p-4 transition-colors"
-                                   :class="matchingMode === '{{ $value }}' ? 'border-brand-500 bg-brand-50/60 ring-1 ring-brand-500' : 'border-gray-200 hover:border-gray-300'">
+                            <label class="opt-card cursor-pointer rounded-xl border p-4 transition-all"
+                                   :class="matchingMode === '{{ $value }}'
+                                       ? 'border-brand-600 bg-brand-50/70 ring-1 ring-brand-600'
+                                       : 'border-gray-200 hover:border-brand-300 hover:bg-brand-50/30'">
                                 <input type="radio" name="matching_mode" value="{{ $value }}" x-model="matchingMode" class="sr-only"
                                        @checked(old('matching_mode', 'sku_barcode') === $value)>
-                                <span class="text-sm font-semibold text-gray-800">{{ $label }}</span>
-                                <p class="mt-1 text-xs leading-relaxed text-gray-500">{{ $help }}</p>
+                                <div class="flex items-start justify-between gap-3">
+                                    <div>
+                                        <span class="text-sm font-semibold text-gray-900">{{ $label }}</span>
+                                        <p class="mt-1 text-xs leading-relaxed text-gray-500">{{ $help }}</p>
+                                    </div>
+                                    <span class="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full border transition-colors"
+                                          :class="matchingMode === '{{ $value }}' ? 'border-brand-600 bg-brand-600' : 'border-gray-300'">
+                                        <svg class="h-3 w-3 text-white" x-show="matchingMode === '{{ $value }}'" x-cloak
+                                             fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="3">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
+                                        </svg>
+                                    </span>
+                                </div>
                             </label>
                             @endforeach
                         </div>
@@ -191,9 +202,8 @@
                                 <span>Only turn the ones that are wider than they are tall — leave photos that are already upright alone.</span>
                             </label>
                         </div>
-                        <p class="mt-2 text-xs leading-relaxed text-gray-400">
-                            Photos that only <em>look</em> sideways because the camera stored a rotation flag are
-                            straightened automatically. This is for the ones whose pixels really are on their side.
+                        <p class="mt-2 text-xs text-gray-400">
+                            For photos whose pixels really are sideways — camera rotation flags are handled already.
                         </p>
                     </div>
 
@@ -211,16 +221,17 @@
                  The same partial the configure screen uses, so the two screens
                  cannot offer different settings.
             --}}
-            <div class="overflow-hidden rounded-xl border border-gray-200 bg-white">
-                <div class="border-b border-gray-100 px-6 py-4">
-                    <h2 class="text-sm font-semibold text-gray-800">2 &middot; What should Photoroom do to them?</h2>
-                    <p class="mt-0.5 text-xs text-gray-500">
-                        Applied to every photo in the folder. Nothing is sent to Photoroom yet — the next screen
-                        shows these back to you, and lets a single SKU differ, before anything is spent.
-                    </p>
+            <div class="rounded-xl border border-gray-200 bg-white p-5">
+                <div class="mb-1 flex items-center gap-3">
+                    <span class="figure grid h-7 w-7 place-items-center rounded-full bg-brand-600 text-sm text-white">2</span>
+                    <h2 class="font-display text-lg leading-none text-gray-900">What should Photoroom do?</h2>
+                    <span class="ml-auto rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-600">Nothing spent yet</span>
                 </div>
+                <p class="mb-4 pl-10 text-xs text-gray-400">
+                    Applied to the whole folder. The next screen shows it back before anything is sent.
+                </p>
 
-                <div class="space-y-6 px-6 py-5">
+                <div class="space-y-6">
                     @include('photo-editor.partials.group-settings', [
                         'prefix'        => 'edits',
                         'uid'           => 'run',
@@ -229,13 +240,17 @@
                     ])
                 </div>
 
-                <div class="flex items-center justify-between gap-3 border-t border-gray-100 bg-gray-50 px-6 py-4">
-                    <a href="{{ route('photo-editor.history') }}" x-show="!loading" class="text-sm text-gray-500 hover:text-gray-700">Cancel</a>
-                    <button type="submit" :disabled="loading || !{{ $photoroomConfigured ? 'true' : 'false' }}"
-                        class="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-6 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-60">
-                        <span x-text="loading ? 'Reading the folder…' : 'Fetch photos'"></span>
-                    </button>
-                </div>
+            </div>
+
+            {{-- Sticky, so the action is reachable from either step rather than
+                 only from the foot of the settings panel. --}}
+            <div class="sticky bottom-4 z-10 flex items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white/95 px-5 py-3.5 shadow-lg backdrop-blur">
+                <a href="{{ route('photo-editor.history') }}" x-show="!loading" class="text-sm text-gray-500 transition-colors hover:text-gray-800">Cancel</a>
+                <button type="submit" :disabled="loading || !{{ $photoroomConfigured ? 'true' : 'false' }}"
+                    class="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-6 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-60">
+                    <span x-show="loading" x-cloak class="spinner h-4 w-4"></span>
+                    <span x-text="loading ? 'Reading the folder…' : 'Fetch photos'"></span>
+                </button>
             </div>
         </div>
 
