@@ -55,6 +55,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sign in – Ai Ecommerce Studio</title>
     @include('partials.favicon')
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
@@ -62,18 +65,30 @@
                 extend: {
                     colors: {
                         brand: {
-                            50:  '#e9f7fc',
-                            100: '#d2eef8',
-                            200: '#b0e0f2',
-                            300: '#8fcfea',
-                            400: '#69bbd9',
-                            500: '#439fc1',
-                            600: '#3083a6',
-                            700: '#276b89',
-                            800: '#215873',
-                            900: '#1c4961',
-                            950: '#12333f',
-                        }
+                            50:  '#fbf5f6',
+                            100: '#f6e7e9',
+                            200: '#ecccd2',
+                            300: '#dda6b0',
+                            400: '#c4707f',
+                            500: '#a44b5d',
+                            600: '#7b2d3b',
+                            700: '#67252f',
+                            800: '#551f28',
+                            900: '#3f1720',
+                            950: '#2c1016',
+                        },
+                        parch: {
+                            50:  '#faf8f4',
+                            100: '#f3efe7',
+                            200: '#e9e3d7',
+                            300: '#dcd4c4',
+                            400: '#a89e8e',
+                            500: '#7c7468',
+                            600: '#5d564c',
+                            700: '#3a352e',
+                            800: '#2b2723',
+                            900: '#191715',
+                        },
                     }
                 }
             }
@@ -82,14 +97,26 @@
     <style>
         :root { --slide-duration: 7s; }
 
-        body { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+        body { font-family: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif; background: #faf8f4; }
+        .font-display { font-family: "Newsreader", ui-serif, Georgia, serif; }
 
         /* ---------- Showcase panel background ---------- */
         .showcase {
+            position: relative;
             background:
-                radial-gradient(1000px 520px at 12% -10%, rgba(105,187,217,.30), transparent 60%),
-                radial-gradient(760px 480px at 92% 105%, rgba(48,131,166,.42), transparent 62%),
-                linear-gradient(160deg, #1c4961 0%, #1d5a74 45%, #12333f 100%);
+                radial-gradient(1000px 520px at 12% -10%, rgba(220,212,196,.16), transparent 60%),
+                radial-gradient(760px 480px at 92% 105%, rgba(123,45,59,.34), transparent 62%),
+                linear-gradient(160deg, #332e29 0%, #2b2723 45%, #191715 100%);
+        }
+        /* The weave, and the thread down the edge where the form begins. */
+        .showcase::before {
+            content: ''; position: absolute; inset: 0; pointer-events: none;
+            background-image: repeating-linear-gradient(115deg, rgba(243,239,231,.045) 0 1px, transparent 1px 24px);
+            mask-image: linear-gradient(115deg, #000, transparent 60%);
+        }
+        .showcase::after {
+            content: ''; position: absolute; inset: 0 0 0 auto; width: 2px; pointer-events: none;
+            background: linear-gradient(180deg, transparent, rgba(123,45,59,.85) 22%, rgba(123,45,59,.35) 70%, transparent);
         }
         /* ---------- Slider ---------- */
         .slide {
@@ -148,7 +175,7 @@
         }
     </style>
 </head>
-<body class="h-full bg-white text-slate-900">
+<body class="h-full bg-parch-50 text-parch-900">
 
 <div class="min-h-full lg:grid lg:grid-cols-[1.05fr_minmax(0,480px)] xl:grid-cols-[1.2fr_minmax(0,520px)]">
 
@@ -362,8 +389,8 @@
     {{-- ============================= SIGN IN ============================= --}}
     <section class="flex items-center justify-center px-6 py-12 sm:px-10 lg:px-12">
         <div class="w-full max-w-sm">
-            <h2 class="text-2xl font-bold tracking-tight text-slate-900">Welcome back</h2>
-            <p class="mt-1.5 text-sm text-slate-500">Sign in to your admin account to continue.</p>
+            <h2 class="font-display text-[2.1rem] leading-none tracking-[-.015em] text-parch-900">Welcome back</h2>
+            <p class="mt-2 text-sm text-parch-500">Sign in to continue.</p>
 
             @if ($errors->any())
                 <div class="mt-6 flex gap-2.5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -384,30 +411,30 @@
                 @csrf
 
                 <div>
-                    <label for="email" class="mb-1.5 block text-sm font-medium text-slate-700">Email address</label>
+                    <label for="email" class="mb-1.5 block text-sm font-medium text-parch-700">Email address</label>
                     <div class="relative">
-                        <svg class="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.8">
+                        <svg class="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-parch-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.8">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
                         </svg>
                         <input id="email" type="email" name="email" value="{{ old('email') }}" required autofocus
                                autocomplete="username"
                                placeholder="you@abuissa.com"
-                               class="w-full rounded-xl border border-slate-300 bg-white py-2.5 pl-10 pr-4 text-sm text-slate-900 placeholder:text-slate-400 transition focus:border-brand-500 focus:outline-none focus:ring-4 focus:ring-brand-500/15">
+                               class="w-full rounded-xl border border-parch-300 bg-white py-2.5 pl-10 pr-4 text-sm text-parch-900 placeholder:text-parch-400 transition focus:border-brand-500 focus:outline-none focus:ring-4 focus:ring-brand-500/15">
                     </div>
                 </div>
 
                 <div>
-                    <label for="password" class="mb-1.5 block text-sm font-medium text-slate-700">Password</label>
+                    <label for="password" class="mb-1.5 block text-sm font-medium text-parch-700">Password</label>
                     <div class="relative">
-                        <svg class="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.8">
+                        <svg class="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-parch-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.8">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M16 11V8a4 4 0 10-8 0v3m-1 0h10a2 2 0 012 2v6a2 2 0 01-2 2H7a2 2 0 01-2-2v-6a2 2 0 012-2z"/>
                         </svg>
                         <input id="password" type="password" name="password" required
                                autocomplete="current-password"
                                placeholder="••••••••"
-                               class="w-full rounded-xl border border-slate-300 bg-white py-2.5 pl-10 pr-11 text-sm text-slate-900 placeholder:text-slate-400 transition focus:border-brand-500 focus:outline-none focus:ring-4 focus:ring-brand-500/15">
+                               class="w-full rounded-xl border border-parch-300 bg-white py-2.5 pl-10 pr-11 text-sm text-parch-900 placeholder:text-parch-400 transition focus:border-brand-500 focus:outline-none focus:ring-4 focus:ring-brand-500/15">
                         <button type="button" id="togglePassword" aria-label="Show password" aria-pressed="false"
-                                class="absolute right-2 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
+                                class="absolute right-2 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-lg text-parch-400 transition hover:bg-parch-100 hover:text-parch-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
                             <svg data-eye-open class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.8">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/>
                                 <circle cx="12" cy="12" r="3"/>
@@ -419,19 +446,19 @@
                     </div>
                 </div>
 
-                <label class="flex cursor-pointer items-center gap-2.5 text-sm text-slate-600">
+                <label class="flex cursor-pointer items-center gap-2.5 text-sm text-parch-600">
                     <input type="checkbox" name="remember"
-                           class="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500">
+                           class="h-4 w-4 rounded border-parch-300 text-brand-600 focus:ring-brand-500">
                     Keep me signed in
                 </label>
 
                 <button type="submit"
-                        class="w-full rounded-xl bg-brand-700 py-3 text-sm font-semibold text-white shadow-lg shadow-brand-700/20 transition hover:bg-brand-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2">
+                        class="w-full rounded-xl bg-brand-600 py-3 text-sm font-semibold text-white shadow-lg shadow-brand-600/25 transition hover:bg-brand-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2">
                     Sign in
                 </button>
             </form>
 
-            <p class="mt-8 border-t border-slate-100 pt-6 text-center text-xs leading-relaxed text-slate-400">
+            <p class="mt-8 border-t border-parch-200 pt-6 text-center text-xs leading-relaxed text-parch-400">
                 Powered by the Abuissa Holding<br>E-Commerce Department
             </p>
         </div>

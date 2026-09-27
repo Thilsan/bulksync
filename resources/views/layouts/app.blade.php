@@ -201,6 +201,14 @@
             background: linear-gradient(180deg, transparent, rgba(123,45,59,.55) 16%, rgba(123,45,59,.22) 64%, transparent);
         }
 
+        .topbar {
+            background: linear-gradient(104deg, #f3efe7 0%, #efe9df 58%, #ece6da 100%);
+        }
+        .topbar::after {
+            content: ''; position: absolute; inset: auto 0 0 0; height: 1px; pointer-events: none;
+            background: linear-gradient(90deg, rgba(123,45,59,.55), rgba(123,45,59,.16) 46%, rgba(220,212,196,.8));
+        }
+
         /* A full-height scrollbar would cut the panel in half, so keep it hairline. */
         .nav-scroll { scrollbar-width: thin; scrollbar-color: rgba(93,86,76,.30) transparent; }
         .nav-scroll::-webkit-scrollbar { width: 6px; }
@@ -754,11 +762,11 @@
     <div class="flex-1 flex flex-col overflow-hidden" x-data="{ scrolled: false }">
 
         {{-- Top bar --}}
-        <header class="relative z-20 flex shrink-0 items-center justify-between gap-3 border-b bg-white/85 px-4 py-2.5 backdrop-blur-xl transition-shadow after:absolute after:inset-x-0 after:bottom-[-1px] after:h-px after:bg-gradient-to-r after:from-brand-600/60 after:via-brand-600/15 after:to-transparent sm:px-8"
-                :class="scrolled ? 'border-transparent shadow-[0_1px_3px_rgba(15,23,42,.10),0_8px_24px_-16px_rgba(15,23,42,.25)]' : 'border-gray-200'">
+        <header class="topbar relative z-20 flex shrink-0 items-center justify-between gap-3 px-4 py-2.5 transition-shadow sm:px-8"
+                :class="scrolled ? 'shadow-[0_8px_22px_-18px_rgba(58,53,46,.75)]' : ''">
             <div class="flex min-w-0 items-center gap-3">
                 <button type="button" @click="nav = true"
-                        class="-ml-1 grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-gray-200 text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-700 lg:hidden"
+                        class="-ml-1 grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-parch-300 text-parch-600 transition-colors hover:bg-white hover:text-parch-900 lg:hidden"
                         aria-label="Open menu">
                     <svg class="h-4.5 w-4.5" style="width:1.125rem;height:1.125rem" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16"/>
@@ -771,9 +779,9 @@
                 @if($allStores->isNotEmpty())
                 <div x-data="{ open: false }" class="relative">
                     <button @click="open = !open" :aria-expanded="open"
-                        class="flex h-9 max-w-[13rem] items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 text-sm transition-colors hover:border-gray-300 hover:bg-gray-50">
+                        class="flex h-9 max-w-[13rem] items-center gap-2 rounded-lg border border-parch-300 bg-white px-3 text-sm shadow-sm transition-colors hover:border-parch-400">
                         <span class="h-2 w-2 shrink-0 rounded-full {{ $activeStore ? 'pulse-dot bg-emerald-500 text-emerald-500' : 'bg-gray-300' }}"></span>
-                        <span class="truncate font-medium text-gray-700">{{ $activeStore?->name ?? 'No store selected' }}</span>
+                        <span class="truncate font-medium text-parch-800">{{ $activeStore?->name ?? 'No store selected' }}</span>
                         <svg class="h-3 w-3 shrink-0 text-gray-400 transition-transform" :class="open && 'rotate-180'"
                              fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
@@ -857,7 +865,7 @@
                              setInterval(() => poll(), 30000)"
                      class="relative">
                     <button @click="bell = !bell" :aria-expanded="bell"
-                            class="relative flex h-9 w-9 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-500 transition-colors hover:border-gray-300 hover:bg-gray-50 hover:text-gray-700"
+                            class="relative flex h-9 w-9 items-center justify-center rounded-lg border border-parch-300 bg-white text-parch-600 shadow-sm transition-colors hover:border-parch-400 hover:text-parch-900"
                             :class="ring && 'ring-2 ring-red-400 border-red-300 text-red-600'"
                             aria-label="Notifications">
                         <svg class="w-4.5 h-4.5" style="width:1.125rem;height:1.125rem" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -974,12 +982,12 @@
                 {{-- User menu --}}
                 <div x-data="{ user: false }" class="relative">
                     <button @click="user = !user" :aria-expanded="user"
-                            class="flex h-9 items-center gap-2 rounded-lg border border-gray-200 bg-white py-1 pl-1 pr-2 transition-colors hover:border-gray-300 hover:bg-gray-50"
+                            class="flex h-9 items-center gap-2 rounded-lg border border-parch-300 bg-white py-1 pl-1 pr-2 shadow-sm transition-colors hover:border-parch-400"
                             aria-label="Account menu">
                         <span class="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-brand-600 text-xs font-semibold text-white">
                             {{ strtoupper(substr(auth()->user()->name, 0, 2)) }}
                         </span>
-                        <span class="hidden max-w-32 truncate text-sm font-medium text-gray-700 sm:block">{{ auth()->user()->name }}</span>
+                        <span class="hidden max-w-32 truncate text-sm font-medium text-parch-800 sm:block">{{ auth()->user()->name }}</span>
                         <svg class="h-3 w-3 shrink-0 text-gray-400 transition-transform" :class="user && 'rotate-180'"
                              fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
