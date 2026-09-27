@@ -77,6 +77,55 @@
                 Download All
             </a>
         </div>
+
+        {{-- Colour/size CSV: the drill-down for the whole list at once --}}
+        <div class="border-t border-gray-100 pt-4 space-y-3">
+            <div class="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                    <p class="text-sm font-semibold text-gray-700">Colours &amp; Sizes CSV</p>
+                    <p class="text-xs text-gray-500 mt-0.5">
+                        One row per variant — colour, size, and whether it has a photo of its own.
+                        Costs one Shopify lookup per mapped SKU, so it runs in the background.
+                    </p>
+                </div>
+
+                <div class="flex gap-2">
+                    <button type="button" @click="startVariantExport()"
+                            x-show="exportStatus !== 'pending' && exportStatus !== 'running'"
+                            class="bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
+                        <span x-text="exportStatus === 'completed' ? 'Rebuild' : 'Generate'"></span>
+                    </button>
+
+                    <a x-show="exportStatus === 'completed'"
+                       href="{{ route('sku-checker.variant-export.download', $skuCheckSession) }}"
+                       class="bg-green-50 hover:bg-green-100 text-green-700 px-4 py-2 rounded-lg text-sm font-medium border border-green-200 transition-colors flex items-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                        </svg>
+                        Download
+                    </a>
+                </div>
+            </div>
+
+            {{-- Running --}}
+            <div x-show="exportStatus === 'pending' || exportStatus === 'running'" x-cloak class="space-y-2">
+                <div class="flex items-center justify-between text-xs text-gray-500">
+                    <span x-text="exportStatus === 'pending' ? 'Queued…' : 'Reading variants from Shopify…'"></span>
+                    <span><span x-text="exportScanned.toLocaleString()"></span> / <span x-text="exportTotal.toLocaleString()"></span></span>
+                </div>
+                <div class="w-full bg-gray-100 rounded-full h-2 overflow-hidden">
+                    <div class="bg-brand-600 h-2 rounded-full transition-all duration-500" :style="'width: ' + exportProgress + '%'"></div>
+                </div>
+            </div>
+
+            {{-- A lookup that failed is named, not folded into the file silently --}}
+            <p x-show="exportStatus === 'completed' && exportFailed > 0" x-cloak class="text-xs text-amber-700">
+                <span x-text="exportFailed.toLocaleString()"></span> SKU(s) could not be read from Shopify and are marked
+                <span class="font-mono">Lookup Failed</span> in the file — rebuild to try those again.
+            </p>
+
+            <p x-show="exportStatus === 'failed'" x-cloak class="text-xs text-red-600" x-text="exportError"></p>
+        </div>
     </div>
 
 
@@ -240,6 +289,15 @@ function skuCheckPage(sessionId, initialStatus) {
         pages:       0,
         total:       0,
 
+        // Colours & sizes CSV
+        exportStatus:   @json($skuCheckSession->variant_export_status),
+        exportTotal:    {{ $skuCheckSession->variant_export_total }},
+        exportScanned:  {{ $skuCheckSession->variant_export_scanned }},
+        exportFailed:   {{ $skuCheckSession->variant_export_failed }},
+        exportProgress: {{ $skuCheckSession->variantExportProgressPercent() }},
+        exportError:    @json($skuCheckSession->variant_export_error),
+        exportTimer:    null,
+
         // The open row's colour/size breakdown
         open:             null,
         breakdown:        null,
@@ -251,6 +309,54 @@ function skuCheckPage(sessionId, initialStatus) {
                 this.startPolling();
             } else if (this.status === 'completed') {
                 this.loadRows();
+            }
+
+            if (this.exportStatus === 'pending' || this.exportStatus === 'running') {
+                this.watchVariantExport();
+            }
+        },
+
+        async startVariantExport() {
+            this.exportError   = null;
+            this.exportStatus  = 'pending';
+            this.exportScanned = 0;
+
+            const res = await fetch(`/sku-checker/${sessionId}/variant-export`, {
+                method:  'POST',
+                headers: { 'X-CSRF-TOKEN': document.querySelector('meta[name=\"csrf-token\"]').content },
+            });
+
+            if (!res.ok) {
+                const data        = await res.json();
+                this.exportStatus = 'failed';
+                this.exportError  = data.error || 'Could not start the export.';
+                return;
+            }
+
+            this.watchVariantExport();
+        },
+
+        watchVariantExport() {
+            // The check's own poller stops once the check is done, so the export
+            // needs its own — it outlives the check by minutes on a long list.
+            clearInterval(this.exportTimer);
+            this.exportTimer = setInterval(() => this.pollVariantExport(), 3000);
+        },
+
+        async pollVariantExport() {
+            const res  = await fetch(`/sku-checker/${sessionId}/status`);
+            const data = await res.json();
+            const e    = data.variant_export;
+
+            this.exportStatus   = e.status;
+            this.exportTotal    = e.total;
+            this.exportScanned  = e.scanned;
+            this.exportFailed   = e.failed;
+            this.exportProgress = e.progress;
+            this.exportError    = e.error;
+
+            if (e.status === 'completed' || e.status === 'failed') {
+                clearInterval(this.exportTimer);
             }
         },
 

@@ -72,6 +72,8 @@ Route::middleware('auth')->group(function () {
     Route::get('/sku-checker/{skuCheckSession}',            [SkuCheckerController::class, 'show'])->name('sku-checker.show');
     Route::get('/sku-checker/{skuCheckSession}/status',     [SkuCheckerController::class, 'status'])->name('sku-checker.status');
     Route::get('/sku-checker/{skuCheckSession}/results',    [SkuCheckerController::class, 'results'])->name('sku-checker.results');
+    Route::post('/sku-checker/{skuCheckSession}/variant-export', [SkuCheckerController::class, 'buildVariantExport'])->name('sku-checker.variant-export');
+    Route::get('/sku-checker/{skuCheckSession}/variant-export', [SkuCheckerController::class, 'downloadVariantExport'])->name('sku-checker.variant-export.download');
     Route::get('/sku-checker/{skuCheckSession}/variants',   [SkuCheckerController::class, 'variants'])->name('sku-checker.variants');
     Route::get('/sku-checker/{skuCheckSession}/download',   [SkuCheckerController::class, 'download'])->name('sku-checker.download');
     Route::delete('/sku-checker/{skuCheckSession}',         [SkuCheckerController::class, 'destroy'])->name('sku-checker.destroy');

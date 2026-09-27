@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Jobs\BuildVariantBreakdownCsvJob;
 use App\Jobs\RunCsvCompareJob;
 use App\Jobs\RunSkuCheckJob;
 use App\Models\SkuCheckItem;
@@ -44,6 +45,15 @@ class SkuCheckerController extends Controller
             'progress'      => $skuCheckSession->progressPercent(),
             'available'     => $skuCheckSession->available_count,
             'not_available' => $skuCheckSession->not_available_count,
+
+            'variant_export' => [
+                'status'   => $skuCheckSession->variant_export_status,
+                'total'    => $skuCheckSession->variant_export_total,
+                'scanned'  => $skuCheckSession->variant_export_scanned,
+                'failed'   => $skuCheckSession->variant_export_failed,
+                'progress' => $skuCheckSession->variantExportProgressPercent(),
+                'error'    => $skuCheckSession->variant_export_error,
+            ],
         ]);
     }
 
@@ -216,6 +226,52 @@ class SkuCheckerController extends Controller
         return response()->stream($callback, 200, $headers);
     }
 
+    /**
+     * Start the colour/size CSV for a finished check.
+     *
+     * Opt-in, because it costs one Shopify lookup per mapped SKU where the
+     * check itself costs one per fifty. Re-running is allowed — a store changes,
+     * and the last file is the one worth keeping — but not while one is already
+     * going, which would have two jobs writing the same file.
+     */
+    public function buildVariantExport(SkuCheckSession $skuCheckSession)
+    {
+        abort_if($skuCheckSession->user_id !== auth()->id(), 403);
+
+        if ($skuCheckSession->status !== 'completed') {
+            return response()->json(['error' => 'The check has not finished yet.'], 422);
+        }
+
+        if ($skuCheckSession->variant_export_status === 'running') {
+            return response()->json(['error' => 'A variant export is already running.'], 409);
+        }
+
+        $skuCheckSession->update([
+            'variant_export_status'  => 'pending',
+            'variant_export_scanned' => 0,
+            'variant_export_failed'  => 0,
+            'variant_export_error'   => null,
+        ]);
+
+        BuildVariantBreakdownCsvJob::dispatch($skuCheckSession->id)->onQueue('bulkupload');
+
+        return response()->json(['status' => 'pending']);
+    }
+
+    public function downloadVariantExport(SkuCheckSession $skuCheckSession)
+    {
+        abort_if($skuCheckSession->user_id !== auth()->id(), 403);
+
+        $filePath = storage_path("app/sku-checks/{$skuCheckSession->id}-variants.csv");
+        abort_unless(file_exists($filePath), 404, 'Variant export not found.');
+
+        return response()->download(
+            $filePath,
+            "sku-check-{$skuCheckSession->id}-variants.csv",
+            ['Content-Type' => 'text/csv']
+        );
+    }
+
     public function csvCompare(Request $request)
     {
         $request->validate([
@@ -252,10 +308,15 @@ class SkuCheckerController extends Controller
     public function destroy(SkuCheckSession $skuCheckSession)
     {
         abort_if($skuCheckSession->user_id !== auth()->id(), 403);
-        $filePath = storage_path("app/sku-checks/{$skuCheckSession->id}.csv");
-        if (file_exists($filePath)) {
-            unlink($filePath);
+        // Both files, or the export outlives the session it describes and the
+        // directory only ever grows.
+        foreach ([".csv", "-variants.csv"] as $suffix) {
+            $filePath = storage_path("app/sku-checks/{$skuCheckSession->id}{$suffix}");
+            if (file_exists($filePath)) {
+                unlink($filePath);
+            }
         }
+
         $skuCheckSession->delete();
         return back()->with('success', 'Check session deleted.');
     }

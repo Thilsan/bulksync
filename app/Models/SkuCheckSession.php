@@ -19,12 +19,23 @@ class SkuCheckSession extends Model
         'not_available_count',
         'raw_skus',
         'error_message',
+        'variant_export_status',
+        'variant_export_total',
+        'variant_export_scanned',
+        'variant_export_failed',
+        'variant_export_error',
     ];
 
     public function progressPercent(): int
     {
         if ($this->total_skus === 0) return 0;
         return (int) min(100, round($this->scanned_skus / $this->total_skus * 100));
+    }
+
+    public function variantExportProgressPercent(): int
+    {
+        if (($this->variant_export_total ?? 0) === 0) return 0;
+        return (int) min(100, round($this->variant_export_scanned / $this->variant_export_total * 100));
     }
 
     public function user(): BelongsTo
