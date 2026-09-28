@@ -54,8 +54,10 @@
                  exactly like a slow scan until you know to tell them apart. --}}
             @if ($session->scan_status === 'pending' && $session->created_at->lt(now()->subMinute()))
                 <p class="mx-auto mt-4 max-w-lg rounded-lg bg-amber-50 px-4 py-3 text-xs text-amber-800">
-                    Nothing has picked this up in over a minute. The queue worker is probably not running —
-                    check <code>supervisorctl status</code> and that it listens on the <code>bulkupload</code> queue.
+                    Nothing has picked this up in over a minute. No worker is listening to
+                    <code>{{ config('services.photo_editor.scan_queue', 'bulkupload-scan') }}</code> — check
+                    <code>supervisorctl status</code>, and that the worker command lists that queue:
+                    <code>--queue={{ config('services.photo_editor.scan_queue', 'bulkupload-scan') }},bulkupload</code>.
                 </p>
             @endif
         </div>
