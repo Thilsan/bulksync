@@ -151,6 +151,29 @@ class PhotoEditorTest extends TestCase
         Queue::assertPushed(ScanPhotoEditFolderJob::class);
     }
 
+    /*
+     * Reading a folder must not queue behind somebody else's editing.
+     *
+     * Both used to sit on bulkupload, so a second person's Fetch photos
+     * landed behind however many hundred Photoroom jobs the first person's
+     * run had put there, and their page stayed empty until that run was
+     * done. The scan is seconds of work with somebody watching; the edits
+     * are hours with nobody watching. Workers take bulkupload-scan first.
+     */
+    public function test_reading_a_folder_goes_on_the_queue_ahead_of_the_editing(): void
+    {
+        Queue::fake();
+
+        $this->actingAs($this->editor())
+            ->post(route('photo-editor.store'), $this->validPayload())
+            ->assertRedirect();
+
+        Queue::assertPushed(
+            ScanPhotoEditFolderJob::class,
+            fn ($job) => $job->queue === 'bulkupload-scan',
+        );
+    }
+
     /**
      * The settings are chosen on the first screen now, for the folder as a
      * whole, and every SKU group follows them unless one is set to differ.

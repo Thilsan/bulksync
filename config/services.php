@@ -67,6 +67,23 @@ return [
         'api_key' => env('FANAR_API_KEY'),
     ],
 
+    /*
+     * Which queue a folder read goes on.
+     *
+     * Its own queue, drained ahead of the editing, so one person's run of a
+     * few hundred photos does not leave the next person's Fetch photos
+     * looking broken. That only works if the worker actually lists it:
+     *
+     *   queue:work redis --queue=bulkupload-scan,bulkupload
+     *
+     * If the code ships before the worker is updated, scans queue up with
+     * nothing listening. Setting PHOTO_EDITOR_SCAN_QUEUE=bulkupload puts them
+     * back on the shared queue — slow again, but running — without a deploy.
+     */
+    'photo_editor' => [
+        'scan_queue' => env('PHOTO_EDITOR_SCAN_QUEUE', 'bulkupload-scan'),
+    ],
+
     'photoroom' => [
         'api_key' => env('PHOTOROOM_API_KEY'),
 

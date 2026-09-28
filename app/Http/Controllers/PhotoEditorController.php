@@ -220,7 +220,24 @@ class PhotoEditorController extends Controller implements HasMiddleware
             'scan_status' => 'pending',
         ]);
 
-        ScanPhotoEditFolderJob::dispatch($session->id)->onQueue('bulkupload');
+        /*
+         * On its own queue, ahead of the editing.
+         *
+         * Reading a folder is seconds of work: list the files, write the rows.
+         * Editing one photo is a Photoroom round-trip, and a run is hundreds of
+         * them. Sharing one FIFO queue meant the cheap job waited behind the
+         * expensive ones — so while one person's run was going, a second person
+         * clicking Fetch photos got a page that stayed empty until the first
+         * run finished. Nothing had failed; their scan was simply hundreds of
+         * places down the line.
+         *
+         * Workers take bulkupload-scan before bulkupload (see
+         * resources/supervisor/bulksync-worker.conf), so a scan never waits on
+         * an edit. Their edits still queue behind the other run's, which is
+         * fair — and bounded by Photoroom's per-minute ceiling either way.
+         */
+        ScanPhotoEditFolderJob::dispatch($session->id)
+            ->onQueue(config('services.photo_editor.scan_queue', 'bulkupload-scan'));
 
         return redirect()->route('photo-editor.configure', $session)
             ->with('info', 'Reading the folder. Your settings are carried over — nothing is sent to Photoroom until you start the run.');
