@@ -84,6 +84,17 @@ return [
         'scan_queue' => env('PHOTO_EDITOR_SCAN_QUEUE', 'bulkupload-scan'),
     ],
 
+    'barcode_images' => [
+
+        /*
+         * How long a grabbed run's files stay on disk. The ZIP is rebuilt from
+         * them on demand, so this is only "how long can somebody come back and
+         * download it again" — nothing is lost after it but the convenience,
+         * and the images are still on the website they came from.
+         */
+        'retention_days' => (int) env('BARCODE_IMAGES_RETENTION_DAYS', 14),
+    ],
+
     'photoroom' => [
         'api_key' => env('PHOTOROOM_API_KEY'),
 

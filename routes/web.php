@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Auth\LoginController;
+use App\Http\Controllers\BarcodeImageController;
 use App\Http\Controllers\BulkUploadController;
 use App\Http\Controllers\ChatController;
 use App\Http\Controllers\DashboardController;
@@ -64,6 +65,19 @@ Route::middleware('auth')->group(function () {
     Route::get('/store-image-sync/{token}/status',           [StoreImageSyncController::class, 'status'])->name('store-image-sync.status');
     Route::get('/store-image-sync/{token}/download',         [StoreImageSyncController::class, 'download'])->name('store-image-sync.download');
     Route::get('/store-image-sync/{token}',                  [StoreImageSyncController::class, 'show'])->name('store-image-sync.show');
+
+    // Barcode Image Grabber: internal barcodes + a public website, out comes a
+    // ZIP with one folder per barcode. Ordered so /history and /start are
+    // matched before the {barcodeImageSession} wildcard can swallow them.
+    Route::get('/barcode-images',                                       [BarcodeImageController::class, 'index'])->name('barcode-images.index');
+    Route::post('/barcode-images',                                      [BarcodeImageController::class, 'start'])->name('barcode-images.start');
+    Route::get('/barcode-images/history',                               [BarcodeImageController::class, 'history'])->name('barcode-images.history');
+    Route::get('/barcode-images/{barcodeImageSession}',                 [BarcodeImageController::class, 'show'])->name('barcode-images.show');
+    Route::get('/barcode-images/{barcodeImageSession}/status',          [BarcodeImageController::class, 'status'])->name('barcode-images.status');
+    Route::get('/barcode-images/{barcodeImageSession}/items',           [BarcodeImageController::class, 'items'])->name('barcode-images.items');
+    Route::get('/barcode-images/{barcodeImageSession}/download',        [BarcodeImageController::class, 'download'])->name('barcode-images.download');
+    Route::get('/barcode-images/{barcodeImageSession}/download/{barcode}', [BarcodeImageController::class, 'downloadOne'])->name('barcode-images.download-one');
+    Route::delete('/barcode-images/{barcodeImageSession}',              [BarcodeImageController::class, 'destroy'])->name('barcode-images.destroy');
 
     Route::get('/sku-checker',                              [SkuCheckerController::class, 'index'])->name('sku-checker.index');
     Route::post('/sku-checker',                             [SkuCheckerController::class, 'check'])->name('sku-checker.check');

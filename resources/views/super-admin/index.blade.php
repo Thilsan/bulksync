@@ -169,6 +169,7 @@
                                     'product_request'  => 'Product Creation',
                                     'photo_editor'     => 'Photo Editor (Photoroom)',
                                     'orders_dashboard' => 'Management Dashboard (company revenue)',
+                                    'barcode_images'   => 'Barcode Image Grabber',
                                 ];
                             @endphp
                             @foreach($features as $key => $label)

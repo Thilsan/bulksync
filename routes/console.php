@@ -2,6 +2,7 @@
 
 use App\Jobs\RecheckProductRequestMappingsJob;
 use App\Jobs\SyncProductRequestsFromSheetJob;
+use App\Models\BarcodeImageSession;
 use App\Models\PhotoEditItem;
 use App\Models\PhotoEditSession;
 use App\Models\ProductRequest;
@@ -209,6 +210,49 @@ $prunePhotoEditorFiles = function () {
 };
 
 Schedule::call($prunePhotoEditorFiles)->daily()->name('prune-photo-editor-files')->withoutOverlapping();
+
+// Downloaded product images. This module writes somebody else's whole product
+// gallery per barcode and nothing in the app ever deletes it — a run of two
+// thousand barcodes is several gigabytes, and the disk has filled twice before.
+//
+// The ZIP is built on demand from these files, so keeping them past the point
+// where anyone would re-download buys nothing. The session rows stay, so the
+// history still records what was run against which site; only the images go.
+$pruneBarcodeImages = function () {
+    $days   = max(1, (int) config('services.barcode_images.retention_days', 14));
+    $cutoff = now()->subDays($days);
+    $freed  = 0;
+    $live   = [];
+
+    BarcodeImageSession::select('id')->chunkById(500, function ($sessions) use (&$live) {
+        foreach ($sessions as $session) {
+            $live[$session->id] = true;
+        }
+    });
+
+    BarcodeImageSession::where('created_at', '<', $cutoff)
+        ->chunkById(50, function ($sessions) use (&$freed) {
+            foreach ($sessions as $session) {
+                $freed += $session->deleteFiles();
+            }
+        });
+
+    // Directories whose session row is already gone — a delete that half
+    // finished, or a database restored from behind the filesystem.
+    foreach (glob(storage_path('app/' . BarcodeImageSession::STORAGE_ROOT . '/*'), GLOB_ONLYDIR) ?: [] as $dir) {
+        if (!isset($live[(int) basename($dir)])) {
+            $freed += BarcodeImageSession::deleteDirectory($dir);
+        }
+    }
+
+    if ($freed > 0) {
+        \Illuminate\Support\Facades\Log::info('Pruned barcode image downloads', [
+            'freed_mb' => round($freed / 1048576, 2),
+        ]);
+    }
+};
+
+Schedule::call($pruneBarcodeImages)->daily()->name('prune-barcode-images')->withoutOverlapping();
 
 // Product Creation Requests parked in "Waiting for Mapping" are released as soon
 // as their SKUs resolve — this is what removes the re-submission step the old

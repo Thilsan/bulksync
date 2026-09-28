@@ -533,6 +533,17 @@
                     ],
                     ['label' => 'Product Migration',  'url' => route('store-image-sync.index'), 'icon' => 'swap', 'on' => request()->routeIs('store-image-sync.*'), 'show' => $u->hasFeature('store_sync')],
                     ['label' => 'Metafield Checker',  'url' => route('metafield-update.index'), 'icon' => 'doc',  'on' => request()->routeIs('metafield-update.*'), 'show' => $u->hasFeature('metafield_update')],
+                    [
+                        'label' => 'Barcode Image Grabber',
+                        'url'   => route('barcode-images.index'),
+                        'icon'  => 'photo',
+                        'on'    => request()->routeIs('barcode-images.*'),
+                        'show'  => $u->hasFeature('barcode_images'),
+                        // Parent links to the form, so it isn't repeated here.
+                        'children' => [
+                            ['label' => 'Run History', 'url' => route('barcode-images.history'), 'on' => request()->routeIs('barcode-images.history')],
+                        ],
+                    ],
                 ],
             ],
             [

@@ -4,6 +4,7 @@ namespace App\Support;
 
 use App\Models\AiContentItem;
 use App\Models\AiContentSession;
+use App\Models\BarcodeImageSession;
 use App\Models\ImageAuditSession;
 use App\Models\PhotoEditSession;
 use App\Models\ProductRequest;
@@ -75,12 +76,13 @@ class WorkspaceSummary
         $ai        = $can('ai_content')       ? $this->aiStats($mine, $since)        : null;
         $photo     = $can('photo_editor')     ? $this->photoStats($mine, $since)     : null;
         $requests  = $can('product_request')  ? $this->requestStats($user)           : null;
+        $grabber   = $can('barcode_images')   ? $this->grabberStats($mine, $since)   : null;
 
         return [
             'user'        => $user,
             'greeting'    => $this->greeting(),
             'headline'    => $this->headline($upload, $sku, $ai, $requests, $audit),
-            'modules'     => $this->modules($upload, $sku, $audit, $migration, $ai, $requests, $photo),
+            'modules'     => $this->modules($upload, $sku, $audit, $migration, $ai, $requests, $photo, $grabber),
 
             // No throughput chart on this tab, so the six grouped queries that
             // fed it are not run. The greeting still counts what is live.
@@ -104,6 +106,7 @@ class WorkspaceSummary
         AiContentSession::class      => ['pending', 'processing', 'translating'],
         PhotoEditSession::class      => ['pending', 'processing'],
         StoreMigrationSession::class => ['pending', 'running'],
+        BarcodeImageSession::class   => ['pending', 'running'],
     ];
 
     /** Narrows a session query to work that is genuinely in flight. */
@@ -326,7 +329,23 @@ class WorkspaceSummary
      * One card per tool the user owns, each carrying the two or three numbers
      * that tool is actually about plus a health line.
      */
-    private function modules(?array $upload, ?array $sku, ?array $audit, ?array $migration, ?array $ai, ?array $requests, ?array $photo = null): array
+    private function grabberStats(callable $mine, Carbon $since): array
+    {
+        $all = $mine(BarcodeImageSession::class);
+
+        return [
+            'runs'     => (clone $all)->count(),
+            'recent'   => (clone $all)->where('created_at', '>=', $since)->count(),
+            'barcodes' => (int) (clone $all)->sum('total_barcodes'),
+            'found'    => (int) (clone $all)->sum('found_count'),
+            'missing'  => (int) (clone $all)->sum('missing_count'),
+            'images'   => (int) (clone $all)->sum('images_downloaded'),
+            'running'  => $this->live((clone $all))->count(),
+            'latest'   => (clone $all)->latest()->first(),
+        ];
+    }
+
+    private function modules(?array $upload, ?array $sku, ?array $audit, ?array $migration, ?array $ai, ?array $requests, ?array $photo = null, ?array $grabber = null): array
     {
         $cards = [];
 
@@ -464,6 +483,28 @@ class WorkspaceSummary
             ];
         }
 
+        if ($grabber) {
+            $looked = $grabber['found'] + $grabber['missing'];
+            $cards[] = [
+                'name'    => 'Barcode Image Grabber',
+                'blurb'   => 'Pull a website\'s product images, one folder per barcode.',
+                'route'   => 'barcode-images.index',
+                'link'    => 'Grab images',
+                'tone'    => 'amber',
+                'icon'    => 'M4 4v16m4-16v16m3-16v16m4-16v16m4-16v16',
+                'running' => $grabber['running'],
+                'metrics' => [
+                    ['Runs',     number_format($grabber['runs'])],
+                    ['Barcodes', number_format($grabber['barcodes'])],
+                    ['Images',   number_format($grabber['images'])],
+                ],
+                'bar'     => $this->ratio($grabber['found'], $looked),
+                'barNote' => $looked > 0
+                    ? $this->ratio($grabber['found'], $looked) . '% of barcodes came back with pictures'
+                    : 'No barcodes looked up yet',
+            ];
+        }
+
         if ($requests) {
             $cards[] = [
                 'name'    => 'Product Creation Request',
@@ -523,6 +564,22 @@ class WorkspaceSummary
                         'status'  => $s->status,
                         'started' => $s->created_at,
                         'url'     => route('sku-checker.show', $s),
+                    ])
+            );
+        }
+
+        if ($can('barcode_images')) {
+            $live = $live->concat(
+                $this->live($mine(BarcodeImageSession::class))->latest()->limit(5)->get()
+                    ->map(fn (BarcodeImageSession $s) => [
+                        'module'  => 'Barcode Image Grabber',
+                        'tone'    => 'amber',
+                        'title'   => $s->name ?: 'Image grab',
+                        'detail'  => number_format($s->processed) . ' of ' . number_format($s->total_barcodes) . ' barcodes',
+                        'percent' => $s->progressPercent(),
+                        'status'  => $s->status,
+                        'started' => $s->created_at,
+                        'url'     => route('barcode-images.show', $s),
                     ])
             );
         }
