@@ -28,6 +28,12 @@ class ProductImageScraper
     /** No single image is worth more than this. Nothing legitimate is bigger. */
     private const MAX_IMAGE_BYTES = 25 * 1024 * 1024;
 
+    /** A barcode matching more pages than this is a search being loose, not a catalogue. */
+    private const MAX_PRODUCTS_PER_BARCODE = 6;
+
+    /** How much of a page is worth sifting for the product's own gallery. */
+    private const MAX_PAGE_IMAGES = 400;
+
     /** Beyond this many per product we are collecting page furniture, not product shots. */
     private const MAX_IMAGES_PER_PRODUCT = 30;
 
@@ -105,20 +111,44 @@ class ProductImageScraper
     /**
      * Everything known about one barcode on one site.
      *
-     * @return array{url: ?string, title: ?string, images: string[]}
+     * A barcode can legitimately land on more than one product page — the same
+     * style in two colourways is two pages on most catalogues — and both are
+     * that barcode's pictures, so every confident match is read and the images
+     * are merged into the one folder.
+     *
+     * @return array{url: ?string, title: ?string, images: string[], matches: int}
      */
     public function forBarcode(string $site, string $barcode): array
     {
-        $product = $this->findProduct($site, $barcode);
+        $products = $this->findProducts($site, $barcode);
 
-        if (!$product) {
-            return ['url' => null, 'title' => null, 'images' => []];
+        if ($products === []) {
+            return ['url' => null, 'title' => null, 'images' => [], 'matches' => 0];
+        }
+
+        $images = [];
+        $title  = $products[0]['title'];
+
+        foreach ($products as $index => $product) {
+            $page = $this->readProduct($product['url']);
+
+            // A search results page rarely names the product; the product page
+            // always does. Only the first one is asked, since that is the row
+            // the results table shows.
+            if ($index === 0 && !$title) {
+                $title = $page['title'];
+            }
+
+            foreach ($page['images'] as $image) {
+                $images[$image] = true;
+            }
         }
 
         return [
-            'url'    => $product['url'],
-            'title'  => $product['title'],
-            'images' => $this->imagesFor($product['url']),
+            'url'     => $products[0]['url'],
+            'title'   => $title,
+            'images'  => array_keys($images),
+            'matches' => count($products),
         ];
     }
 
@@ -130,13 +160,13 @@ class ProductImageScraper
      * is the fallback for every other platform, and the direct URL guess is
      * there for the catalogues whose product handle simply is the barcode.
      *
-     * @return array{url: string, title: ?string}|null
+     * @return list<array{url: string, title: ?string}>
      */
-    public function findProduct(string $site, string $barcode): ?array
+    public function findProducts(string $site, string $barcode): array
     {
         $barcode = trim($barcode);
 
-        if ($barcode === '') return null;
+        if ($barcode === '') return [];
 
         foreach ([
             fn () => $this->shopifySuggest($site, $barcode),
@@ -144,20 +174,20 @@ class ProductImageScraper
             fn () => $this->directHandle($site, $barcode),
         ] as $attempt) {
             try {
-                $hit = $attempt();
+                $hits = $attempt();
             } catch (\Throwable $e) {
                 Log::debug("ProductImageScraper: lookup step failed for {$barcode}: " . $e->getMessage());
                 continue;
             }
 
-            if ($hit) return $hit;
+            if ($hits !== []) return $hits;
         }
 
-        return null;
+        return [];
     }
 
     /** Shopify's predictive search endpoint — it matches on barcode. */
-    private function shopifySuggest(string $site, string $barcode): ?array
+    private function shopifySuggest(string $site, string $barcode): array
     {
         $response = $this->client()->get("{$site}/search/suggest.json", [
             'q'                 => $barcode,
@@ -165,31 +195,42 @@ class ProductImageScraper
             'resources[limit]'  => 5,
         ]);
 
-        if (!$response->successful()) return null;
+        if (!$response->successful()) return [];
 
         $products = $response->json('resources.results.products');
 
-        if (!is_array($products) || $products === []) return null;
+        if (!is_array($products) || $products === []) return [];
 
-        $first = $products[0];
-        $url   = $first['url'] ?? null;
+        $hits = [];
 
-        if (!is_string($url) || $url === '') return null;
+        foreach ($products as $product) {
+            $url = $product['url'] ?? null;
 
-        return [
-            'url'   => $this->absolute($site, $url),
-            'title' => is_string($first['title'] ?? null) ? html_entity_decode(strip_tags($first['title'])) : null,
-        ];
+            if (!is_string($url) || $url === '') continue;
+
+            $hits[] = [
+                'url'   => $this->absolute($site, $url),
+                'title' => is_string($product['title'] ?? null)
+                    ? html_entity_decode(strip_tags($product['title']))
+                    : null,
+            ];
+
+            if (count($hits) >= self::MAX_PRODUCTS_PER_BARCODE) break;
+        }
+
+        return $hits;
     }
 
     /**
      * The site's own search results page, read as HTML.
      *
      * Two query shapes rather than one: Shopify and most bespoke carts use
-     * ?q=, WordPress and WooCommerce use ?s=. Whichever answers with a link
-     * that looks like a product page wins.
+     * ?q=, WordPress and WooCommerce use ?s=. Whichever answers with links
+     * that look like product pages wins. A storefront that keeps its catalogue
+     * behind a locale prefix — /en/qa/search on Salesforce Commerce Cloud —
+     * redirects the bare path there itself, which is why redirects are followed.
      */
-    private function htmlSearch(string $site, string $barcode): ?array
+    private function htmlSearch(string $site, string $barcode): array
     {
         $encoded = rawurlencode($barcode);
 
@@ -203,70 +244,108 @@ class ProductImageScraper
 
             if (!$response->successful()) continue;
 
-            $html = $response->body();
-            $link = $this->firstProductLink($site, $html);
+            $links = $this->productLinks($site, $response->body(), $barcode);
 
-            if ($link) {
-                return ['url' => $link, 'title' => null];
+            if ($links !== []) {
+                return array_map(fn (string $url) => ['url' => $url, 'title' => null], $links);
             }
         }
 
-        return null;
+        return [];
     }
 
     /**
      * Catalogues where the barcode is the product handle — /products/1234567890
      * — answer directly, and a 404 costs one call to find out.
      */
-    private function directHandle(string $site, string $barcode): ?array
+    private function directHandle(string $site, string $barcode): array
     {
         $handle = strtolower(preg_replace('/[^A-Za-z0-9-]+/', '-', $barcode) ?? '');
         $handle = trim($handle, '-');
 
-        if ($handle === '') return null;
+        if ($handle === '') return [];
 
         foreach (["{$site}/products/{$handle}", "{$site}/product/{$handle}"] as $candidate) {
             $response = $this->client()->get($candidate);
 
             if ($response->successful() && $this->looksLikeProductPage($response->body())) {
-                return ['url' => $candidate, 'title' => null];
+                return [['url' => $candidate, 'title' => null]];
             }
         }
 
-        return null;
+        return [];
     }
 
-    /** The first href on a results page that has the shape of a product page. */
-    private function firstProductLink(string $site, string $html): ?string
+    /**
+     * The links on a results page that lead to a product, best first.
+     *
+     * No two platforms agree on what a product URL looks like. Shopify says
+     * /products/handle, WooCommerce /product/slug, and Salesforce Commerce
+     * Cloud says /en/qa/542849_127700000000_agello.html — which is
+     * indistinguishable from the site's own /en/qa/privacy-policy.html by
+     * shape alone. So the barcode itself is used as the evidence: a link
+     * carrying the number that was searched for is that product, whatever the
+     * URL happens to look like, and when any link carries it the ones that do
+     * not are dropped entirely.
+     *
+     * @return list<string>
+     */
+    private function productLinks(string $site, string $html, string $barcode): array
     {
-        // Ordered by how strongly each shape means "product": Shopify and
-        // WooCommerce name theirs outright, so those are trusted before the
-        // looser /p/ and /item/ forms other carts use.
-        $patterns = [
-            '~href=["\']([^"\']*?/products/[^"\'?#]+)~i',
-            '~href=["\']([^"\']*?/product/[^"\'?#]+)~i',
-            '~href=["\']([^"\']*?/p/[^"\'?#]+)~i',
-            '~href=["\']([^"\']*?/item/[^"\'?#]+)~i',
-        ];
+        $candidates = [];
 
-        foreach ($patterns as $pattern) {
-            if (!preg_match_all($pattern, $html, $matches)) continue;
+        $add = function (?string $href) use (&$candidates, $site) {
+            $absolute = $href === null ? null : $this->absolute($site, html_entity_decode($href));
 
-            foreach ($matches[1] as $href) {
-                $href = html_entity_decode($href);
+            if ($absolute && $this->sameHost($site, $absolute)) {
+                $candidates[$absolute] = true;
+            }
+        };
 
-                // Shopify repeats the product link inside collection markup as
-                // /collections/x/products/y — same page, longer URL. Either is
-                // fine to open, so the first one found is taken.
-                $absolute = $this->absolute($site, $href);
-
-                if ($absolute && $this->sameHost($site, $absolute)) {
-                    return $absolute;
+        // A product tile states its own id. The link beside it is the product
+        // page, whatever the path looks like — this is what reaches Salesforce
+        // Commerce Cloud and the other .html catalogues.
+        if (preg_match_all('~data-pid=["\']([^"\']+)["\']~i', $html, $pids)) {
+            foreach (array_unique($pids[1]) as $pid) {
+                if (preg_match('~href=["\']([^"\']*' . preg_quote($pid, '~') . '[^"\']*)["\']~i', $html, $m)) {
+                    $add($m[1]);
                 }
             }
         }
 
-        return null;
+        foreach ([
+            '~href=["\']([^"\']*?/products/[^"\'?#]+)~i',
+            '~href=["\']([^"\']*?/product/[^"\'?#]+)~i',
+            '~href=["\']([^"\']*?/p/[^"\'?#]+)~i',
+            '~href=["\']([^"\']*?/item/[^"\'?#]+)~i',
+        ] as $pattern) {
+            if (preg_match_all($pattern, $html, $matches)) {
+                foreach ($matches[1] as $href) $add($href);
+            }
+        }
+
+        // The number that was searched for, as it appears in a URL. A barcode
+        // is usually a bare number; where it is "543309 AGIBILE" the number is
+        // the half a URL will carry.
+        $core = preg_match('~\d{4,}~', $barcode, $m) ? $m[0] : preg_replace('~[^A-Za-z0-9]+~', '', $barcode);
+
+        $confident = $core === '' ? [] : array_filter(
+            array_keys($candidates),
+            fn (string $url) => str_contains(strtolower($url), strtolower($core)),
+        );
+
+        if ($confident !== []) {
+            return array_slice(array_values($confident), 0, self::MAX_PRODUCTS_PER_BARCODE);
+        }
+
+        // Nothing named the barcode. Only the shapes that mean "product"
+        // outright are trusted now — a bare .html could be the privacy policy.
+        $shaped = array_filter(
+            array_keys($candidates),
+            fn (string $url) => (bool) preg_match('~/(?:products|product|p|item)/~i', $url),
+        );
+
+        return array_slice(array_values($shaped), 0, self::MAX_PRODUCTS_PER_BARCODE);
     }
 
     private function looksLikeProductPage(string $html): bool
@@ -284,50 +363,209 @@ class ProductImageScraper
      */
     public function imagesFor(string $productUrl): array
     {
+        return $this->readProduct($productUrl)['images'];
+    }
+
+    /**
+     * One product page: what it is called, and every picture of it.
+     *
+     * @return array{title: ?string, images: string[]}
+     */
+    private function readProduct(string $productUrl): array
+    {
         // Shopify hands over the whole product as JSON if you ask the product
         // URL with .js on the end — exact, ordered, full size, and no parsing.
-        $images = $this->shopifyProductJson($productUrl);
+        $shopify = $this->shopifyProductJson($productUrl);
 
-        if ($images !== []) {
-            return $this->tidy($productUrl, $images);
+        if ($shopify['images'] !== []) {
+            return [
+                'title'  => $shopify['title'],
+                'images' => $this->tidy($productUrl, $shopify['images']),
+            ];
         }
 
         $response = $this->client()->get($productUrl);
 
-        if (!$response->successful()) return [];
+        if (!$response->successful()) return ['title' => null, 'images' => []];
 
-        $html = $response->body();
+        $html  = $response->body();
+        $title = $this->titleFrom($html);
 
-        foreach ([
-            $this->fromJsonLd($html),
-            $this->fromMeta($html),
-            $this->fromImgTags($html),
-        ] as $found) {
-            if ($found !== []) {
-                return $this->tidy($productUrl, $found);
+        // The page states its own main image in markup meant to be read —
+        // schema.org first, then og:image. That one is certain.
+        $primary = $this->tidy($productUrl, array_merge($this->fromJsonLd($html), $this->fromMeta($html)));
+
+        // Every image anywhere on the page. Most of them belong to something
+        // else: other colourways, "you may also like", the footer.
+        // Not capped here: this is the pool the gallery is picked out of, and
+        // the product's own third photograph can sit below thirty other
+        // people's. The cap is applied to what survives the filter.
+        $everything = $this->tidy($productUrl, $this->fromImgTags($html), self::MAX_PAGE_IMAGES);
+
+        if ($primary === []) {
+            return ['title' => $title, 'images' => array_slice($everything, 0, self::MAX_IMAGES_PER_PRODUCT)];
+        }
+
+        $gallery = $this->siblingsOf($primary[0], $everything);
+
+        // The stated main image leads, then the rest of the gallery. Keyed on
+        // the filename, not the URL: the same photograph is commonly served
+        // from two paths — the static one og:image names and the resizing CDN
+        // the gallery uses — and both would otherwise land in the folder.
+        $final = [];
+
+        foreach (array_merge($primary, $gallery) as $url) {
+            $final[$this->filename($url)] ??= $url;
+        }
+
+        return [
+            'title'  => $title,
+            'images' => array_slice(array_values($final), 0, self::MAX_IMAGES_PER_PRODUCT),
+        ];
+    }
+
+    /**
+     * What the page calls this product — schema.org first, then og:title.
+     *
+     * Not <title>, which carries the shop's name and a tagline on most
+     * storefronts: "Agello - Barrel-leg jeans | LS storefront catalog - Luisa
+     * Spagnoli" is not a product name.
+     */
+    private function titleFrom(string $html): ?string
+    {
+        if (preg_match_all(
+            '~<script[^>]+type=["\']application/ld\+json["\'][^>]*>(.*?)</script>~is',
+            $html,
+            $blocks
+        )) {
+            foreach ($blocks[1] as $block) {
+                $data = json_decode(trim($block), true);
+                $type = is_array($data) ? ($data['@type'] ?? null) : null;
+
+                if (in_array('Product', is_array($type) ? $type : [$type], true)
+                    && is_string($data['name'] ?? null)) {
+                    return html_entity_decode(trim($data['name']));
+                }
             }
         }
 
-        return [];
+        if (preg_match(
+            '~<meta[^>]+(?:property|name)=["\']og:title["\'][^>]+content=["\']([^"\']+)["\']~i',
+            $html,
+            $m
+        )) {
+            return html_entity_decode(trim($m[1]));
+        }
+
+        return null;
     }
 
+    /**
+     * The other shots of the same product, picked out of everything on the page.
+     *
+     * A product page shows far more images than the product: on one catalogue
+     * checked while building this, a pair of jeans had three photographs and
+     * the page carried thirty-six pictures — the other colourways and the
+     * recommendation carousel. Taking them all put other people's products in
+     * the folder, which is worse than taking too few.
+     *
+     * So the main image is used as the pattern. Catalogues name a product's
+     * shots as one code and an index — foo_02710060XX1.jpg, ...XX2, ...XX3 —
+     * so the code without its index identifies the set, and images sharing it
+     * are the same product. Where that finds nothing, the filenames are
+     * compared for a common opening instead (shirt-front / shirt-back), and
+     * where that finds nothing either the stated main image stands alone.
+     *
+     * @param  string[] $everything
+     * @return string[]
+     */
+    private function siblingsOf(string $primary, array $everything): array
+    {
+        $name = $this->filename($primary);
+
+        if ($name === '') return [];
+
+        // The trailing code, with the index digits taken off the end.
+        $key = rtrim($this->lastSegment($name), '0123456789');
+
+        $matched = strlen($key) >= 4
+            ? array_values(array_filter($everything, fn ($url) => str_contains($this->filename($url), $key)))
+            : [];
+
+        // Whether the shared-code branch is what matched decides how the set
+        // can be de-duplicated below: only a shared code makes the tail of a
+        // filename specific enough to key on.
+        $keyed = count($matched) >= 2;
+
+        if (count($matched) < 2) {
+            // No shared code. Fall back to a shared opening on the filename,
+            // which is how the plainer catalogues name a set.
+            $prefix = mb_substr($name, 0, max(4, (int) floor(mb_strlen($name) * 0.6)));
+
+            $matched = mb_strlen($prefix) >= 4
+                ? array_values(array_filter($everything, fn ($url) => str_starts_with($this->filename($url), $prefix)))
+                : [];
+        }
+
+        if (count($matched) < 2) return [];
+
+        // One file per index — the same shot is often on the page twice under
+        // two different leading hashes, and both would otherwise be downloaded.
+        //
+        // Keyed on the tail only where a shared code was what gathered these;
+        // on the prefix fallback the tail can be a word like "large", and
+        // front_large and back_large are two photographs, not one.
+        $byIndex = [];
+
+        foreach ($matched as $url) {
+            $index = $keyed ? $this->lastSegment($this->filename($url)) : $this->filename($url);
+
+            $byIndex[$index] ??= $url;
+        }
+
+        ksort($byIndex, SORT_NATURAL);
+
+        return array_values($byIndex);
+    }
+
+    /** The last underscore- or hyphen-delimited piece of a filename. */
+    private function lastSegment(string $name): string
+    {
+        $parts = preg_split('~[_-]~', $name) ?: [$name];
+
+        return (string) end($parts);
+    }
+
+    /** The filename of a URL, lowercased and without its extension. */
+    private function filename(string $url): string
+    {
+        $path = parse_url($url, PHP_URL_PATH) ?: $url;
+
+        return strtolower(pathinfo($path, PATHINFO_FILENAME) ?: '');
+    }
+
+    /** @return array{title: ?string, images: string[]} */
     private function shopifyProductJson(string $productUrl): array
     {
-        $base = strtok($productUrl, '?') ?: $productUrl;
+        $empty = ['title' => null, 'images' => []];
+        $base  = strtok($productUrl, '?') ?: $productUrl;
 
-        if (!str_contains($base, '/products/')) return [];
+        if (!str_contains($base, '/products/')) return $empty;
 
         $response = $this->client()->get(rtrim($base, '/') . '.js');
 
-        if (!$response->successful()) return [];
+        if (!$response->successful()) return $empty;
 
         $data = $response->json();
 
-        if (!is_array($data)) return [];
+        if (!is_array($data)) return $empty;
 
         $images = $data['images'] ?? [];
 
-        return is_array($images) ? array_values(array_filter($images, 'is_string')) : [];
+        return [
+            'title'  => is_string($data['title'] ?? null) ? $data['title'] : null,
+            'images' => is_array($images) ? array_values(array_filter($images, 'is_string')) : [],
+        ];
     }
 
     /** Schema.org product markup — the one place a site states its own images. */
@@ -455,8 +693,10 @@ class ProductImageScraper
      * @param  string[] $images
      * @return string[]
      */
-    private function tidy(string $productUrl, array $images): array
+    private function tidy(string $productUrl, array $images, ?int $limit = null): array
     {
+        $limit ??= self::MAX_IMAGES_PER_PRODUCT;
+
         $site = $this->normaliseSite($productUrl);
         $out  = [];
 
@@ -473,7 +713,7 @@ class ProductImageScraper
             // gallery, once in a zoom link — is downloaded once.
             $out[$absolute] = true;
 
-            if (count($out) >= self::MAX_IMAGES_PER_PRODUCT) break;
+            if (count($out) >= $limit) break;
         }
 
         return array_keys($out);
@@ -494,7 +734,7 @@ class ProductImageScraper
         ) ?? $url;
 
         // ?width=200&height=200 — the CDN resizing on request.
-        $url = preg_replace('~([?&])(?:width|height|w|h|size|quality)=\d+~i', '$1', $url) ?? $url;
+        $url = preg_replace('~([?&])(?:width|height|w|h|sw|sh|size|quality)=\d+~i', '$1', $url) ?? $url;
         $url = preg_replace('~[?&]+$~', '', $url) ?? $url;
 
         return str_replace('?&', '?', $url);

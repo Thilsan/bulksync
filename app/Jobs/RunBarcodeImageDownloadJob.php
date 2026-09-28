@@ -126,7 +126,9 @@ class RunBarcodeImageDownloadJob implements ShouldQueue
                     'product_title' => $result['title'],
                     'image_count'   => $saved,
                     'message'       => $saved > 0
-                        ? null
+                        ? (($result['matches'] ?? 1) > 1
+                            ? $result['matches'] . ' product pages matched this barcode — all of their images are in the folder.'
+                            : null)
                         : 'The product page was found, but none of its images could be downloaded.',
                 ]);
 

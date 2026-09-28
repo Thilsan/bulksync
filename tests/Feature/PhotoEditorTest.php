@@ -152,17 +152,18 @@ class PhotoEditorTest extends TestCase
     }
 
     /*
-     * Reading a folder must not queue behind somebody else's editing.
+     * Which queue a folder read goes on is configuration, not a constant.
      *
-     * Both used to sit on bulkupload, so a second person's Fetch photos
-     * landed behind however many hundred Photoroom jobs the first person's
-     * run had put there, and their page stayed empty until that run was
-     * done. The scan is seconds of work with somebody watching; the edits
-     * are hours with nobody watching. Workers take bulkupload-scan first.
+     * It wants its own queue drained ahead of the editing, which needs the
+     * worker command changed, which needs supervisor access this server's
+     * application user does not have. Shipping the split anyway left scans
+     * queued with nothing listening, so the default is the queue that is
+     * definitely being consumed and the split is one env var away.
      */
-    public function test_reading_a_folder_goes_on_the_queue_ahead_of_the_editing(): void
+    public function test_reading_a_folder_goes_on_the_configured_queue(): void
     {
         Queue::fake();
+        config(['services.photo_editor.scan_queue' => 'bulkupload-scan']);
 
         $this->actingAs($this->editor())
             ->post(route('photo-editor.store'), $this->validPayload())
@@ -172,6 +173,12 @@ class PhotoEditorTest extends TestCase
             ScanPhotoEditFolderJob::class,
             fn ($job) => $job->queue === 'bulkupload-scan',
         );
+    }
+
+    /** And it defaults to the one the worker is known to be listening to. */
+    public function test_the_scan_queue_defaults_to_the_shared_one(): void
+    {
+        $this->assertSame('bulkupload', config('services.photo_editor.scan_queue'));
     }
 
     /**

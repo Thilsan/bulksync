@@ -83,6 +83,60 @@ class PhotoEditorAsIsTest extends TestCase
         $this->assertTrue($edit->every(fn ($i) => !$i->fresh()->skip_edit));
     }
 
+    /*
+     * A run must not put its whole batch into the queue at once.
+     *
+     * The queue is first-come and this server has one of them, so a run that
+     * front-loaded three hundred edits left the next person's folder read
+     * three hundred places down the line, watching an empty page. Each edit is
+     * released at the gap Photoroom's own rate limit already imposes, which
+     * keeps the ready list short and costs nothing: those jobs would have
+     * spent that time asleep in the pacing lock anyway.
+     *
+     * An "as is" copy never reaches Photoroom, is not paced, and goes at once.
+     */
+    public function test_edits_are_released_at_the_apis_pace_rather_than_all_at_once(): void
+    {
+        Queue::fake();
+        config(['services.photoroom.rpm' => 60]);
+
+        $session = $this->makeSession();
+
+        collect(['a.jpg', 'b.jpg', 'c.jpg'])->each(fn ($f) => $this->photo($session, 'BAG-1', $f));
+        $as_is = $this->photo($session, 'BAG-1', 'z.jpg');
+
+        $group = PhotoEditGroup::create([
+            'photo_edit_session_id' => $session->id,
+            'sku'                   => 'BAG-1',
+            'edits'                 => null,
+        ]);
+
+        $this->actingAs($session->user)->post(route('photo-editor.start', $session), [
+            'groups' => [$group->id => [
+                'lifestyle_count' => 0,
+                'as_is'           => [$as_is->id],
+            ]],
+        ])->assertRedirect();
+
+        $delays = [];
+
+        Queue::assertPushed(EditPhotoItemJob::class, function ($job) use (&$delays) {
+            $delays[] = (int) round(-($job->delay?->diffInSeconds(now()) ?? 0));
+
+            return true;
+        });
+
+        sort($delays);
+
+        // 60 rpm is a one-second gap, so three edits leave at 0s, 1s and 2s.
+        $this->assertSame([0, 1, 2], $delays);
+
+        Queue::assertPushed(
+            CopyOriginalPhotoJob::class,
+            fn ($job) => $job->delay === null,
+        );
+    }
+
     /** The quoted bill has to match the one that will actually be spent. */
     public function test_untouched_photos_are_not_counted_as_credits(): void
     {

@@ -306,6 +306,151 @@ class BarcodeImageGrabberTest extends TestCase
         $this->actingAs($other)->get(route('barcode-images.show', $session))->assertForbidden();
     }
 
+
+    // ── Catalogues that are not Shopify ──────────────────────────────────────
+
+    /**
+     * Salesforce Commerce Cloud, which is what sent this back for a rewrite.
+     *
+     * Its product URLs are /en/qa/542849_127700000000_agello.html — the same
+     * shape as /en/qa/privacy-policy.html — so the link cannot be recognised
+     * by its path. What identifies it is that it carries the barcode.
+     */
+    public function test_a_dot_html_catalogue_is_recognised_by_the_barcode_in_the_link(): void
+    {
+        $tile = '<div class="product" data-pid="542849_127700000000_agello">'
+              . '<a id="542849_127700000000_agello-link" href="/en/qa/542849_127700000000_agello.html">Agello</a></div>';
+
+        Http::fake([
+            'shop.test/search/suggest.json*' => Http::response('', 404),
+            'shop.test/search?*' => Http::response(
+                '<a href="/en/qa/privacy-policy.html">Privacy</a>' . $tile . '<a href="/en/qa/returns.html">Returns</a>'
+            ),
+            'shop.test/en/qa/542849_127700000000_agello.html' => Http::response($this->commerceCloudProductPage()),
+            'shop.test/*.jpg*' => Http::response($this->onePixelPng(), 200, ['Content-Type' => 'image/jpeg']),
+        ]);
+
+        $session = BarcodeImageSession::create([
+            'user_id'      => $this->operator()->id,
+            'site_url'     => 'https://shop.test',
+            'status'       => 'pending',
+            'raw_barcodes' => '542849AGELLO',
+        ]);
+
+        app(RunBarcodeImageDownloadJob::class, ['sessionId' => $session->id])
+            ->handle(app(ProductImageScraper::class));
+
+        $item = $session->refresh()->items()->sole();
+
+        $this->assertSame('found', $item->status);
+        $this->assertSame('https://shop.test/en/qa/542849_127700000000_agello.html', $item->product_url);
+        $this->assertSame('Agello', $item->product_title);
+
+        // Three photographs of this colourway — not the thirty-odd the page
+        // carries for the other colours and the recommendation carousel.
+        $this->assertSame(3, $item->image_count);
+
+        $session->deleteFiles();
+    }
+
+    public function test_the_other_colourways_on_the_page_are_left_where_they_are(): void
+    {
+        Http::fake([
+            'shop.test/*' => Http::response($this->commerceCloudProductPage()),
+        ]);
+
+        $images = app(ProductImageScraper::class)
+            ->imagesFor('https://shop.test/en/qa/542849_127700000000_agello.html');
+
+        $names = array_map(fn ($url) => basename(parse_url($url, PHP_URL_PATH)), $images);
+
+        // The main image leads, its two siblings follow, and the same shot
+        // served a second time from the resizing CDN is not counted twice.
+        $this->assertSame([
+            'aaa_11_02710060XX1.jpg',
+            'bbb_22_02710060XX2.jpg',
+            'ccc_33_02710060XX3.jpg',
+        ], $names);
+    }
+
+    public function test_a_barcode_matching_two_colourways_collects_both_into_the_one_folder(): void
+    {
+        Http::fake([
+            'shop.test/search/suggest.json*' => Http::response('', 404),
+            'shop.test/search?*' => Http::response(
+                '<div data-pid="543309_010100000000_agibile"><a href="/en/qa/543309_010100000000_agibile.html">A</a></div>'
+                . '<div data-pid="543309_020100000000_agibile"><a href="/en/qa/543309_020100000000_agibile.html">B</a></div>'
+            ),
+            'shop.test/en/qa/543309_010100000000_agibile.html' => Http::response($this->commerceCloudProductPage('02710090')),
+            'shop.test/en/qa/543309_020100000000_agibile.html' => Http::response($this->commerceCloudProductPage('02710100')),
+            'shop.test/*.jpg*' => Http::response($this->onePixelPng(), 200, ['Content-Type' => 'image/jpeg']),
+        ]);
+
+        $session = BarcodeImageSession::create([
+            'user_id'      => $this->operator()->id,
+            'site_url'     => 'https://shop.test',
+            'status'       => 'pending',
+            'raw_barcodes' => '543309',
+        ]);
+
+        app(RunBarcodeImageDownloadJob::class, ['sessionId' => $session->id])
+            ->handle(app(ProductImageScraper::class));
+
+        $item = $session->refresh()->items()->sole();
+
+        $this->assertSame(6, $item->image_count);
+        $this->assertStringContainsString('2 product pages matched', (string) $item->message);
+        $this->assertCount(6, glob($session->folderFor('543309') . '/*'));
+
+        $session->deleteFiles();
+    }
+
+    public function test_a_search_page_of_unrelated_links_is_not_mistaken_for_a_result(): void
+    {
+        Http::fake([
+            'shop.test/search/suggest.json*' => Http::response('', 404),
+            'shop.test/search?*' => Http::response(
+                '<a href="/en/qa/privacy-policy.html">Privacy</a><a href="/en/qa/delivery-time.html">Delivery</a>'
+            ),
+            '*' => Http::response('', 404),
+        ]);
+
+        $this->assertSame([], app(ProductImageScraper::class)->findProducts('https://shop.test', '9999999'));
+    }
+
+    /**
+     * A page in the shape the rewrite was built against: schema.org naming one
+     * image, a gallery of three for the colour being viewed, three more for
+     * another colour, and a recommendation carousel — all in one document.
+     */
+    private function commerceCloudProductPage(string $colour = '02710060'): string
+    {
+        $cdn = 'https://shop.test/dw/image/v2/PRD/on/demandware.static/-/Sites-master-catalog/default/dw1/images/large';
+        $own = 'https://shop.test/on/demandware.static/-/Sites-master-catalog/default/dw1/images/large';
+
+        return <<<HTML
+            <html><head>
+            <meta property="og:image" content="{$own}/aaa_11_{$colour}XX1.jpg" />
+            <script type="application/ld+json">
+                {"@context":"https://schema.org/","@type":"Product","name":"Agello",
+                 "image":"{$own}/aaa_11_{$colour}XX1.jpg"}
+            </script>
+            </head><body>
+                <img class="d-block img-fluid" src="{$cdn}/aaa_11_{$colour}XX1.jpg?sw=500">
+                <img class="d-block img-fluid" src="{$cdn}/bbb_22_{$colour}XX2.jpg?sw=500">
+                <img class="d-block img-fluid" src="{$cdn}/ccc_33_{$colour}XX3.jpg?sw=500">
+
+                <!-- another colour of the same style -->
+                <img src="{$cdn}/ddd_44_02718888XX1.jpg?sw=500">
+                <img src="{$cdn}/eee_55_02718888XX2.jpg?sw=500">
+
+                <!-- you may also like -->
+                <img src="{$cdn}/fff_66_02719999XX1.jpg?sw=500">
+                <img src="{$cdn}/ggg_77_02719999XX2.jpg?sw=500">
+            </body></html>
+            HTML;
+    }
+
     // ── A barcode is a folder name, and folder names are dangerous ───────────
 
     public function test_a_barcode_cannot_climb_out_of_its_own_run_folder(): void

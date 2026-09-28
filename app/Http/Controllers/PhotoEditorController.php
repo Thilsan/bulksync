@@ -426,15 +426,48 @@ class PhotoEditorController extends Controller implements HasMiddleware
          * edited one, so the review screen and the push cannot tell them apart
          * and do not need to.
          */
+        /*
+         * Released at the rate Photoroom will accept them, not all at once.
+         *
+         * A run used to put every one of its edits into the queue the instant
+         * it started. The queue is first-come, so the next person to click
+         * Fetch photos landed behind the lot of them and watched an empty page
+         * until the run was over — their scan was seconds of work sitting
+         * hundreds of places down the line.
+         *
+         * The obvious fix is a second queue drained first, and that is what
+         * this did until the server turned out to have no supervisor access to
+         * add one. So the queue is kept short instead: each edit is delayed by
+         * the gap the fleet-wide pacing already imposes (services.photoroom.rpm),
+         * which leaves the ready list nearly empty while the delayed set holds
+         * the rest. Anything arriving mid-run waits on a handful of jobs rather
+         * than the whole batch.
+         *
+         * It costs no throughput. The gap is the API's own ceiling: those jobs
+         * would have spent the same time asleep in throttle() with a worker
+         * held open, rather than waiting in Redis where they cost nothing.
+         *
+         * Only the Photoroom-bound edits are spaced. An "as is" copy never
+         * reaches the API, is not paced, and would only be slowed for nothing.
+         */
+        $gap  = 60 / max(1, (int) config('services.photoroom.rpm', 50));
+        $slot = 0;
+
         PhotoEditItem::where('photo_edit_session_id', $session->id)
             ->where('kind', 'cutout')
             ->where('status', 'pending')
             ->select('id', 'skip_edit')
-            ->chunkById(500, function ($items) {
+            ->chunkById(500, function ($items) use ($gap, &$slot) {
                 foreach ($items as $item) {
-                    $item->skip_edit
-                        ? CopyOriginalPhotoJob::dispatch($item->id)->onQueue('bulkupload')
-                        : EditPhotoItemJob::dispatch($item->id)->onQueue('bulkupload');
+                    if ($item->skip_edit) {
+                        CopyOriginalPhotoJob::dispatch($item->id)->onQueue('bulkupload');
+
+                        continue;
+                    }
+
+                    EditPhotoItemJob::dispatch($item->id)
+                        ->onQueue('bulkupload')
+                        ->delay(now()->addSeconds((int) floor($slot++ * $gap)));
                 }
             });
 

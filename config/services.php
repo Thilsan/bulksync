@@ -70,18 +70,28 @@ return [
     /*
      * Which queue a folder read goes on.
      *
-     * Its own queue, drained ahead of the editing, so one person's run of a
-     * few hundred photos does not leave the next person's Fetch photos
-     * looking broken. That only works if the worker actually lists it:
+     * The shared queue, because this server cannot be given another.
+     *
+     * A folder read is seconds of work with somebody watching the page; an
+     * edit is a Photoroom round-trip and a run is hundreds of them. The right
+     * separation is a second queue drained first:
      *
      *   queue:work redis --queue=bulkupload-scan,bulkupload
      *
-     * If the code ships before the worker is updated, scans queue up with
-     * nothing listening. Setting PHOTO_EDITOR_SCAN_QUEUE=bulkupload puts them
-     * back on the shared queue — slow again, but running — without a deploy.
+     * which needs the worker command changed, which needs supervisor, which
+     * the application user on this server has no sudo for. Shipping the split
+     * without it left scans queued with nothing listening — a worse failure
+     * than the one it fixed, and the reason this defaults to the queue that is
+     * definitely being consumed.
+     *
+     * Starvation is handled at the other end instead: queueRun() releases
+     * edits at the API's own pace rather than all at once, so the ready list
+     * stays short and a scan is never far from the front.
+     *
+     * Set PHOTO_EDITOR_SCAN_QUEUE=bulkupload-scan the day the worker lists it.
      */
     'photo_editor' => [
-        'scan_queue' => env('PHOTO_EDITOR_SCAN_QUEUE', 'bulkupload-scan'),
+        'scan_queue' => env('PHOTO_EDITOR_SCAN_QUEUE', 'bulkupload'),
     ],
 
     'barcode_images' => [
