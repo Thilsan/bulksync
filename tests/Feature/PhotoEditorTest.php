@@ -1409,6 +1409,46 @@ class PhotoEditorTest extends TestCase
         );
     }
 
+    /*
+     * The operator can accept a redraw the verifier refused on shape.
+     *
+     * Every redraw is measured against the photograph, and one that recut the
+     * garment is discarded for the plain cutout — the photo with the stand
+     * still in it. On a full mannequin wearing a cape that refusal is close to
+     * certain, because the redraw has to invent the whole underside. The
+     * setting existed in the defaults from the start and was read by nothing,
+     * so "remove the mannequin" had no answer at all for those garments.
+     *
+     * It reaches the run, which is what makes the override available; the job
+     * is what acts on it, and only on a refusal about shape.
+     */
+    public function test_accepting_a_recut_redraw_is_saved_to_the_run(): void
+    {
+        Queue::fake();
+
+        $this->assertFalse(PhotoroomService::defaultEdits()['accept_recut_redraw']);
+
+        $this->actingAs($this->editor())
+            ->post(route('photo-editor.store'), $this->validPayload([
+                'edits' => ['accept_recut_redraw' => '1'],
+            ]))
+            ->assertRedirect();
+
+        $this->assertTrue(PhotoEditSession::sole()->edits['accept_recut_redraw']);
+    }
+
+    /** And it stays off unless it is ticked. */
+    public function test_a_recut_redraw_is_refused_by_default(): void
+    {
+        Queue::fake();
+
+        $this->actingAs($this->editor())
+            ->post(route('photo-editor.store'), $this->validPayload())
+            ->assertRedirect();
+
+        $this->assertFalse(PhotoEditSession::sole()->edits['accept_recut_redraw']);
+    }
+
     /** Output colour is pinned so one product looks the same on every listing. */
     public function test_srgb_is_sent_by_default(): void
     {

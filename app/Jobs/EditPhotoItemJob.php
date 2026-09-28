@@ -569,6 +569,47 @@ class EditPhotoItemJob implements ShouldQueue
                     );
                 }
 
+                /*
+                 * The operator's override, on a refusal about shape.
+                 *
+                 * accept_recut_redraw has existed in the defaults since the
+                 * guards were written and until now was read by nothing, so a
+                 * refusal was final and the answer to "remove the mannequin"
+                 * was a photograph with the mannequin still in it. On a full
+                 * mannequin wearing a cape — legs, base and wheels in frame —
+                 * the redraw has to invent the whole underside of the garment,
+                 * and proportions move by twenty-odd percent against a 7%
+                 * limit every time. The guard is right that it was recut. It
+                 * is not the guard's place to decide that a recut is never
+                 * worth publishing.
+                 *
+                 * Shape only. A refusal about colour is not overridable here
+                 * and deliberately so: a customer who orders this colour has
+                 * to receive it, and nothing in the composite service lets
+                 * that one be waived either.
+                 *
+                 * The redraw is kept as it stands rather than blended. There
+                 * is nothing to blend it with — the blend is what the guard
+                 * just said cannot be made to line up.
+                 */
+                $overridable = ['moved', 'reshaped', 'redrawn'];
+
+                if (!$verified
+                    && !empty($edits['accept_recut_redraw'])
+                    && in_array($whole['verdict'] ?? '', $overridable, true)) {
+                    $verified    = true;
+                    $appliedMode = 'ghost_recut_accepted';
+                    $redrawNote  = 'The stand was removed by redrawing the garment, which you have '
+                        . 'chosen to accept for this run. The garment in this photo is drawn, not '
+                        . 'photographed, and differs from the original: ' . $whole['reason'];
+
+                    Log::info('Ghost mannequin recut accepted by operator', [
+                        'item'    => $this->itemId,
+                        'sku'     => $item->sku_detected,
+                        'verdict' => $whole['verdict'],
+                    ]);
+                }
+
                 if (!$verified) {
                     /*
                      * Back to a plain cutout. The redraw's own bytes are thrown

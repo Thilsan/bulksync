@@ -169,6 +169,34 @@
                 this field tells the model what to make, not what to avoid. Clear it to send no hint at all.
             </p>
         </div>
+
+        {{-- The override on a refused redraw.
+
+             Every redraw is checked against the photograph before it is kept,
+             and one that recut the garment is thrown away in favour of the
+             plain cutout — which is the photo with the stand still in it. On a
+             full mannequin wearing a cape that refusal is near-certain: the
+             redraw has to invent the whole underside, so proportions move far
+             past the 7% the check allows.
+
+             This is the operator saying they have looked and want it anyway.
+             It cannot waive a refusal about colour. --}}
+        <div class="sm:col-span-2" x-show="treatment === 'ghost'" x-cloak>
+            <label class="flex cursor-pointer items-start gap-2 text-xs text-gray-700">
+                <input type="checkbox" name="{{ $name('accept_recut_redraw') }}" value="1"
+                       @checked($val('accept_recut_redraw'))
+                       class="mt-0.5 h-3.5 w-3.5 shrink-0 rounded border-gray-300 text-brand-600 focus:ring-brand-500">
+                <span>
+                    Publish the redraw even if it recut the garment
+                    <span class="block text-[11px] leading-snug text-gray-400">
+                        Without this, a redraw that changed the garment's shape is discarded and you get the
+                        photo with the stand still in it — which is what <em>plain cutout · check the stand</em>
+                        means on a card. Tick it when the stand has to go and you accept that the garment in the
+                        result is drawn rather than photographed. It will not override a refusal about colour.
+                    </span>
+                </span>
+            </label>
+        </div>
     </div>
 
     @php
