@@ -158,13 +158,15 @@
                 Style hint for the redraw
             </label>
             <input id="ghost-prompt-{{ $uid }}" type="text" name="{{ $name('apparel_prompt') }}"
-                   value="{{ $val('apparel_prompt') }}" placeholder="ghost mannequin" maxlength="500"
+                   value="{{ $val('apparel_prompt') }}" placeholder="Remove mannequin and keep the same orientation" maxlength="500"
                    class="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none">
             <p class="mt-1 text-xs text-gray-500">
-                Optional, and a <em>style</em> hint rather than an instruction — Photoroom's own documented example
-                is the two words <em>ghost mannequin</em>. Photoroom's support recommend using one: they reproduced
-                our failures without it and got better results with it. Long lists of prohibitions do not work here;
-                this is the field that tells the model what to make, not what to avoid.
+                A <em>style</em> hint rather than an instruction. Photoroom's support ran our own files and
+                recommended this wording: <em>Remove mannequin</em> on its own removed the mannequin well but
+                sometimes turned the garment, and <em>and keep the same orientation</em> is what fixed it. Start
+                here, and add a line only if you see one specific thing drift — the redraw is generative, so
+                different garments answer the same words differently. Long lists of prohibitions do not work here;
+                this field tells the model what to make, not what to avoid. Clear it to send no hint at all.
             </p>
         </div>
     </div>

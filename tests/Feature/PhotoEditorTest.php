@@ -1359,6 +1359,33 @@ class PhotoEditorTest extends TestCase
         $this->assertArrayNotHasKey('ghostMannequin.prompt', $fields);
     }
 
+    /*
+     * The field starts on the wording Photoroom's own support arrived at.
+     *
+     * Adam at Photoroom ran our files: "Remove mannequin" removed the
+     * mannequin but sometimes turned the garment, and adding "and keep the
+     * same orientation" is what produced the results he sent back. An operator
+     * is free to change or clear it; what this pins is where they start, so
+     * nobody has to rediscover it.
+     */
+    public function test_the_style_hint_defaults_to_photorooms_recommended_wording(): void
+    {
+        $this->assertSame(
+            'Remove mannequin and keep the same orientation',
+            PhotoroomService::defaultEdits()['apparel_prompt'],
+        );
+
+        $fields = app(PhotoroomService::class)->buildFields([
+            'remove_background' => true,
+            'ghost_mannequin'   => true,
+        ] + PhotoroomService::defaultEdits());
+
+        $this->assertSame(
+            'Remove mannequin and keep the same orientation',
+            $fields['ghostMannequin.prompt'],
+        );
+    }
+
     /** Output colour is pinned so one product looks the same on every listing. */
     public function test_srgb_is_sent_by_default(): void
     {

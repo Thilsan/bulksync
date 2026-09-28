@@ -846,6 +846,27 @@ class PhotoroomService
      * documentation before writing a prompt into it; this constant is what
      * not doing that cost.
      */
+    /*
+     * What Photoroom themselves recommend putting in ghostMannequin.prompt.
+     *
+     * Adam at Photoroom support ran our own files and reported back: "Remove
+     * mannequin" alone removed the mannequin well but sometimes changed the
+     * garment's orientation; adding "and keep the same orientation" was what
+     * produced the better results he sent us. His advice was to start here and
+     * add further guidance only when a specific part of a given output drifts.
+     *
+     * So this is a starting point, not a setting. It is a default for the
+     * operator's field rather than a value forced into the request, because
+     * Ghost Mannequin is generative and, in his words, "different garments may
+     * respond differently to the same prompt".
+     *
+     * Note what it is not: a list of prohibitions. GHOST_MANNEQUIN_PROMPT
+     * below is the 1,100-character version this replaced, kept only for the
+     * composite command. The mannequin survived it. This field is read as a
+     * style hint, so it works by naming what to make.
+     */
+    public const GHOST_MANNEQUIN_HINT = 'Remove mannequin and keep the same orientation';
+
     public const GHOST_MANNEQUIN_PROMPT = 'Remove only the hanger, hook, clothes rail, garment rack, mannequin, '
         . 'dress form, headless body or stand that this garment is displayed on, including any piece of it still '
         . 'showing at the shoulder, above the collar, or through the neckline or any other opening in the garment. '
@@ -1185,6 +1206,13 @@ class PhotoroomService
             'background_mode'   => 'white',
 
             'ghost_mannequin' => false,
+
+            /*
+             * Prefilled with Photoroom's own recommended wording so the
+             * first run starts where their support left off. Editable and
+             * clearable per SKU: emptying it sends no prompt at all.
+             */
+            'apparel_prompt'  => self::GHOST_MANNEQUIN_HINT,
 
             /*
              * Publish a redraw that reworked the garment, rather than falling
