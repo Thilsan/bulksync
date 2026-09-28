@@ -21,6 +21,16 @@ class Ga4AnalyticsServiceTest extends TestCase
 {
     use RefreshDatabase;
 
+    /**
+     * What Bluesalon's property has filtered out, spelled here rather than
+     * read from the service — a test that asks the code what it does can
+     * only ever agree with it.
+     */
+    private const EXPECTED_EXCLUSIONS = [
+        'Bangladesh', 'Brazil', 'Chile', 'China', 'Mexico',
+        'Pakistan', 'Singapore', 'United States', 'Vietnam',
+    ];
+
     private function store(array $overrides = []): Store
     {
         return Store::create(array_merge([
@@ -205,6 +215,78 @@ class Ga4AnalyticsServiceTest extends TestCase
             ['totals', 'deviceCategory', 'landingPagePlusQueryString', 'sessionDefaultChannelGroup', 'country'],
             $dimensions,
         );
+    }
+
+    /**
+     * Bluesalon's property carries a large volume of datacentre traffic
+     * attributed to Singapore and Brazil — enough that it swamps every figure
+     * on the card and Qatar, the market the site actually sells into, ranks
+     * behind four countries it does no business in. Excluding it at the API
+     * means the totals, the devices and the landing pages are all counting
+     * the same real visitors, rather than the location list alone being
+     * tidied while the headline still reads mostly robots.
+     */
+    public function test_a_propertys_excluded_countries_are_filtered_at_the_api(): void
+    {
+        $asked = new class { public array $requests = []; };
+
+        $service = $this->service(function (string $propertyId, array $requests) use ($asked) {
+            $asked->requests = $requests;
+
+            return $this->answer($this->fullAnswer());
+        });
+
+        $this->rows($service, $this->store());
+
+        $this->assertNotEmpty($asked->requests);
+
+        // Every report, not just the country one: a filter on the breakdown
+        // alone would leave the rows summing to less than the total above them.
+        foreach ($asked->requests as $i => $request) {
+            $this->assertSame(
+                ['notExpression' => ['filter' => [
+                    'fieldName'    => 'country',
+                    'inListFilter' => ['values' => self::EXPECTED_EXCLUSIONS],
+                ]]],
+                $request['dimensionFilter'] ?? null,
+                "Report {$i} should exclude the bot-traffic countries.",
+            );
+        }
+    }
+
+    /** A property nobody has filtered asks for everything, unqualified. */
+    public function test_a_property_with_nothing_to_exclude_sends_no_filter(): void
+    {
+        $asked = new class { public array $requests = []; };
+
+        $service = $this->service(function (string $propertyId, array $requests) use ($asked) {
+            $asked->requests = $requests;
+
+            return $this->answer($this->fullAnswer());
+        });
+
+        $this->rows($service, $this->store([
+            'name' => 'Mosafer', 'shopify_domain' => 'mosafer.myshopify.com',
+            'ga4_property_id' => '999999999',
+        ]));
+
+        foreach ($asked->requests as $request) {
+            $this->assertArrayNotHasKey('dimensionFilter', $request);
+        }
+    }
+
+    /**
+     * Said on the card, not just done quietly. A dashboard that drops most of
+     * a property's sessions without saying so is worse than one that shows
+     * the noise, because the reader has no way to know the figure is partial.
+     */
+    public function test_the_excluded_countries_are_named_on_the_row(): void
+    {
+        $service = $this->service($this->reporter($this->fullAnswer()));
+
+        $rows = $this->rows($service, $this->store());
+
+        $this->assertSame(self::EXPECTED_EXCLUSIONS, $rows[0]['excluded_countries']);
     }
 
     /**

@@ -143,6 +143,33 @@ class VisitorSessionsTabTest extends TestCase
     }
 
     /**
+     * The card says the figures are filtered without saying what was filtered.
+     *
+     * Both halves matter. Saying nothing would hand the reader a partial
+     * number they have no way to recognise as partial; naming the countries
+     * puts a list of markets on a management screen that invites being read
+     * as a judgement about those places rather than about their traffic.
+     */
+    public function test_a_filtered_website_says_so_without_naming_countries(): void
+    {
+        Store::create([
+            'name' => 'Blue Salon', 'shopify_domain' => 'bluesalon.myshopify.com',
+            'ga4_property_id' => '307311411',
+        ]);
+
+        $this->app->instance(Ga4AnalyticsService::class, new Ga4AnalyticsService($this->fakeReporter()));
+
+        $response = $this->actingAs($this->admin)
+            ->get('/management-dashboard?tab=sessions')
+            ->assertOk()
+            ->assertSee('Excludes datacentre traffic');
+
+        foreach (['Singapore', 'Brazil', 'Vietnam', 'United States', 'China', 'Mexico', 'Chile', 'Bangladesh', 'Pakistan'] as $country) {
+            $response->assertDontSee($country);
+        }
+    }
+
+    /**
      * A website with no property has not had no visitors — it has not been
      * asked. The card has to say which.
      */

@@ -46,6 +46,47 @@ class Ga4AnalyticsService
      */
     private const LOCATION_FETCH = 100;
 
+    /**
+     * Traffic excluded from a property's figures, by GA4 property id.
+     *
+     * Keyed by property rather than applied everywhere, because this is a
+     * fact about one property's data and not about the countries. Singapore
+     * and Brazil are real markets somebody else may genuinely sell into.
+     *
+     * Bluesalon's property (307311411) carries a large volume of datacentre
+     * traffic — enough that it swamps every figure on the card, users track
+     * sessions almost exactly, and Qatar, the market the site actually sells
+     * into, ranks fifth.
+     *
+     * Page views per session is what separates the two. Qatar browses about
+     * three pages a visit; every country listed here loads less than one, and
+     * Pakistan and Bangladesh manage a page per hundred sessions — a crawler
+     * hitting the door and leaving. Which of these are genuinely dead is a
+     * business judgement, not a threshold, so the list is maintained by hand
+     * rather than inferred.
+     *
+     * Alphabetical, so a name is quick to look for when one is added.
+     *
+     * The filter goes to the API on every report in the batch rather than
+     * being applied to the country rows here, so the totals, the devices and
+     * the landing pages all count the same visitors. Tidying the location
+     * list alone would leave its rows summing to a fraction of the sessions
+     * printed above them, which is worse than not filtering at all.
+     */
+    private const EXCLUDED_COUNTRIES = [
+        '307311411' => [
+            'Bangladesh',
+            'Brazil',
+            'Chile',
+            'China',
+            'Mexico',
+            'Pakistan',
+            'Singapore',
+            'United States',
+            'Vietnam',
+        ],
+    ];
+
     /** @var callable(string, array): array */
     private $reporter;
 
@@ -75,12 +116,24 @@ class Ga4AnalyticsService
             ];
         }
 
-        $key = sprintf('ga4_analytics.%d.%s.%s', $store->id, $from->toDateString(), $to->toDateString());
+        $excluded = self::EXCLUDED_COUNTRIES[(string) $store->ga4_property_id] ?? [];
+
+        // The exclusions are part of the key, not just the property and the
+        // range. Without them a list edited today would keep serving the
+        // answer to yesterday's question for the rest of the TTL, which reads
+        // as the change not having worked.
+        $key = sprintf(
+            'ga4_analytics.%d.%s.%s.%s',
+            $store->id,
+            $from->toDateString(),
+            $to->toDateString(),
+            $excluded ? substr(md5(implode('|', $excluded)), 0, 8) : 'all',
+        );
 
         try {
-            $data = Cache::remember($key, now()->addMinutes(self::CACHE_TTL_MINUTES), function () use ($store, $from, $to) {
+            $data = Cache::remember($key, now()->addMinutes(self::CACHE_TTL_MINUTES), function () use ($store, $from, $to, $excluded) {
                 return $this->shape(
-                    ($this->reporter)($store->ga4_property_id, $this->requests($from, $to)),
+                    ($this->reporter)($store->ga4_property_id, $this->requests($from, $to, $excluded)),
                 );
             });
         } catch (\Throwable $e) {
@@ -125,20 +178,23 @@ class Ga4AnalyticsService
             ];
         }
 
-        return $base + $data + ['status' => 'ok'];
+        return $base + $data + ['status' => 'ok', 'excluded_countries' => $excluded];
     }
 
     /**
-     * The four questions asked of every property, in one batch.
+     * The five questions asked of every property, in one batch.
      *
      * Order matters: shape() reads the answers back by position, which is how
      * the API returns them.
+     *
+     * @param  list<string>  $excluded  countries kept out of every report here
      */
-    private function requests(Carbon $from, Carbon $to): array
+    private function requests(Carbon $from, Carbon $to, array $excluded = []): array
     {
-        $range = [['startDate' => $from->toDateString(), 'endDate' => $to->toDateString()]];
+        $range  = [['startDate' => $from->toDateString(), 'endDate' => $to->toDateString()]];
+        $filter = $this->countryFilter($excluded);
 
-        $breakdown = fn (string $dimension, int $limit) => [
+        $breakdown = fn (string $dimension, int $limit) => $filter + [
             'dateRanges' => $range,
             'dimensions' => [['name' => $dimension]],
             'metrics'    => [['name' => 'sessions']],
@@ -147,7 +203,7 @@ class Ga4AnalyticsService
         ];
 
         return [
-            [
+            $filter + [
                 'dateRanges' => $range,
                 'metrics'    => [
                     ['name' => 'sessions'],
@@ -163,6 +219,31 @@ class Ga4AnalyticsService
             $breakdown('sessionDefaultChannelGroup', self::TOP_ROWS),
             $breakdown('country', self::LOCATION_FETCH),
         ];
+    }
+
+    /**
+     * A report-level "country is none of these", or nothing at all.
+     *
+     * Returned as a whole array element rather than a value so an unfiltered
+     * property sends no dimensionFilter key at all, instead of an empty one
+     * the API would have to interpret.
+     *
+     * @param  list<string>  $excluded
+     */
+    private function countryFilter(array $excluded): array
+    {
+        if (! $excluded) {
+            return [];
+        }
+
+        return ['dimensionFilter' => [
+            'notExpression' => [
+                'filter' => [
+                    'fieldName'    => 'country',
+                    'inListFilter' => ['values' => array_values($excluded)],
+                ],
+            ],
+        ]];
     }
 
     /**
