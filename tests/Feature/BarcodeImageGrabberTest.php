@@ -202,9 +202,14 @@ class BarcodeImageGrabberTest extends TestCase
     {
         Http::fake([
             'shop.test/search/suggest.json*' => Http::response('', 404),
-            'shop.test/search?*' => Http::response(
-                '<a class="card" href="/collections/all/products/leather-belt">Leather Belt</a>'
-            ),
+            // Query-aware, the way a real search is: the probe that checks
+            // whether this site reads its own query has to see it answer
+            // differently for something that does not exist.
+            'shop.test/search?*' => function ($request) {
+                return str_contains($request->url(), '5051234567890')
+                    ? Http::response('<a class="card" href="/collections/all/products/leather-belt">Leather Belt</a>')
+                    : Http::response('<p>Nothing found.</p>');
+            },
             'shop.test/collections/all/products/leather-belt.js' => Http::response('', 404),
             'shop.test/collections/all/products/leather-belt' => Http::response(
                 '<html><head><meta property="og:image" content="https://cdn.shop.test/belt.jpg"></head>'
@@ -942,6 +947,108 @@ class BarcodeImageGrabberTest extends TestCase
         $this->assertSame(1, $session->refresh()->push_total);
 
         $session->deleteFiles();
+    }
+
+// ── Sites that cannot be read at all ─────────────────────────────────────
+
+    /**
+     * Herrenausstatter, which sent this back a third time.
+     *
+     * Its /search returns 800kB of identical markup whatever is searched for,
+     * because the results arrive afterwards from an API the page calls itself.
+     * Sixty-three barcodes all came back "not found", which reads as a bad
+     * list rather than an unreadable site.
+     */
+    public function test_a_site_that_builds_its_results_in_the_browser_is_named_as_such(): void
+    {
+        Http::fake([
+            'shop.test/robots.txt' => Http::response('User-agent: *' . "\n" . 'Allow: /'),
+
+            // The same storefront offered back whatever was asked for — a
+            // page full of products that has plainly not read the question.
+            'shop.test/search*' => Http::response(implode('', array_map(
+                fn ($n) => '<a href="/alberto-hosen-46914' . $n . '">Alberto</a>',
+                range(0, 7),
+            )) . '<a href="/hemden">Hemden</a>'),
+            '*' => Http::response('', 404),
+        ]);
+
+        $session = BarcodeImageSession::create([
+            'user_id'      => $this->operator()->id,
+            'site_url'     => 'https://shop.test',
+            'status'       => 'pending',
+            'raw_barcodes' => "10152 55511\n80020 161705 200",
+        ]);
+
+        app(RunBarcodeImageDownloadJob::class, ['sessionId' => $session->id])
+            ->handle(app(ProductImageScraper::class));
+
+        $session->refresh();
+
+        $this->assertSame('failed', $session->status);
+        $this->assertStringContainsString('builds its search results in the browser', (string) $session->error_message);
+
+        // Stopped rather than marking every barcode on the list as missing.
+        $this->assertSame(0, $session->items()->count());
+    }
+
+    public function test_a_site_that_simply_has_no_match_is_still_run_normally(): void
+    {
+        Http::fake([
+            'shop.test/robots.txt' => Http::response('User-agent: *'),
+
+            // An honest empty answer both times. Two empty answers mean the
+            // barcode is not stocked, not that the site cannot be read.
+            'shop.test/search*'    => Http::response('<p>Nothing found.</p>'),
+            '*' => Http::response('', 404),
+        ]);
+
+        $session = BarcodeImageSession::create([
+            'user_id'      => $this->operator()->id,
+            'site_url'     => 'https://shop.test',
+            'status'       => 'pending',
+            'raw_barcodes' => '0000000000000',
+        ]);
+
+        app(RunBarcodeImageDownloadJob::class, ['sessionId' => $session->id])
+            ->handle(app(ProductImageScraper::class));
+
+        $session->refresh();
+
+        $this->assertSame('completed', $session->status);
+        $this->assertSame('not_found', $session->items()->sole()->status);
+    }
+
+    // ── Reading other people's websites politely ─────────────────────────────
+
+    public function test_a_stated_crawl_delay_is_read_from_robots_txt(): void
+    {
+        Http::fake([
+            'shop.test/robots.txt' => Http::response(
+                "User-agent: Googlebot\nCrawl-delay: 1\n\nUser-Agent: *\nAllow: /\nCrawl-delay: 15\n"
+            ),
+        ]);
+
+        // The catch-all group's rule, not Googlebot's: this reader does not
+        // claim a name of its own.
+        $this->assertSame(15.0, app(ProductImageScraper::class)->crawlDelaySeconds('https://shop.test/en/qa'));
+    }
+
+    public function test_a_site_asking_for_nothing_or_for_far_too_much_is_handled(): void
+    {
+        $scraper = app(ProductImageScraper::class);
+
+        Http::fake(['shop.test/robots.txt' => Http::response("User-agent: *\nAllow: /")]);
+        $this->assertSame(0.0, $scraper->crawlDelaySeconds('https://shop.test'));
+
+        Http::fake(['slow.test/robots.txt' => Http::response("User-agent: *\nCrawl-delay: 600")]);
+
+        // Capped: ten minutes a barcode is a run that never visibly finishes,
+        // and at that point the site should not be read in bulk at all.
+        $this->assertSame(20.0, $scraper->crawlDelaySeconds('https://slow.test'));
+
+        Http::fake(['none.test/robots.txt' => Http::response('', 404)]);
+        $this->assertSame(0.0, $scraper->crawlDelaySeconds('https://none.test'));
     }
 
     // ── A barcode is a folder name, and folder names are dangerous ───────────

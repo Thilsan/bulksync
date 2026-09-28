@@ -31,6 +31,12 @@ class ProductImageScraper
     /** A barcode matching more pages than this is a search being loose, not a catalogue. */
     private const MAX_PRODUCTS_PER_BARCODE = 6;
 
+    /** Above this many product links, a page is showing a listing rather than an empty result. */
+    private const PRODUCTS_MEANING_A_LISTING = 5;
+
+    /** The longest wait between barcodes this will honour before giving up on a site. */
+    private const MAX_CRAWL_DELAY = 20.0;
+
     /** How much of a page is worth sifting for the product's own gallery. */
     private const MAX_PAGE_IMAGES = 400;
 
@@ -147,6 +153,140 @@ class ProductImageScraper
 
         return ($parts['scheme'] ?? 'https') . '://' . $parts['host']
             . (empty($parts['port']) ? '' : ':' . $parts['port']);
+    }
+
+    /**
+     * Whether this site can be read at all, before a long list is started
+     * against it. Returns a sentence explaining why not, or null when it can.
+     *
+     * Two ways a catalogue defeats this, both of which otherwise report every
+     * barcode as missing — which reads as "your list is wrong" when the list is
+     * fine:
+     *
+     *  - it decides the country from where the request comes from, and sends
+     *    the search to another storefront without the query;
+     *  - it builds its search results in the browser, so the page that arrives
+     *    here is the same page whatever was searched for. Herrenausstatter is
+     *    one: its /search returns 800kB of identical markup for a real article
+     *    number and for nonsense, because the results arrive afterwards from
+     *    an API the page calls itself.
+     *
+     * The second is checked by asking twice — once for something that cannot
+     * exist, once for a real barcode — and comparing what came back. Only a
+     * page that offers the same products both times is ignoring the question;
+     * two empty answers just mean the barcode is not stocked, which is an
+     * ordinary miss and not worth stopping for.
+     */
+    public function searchability(string $base, string $sampleBarcode): ?string
+    {
+        if ($landed = $this->searchRedirectsTo($base)) {
+            return "This site sent the search to {$landed} instead of answering it. "
+                . 'Catalogues that run a storefront per country decide which one to show from where the '
+                . 'request comes from, and this server is not in the same country as you — so the address '
+                . 'has to say which storefront is meant. Paste it in full, including the country, '
+                . 'for example www.luisaspagnoli.com/en/qa, and run it again.';
+        }
+
+        try {
+            $nonsense = $this->searchFingerprint($base, 'zzqq-no-such-thing-99');
+            $real     = $this->searchFingerprint($base, $sampleBarcode);
+        } catch (\Throwable $e) {
+            return null; // Unreachable is a different problem, reported per barcode.
+        }
+
+        // Identical pages that are both full of products: the search ignored
+        // the question and served the storefront. A pair of identical *empty*
+        // pages is an honest "no results" for both, which is a miss and not a
+        // reason to stop.
+        if ($nonsense['links'] === $real['links'] && $nonsense['products'] >= self::PRODUCTS_MEANING_A_LISTING) {
+            return 'This website builds its search results in the browser, so the page that reaches this '
+                . 'server is the same one whatever is searched for — there is nothing in it to read. '
+                . 'Its pictures cannot be collected this way. Ask the brand for the images directly, or '
+                . 'use a site whose search results are in the page.';
+        }
+
+        return null;
+    }
+
+    /**
+     * Enough of one search's answer to tell two answers apart.
+     *
+     * Every internal link on the page, sorted, plus a count of how many of
+     * them look like a product. The link list is what changes when a search is
+     * really performed; the count is what separates a storefront served
+     * regardless of the question from an honest empty result.
+     *
+     * The loose product test here is not the one used to pick a link to
+     * follow — that one insists on the barcode, because following the wrong
+     * link puts the wrong pictures in the folder. This one only has to
+     * recognise the shape of a listing, so it takes slug-then-id
+     * (/alberto-hosen-469146) as well as the named /products/ forms.
+     *
+     * @return array{links: string[], products: int}
+     */
+    private function searchFingerprint(string $base, string $term): array
+    {
+        $response = $this->client()->get("{$base}/search", ['q' => $term]);
+
+        if (!$response->successful()) return ['links' => [], 'products' => 0];
+
+        preg_match_all('~href=["\'](/[^"\'?#]*)["\']~i', $response->body(), $matches);
+
+        $links = array_values(array_unique($matches[1] ?? []));
+        sort($links);
+
+        $products = count(array_filter(
+            $links,
+            fn (string $href) => (bool) preg_match('~/(?:products?|p|item)/|-\d{4,}$|\d{4,}\.html?$~i', $href),
+        ));
+
+        return ['links' => $links, 'products' => $products];
+    }
+
+    /**
+     * How long this site asks automated readers to wait between requests.
+     *
+     * robots.txt is where a site says how it wants to be read, and a stated
+     * Crawl-delay is the clearest form of that. Herrenausstatter asks for
+     * fifteen seconds. Ignoring it is how a workspace's server ends up blocked,
+     * and it is the site's call to make rather than ours.
+     *
+     * Capped, because a delay of minutes would leave a run that never visibly
+     * finishes — at which point the honest answer is that the site should not
+     * be read in bulk at all.
+     */
+    public function crawlDelaySeconds(string $base): float
+    {
+        try {
+            $response = $this->client()->timeout(10)->get($this->origin($base) . '/robots.txt');
+        } catch (\Throwable $e) {
+            return 0.0;
+        }
+
+        if (!$response->successful()) return 0.0;
+
+        $applies = false;
+        $delay   = 0.0;
+
+        foreach (preg_split('~\R~', $response->body()) ?: [] as $line) {
+            $line = trim(preg_replace('~#.*$~', '', $line) ?? '');
+
+            if ($line === '') continue;
+
+            if (preg_match('~^user-agent:\s*(.+)$~i', $line, $m)) {
+                // Only the catch-all group: this reader does not claim a name
+                // of its own, so a rule aimed at Googlebot is not aimed at it.
+                $applies = trim($m[1]) === '*';
+
+                continue;
+            }
+
+            if ($applies && preg_match('~^crawl-delay:\s*([\d.]+)~i', $line, $m)) {
+                $delay = max($delay, (float) $m[1]);
+            }
+        }
+
+        return min($delay, self::MAX_CRAWL_DELAY);
     }
 
     /**

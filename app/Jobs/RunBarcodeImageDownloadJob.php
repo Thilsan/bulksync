@@ -31,7 +31,7 @@ class RunBarcodeImageDownloadJob implements ShouldQueue
     public int $timeout = 10800;
     public int $tries   = 1;
 
-    /** Microseconds between barcodes — courtesy to the site being read. */
+    /** The least this waits between barcodes, where the site asks for nothing more. */
     private const PAUSE_MICROSECONDS = 300_000;
 
     public function __construct(public readonly int $sessionId) {}
@@ -57,19 +57,15 @@ class RunBarcodeImageDownloadJob implements ShouldQueue
         }
 
         // Asked once, before a thousand barcodes are looked up one at a time:
-        // a site that bounces the search to another country's storefront will
-        // report every one of them as missing, and "your list is wrong" is the
-        // wrong thing to tell somebody whose list is fine.
-        if ($landed = $scraper->searchRedirectsTo($site)) {
+        // a site that cannot be read will report every one of them as missing,
+        // and "your list is wrong" is the wrong thing to tell somebody whose
+        // list is fine.
+        if ($why = $scraper->searchability($site, $barcodes[0])) {
             $session->update([
                 'status'        => 'failed',
                 'site_url'      => $site,
                 'raw_barcodes'  => null,
-                'error_message' => "This site sent the search to {$landed} instead of answering it. "
-                    . 'Catalogues that run a storefront per country decide which one to show from where the '
-                    . 'request comes from, and this server is not in the same country as you — so the address '
-                    . 'has to say which storefront is meant. Paste it in full, including the country, '
-                    . 'for example www.luisaspagnoli.com/en/qa, and run it again.',
+                'error_message' => $why,
             ]);
 
             return;
@@ -81,7 +77,12 @@ class RunBarcodeImageDownloadJob implements ShouldQueue
             'total_barcodes' => count($barcodes),
         ]);
 
-        Log::info("RunBarcodeImageDownloadJob: {$session->total_barcodes} barcodes against {$site} for session {$this->sessionId}");
+        // What the site asks for in robots.txt, where that is more than the
+        // courtesy pause above. It is the site's call how fast it is read.
+        $pause = max(self::PAUSE_MICROSECONDS, (int) round($scraper->crawlDelaySeconds($site) * 1_000_000));
+
+        Log::info("RunBarcodeImageDownloadJob: {$session->total_barcodes} barcodes against {$site} "
+            . 'for session ' . $this->sessionId . ', ' . round($pause / 1_000_000, 1) . 's between each');
 
         $processed  = 0;
         $found      = 0;
@@ -162,7 +163,7 @@ class RunBarcodeImageDownloadJob implements ShouldQueue
                     'images_downloaded' => $downloaded,
                 ]);
 
-                usleep(self::PAUSE_MICROSECONDS);
+                usleep($pause);
             }
 
             $session->update([
