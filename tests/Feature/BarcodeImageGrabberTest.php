@@ -2,10 +2,15 @@
 
 namespace Tests\Feature;
 
+use App\Jobs\PushBarcodeImagesJob;
 use App\Jobs\RunBarcodeImageDownloadJob;
+use App\Models\BarcodeImageItem;
 use App\Models\BarcodeImageSession;
+use App\Models\Store;
 use App\Models\User;
 use App\Services\ProductImageScraper;
+use App\Services\ShopifyService;
+use Mockery;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Http;
@@ -537,6 +542,406 @@ class BarcodeImageGrabberTest extends TestCase
         ]);
 
         $this->assertNull(app(ProductImageScraper::class)->searchRedirectsTo('https://shop.test/en/qa'));
+    }
+
+// ── Who sees which runs ──────────────────────────────────────────────────
+
+    private function superAdmin(): User
+    {
+        return User::create([
+            'name' => 'Ops Lead', 'email' => 'ops@example.test',
+            'password' => 'password', 'is_active' => true, 'is_super_admin' => true,
+        ]);
+    }
+
+    public function test_a_super_admin_sees_everyones_runs_with_the_name_beside_each(): void
+    {
+        BarcodeImageSession::create([
+            'user_id' => $this->operator()->id, 'site_url' => 'https://shop.test',
+            'status' => 'completed', 'name' => 'Autumn drop',
+        ]);
+
+        $page = $this->actingAs($this->superAdmin())
+            ->get(route('barcode-images.history'))
+            ->assertOk();
+
+        $page->assertSee('Started by')
+             ->assertSee('Image Grabber')   // whose run it was
+             ->assertSee('Autumn drop');
+    }
+
+    public function test_an_ordinary_user_sees_only_their_own_runs_and_no_name_column(): void
+    {
+        BarcodeImageSession::create([
+            'user_id' => $this->superAdmin()->id, 'site_url' => 'https://shop.test',
+            'status' => 'completed', 'name' => 'Somebody elses run',
+        ]);
+
+        $page = $this->actingAs($this->operator())
+            ->get(route('barcode-images.history'))
+            ->assertOk();
+
+        // The column would repeat one name down the page, and the other
+        // person's run is not theirs to read.
+        $page->assertDontSee('Started by')
+             ->assertDontSee('Somebody elses run');
+    }
+
+    public function test_a_super_admin_can_open_and_delete_a_run_that_is_not_theirs(): void
+    {
+        $session = BarcodeImageSession::create([
+            'user_id' => $this->operator()->id, 'site_url' => 'https://shop.test', 'status' => 'completed',
+        ]);
+
+        $folder = $session->folderFor('8806094582161');
+        mkdir($folder, 0755, true);
+        file_put_contents("{$folder}/8806094582161-1.png", $this->onePixelPng());
+        $directory = $session->directory();
+
+        $admin = $this->superAdmin();
+
+        // Whose run it is appears on the screen, because Delete is right there.
+        $this->actingAs($admin)
+            ->get(route('barcode-images.show', $session))
+            ->assertOk()
+            ->assertSee('Image Grabber');
+
+        $this->actingAs($admin)->delete(route('barcode-images.destroy', $session))->assertRedirect();
+
+        $this->assertDirectoryDoesNotExist($directory);
+        $this->assertSame(0, BarcodeImageSession::count());
+    }
+
+// ── Pushing a finished grab to Shopify ───────────────────────────────────
+
+    private function storeFor(User $user): Store
+    {
+        $store = Store::create([
+            'name' => 'Destination Site', 'shopify_domain' => 'dest.myshopify.com', 'is_active' => true,
+        ]);
+
+        $user->stores()->attach($store->id);
+
+        return $store;
+    }
+
+    /** A finished grab with one barcode and two pictures on disk. */
+    private function grabReadyToPush(User $user): BarcodeImageSession
+    {
+        $session = BarcodeImageSession::create([
+            'user_id'           => $user->id,
+            'site_url'          => 'https://shop.test/en/qa',
+            'status'            => 'completed',
+            'total_barcodes'    => 1,
+            'processed'         => 1,
+            'found_count'       => 1,
+            'images_downloaded' => 2,
+        ]);
+
+        BarcodeImageItem::create([
+            'barcode_image_session_id' => $session->id,
+            'barcode'                  => '542849AGELLO',
+            'status'                   => 'found',
+            'image_count'              => 2,
+        ]);
+
+        $folder = $session->folderFor('542849AGELLO');
+        mkdir($folder, 0755, true);
+        file_put_contents("{$folder}/542849AGELLO-1.jpg", $this->onePixelPng());
+        file_put_contents("{$folder}/542849AGELLO-2.jpg", $this->onePixelPng());
+
+        return $session;
+    }
+
+    public function test_the_push_form_offers_the_websites_and_both_ways_of_matching(): void
+    {
+        $user = $this->operator();
+        $this->storeFor($user);
+        $session = $this->grabReadyToPush($user);
+
+        $page = $this->actingAs($user)->get(route('barcode-images.show', $session))->assertOk();
+
+        $page->assertSee('Push to Shopify')
+             ->assertSee('name="store_id"', false)
+             ->assertSee('Destination Site')
+             ->assertSee('value="sku_barcode"', false)
+             ->assertSee('value="style_code"', false);
+
+        $session->deleteFiles();
+    }
+
+    public function test_starting_a_push_records_the_website_and_the_matching_it_was_asked_for(): void
+    {
+        Bus::fake();
+
+        $user    = $this->operator();
+        $store   = $this->storeFor($user);
+        $session = $this->grabReadyToPush($user);
+
+        $this->actingAs($user)
+            ->post(route('barcode-images.push', $session), [
+                'store_id'      => $store->id,
+                'matching_mode' => 'style_code',
+            ])
+            ->assertRedirect();
+
+        $session->refresh();
+
+        $this->assertSame('pending', $session->push_status);
+        $this->assertSame($store->id, $session->push_store_id);
+        $this->assertSame('style_code', $session->push_matching_mode);
+
+        Bus::assertDispatched(PushBarcodeImagesJob::class);
+
+        $session->deleteFiles();
+    }
+
+    public function test_a_website_the_person_has_no_access_to_cannot_be_pushed_to(): void
+    {
+        Bus::fake();
+
+        $user    = $this->operator();
+        $session = $this->grabReadyToPush($user);
+
+        // A store that exists, but is not theirs — the id is typed into a form,
+        // so the check cannot rely on the dropdown only listing their own.
+        $theirs = Store::create([
+            'name' => 'Someone Elses Shop', 'shopify_domain' => 'other.myshopify.com', 'is_active' => true,
+        ]);
+
+        $this->actingAs($user)
+            ->post(route('barcode-images.push', $session), [
+                'store_id'      => $theirs->id,
+                'matching_mode' => 'sku_barcode',
+            ])
+            ->assertNotFound();
+
+        Bus::assertNothingDispatched();
+
+        $session->deleteFiles();
+    }
+
+    public function test_a_second_push_is_refused_while_one_is_still_running(): void
+    {
+        Bus::fake();
+
+        $user    = $this->operator();
+        $store   = $this->storeFor($user);
+        $session = $this->grabReadyToPush($user);
+
+        $session->update(['push_status' => 'pushing', 'push_store_id' => $store->id]);
+
+        $this->actingAs($user)
+            ->post(route('barcode-images.push', $session), [
+                'store_id'      => $store->id,
+                'matching_mode' => 'sku_barcode',
+            ])
+            ->assertSessionHasErrors('store_id');
+
+        // Two jobs uploading the same pictures to the same product would
+        // duplicate the gallery.
+        Bus::assertNothingDispatched();
+
+        $session->deleteFiles();
+    }
+
+    public function test_a_grab_with_nothing_downloaded_has_nothing_to_push(): void
+    {
+        Bus::fake();
+
+        $user  = $this->operator();
+        $store = $this->storeFor($user);
+
+        $session = BarcodeImageSession::create([
+            'user_id' => $user->id, 'site_url' => 'https://shop.test',
+            'status' => 'completed', 'images_downloaded' => 0,
+        ]);
+
+        $this->actingAs($user)
+            ->post(route('barcode-images.push', $session), [
+                'store_id'      => $store->id,
+                'matching_mode' => 'sku_barcode',
+            ])
+            ->assertSessionHasErrors('store_id');
+
+        Bus::assertNothingDispatched();
+    }
+
+// ── What the push actually sends ─────────────────────────────────────────
+
+    /** Runs the push with a stand-in Shopify, and reports what it was handed. */
+    private function pushWith(BarcodeImageSession $session, ShopifyService $shopify): void
+    {
+        $job = new class($session->id, $shopify) extends PushBarcodeImagesJob {
+            public function __construct(int $sessionId, private $fake)
+            {
+                parent::__construct($sessionId);
+            }
+
+            protected function shopifyFor(\App\Models\Store $store): ShopifyService
+            {
+                return $this->fake;
+            }
+        };
+
+        $job->handle();
+    }
+
+    public function test_every_picture_of_a_barcode_goes_to_the_matched_product_with_only_the_first_on_the_variant(): void
+    {
+        $user    = $this->operator();
+        $store   = $this->storeFor($user);
+        $session = $this->grabReadyToPush($user);
+
+        $session->update(['push_store_id' => $store->id, 'push_matching_mode' => 'sku_barcode', 'push_status' => 'pending']);
+
+        $uploads = [];
+        $shopify = Mockery::mock(ShopifyService::class);
+
+        $shopify->shouldReceive('findVariantsBySkuOrBarcode')->once()->with('542849AGELLO', true)
+            ->andReturn([['product_id' => 'gid://P/1', 'variant_id' => 'gid://V/9', 'product_title' => 'Agello']]);
+
+        $shopify->shouldReceive('uploadImageToProduct')
+            ->andReturnUsing(function ($productId, $content, $filename, $alt, $variantId = null) use (&$uploads) {
+                $uploads[] = ['file' => $filename, 'variant' => $variantId];
+                return 'gid://Image/' . count($uploads);
+            });
+
+        $this->pushWith($session, $shopify);
+
+        $session->refresh();
+
+        $this->assertSame('completed', $session->push_status);
+        $this->assertSame(1, $session->push_pushed);
+        $this->assertSame(0, $session->push_failed);
+
+        // In the order they were numbered when downloaded, and the variant is
+        // bound once — passing it on every upload leaves whichever finished
+        // last showing on the variant.
+        $this->assertSame([
+            ['file' => '542849AGELLO-1.jpg', 'variant' => 'gid://V/9'],
+            ['file' => '542849AGELLO-2.jpg', 'variant' => null],
+        ], $uploads);
+
+        $item = $session->items()->sole();
+        $this->assertSame('pushed', $item->push_status);
+        $this->assertSame('Agello', $item->shopify_product_title);
+        $this->assertSame(2, $item->pushed_images);
+
+        $session->deleteFiles();
+    }
+
+    public function test_style_code_matching_sends_to_the_gallery_and_binds_no_variant(): void
+    {
+        $user    = $this->operator();
+        $store   = $this->storeFor($user);
+        $session = $this->grabReadyToPush($user);
+
+        $session->update(['push_store_id' => $store->id, 'push_matching_mode' => 'style_code', 'push_status' => 'pending']);
+
+        $variants = [];
+        $shopify  = Mockery::mock(ShopifyService::class);
+
+        $shopify->shouldReceive('findProductsByStyleCode')->once()->with('542849AGELLO', true)
+            ->andReturn([['product_id' => 'gid://P/1', 'product_title' => 'Agello']]);
+
+        $shopify->shouldReceive('uploadImageToProduct')
+            ->andReturnUsing(function ($productId, $content, $filename, $alt, $variantId = null) use (&$variants) {
+                $variants[] = $variantId;
+                return 'gid://Image/1';
+            });
+
+        $this->pushWith($session, $shopify);
+
+        // A style code names a product, not a variant, so there is nothing to
+        // bind the picture to.
+        $this->assertSame([null, null], $variants);
+        $this->assertSame(1, $session->refresh()->push_pushed);
+
+        $session->deleteFiles();
+    }
+
+    public function test_a_barcode_on_two_different_products_is_skipped_rather_than_guessed_at(): void
+    {
+        $user    = $this->operator();
+        $store   = $this->storeFor($user);
+        $session = $this->grabReadyToPush($user);
+
+        $session->update(['push_store_id' => $store->id, 'push_matching_mode' => 'sku_barcode', 'push_status' => 'pending']);
+
+        $shopify = Mockery::mock(ShopifyService::class);
+        $shopify->shouldReceive('findVariantsBySkuOrBarcode')->andReturn([
+            ['product_id' => 'gid://P/1', 'variant_id' => 'gid://V/1'],
+            ['product_id' => 'gid://P/2', 'variant_id' => 'gid://V/2'],
+        ]);
+
+        // Sending pictures to the wrong product is worse than sending none.
+        $shopify->shouldNotReceive('uploadImageToProduct');
+
+        $this->pushWith($session, $shopify);
+
+        $item = $session->items()->sole();
+
+        $this->assertSame('skipped', $item->push_status);
+        $this->assertStringContainsString('2 different products', (string) $item->push_message);
+        $this->assertSame(1, $session->refresh()->push_failed);
+
+        $session->deleteFiles();
+    }
+
+    public function test_a_barcode_no_product_matches_is_reported_and_the_rest_carry_on(): void
+    {
+        $user    = $this->operator();
+        $store   = $this->storeFor($user);
+        $session = $this->grabReadyToPush($user);
+
+        $session->update(['push_store_id' => $store->id, 'push_matching_mode' => 'sku_barcode', 'push_status' => 'pending']);
+
+        $shopify = Mockery::mock(ShopifyService::class);
+        $shopify->shouldReceive('findVariantsBySkuOrBarcode')->andReturn([]);
+        $shopify->shouldNotReceive('uploadImageToProduct');
+
+        $this->pushWith($session, $shopify);
+
+        $session->refresh();
+        $item = $session->items()->sole();
+
+        $this->assertSame('skipped', $item->push_status);
+        $this->assertStringContainsString('No product on that website matched', (string) $item->push_message);
+        $this->assertSame('completed', $session->push_status);
+        $this->assertSame(0, $session->push_pushed);
+        $this->assertSame(1, $session->push_failed);
+
+        $session->deleteFiles();
+    }
+
+    public function test_barcodes_that_found_no_pictures_are_not_counted_in_the_push(): void
+    {
+        $user    = $this->operator();
+        $store   = $this->storeFor($user);
+        $session = $this->grabReadyToPush($user);
+
+        // A miss from the grab: nothing to send, so it must not appear in the
+        // progress bar as work still to do.
+        BarcodeImageItem::create([
+            'barcode_image_session_id' => $session->id,
+            'barcode'                  => '000000NOTHING',
+            'status'                   => 'not_found',
+            'image_count'              => 0,
+        ]);
+
+        $session->update(['push_store_id' => $store->id, 'push_matching_mode' => 'sku_barcode', 'push_status' => 'pending']);
+
+        $shopify = Mockery::mock(ShopifyService::class);
+        $shopify->shouldReceive('findVariantsBySkuOrBarcode')
+            ->andReturn([['product_id' => 'gid://P/1', 'variant_id' => 'gid://V/9']]);
+        $shopify->shouldReceive('uploadImageToProduct')->andReturn('gid://Image/1');
+
+        $this->pushWith($session, $shopify);
+
+        $this->assertSame(1, $session->refresh()->push_total);
+
+        $session->deleteFiles();
     }
 
     // ── A barcode is a folder name, and folder names are dangerous ───────────

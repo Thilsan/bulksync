@@ -75,6 +75,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/barcode-images/{barcodeImageSession}',                 [BarcodeImageController::class, 'show'])->name('barcode-images.show');
     Route::get('/barcode-images/{barcodeImageSession}/status',          [BarcodeImageController::class, 'status'])->name('barcode-images.status');
     Route::get('/barcode-images/{barcodeImageSession}/items',           [BarcodeImageController::class, 'items'])->name('barcode-images.items');
+    Route::post('/barcode-images/{barcodeImageSession}/push',            [BarcodeImageController::class, 'push'])->name('barcode-images.push');
     Route::get('/barcode-images/{barcodeImageSession}/download',        [BarcodeImageController::class, 'download'])->name('barcode-images.download');
     Route::get('/barcode-images/{barcodeImageSession}/download/{barcode}', [BarcodeImageController::class, 'downloadOne'])->name('barcode-images.download-one');
     Route::delete('/barcode-images/{barcodeImageSession}',              [BarcodeImageController::class, 'destroy'])->name('barcode-images.destroy');

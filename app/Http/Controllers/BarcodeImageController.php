@@ -2,8 +2,10 @@
 
 namespace App\Http\Controllers;
 
+use App\Jobs\PushBarcodeImagesJob;
 use App\Jobs\RunBarcodeImageDownloadJob;
 use App\Models\BarcodeImageSession;
+use App\Models\Store;
 use App\Services\ProductImageScraper;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -41,9 +43,24 @@ class BarcodeImageController extends Controller
         return view('barcode-images.index', compact('totals', 'recent'));
     }
 
+    /**
+     * Every run, newest first — everyone's, for a super admin.
+     *
+     * The grab reads somebody else's website from this workspace's server, so
+     * who ran what is worth being able to answer. A super admin gets the whole
+     * list with the name beside each row; everyone else sees their own, where
+     * a name column would say the same thing on every line.
+     *
+     * The form screen stays personal either way: it shows what you have been
+     * doing lately next to the box you start the next run from.
+     */
     public function history()
     {
-        $sessions = BarcodeImageSession::where('user_id', auth()->id())
+        $user = auth()->user();
+
+        $sessions = BarcodeImageSession::query()
+            ->unless($user->is_super_admin, fn ($query) => $query->where('user_id', $user->id))
+            ->with('user')
             ->latest()
             ->paginate(20);
 
@@ -91,14 +108,17 @@ class BarcodeImageController extends Controller
 
     public function show(BarcodeImageSession $barcodeImageSession)
     {
-        abort_if($barcodeImageSession->user_id !== auth()->id(), 403);
+        $this->authorise($barcodeImageSession);
 
-        return view('barcode-images.show', ['session' => $barcodeImageSession]);
+        return view('barcode-images.show', [
+            'session' => $barcodeImageSession->load('user', 'pushStore'),
+            'stores'  => Store::accessibleBy(auth()->user())->orderBy('name')->get(),
+        ]);
     }
 
     public function status(BarcodeImageSession $barcodeImageSession)
     {
-        abort_if($barcodeImageSession->user_id !== auth()->id(), 403);
+        $this->authorise($barcodeImageSession);
 
         return response()->json([
             'status'    => $barcodeImageSession->status,
@@ -109,12 +129,23 @@ class BarcodeImageController extends Controller
             'missing'   => $barcodeImageSession->missing_count,
             'images'    => $barcodeImageSession->images_downloaded,
             'error'     => $barcodeImageSession->error_message,
+
+            'push' => [
+                'status'   => $barcodeImageSession->push_status,
+                'total'    => $barcodeImageSession->push_total,
+                'done'     => $barcodeImageSession->push_done,
+                'pushed'   => $barcodeImageSession->push_pushed,
+                'failed'   => $barcodeImageSession->push_failed,
+                'progress' => $barcodeImageSession->pushProgressPercent(),
+                'store'    => $barcodeImageSession->pushStore?->name,
+                'error'    => $barcodeImageSession->push_error,
+            ],
         ]);
     }
 
     public function items(BarcodeImageSession $barcodeImageSession, Request $request)
     {
-        abort_if($barcodeImageSession->user_id !== auth()->id(), 403);
+        $this->authorise($barcodeImageSession);
 
         $filter = $request->get('filter', 'all');
         $search = trim((string) $request->get('q', ''));
@@ -142,6 +173,57 @@ class BarcodeImageController extends Controller
     }
 
     /**
+     * Send this run's pictures to a Shopify store.
+     *
+     * The website is asked for rather than assumed: the images were grabbed
+     * from one site to be put on another, so the active store is as likely to
+     * be wrong as right, and getting it wrong writes to a live catalogue.
+     */
+    public function push(BarcodeImageSession $barcodeImageSession, Request $request)
+    {
+        $this->authorise($barcodeImageSession);
+
+        $data = $request->validate([
+            'store_id'      => ['required', 'integer'],
+            'matching_mode' => ['required', 'in:sku_barcode,style_code'],
+        ]);
+
+        // Through the user's own stores, so an id typed into the form cannot
+        // reach a store they have no access to.
+        $store = Store::accessibleBy(auth()->user())->findOrFail($data['store_id']);
+
+        if ($barcodeImageSession->status !== 'completed') {
+            return back()->withErrors(['store_id' => 'Wait for the grab to finish before pushing it.']);
+        }
+
+        if ($barcodeImageSession->images_downloaded === 0) {
+            return back()->withErrors(['store_id' => 'This run has no images to push.']);
+        }
+
+        // Re-pushing is allowed — a first attempt can miss on a store that was
+        // not ready — but not while one is already going, which would have two
+        // jobs uploading the same pictures to the same products.
+        if ($barcodeImageSession->isPushing()) {
+            return back()->withErrors(['store_id' => 'A push is already running for this grab.']);
+        }
+
+        $barcodeImageSession->update([
+            'push_status'        => 'pending',
+            'push_store_id'      => $store->id,
+            'push_matching_mode' => $data['matching_mode'],
+            'push_total'         => 0,
+            'push_done'          => 0,
+            'push_pushed'        => 0,
+            'push_failed'        => 0,
+            'push_error'         => null,
+        ]);
+
+        PushBarcodeImagesJob::dispatch($barcodeImageSession->id)->onQueue('bulkupload');
+
+        return back()->with('success', "Pushing to {$store->name}. It continues in the background.");
+    }
+
+    /**
      * The whole run as a ZIP, one folder per barcode.
      *
      * Built on demand rather than kept: a second copy of every image on disk is
@@ -150,7 +232,7 @@ class BarcodeImageController extends Controller
      */
     public function download(BarcodeImageSession $barcodeImageSession): BinaryFileResponse
     {
-        abort_if($barcodeImageSession->user_id !== auth()->id(), 403);
+        $this->authorise($barcodeImageSession);
 
         $root = $barcodeImageSession->directory();
 
@@ -191,7 +273,7 @@ class BarcodeImageController extends Controller
     /** One barcode's folder on its own, for when only that product is wanted. */
     public function downloadOne(BarcodeImageSession $barcodeImageSession, string $barcode): BinaryFileResponse
     {
-        abort_if($barcodeImageSession->user_id !== auth()->id(), 403);
+        $this->authorise($barcodeImageSession);
 
         $folder = $barcodeImageSession->folderFor($barcode);
 
@@ -225,7 +307,7 @@ class BarcodeImageController extends Controller
 
     public function destroy(BarcodeImageSession $barcodeImageSession)
     {
-        abort_if($barcodeImageSession->user_id !== auth()->id(), 403);
+        $this->authorise($barcodeImageSession);
 
         // Files first: a deleted row leaves nothing that knows the folder is
         // there, and the sweep in routes/console.php is the only thing that
@@ -234,6 +316,19 @@ class BarcodeImageController extends Controller
         $barcodeImageSession->delete();
 
         return redirect()->route('barcode-images.index')->with('success', 'Run deleted.');
+    }
+
+    /**
+     * A run is readable by whoever started it, and by a super admin.
+     *
+     * Deleting is covered by the same rule: a super admin is who gets asked to
+     * clear out a run that filled the disk, and the files are the point of it.
+     */
+    private function authorise(BarcodeImageSession $session): void
+    {
+        $user = auth()->user();
+
+        abort_if($session->user_id !== $user->id && !$user->is_super_admin, 403);
     }
 
     /** @return string[] */

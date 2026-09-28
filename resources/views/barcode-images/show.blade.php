@@ -7,6 +7,12 @@
      x-data="barcodeGrab({{ $session->id }}, @js($session->status))"
      x-init="init()">
 
+    @if(session('success'))
+        <div class="rounded-xl border border-green-200 bg-green-50 px-5 py-3 text-sm text-green-800">
+            {{ session('success') }}
+        </div>
+    @endif
+
     {{-- ── Header ──────────────────────────────────────────────────────── --}}
     <div class="flex flex-wrap items-start justify-between gap-3 rounded-xl border border-gray-200 bg-white p-5">
         <div class="min-w-0">
@@ -15,10 +21,21 @@
                 <a href="{{ $session->site_url }}" target="_blank" rel="noopener noreferrer"
                    class="text-brand-600 hover:text-brand-800">{{ $session->site_url }}</a>
                 · started {{ $session->created_at->format('d M Y, h:i A') }}
+                @if($session->user_id !== auth()->id())
+                    {{-- Only a super admin reaches somebody else's run, and
+                         the Delete button below is destructive, so whose it is
+                         belongs on the screen rather than in the URL. --}}
+                    · by <span class="font-medium text-gray-700">{{ $session->user?->name ?? 'a deleted user' }}</span>
+                @endif
             </p>
         </div>
 
         <div class="flex items-center gap-2">
+            <button type="button" x-show="images > 0 && status === 'completed'" x-cloak
+                    @click="showPush = !showPush"
+                    class="rounded-lg bg-gray-900 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-gray-700">
+                Push to Shopify
+            </button>
             <a x-show="images > 0" x-cloak href="{{ route('barcode-images.download', $session) }}"
                class="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-700">
                 Download ZIP
@@ -31,6 +48,101 @@
                 </button>
             </form>
         </div>
+    </div>
+
+    {{-- ── Push to Shopify ─────────────────────────────────────────────── --}}
+    {{--
+        The website is chosen every time rather than taken from the active
+        store. These pictures were grabbed from one site to be put on another,
+        so whatever store the session happens to be on is as likely to be wrong
+        as right — and a wrong answer writes images to a live catalogue.
+    --}}
+    <div x-show="showPush" x-cloak class="rounded-xl border border-gray-200 bg-white p-5">
+        <form method="POST" action="{{ route('barcode-images.push', $session) }}" class="space-y-5"
+              @submit="pushing = true">
+            @csrf
+
+            <div>
+                <h3 class="font-semibold text-gray-900">Push these images to Shopify</h3>
+                <p class="mt-1 text-sm text-gray-500">
+                    Each barcode's pictures are added to the product that barcode finds, in the order they
+                    were downloaded. Images already on a product are left alone — these are added after them.
+                </p>
+            </div>
+
+            <div>
+                <label for="store_id" class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-gray-500">
+                    Which website?
+                </label>
+                <select id="store_id" name="store_id" required
+                        class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm transition focus:border-transparent focus:outline-none focus:ring-2 focus:ring-brand-500">
+                    <option value="">Choose the store to push to…</option>
+                    @foreach($stores as $store)
+                        <option value="{{ $store->id }}" @selected($session->push_store_id === $store->id)>{{ $store->name }}</option>
+                    @endforeach
+                </select>
+                @error('store_id') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+            </div>
+
+            <div>
+                <span class="mb-2 block text-xs font-semibold uppercase tracking-wide text-gray-500">
+                    How should each barcode find its product?
+                </span>
+                <div class="grid gap-3 sm:grid-cols-2">
+                    @foreach ([
+                        ['sku_barcode', 'SKU / Barcode', 'The barcode is matched to the product SKU, falling back to the barcode field. The first picture also becomes the variant image.'],
+                        ['style_code',  'Style Code',    'The number starting the barcode is matched to the style code starting the product title. Pictures go to the gallery only.'],
+                    ] as [$value, $label, $help])
+                        <label class="cursor-pointer rounded-xl border p-4 transition-all"
+                               :class="matchingMode === '{{ $value }}'
+                                   ? 'border-brand-600 bg-brand-50/70 ring-1 ring-brand-600'
+                                   : 'border-gray-200 hover:border-brand-300 hover:bg-brand-50/30'">
+                            <input type="radio" name="matching_mode" value="{{ $value }}" x-model="matchingMode" class="sr-only">
+                            <span class="text-sm font-semibold text-gray-900">{{ $label }}</span>
+                            <p class="mt-1 text-xs leading-relaxed text-gray-500">{{ $help }}</p>
+                        </label>
+                    @endforeach
+                </div>
+            </div>
+
+            <div class="flex items-center gap-3">
+                <button type="submit" x-bind:disabled="pushing"
+                        class="rounded-lg bg-gray-900 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-gray-700 disabled:opacity-50">
+                    <span x-text="pushing ? 'Starting…' : 'Push to Shopify'"></span>
+                </button>
+                <button type="button" @click="showPush = false" class="text-sm font-medium text-gray-500 hover:text-gray-700">
+                    Cancel
+                </button>
+            </div>
+        </form>
+    </div>
+
+    {{-- ── How the push is going ───────────────────────────────────────── --}}
+    <div x-show="push.status" x-cloak class="rounded-xl border border-gray-200 bg-white p-5">
+        <div class="mb-3 flex flex-wrap items-center justify-between gap-2 text-sm">
+            <span class="font-medium text-gray-700">
+                <span x-text="push.status === 'completed' ? 'Pushed' : (push.status === 'failed' ? 'Push failed' : 'Pushing to Shopify')"></span>
+                <span class="text-gray-400" x-show="push.store">· <span x-text="push.store"></span></span>
+            </span>
+            <span class="figure text-gray-500"><span x-text="push.done"></span> of <span x-text="push.total"></span></span>
+        </div>
+
+        <div class="h-2 overflow-hidden rounded-full bg-gray-100">
+            <div class="h-full rounded-full bg-gray-900 transition-all duration-500" :style="`width: ${push.progress}%`"></div>
+        </div>
+
+        <div class="mt-4 grid gap-4 sm:grid-cols-2">
+            <div>
+                <p class="text-[11px] font-medium uppercase tracking-[.12em] text-gray-400">On a product</p>
+                <p class="figure mt-1 text-2xl text-green-600" x-text="push.pushed"></p>
+            </div>
+            <div>
+                <p class="text-[11px] font-medium uppercase tracking-[.12em] text-gray-400">Not matched</p>
+                <p class="figure mt-1 text-2xl text-gray-500" x-text="push.failed"></p>
+            </div>
+        </div>
+
+        <p x-show="push.error" x-cloak class="mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700" x-text="push.error"></p>
     </div>
 
     {{-- ── Progress ────────────────────────────────────────────────────── --}}
@@ -91,6 +203,7 @@
                         <th class="px-5 py-3 text-left">Product</th>
                         <th class="px-5 py-3 text-center">Images</th>
                         <th class="px-5 py-3 text-left">Result</th>
+                        <th class="px-5 py-3 text-left" x-show="push.status">On Shopify</th>
                         <th class="px-5 py-3 text-right">Folder</th>
                     </tr>
                 </thead>
@@ -115,6 +228,23 @@
                                       x-text="item.status === 'found' ? 'Downloaded' : (item.status === 'failed' ? 'Failed' : 'Not found')"></span>
                                 <p x-show="item.message" class="mt-1 text-xs text-gray-400" x-text="item.message"></p>
                             </td>
+                            <td class="px-5 py-3" x-show="push.status">
+                                <template x-if="item.push_status">
+                                    <div>
+                                        <span class="rounded-full px-2 py-0.5 text-xs font-medium"
+                                              :class="item.push_status === 'pushed'
+                                                  ? 'bg-green-100 text-green-700'
+                                                  : (item.push_status === 'failed' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700')"
+                                              x-text="item.push_status === 'pushed'
+                                                  ? item.pushed_images + ' sent'
+                                                  : (item.push_status === 'failed' ? 'Failed' : 'Skipped')"></span>
+                                        <p x-show="item.shopify_product_title" class="mt-1 truncate text-xs text-gray-500"
+                                           x-text="item.shopify_product_title"></p>
+                                        <p x-show="item.push_message" class="mt-1 text-xs text-gray-400" x-text="item.push_message"></p>
+                                    </div>
+                                </template>
+                                <span x-show="!item.push_status" class="text-gray-300">—</span>
+                            </td>
                             <td class="px-5 py-3 text-right">
                                 <a x-show="item.image_count > 0"
                                    :href="`/barcode-images/{{ $session->id }}/download/${encodeURIComponent(item.barcode)}`"
@@ -124,7 +254,7 @@
                     </template>
 
                     <tr x-show="items.length === 0">
-                        <td colspan="5" class="px-5 py-12 text-center text-sm text-gray-400">
+                        <td colspan="6" class="px-5 py-12 text-center text-sm text-gray-400">
                             <span x-text="status === 'pending' ? 'Waiting for a worker to pick this up.' : 'Nothing here yet.'"></span>
                         </td>
                     </tr>
@@ -157,6 +287,21 @@ function barcodeGrab(sessionId, initialStatus) {
         missing:   {{ $session->missing_count }},
         images:    {{ $session->images_downloaded }},
         error:     @js($session->error_message),
+
+        showPush:     false,
+        pushing:      false,
+        matchingMode: @js($session->push_matching_mode ?: 'sku_barcode'),
+        push: {
+            status:   @js($session->push_status),
+            total:    {{ $session->push_total }},
+            done:     {{ $session->push_done }},
+            pushed:   {{ $session->push_pushed }},
+            failed:   {{ $session->push_failed }},
+            progress: {{ $session->pushProgressPercent() }},
+            store:    @js($session->pushStore?->name),
+            error:    @js($session->push_error),
+        },
+
         filter:    'all',
         search:    '',
         items:     [],
@@ -168,10 +313,19 @@ function barcodeGrab(sessionId, initialStatus) {
             this.loadItems(1);
 
             // A run in flight fills the table as it goes, so the rows are
-            // reloaded on the same beat as the counters.
-            if (this.status !== 'completed' && this.status !== 'failed') {
+            // reloaded on the same beat as the counters. A push does the same
+            // to the push column, so either one being live keeps the poll
+            // going and finishing both stops it.
+            if (this.busy()) {
                 this.pollTimer = setInterval(() => this.poll(), 3000);
             }
+        },
+
+        busy() {
+            const grabbing = this.status !== 'completed' && this.status !== 'failed';
+            const pushing  = this.push.status === 'pending' || this.push.status === 'pushing';
+
+            return grabbing || pushing;
         },
 
         async poll() {
@@ -186,10 +340,11 @@ function barcodeGrab(sessionId, initialStatus) {
             this.missing   = data.missing;
             this.images    = data.images;
             this.error     = data.error;
+            this.push      = data.push;
 
             this.loadItems(this.page);
 
-            if (data.status === 'completed' || data.status === 'failed') {
+            if (!this.busy()) {
                 clearInterval(this.pollTimer);
             }
         },

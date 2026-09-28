@@ -15,6 +15,11 @@ class BarcodeImageItem extends Model
         'product_title',
         'image_count',
         'message',
+        'push_status',
+        'shopify_product_id',
+        'shopify_product_title',
+        'pushed_images',
+        'push_message',
     ];
 
     public function session(): BelongsTo

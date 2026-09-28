@@ -3,9 +3,21 @@
 @section('page-title', 'Image grab history')
 
 @section('content')
+@php
+    // A super admin is looking at the whole workspace, so the rows need to say
+    // whose each one is. For everybody else every row is their own and the
+    // column would repeat one name down the page.
+    $showOwner = (bool) auth()->user()?->is_super_admin;
+@endphp
+
 <div class="overflow-hidden rounded-xl border border-gray-200 bg-white">
     <div class="flex items-center justify-between border-b border-gray-100 px-6 py-4">
-        <h2 class="font-semibold text-gray-800">Every run</h2>
+        <div>
+            <h2 class="font-semibold text-gray-800">Every run</h2>
+            @if($showOwner)
+                <p class="mt-0.5 text-xs text-gray-400">Everyone's runs — you are a super admin.</p>
+            @endif
+        </div>
         <a href="{{ route('barcode-images.index') }}"
            class="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-brand-700">
             New grab
@@ -13,13 +25,16 @@
     </div>
 
     @if($sessions->isEmpty())
-        <p class="px-6 py-12 text-center text-sm text-gray-400">Nothing grabbed yet.</p>
+        <p class="px-6 py-12 text-center text-sm text-gray-400">
+            {{ $showOwner ? 'Nobody has grabbed anything yet.' : 'Nothing grabbed yet.' }}
+        </p>
     @else
         <table class="w-full text-sm">
             <thead class="bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
                 <tr>
                     <th class="px-6 py-3 text-left">Date</th>
                     <th class="px-6 py-3 text-left">Run</th>
+                    @if($showOwner)<th class="px-6 py-3 text-left">Started by</th>@endif
                     <th class="px-6 py-3 text-left">Website</th>
                     <th class="px-6 py-3 text-center">Barcodes</th>
                     <th class="px-6 py-3 text-center">With pictures</th>
@@ -37,6 +52,9 @@
                     <tr class="transition-colors hover:bg-gray-50">
                         <td class="px-6 py-3 text-gray-600">{{ $session->created_at->format('d M Y, h:i A') }}</td>
                         <td class="px-6 py-3 text-gray-800">{{ $session->name ?: '—' }}</td>
+                        @if($showOwner)
+                            <td class="px-6 py-3 text-gray-600">{{ $session->user?->name ?? 'Deleted user' }}</td>
+                        @endif
                         <td class="px-6 py-3 text-gray-600">{{ parse_url($session->site_url, PHP_URL_HOST) }}</td>
                         <td class="px-6 py-3 text-center font-semibold text-gray-800">{{ number_format($session->total_barcodes) }}</td>
                         <td class="px-6 py-3 text-center font-medium text-green-600">{{ number_format($session->found_count) }}</td>

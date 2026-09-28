@@ -30,6 +30,20 @@ class BarcodeImageSession extends Model
         'images_downloaded',
         'raw_barcodes',
         'error_message',
+        'push_status',
+        'push_store_id',
+        'push_matching_mode',
+        'push_total',
+        'push_done',
+        'push_pushed',
+        'push_failed',
+        'push_error',
+    ];
+
+    /** How a barcode is matched to a product when the images are pushed. */
+    public const MATCHING_MODES = [
+        'sku_barcode' => 'SKU / Barcode',
+        'style_code'  => 'Style Code',
     ];
 
     public function progressPercent(): int
@@ -117,9 +131,27 @@ class BarcodeImageSession extends Model
         return $freed;
     }
 
+    public function pushProgressPercent(): int
+    {
+        if ((int) $this->push_total === 0) return 0;
+
+        return (int) min(100, round($this->push_done / $this->push_total * 100));
+    }
+
+    /** A push that is queued or running — the screen polls while this is true. */
+    public function isPushing(): bool
+    {
+        return in_array($this->push_status, ['pending', 'pushing'], true);
+    }
+
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    public function pushStore(): BelongsTo
+    {
+        return $this->belongsTo(Store::class, 'push_store_id');
     }
 
     public function items(): HasMany
