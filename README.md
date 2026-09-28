@@ -73,6 +73,48 @@ All images are automatically compressed to stay under **1 MB**.
 
 ---
 
+## SEO Audit
+
+Scans every product in the store and reports what is missing or wrong about the
+fields a search engine reads. Read-only — nothing is written back to Shopify.
+Fixes are made in the **AI Content Generator**, which already writes meta titles,
+meta descriptions and image alt text.
+
+| Check | Raised when |
+|---|---|
+| No meta title / meta description | The `global.title_tag` / `global.description_tag` metafield is empty |
+| Duplicate meta title / description | Two or more products share one, ignoring case and padding |
+| Over/under length | Title outside 30–60 characters, description outside 70–160 |
+| Images without alt text | Any product image has an empty `altText` |
+| No images | The product has none at all |
+| Thin description | Under 200 characters of body copy |
+| No tags | The product carries none |
+
+Each product scores out of 100, with points deducted per issue. Lengths are
+counted in characters rather than bytes, so Arabic content is not wrongly
+reported as too long.
+
+Audits are pruned daily: the ten most recent per person are kept, and older ones
+past 90 days are deleted with their rows.
+
+## SEO Impact
+
+Every push from the AI Content Generator is recorded. Thirty-five days later a
+scheduled job asks Google Analytics how many **organic** sessions that product's
+URL had in the 28 days before the push, against the 28 days after, and the
+Impact Report shows the difference.
+
+The settle period is deliberately longer than the window — Google has to recrawl
+the page before a rewritten title can change anything, so measuring sooner would
+mostly measure the crawl delay. Paid search is excluded, and a URL with no
+organic sessions on either side is reported as *no data* rather than as a flat
+result.
+
+Requires a GA4 property ID on the store (Stores → edit) and the service-account
+key described under `services.ga4.credentials`.
+
+---
+
 ## Apache vhost (production)
 
 ```apache

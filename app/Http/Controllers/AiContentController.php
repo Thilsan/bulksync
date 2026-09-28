@@ -6,6 +6,7 @@ use App\Jobs\GenerateAiContentJob;
 use App\Jobs\TranslateAiContentJob;
 use App\Models\AiContentItem;
 use App\Models\AiContentSession;
+use App\Models\SeoContentPush;
 use App\Models\Store;
 use App\Services\ShopifyService;
 use Illuminate\Http\Request;
@@ -287,6 +288,20 @@ class AiContentController extends Controller
                         }
                     }
                 }
+
+                // The record the impact report is later built from. Written
+                // only after Shopify accepted the content, so a failed push
+                // never becomes a data point — and with no extra API call, the
+                // handle being resolved in bulk when the measurement runs.
+                SeoContentPush::create([
+                    'user_id'          => auth()->id(),
+                    'store_id'         => $store?->id,
+                    'product_id'       => (string) $item->shopify_product_id,
+                    'product_title'    => $item->product_title,
+                    'meta_title'       => $item->ai_meta_title,
+                    'meta_description' => $item->ai_meta_description,
+                    'pushed_at'        => now(),
+                ]);
 
                 $item->update(['status' => 'pushed']);
                 $pushed++;

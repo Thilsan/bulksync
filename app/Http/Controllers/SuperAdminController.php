@@ -194,6 +194,7 @@ class SuperAdminController extends Controller
             'perm_photo_editor'     => $request->boolean('perm_photo_editor'),
             'perm_orders_dashboard' => $request->boolean('perm_orders_dashboard'),
             'perm_barcode_images'   => $request->boolean('perm_barcode_images'),
+            'perm_seo_audit'        => $request->boolean('perm_seo_audit'),
             'pcr_role'              => $request->input('pcr_role') ?: null,
             'pcr_categories'        => $categories ?: null,
             'pcr_brand_categories'  => $brandCategories ?: null,

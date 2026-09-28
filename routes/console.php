@@ -1,5 +1,6 @@
 <?php
 
+use App\Jobs\MeasureSeoImpactJob;
 use App\Jobs\RecheckProductRequestMappingsJob;
 use App\Jobs\SyncProductRequestsFromSheetJob;
 use App\Models\BarcodeImageSession;
@@ -7,6 +8,7 @@ use App\Models\PhotoEditItem;
 use App\Models\PhotoEditSession;
 use App\Models\ProductRequest;
 use App\Models\ProductRequestAttachment;
+use App\Models\SeoAuditSession;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
@@ -351,3 +353,36 @@ $pruneJobRuns = function () {
 };
 
 Schedule::call($pruneJobRuns)->hourly()->name('prune-job-runs')->withoutOverlapping();
+
+
+// A rewritten meta description cannot be graded on the day it ships — Google has
+// to recrawl the page first — so the reading is taken weeks later, once. Daily
+// rather than hourly because nothing here changes faster than that, and every
+// run that finds nothing due costs a database query and no more.
+Schedule::job(new MeasureSeoImpactJob, 'maintenance')
+    ->dailyAt('04:30')
+    ->name('measure-seo-impact')
+    ->withoutOverlapping();
+
+// An SEO audit writes one row per product, so a weekly habit on a 40,000-product
+// catalogue is two million rows a year that nothing else ever removes. The newest
+// few per person are what anyone actually opens; the rest are history nobody
+// reads, and this server has run out of disk before.
+$pruneSeoAudits = function () {
+    $keepPerUser = 10;
+    $cutoff      = now()->subDays(90);
+
+    SeoAuditSession::select('id', 'user_id', 'created_at')
+        ->orderByDesc('id')
+        ->get()
+        ->groupBy('user_id')
+        ->each(function ($sessions) use ($keepPerUser, $cutoff) {
+            // Cascade deletes the items with the session, so nothing is
+            // orphaned behind the row that explains it.
+            $sessions->slice($keepPerUser)
+                ->filter(fn ($session) => $session->created_at->lt($cutoff))
+                ->each(fn ($session) => SeoAuditSession::where('id', $session->id)->delete());
+        });
+};
+
+Schedule::call($pruneSeoAudits)->daily()->name('prune-seo-audits')->withoutOverlapping();

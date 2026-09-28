@@ -13,6 +13,8 @@ use App\Http\Controllers\ShopifyAuthController;
 use App\Http\Controllers\StoreController;
 use App\Http\Controllers\SuperAdminController;
 use App\Http\Controllers\ImageAuditController;
+use App\Http\Controllers\SeoAuditController;
+use App\Http\Controllers\SeoImpactController;
 use App\Http\Controllers\SkuCheckerController;
 use App\Http\Controllers\StoreImageSyncController;
 use App\Http\Controllers\MetafieldUpdateController;
@@ -59,6 +61,22 @@ Route::middleware('auth')->group(function () {
     Route::get('/image-audit/{imageAuditSession}/items',       [ImageAuditController::class, 'items'])->name('image-audit.items');
     Route::get('/image-audit/{imageAuditSession}/download',    [ImageAuditController::class, 'download'])->name('image-audit.download');
     Route::delete('/image-audit/{imageAuditSession}',          [ImageAuditController::class, 'destroy'])->name('image-audit.destroy');
+
+    // SEO Audit: reports what is missing or wrong about the catalogue's search
+    // fields. Read-only — every fix is made in the AI Content Generator, so
+    // nothing here needs a write scope. Ordered so /start is not swallowed by
+    // the {seoAuditSession} route.
+    Route::post('/seo-audit/start',                        [SeoAuditController::class, 'start'])->name('seo-audit.start');
+    Route::get('/seo-audit',                               [SeoAuditController::class, 'index'])->name('seo-audit.index');
+
+    // Declared above the {seoAuditSession} route below, which would otherwise
+    // match "impact" as a session id and 404 on the binding.
+    Route::get('/seo-audit/impact',                        [SeoImpactController::class, 'index'])->name('seo-audit.impact');
+    Route::get('/seo-audit/{seoAuditSession}',             [SeoAuditController::class, 'show'])->name('seo-audit.show');
+    Route::get('/seo-audit/{seoAuditSession}/status',      [SeoAuditController::class, 'status'])->name('seo-audit.status');
+    Route::get('/seo-audit/{seoAuditSession}/items',       [SeoAuditController::class, 'items'])->name('seo-audit.items');
+    Route::get('/seo-audit/{seoAuditSession}/download',    [SeoAuditController::class, 'download'])->name('seo-audit.download');
+    Route::delete('/seo-audit/{seoAuditSession}',          [SeoAuditController::class, 'destroy'])->name('seo-audit.destroy');
 
     Route::get('/store-image-sync',                          [StoreImageSyncController::class, 'index'])->name('store-image-sync.index');
     Route::post('/store-image-sync',                         [StoreImageSyncController::class, 'start'])->name('store-image-sync.start');

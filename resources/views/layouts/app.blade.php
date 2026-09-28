@@ -494,6 +494,17 @@
                         ],
                     ],
                     ['label' => 'Image Audit', 'url' => route('image-audit.index'), 'icon' => 'photo', 'on' => request()->routeIs('image-audit.*'), 'show' => $u->hasFeature('image_audit')],
+                    [
+                        'label' => 'SEO Audit',
+                        'url'   => route('seo-audit.index'),
+                        'icon'  => 'check',
+                        'on'    => request()->routeIs('seo-audit.*'),
+                        'show'  => $u->hasFeature('seo_audit'),
+                        // Parent links to the audit list, so it isn't repeated here.
+                        'children' => [
+                            ['label' => 'Impact Report', 'url' => route('seo-audit.impact'), 'on' => request()->routeIs('seo-audit.impact')],
+                        ],
+                    ],
                 ],
             ],
             [

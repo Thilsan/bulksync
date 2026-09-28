@@ -170,6 +170,7 @@
                                     'photo_editor'     => 'Photo Editor (Photoroom)',
                                     'orders_dashboard' => 'Management Dashboard (company revenue)',
                                     'barcode_images'   => 'Barcode Image Grabber',
+                                    'seo_audit'        => 'SEO Audit',
                                 ];
                             @endphp
                             @foreach($features as $key => $label)

@@ -10,7 +10,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 
-#[Fillable(['name', 'email', 'password', 'is_super_admin', 'is_active', 'active_store_id', 'perm_bulk_upload', 'perm_sku_checker', 'perm_image_audit', 'perm_store_sync', 'perm_ai_content', 'perm_metafield_update', 'perm_product_request', 'perm_photo_editor', 'perm_orders_dashboard', 'perm_barcode_images', 'pcr_role', 'pcr_categories', 'pcr_brand_categories', 'pcr_owned_brands', 'pcr_managed_brands', 'pcr_store_categories', 'pcr_brand_store_categories', 'pcr_notify_all', 'onedrive_access_token', 'onedrive_refresh_token', 'onedrive_token_expiry'])]
+#[Fillable(['name', 'email', 'password', 'is_super_admin', 'is_active', 'active_store_id', 'perm_bulk_upload', 'perm_sku_checker', 'perm_image_audit', 'perm_store_sync', 'perm_ai_content', 'perm_metafield_update', 'perm_product_request', 'perm_photo_editor', 'perm_orders_dashboard', 'perm_barcode_images', 'perm_seo_audit', 'pcr_role', 'pcr_categories', 'pcr_brand_categories', 'pcr_owned_brands', 'pcr_managed_brands', 'pcr_store_categories', 'pcr_brand_store_categories', 'pcr_notify_all', 'onedrive_access_token', 'onedrive_refresh_token', 'onedrive_token_expiry'])]
 #[Hidden(['password', 'remember_token', 'onedrive_access_token', 'onedrive_refresh_token', 'onedrive_token_expiry'])]
 class User extends Authenticatable
 {
@@ -34,6 +34,7 @@ class User extends Authenticatable
             'perm_photo_editor'      => 'boolean',
             'perm_orders_dashboard'  => 'boolean',
             'perm_barcode_images'    => 'boolean',
+            'perm_seo_audit'         => 'boolean',
             'pcr_categories'         => 'array',
             'pcr_brand_categories'   => 'array',
             'pcr_owned_brands'       => 'array',

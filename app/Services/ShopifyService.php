@@ -1130,6 +1130,191 @@ class ShopifyService
         return ['product_id' => $newProductId, 'image_map' => $imageMap];
     }
 
+    // ── Product count ──────────────────────────────────────────────────────
+
+    /**
+     * How many products the store holds. Used to give an audit a denominator
+     * before it starts streaming, so progress is a percentage rather than a
+     * running total with no end in sight.
+     *
+     * Returns 0 rather than throwing: a missing count costs a progress bar,
+     * and is no reason to abandon an audit that would otherwise run fine.
+     */
+    public function getProductCount(): int
+    {
+        $this->throttle();
+
+        try {
+            $response = $this->http->get("admin/api/{$this->apiVersion}/products/count.json");
+            $data     = json_decode((string) $response->getBody(), true);
+
+            return (int) ($data['count'] ?? 0);
+        } catch (\Throwable $e) {
+            Log::warning('Shopify getProductCount: ' . $e->getMessage());
+            return 0;
+        }
+    }
+
+    // ── SEO Audit ──────────────────────────────────────────────────────────
+    /**
+     * Product id => handle, for a batch of ids.
+     *
+     * The handle is a product's URL, which is the only thing Google Analytics
+     * knows a product by — analytics reports a landing page, never a product
+     * id, so nothing can be matched up without this.
+     *
+     * Ids that no longer exist are simply absent from the result rather than
+     * failing the batch: a deleted product is a normal thing to find when
+     * looking back at work done weeks ago.
+     *
+     * @param  list<string>  $productIds  numeric ids or gids
+     * @return array<string, string>
+     */
+    public function getProductHandles(array $productIds): array
+    {
+        $handles = [];
+
+        foreach (array_chunk(array_values(array_unique($productIds)), 100) as $chunk) {
+            $this->throttle();
+
+            $gids = array_map(
+                fn ($id) => str_contains((string) $id, 'gid://') ? (string) $id : "gid://shopify/Product/{$id}",
+                $chunk,
+            );
+
+            try {
+                $response = $this->http->post("admin/api/{$this->apiVersion}/graphql.json", [
+                    'json' => [
+                        'query'     => 'query($ids:[ID!]!){nodes(ids:$ids){... on Product{id handle title}}}',
+                        'variables' => ['ids' => $gids],
+                    ],
+                ]);
+
+                $data = json_decode((string) $response->getBody(), true);
+                $this->assertNoGraphQlErrors($data, 'getProductHandles');
+
+                foreach ($data['data']['nodes'] ?? [] as $node) {
+                    if (empty($node['id']) || empty($node['handle'])) {
+                        continue;
+                    }
+
+                    $handles[$this->numericId($node['id'])] = $node['handle'];
+                }
+            } catch (\Throwable $e) {
+                Log::warning('Shopify getProductHandles: ' . $e->getMessage());
+            }
+        }
+
+        return $handles;
+    }
+
+
+    /**
+     * Products per GraphQL page, and images fetched per product. Shopify
+     * budgets a query at roughly (products x images) points against a 1000
+     * ceiling, so 25 x 20 leaves headroom while still covering every image on
+     * all but the largest galleries. Products past the image cap report the
+     * images they have; alt-text gaps beyond the twentieth image are not
+     * counted, which understates rather than invents a problem.
+     */
+    private const SEO_PAGE      = 25;
+    private const SEO_IMAGE_CAP = 20;
+
+    /**
+     * Stream every product with the fields an SEO audit needs, page by page.
+     *
+     * REST cannot serve this: the meta title and meta description live in the
+     * `global.title_tag` / `global.description_tag` metafields, which
+     * products.json omits entirely and which would otherwise cost one extra
+     * call per product. GraphQL exposes both as `seo { title description }`.
+     *
+     * Calls $callback with each page as a plain array of products.
+     */
+    public function streamProductsForSeoAudit(callable $callback): void
+    {
+        $cursor = null;
+
+        do {
+            $this->throttle();
+
+            $response = $this->http->post("admin/api/{$this->apiVersion}/graphql.json", [
+                'json' => [
+                    'query'     => $this->seoAuditQuery(),
+                    'variables' => ['cursor' => $cursor],
+                ],
+            ]);
+
+            $data = json_decode((string) $response->getBody(), true);
+            $this->assertNoGraphQlErrors($data, 'streamProductsForSeoAudit');
+
+            $connection = $data['data']['products'] ?? [];
+            $edges      = $connection['edges'] ?? [];
+
+            $products = array_map(function (array $edge) {
+                $node = $edge['node'];
+
+                $images = array_map(
+                    fn ($imageEdge) => ['alt' => $imageEdge['node']['altText'] ?? null],
+                    $node['images']['edges'] ?? []
+                );
+
+                return [
+                    'id'               => $this->numericId($node['id'] ?? ''),
+                    'title'            => $node['title'] ?? '',
+                    'handle'           => $node['handle'] ?? '',
+                    'tags'             => $node['tags'] ?? [],
+                    'description'      => $node['description'] ?? '',
+                    'meta_title'       => $node['seo']['title'] ?? null,
+                    'meta_description' => $node['seo']['description'] ?? null,
+                    'images'           => $images,
+                    'sku'              => $node['variants']['edges'][0]['node']['sku'] ?? null,
+                ];
+            }, $edges);
+
+            if (!empty($products)) {
+                $callback($products);
+            }
+
+            $cursor = ($connection['pageInfo']['hasNextPage'] ?? false)
+                ? ($connection['pageInfo']['endCursor'] ?? null)
+                : null;
+        } while ($cursor);
+    }
+
+    private function seoAuditQuery(): string
+    {
+        $page  = self::SEO_PAGE;
+        $imgs  = self::SEO_IMAGE_CAP;
+
+        return <<<GQL
+        query(\$cursor: String) {
+          products(first: {$page}, after: \$cursor) {
+            pageInfo { hasNextPage endCursor }
+            edges {
+              node {
+                id
+                title
+                handle
+                tags
+                description
+                seo { title description }
+                images(first: {$imgs}) { edges { node { altText } } }
+                variants(first: 1) { edges { node { sku } } }
+              }
+            }
+          }
+        }
+        GQL;
+    }
+
+    /** "gid://shopify/Product/123" -> "123"; anything else passes through. */
+    private function numericId(string $gid): string
+    {
+        return $gid !== '' && str_contains($gid, '/')
+            ? substr($gid, strrpos($gid, '/') + 1)
+            : $gid;
+    }
+
     // ── Image Audit ────────────────────────────────────────────────────────
 
     /**
