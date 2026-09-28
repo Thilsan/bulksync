@@ -54,9 +54,18 @@ class Ga4AnalyticsService
      * and Brazil are real markets somebody else may genuinely sell into.
      *
      * Bluesalon's property (307311411) carries a large volume of datacentre
-     * traffic attributed to those two — enough that it swamps every figure on
-     * the card, users track sessions almost exactly, and Qatar ranks behind
-     * four countries the business does not trade in.
+     * traffic — enough that it swamps every figure on the card, users track
+     * sessions almost exactly, and Qatar, the market the site actually sells
+     * into, ranks fifth.
+     *
+     * Page views per session is what separates the two. Qatar browses about
+     * three pages a visit; every country listed here loads less than one, and
+     * Pakistan and Bangladesh manage a page per hundred sessions — a crawler
+     * hitting the door and leaving. Which of these are genuinely dead is a
+     * business judgement, not a threshold, so the list is maintained by hand
+     * rather than inferred.
+     *
+     * Alphabetical, so a name is quick to look for when one is added.
      *
      * The filter goes to the API on every report in the batch rather than
      * being applied to the country rows here, so the totals, the devices and
@@ -65,7 +74,17 @@ class Ga4AnalyticsService
      * printed above them, which is worse than not filtering at all.
      */
     private const EXCLUDED_COUNTRIES = [
-        '307311411' => ['Singapore', 'Brazil'],
+        '307311411' => [
+            'Bangladesh',
+            'Brazil',
+            'Chile',
+            'China',
+            'Mexico',
+            'Pakistan',
+            'Singapore',
+            'United States',
+            'Vietnam',
+        ],
     ];
 
     /** @var callable(string, array): array */

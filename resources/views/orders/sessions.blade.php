@@ -145,11 +145,14 @@
                     {{-- Said, not done quietly. These figures leave out most
                          of what this property records, and a reader with no
                          way to know that would take a filtered number for the
-                         whole picture. --}}
+                         whole picture.
+
+                         What was excluded is named in the service, not here.
+                         A list of countries on a management screen invites
+                         being read as a judgement about those places, when it
+                         is only ever a judgement about their traffic. --}}
                     @if($row['excluded_countries'] ?? [])
-                        <p class="mt-1.5 text-xs text-gray-400">
-                            Excludes {{ collect($row['excluded_countries'])->join(' and ') }} — datacentre traffic, not customers.
-                        </p>
+                        <p class="mt-1.5 text-xs text-gray-400">Excludes datacentre traffic.</p>
                     @endif
                 @else
                     <p class="mt-2 inline-flex items-center gap-1.5 text-xs font-medium {{ $state['text'] }}">

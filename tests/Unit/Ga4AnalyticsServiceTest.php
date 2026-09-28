@@ -21,6 +21,16 @@ class Ga4AnalyticsServiceTest extends TestCase
 {
     use RefreshDatabase;
 
+    /**
+     * What Bluesalon's property has filtered out, spelled here rather than
+     * read from the service — a test that asks the code what it does can
+     * only ever agree with it.
+     */
+    private const EXPECTED_EXCLUSIONS = [
+        'Bangladesh', 'Brazil', 'Chile', 'China', 'Mexico',
+        'Pakistan', 'Singapore', 'United States', 'Vietnam',
+    ];
+
     private function store(array $overrides = []): Store
     {
         return Store::create(array_merge([
@@ -236,7 +246,7 @@ class Ga4AnalyticsServiceTest extends TestCase
             $this->assertSame(
                 ['notExpression' => ['filter' => [
                     'fieldName'    => 'country',
-                    'inListFilter' => ['values' => ['Singapore', 'Brazil']],
+                    'inListFilter' => ['values' => self::EXPECTED_EXCLUSIONS],
                 ]]],
                 $request['dimensionFilter'] ?? null,
                 "Report {$i} should exclude the bot-traffic countries.",
@@ -276,7 +286,7 @@ class Ga4AnalyticsServiceTest extends TestCase
 
         $rows = $this->rows($service, $this->store());
 
-        $this->assertSame(['Singapore', 'Brazil'], $rows[0]['excluded_countries']);
+        $this->assertSame(self::EXPECTED_EXCLUSIONS, $rows[0]['excluded_countries']);
     }
 
     /**
