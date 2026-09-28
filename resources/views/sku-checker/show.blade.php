@@ -449,7 +449,12 @@ function skuCheckPage(sessionId, initialStatus) {
 
         async loadRows() {
             this.rowsLoading = true;
-            this.open        = null;
+
+            // The open row survives a reload if it is still in the list. It
+            // used to be closed unconditionally, so anything that refetched
+            // rows — a filter, a search, a check finishing — shut the panel
+            // somebody was reading.
+            const wasOpen = this.open;
 
             const params = new URLSearchParams({ filter: this.filter, q: this.search, page: this.page });
 
@@ -467,6 +472,11 @@ function skuCheckPage(sessionId, initialStatus) {
                 }
             } catch (e) {
                 this.rows = [];
+            }
+
+            if (wasOpen && !this.rows.some(r => r.sku === wasOpen)) {
+                this.open      = null;
+                this.breakdown = null;
             }
 
             this.rowsLoading = false;
