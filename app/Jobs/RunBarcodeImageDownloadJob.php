@@ -56,6 +56,25 @@ class RunBarcodeImageDownloadJob implements ShouldQueue
             return;
         }
 
+        // Asked once, before a thousand barcodes are looked up one at a time:
+        // a site that bounces the search to another country's storefront will
+        // report every one of them as missing, and "your list is wrong" is the
+        // wrong thing to tell somebody whose list is fine.
+        if ($landed = $scraper->searchRedirectsTo($site)) {
+            $session->update([
+                'status'        => 'failed',
+                'site_url'      => $site,
+                'raw_barcodes'  => null,
+                'error_message' => "This site sent the search to {$landed} instead of answering it. "
+                    . 'Catalogues that run a storefront per country decide which one to show from where the '
+                    . 'request comes from, and this server is not in the same country as you — so the address '
+                    . 'has to say which storefront is meant. Paste it in full, including the country, '
+                    . 'for example www.luisaspagnoli.com/en/qa, and run it again.',
+            ]);
+
+            return;
+        }
+
         $session->update([
             'status'         => 'running',
             'site_url'       => $site,

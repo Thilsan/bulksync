@@ -62,9 +62,13 @@
                         <div>
                             <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-gray-500">Website</label>
                             <input type="text" name="site_url" value="{{ old('site_url') }}"
-                                   placeholder="bluesalon.com"
+                                   placeholder="luisaspagnoli.com/en/qa"
                                    class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm transition focus:border-transparent focus:outline-none focus:ring-2 focus:ring-brand-500">
-                            <p class="mt-1.5 text-xs text-gray-400">The public shop front. The address of a product page works too.</p>
+                            <p class="mt-1.5 text-xs text-gray-400">
+                                Include the country if the site has one in its address —
+                                <span class="font-mono text-gray-500">luisaspagnoli.com/en/qa</span> — or it will
+                                answer from wherever this server happens to be.
+                            </p>
                             @error('site_url') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                         </div>
 

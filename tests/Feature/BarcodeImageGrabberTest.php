@@ -451,6 +451,94 @@ class BarcodeImageGrabberTest extends TestCase
             HTML;
     }
 
+// ── Storefronts that differ by country ───────────────────────────────────
+
+    /**
+     * The country in the address has to survive, because the server cannot
+     * work it out for itself.
+     */
+    public function test_a_storefront_prefix_is_kept_and_a_page_path_is_not(): void
+    {
+        $scraper = app(ProductImageScraper::class);
+
+        // A country prefix is where the catalogue lives, so searching happens
+        // under it.
+        $this->assertSame('https://luisaspagnoli.com/en/qa', $scraper->normaliseSite('luisaspagnoli.com/en/qa'));
+        $this->assertSame('https://www.luisaspagnoli.com/en/qa', $scraper->normaliseSite('https://www.luisaspagnoli.com/en/qa/'));
+        $this->assertSame('https://shop.test/uk', $scraper->normaliseSite('shop.test/uk'));
+
+        // A page inside the catalogue is not, and searching under it would 404.
+        $this->assertSame('https://shop.test', $scraper->normaliseSite('shop.test/collections/all?page=2'));
+        $this->assertSame('https://shop.test', $scraper->normaliseSite('https://shop.test/products/silk-scarf'));
+        $this->assertSame('https://shop.test', $scraper->normaliseSite('shop.test'));
+    }
+
+    public function test_links_from_the_root_are_not_stacked_onto_the_country_prefix(): void
+    {
+        Http::fake([
+            'shop.test/en/qa/search/suggest.json*' => Http::response('', 404),
+            'shop.test/en/qa/search?*' => Http::response(
+                '<div data-pid="542849_x"><a href="/en/qa/542849_x.html">Agello</a></div>'
+            ),
+            '*' => Http::response('', 404),
+        ]);
+
+        $found = app(ProductImageScraper::class)->findProducts('https://shop.test/en/qa', '542849');
+
+        // Not https://shop.test/en/qa/en/qa/542849_x.html, which is what
+        // resolving a root-relative link against the prefixed base would give.
+        $this->assertSame('https://shop.test/en/qa/542849_x.html', $found[0]['url']);
+    }
+
+    /**
+     * The failure that sent this back a second time: from a server in another
+     * country the site answered every barcode with nothing, because it was
+     * quietly redirecting the search to its US storefront.
+     */
+    public function test_a_site_that_redirects_the_search_elsewhere_says_so_instead_of_reporting_a_thousand_misses(): void
+    {
+        Http::fake([
+            'shop.test/search*' => Http::response('<html>US homepage</html>', 200, [
+                'X-Guzzle-Redirect-History' => 'https://shop.test/en/us',
+            ]),
+            '*' => Http::response('', 404),
+        ]);
+
+        $session = BarcodeImageSession::create([
+            'user_id'      => $this->operator()->id,
+            'site_url'     => 'https://shop.test',
+            'status'       => 'pending',
+            'raw_barcodes' => "542849AGELLO\n543309\n543164",
+        ]);
+
+        app(RunBarcodeImageDownloadJob::class, ['sessionId' => $session->id])
+            ->handle(app(ProductImageScraper::class));
+
+        $session->refresh();
+
+        $this->assertSame('failed', $session->status);
+        $this->assertStringContainsString('https://shop.test/en/us', (string) $session->error_message);
+        $this->assertStringContainsString('including the country', (string) $session->error_message);
+
+        // And it stopped before working through the list, rather than marking
+        // three good barcodes as missing.
+        $this->assertSame(0, $session->items()->count());
+    }
+
+    public function test_a_site_that_stays_where_it_was_asked_is_not_flagged(): void
+    {
+        Http::fake([
+            'shop.test/en/qa/search*' => Http::response('<html>results</html>', 200, [
+                // Redirected, but the question came along — the site was
+                // tidying the address, not refusing to answer.
+                'X-Guzzle-Redirect-History' => 'https://shop.test/en/qa/search/?q=barcode-probe&lang=en_QA',
+            ]),
+            '*' => Http::response('', 404),
+        ]);
+
+        $this->assertNull(app(ProductImageScraper::class)->searchRedirectsTo('https://shop.test/en/qa'));
+    }
+
     // ── A barcode is a folder name, and folder names are dangerous ───────────
 
     public function test_a_barcode_cannot_climb_out_of_its_own_run_folder(): void

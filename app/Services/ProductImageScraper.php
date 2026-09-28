@@ -68,6 +68,14 @@ class ProductImageScraper
      * "bluesalon.com", "https://bluesalon.com/collections/all?page=2" and
      * "HTTPS://BlueSalon.com/" are all the same website to a person pasting a
      * URL, so they are made the same thing here before anything is fetched.
+     *
+     * The path is kept, though, where it looks like a storefront prefix rather
+     * than a page. Catalogues that run a storefront per country decide which
+     * one you get from where the request comes from, and a server sits in a
+     * different country from the person using it: Luisa Spagnoli sends this
+     * server's bare /search to /en/us and drops the query, while the same
+     * request from Doha is answered at /en/qa. Pasting the country in is the
+     * only way to say which storefront is meant, so it has to survive.
      */
     public function normaliseSite(string $url): ?string
     {
@@ -103,7 +111,80 @@ class ProductImageScraper
             $base .= ':' . $parts['port'];
         }
 
-        return $base;
+        return $base . $this->storefrontPrefix($parts['path'] ?? '');
+    }
+
+    /**
+     * The part of a pasted path that is a storefront prefix, not a page.
+     *
+     * /en/qa is where the catalogue lives; /collections/all and
+     * /products/silk-scarf are somewhere inside it, and searching under those
+     * would 404. Short segments with no file extension are prefixes — which
+     * covers the /en/qa, /en-gb, /uk/en and /qa shapes catalogues use — and
+     * anything longer is treated as a page and dropped.
+     */
+    private function storefrontPrefix(string $path): string
+    {
+        $kept = [];
+
+        foreach (explode('/', trim($path, '/')) as $segment) {
+            if ($segment === '' || str_contains($segment, '.') || mb_strlen($segment) > 5) break;
+
+            $kept[] = strtolower($segment);
+
+            if (count($kept) === 2) break; // /en/qa is as deep as these go
+        }
+
+        return $kept === [] ? '' : '/' . implode('/', $kept);
+    }
+
+    /** The scheme and host alone, for resolving links that start with a slash. */
+    private function origin(string $base): string
+    {
+        $parts = parse_url($base);
+
+        if (!$parts || empty($parts['host'])) return $base;
+
+        return ($parts['scheme'] ?? 'https') . '://' . $parts['host']
+            . (empty($parts['port']) ? '' : ':' . $parts['port']);
+    }
+
+    /**
+     * Whether this site answers a search where it was asked to, or sends the
+     * request somewhere else entirely.
+     *
+     * Returns the address it redirected to, or null when it stayed put. A
+     * catalogue that bounces the search to another country's storefront will
+     * report every barcode as missing, which reads as "your list is wrong"
+     * when the truth is "you are asking the wrong storefront" — so the run
+     * says so instead of grinding through a thousand certain misses.
+     */
+    public function searchRedirectsTo(string $base): ?string
+    {
+        try {
+            $response = $this->client()
+                ->withOptions(['allow_redirects' => ['max' => 5, 'track_redirects' => true]])
+                ->get("{$base}/search", ['q' => 'barcode-probe']);
+        } catch (\Throwable $e) {
+            return null; // Unreachable is a different problem, reported elsewhere.
+        }
+
+        $history = array_filter(explode(', ', (string) $response->header('X-Guzzle-Redirect-History')));
+
+        if ($history === []) return null;
+
+        $landed = (string) end($history);
+
+        parse_str((string) parse_url($landed, PHP_URL_QUERY), $query);
+
+        // Whether the question survived the journey is the thing that matters,
+        // not where it ended up. A site tidying the address — http to https, a
+        // country prefix added, a trailing slash — carries the query along and
+        // still answers it. One that decided to show its own homepage instead
+        // drops the query, and every barcode after that is a certain miss.
+        if (array_key_exists('q', $query)) return null;
+
+        return $landed;
     }
 
     // ── One barcode ──────────────────────────────────────────────────────────
@@ -771,7 +852,12 @@ class ProductImageScraper
 
         if ($site === '') return null;
 
-        return rtrim($site, '/') . '/' . ltrim($url, '/');
+        // "/en/qa/x.html" is from the root of the site; "x.html" is from
+        // wherever we are. With a storefront prefix in play the two resolve
+        // against different bases, and mixing them up builds /en/qa/en/qa/...
+        return str_starts_with($url, '/')
+            ? rtrim($this->origin($site), '/') . $url
+            : rtrim($site, '/') . '/' . ltrim($url, '/');
     }
 
     private function sameHost(string $a, string $b): bool
