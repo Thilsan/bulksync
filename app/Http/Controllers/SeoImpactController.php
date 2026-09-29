@@ -65,7 +65,28 @@ class SeoImpactController extends Controller
             ->where('measurement_status', 'pending')
             ->count();
 
+        // Only pushes Search Console could answer for. Kept apart from the
+        // session totals because a store may have one source and not the other,
+        // and averaging across a mixture would quietly compare different sets.
+        $withSearch = (clone $measured)->whereNotNull('impressions_before');
+
+        $searchCount = (clone $withSearch)->count();
+        $impsBefore  = (int) (clone $withSearch)->sum('impressions_before');
+        $impsAfter   = (int) (clone $withSearch)->sum('impressions_after');
+        $clicksBefore = (int) (clone $withSearch)->sum('clicks_before');
+        $clicksAfter  = (int) (clone $withSearch)->sum('clicks_after');
+
         return [
+            'search_measured'    => $searchCount,
+            'impressions_before' => $impsBefore,
+            'impressions_after'  => $impsAfter,
+            'clicks_before'      => $clicksBefore,
+            'clicks_after'       => $clicksAfter,
+            // Computed from the totals, not averaged from per-page rates: a
+            // page shown twice must not weigh as much as one shown ten
+            // thousand times.
+            'ctr_before'         => $impsBefore > 0 ? round($clicksBefore / $impsBefore * 100, 2) : null,
+            'ctr_after'          => $impsAfter > 0 ? round($clicksAfter / $impsAfter * 100, 2) : null,
             'measured'        => $count,
             'pending'         => $pending,
             'sessions_before' => $before,

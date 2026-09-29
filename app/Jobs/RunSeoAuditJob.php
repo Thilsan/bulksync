@@ -50,59 +50,75 @@ class RunSeoAuditJob implements ShouldQueue
         } while ($deleted > 0);
 
         $session->update([
-            'status'         => 'running',
-            'total_products' => $shopify->getProductCount(),
+            'status'            => 'running',
+            'total_products'    => $shopify->getProductCount(),
+            'total_collections' => $shopify->getCollectionCount(),
         ]);
 
         Log::info("RunSeoAuditJob: starting audit for session {$session->id}");
 
         try {
-            $buffer  = [];
-            $scanned = 0;
-            $counts  = [];
+            $buffer      = [];
+            $products    = 0;
+            $collections = 0;
+            $counts      = [];
 
-            $shopify->streamProductsForSeoAudit(function (array $products) use (
-                $session, &$buffer, &$scanned, &$counts
-            ) {
-                foreach ($products as $product) {
-                    $row = $this->evaluate($product);
-
-                    foreach ($row['issues'] as $code) {
-                        $counts[$code] = ($counts[$code] ?? 0) + 1;
-                    }
-
-                    // Assigned rather than merged: `+` keeps the left-hand
-                    // key, so an overriding 'issues' in a second array would be
-                    // silently dropped and the raw array handed to insert().
-                    $row['seo_audit_session_id'] = $session->id;
-                    $row['issues']               = json_encode($row['issues']);
-                    $row['created_at']           = now();
-                    $row['updated_at']           = now();
-
-                    $buffer[] = $row;
-
-                    $scanned++;
+            // Shared by both passes: grade, count the issues, buffer the row.
+            $collect = function (array $row) use ($session, &$buffer, &$counts) {
+                foreach ($row['issues'] as $code) {
+                    $counts[$code] = ($counts[$code] ?? 0) + 1;
                 }
+
+                // Assigned rather than merged: `+` keeps the left-hand key, so
+                // an overriding 'issues' in a second array would be silently
+                // dropped and the raw array handed to insert().
+                $row['seo_audit_session_id'] = $session->id;
+                $row['issues']               = json_encode($row['issues']);
+                $row['created_at']           = now();
+                $row['updated_at']           = now();
+
+                $buffer[] = $row;
 
                 if (count($buffer) >= self::FLUSH_AT) {
                     SeoAuditItem::insert($buffer);
                     $buffer = [];
                 }
+            };
 
-                $session->update(['scanned_products' => $scanned]);
+            $shopify->streamProductsForSeoAudit(function (array $page) use ($session, $collect, &$products) {
+                foreach ($page as $product) {
+                    $collect($this->evaluateProduct($product));
+                    $products++;
+                }
+
+                $session->update(['scanned_products' => $products]);
+            });
+
+            // Collections after products, and in their own pass: there are only
+            // ever a few dozen, and a failure here should not cost the far
+            // longer product scan that has already finished.
+            $shopify->streamCollectionsForSeoAudit(function (array $page) use ($session, $collect, &$collections) {
+                foreach ($page as $collection) {
+                    $collect($this->evaluateCollection($collection));
+                    $collections++;
+                }
+
+                $session->update(['scanned_collections' => $collections]);
             });
 
             if (!empty($buffer)) {
                 SeoAuditItem::insert($buffer);
             }
 
+            $scanned = $products + $collections;
+
             // Duplicates are the one check a single product cannot answer about
             // itself, so they are resolved once the whole catalogue is in.
             $counts = $this->flagDuplicates($session, $counts);
 
-            $this->summarise($session, $scanned, $counts);
+            $this->summarise($session, $products, $collections, $counts);
 
-            Log::info("RunSeoAuditJob: completed — {$scanned} products, " . array_sum($counts) . ' issues.');
+            Log::info("RunSeoAuditJob: completed — {$products} products, {$collections} collections, " . array_sum($counts) . ' issues.');
 
         } catch (\Throwable $e) {
             Log::error('RunSeoAuditJob failed: ' . $e->getMessage());
@@ -114,24 +130,64 @@ class RunSeoAuditJob implements ShouldQueue
      * Grade one product. Returns a row ready for insert, with 'issues' still an
      * array — the caller encodes it after counting.
      */
-    private function evaluate(array $product): array
+    private function evaluateProduct(array $product): array
     {
-        $metaTitle = trim((string) ($product['meta_title'] ?? ''));
-        $metaDesc  = trim((string) ($product['meta_description'] ?? ''));
-
-        // Shopify's `description` is already the plain-text rendering of
-        // body_html, so no tag stripping is needed — only the entities a
-        // merchant's copy-paste leaves behind.
-        $description = trim(html_entity_decode((string) ($product['description'] ?? ''), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
-
         $images     = $product['images'] ?? [];
         $imageCount = count($images);
         $missingAlt = count(array_filter($images, fn ($i) => trim((string) ($i['alt'] ?? '')) === ''));
         $tagCount   = count(array_filter((array) ($product['tags'] ?? []), fn ($t) => trim((string) $t) !== ''));
 
+        $row = $this->gradeMeta($product, SeoAuditItem::TYPE_PRODUCT);
+
+        if ($imageCount === 0) {
+            $row['issues'][] = 'no_images';
+        } elseif ($missingAlt > 0) {
+            $row['issues'][] = 'missing_alt_text';
+        }
+
+        if ($tagCount === 0) {
+            $row['issues'][] = 'no_tags';
+        }
+
+        $row['sku']                = $product['sku'] ? mb_substr((string) $product['sku'], 0, 255) : null;
+        $row['image_count']        = min($imageCount, 65535);
+        $row['images_missing_alt'] = min($missingAlt, 65535);
+        $row['tag_count']          = min($tagCount, 65535);
+
+        return $this->finalise($row);
+    }
+
+    /**
+     * Grade one collection.
+     *
+     * The image, alt-text and tag checks are left off on purpose rather than
+     * passing trivially: a collection has no gallery and no tags, and reporting
+     * every one of them as "no images" would bury the products that genuinely
+     * have none.
+     */
+    private function evaluateCollection(array $collection): array
+    {
+        return $this->finalise($this->gradeMeta($collection, SeoAuditItem::TYPE_COLLECTION));
+    }
+
+    /**
+     * The checks both kinds of page share: the meta fields, the body copy, and
+     * whether the visible title says what the thing actually is.
+     */
+    private function gradeMeta(array $resource, string $type): array
+    {
+        $metaTitle = trim((string) ($resource['meta_title'] ?? ''));
+        $metaDesc  = trim((string) ($resource['meta_description'] ?? ''));
+        $title     = trim((string) ($resource['title'] ?? ''));
+
+        // Shopify's `description` is already the plain-text rendering of
+        // body_html, so no tag stripping is needed — only the entities a
+        // merchant's copy-paste leaves behind.
+        $description = trim(html_entity_decode((string) ($resource['description'] ?? ''), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+
         // mb_strlen, not strlen: an Arabic meta title is well within 60
         // characters while being far past 60 bytes, and byte lengths would
-        // report every bilingual product as too long.
+        // report every bilingual page as too long.
         $titleLength = mb_strlen($metaTitle);
         $descLength  = mb_strlen($metaDesc);
 
@@ -153,37 +209,42 @@ class RunSeoAuditJob implements ShouldQueue
             $issues[] = 'meta_description_too_short';
         }
 
-        if ($imageCount === 0) {
-            $issues[] = 'no_images';
-        } elseif ($missingAlt > 0) {
-            $issues[] = 'missing_alt_text';
-        }
-
         if (mb_strlen($description) < SeoAuditItem::THIN_DESCRIPTION) {
             $issues[] = 'thin_description';
         }
 
-        if ($tagCount === 0) {
-            $issues[] = 'no_tags';
+        // A bare model name — "NOBLETON", "Altra", "BFF" — tells a search engine
+        // nothing about what the thing is, and a search engine is the one reader
+        // who has not already seen the photograph.
+        if ($title !== '' && !preg_match('/\s/u', $title)) {
+            $issues[] = 'title_single_word';
         }
 
         return [
-            'product_id'              => (string) ($product['id'] ?? ''),
-            'product_title'           => mb_substr((string) ($product['title'] ?? ''), 0, 255),
-            'handle'                  => mb_substr((string) ($product['handle'] ?? ''), 0, 255),
-            'sku'                     => $product['sku'] ? mb_substr((string) $product['sku'], 0, 255) : null,
+            'resource_type'           => $type,
+            'product_id'              => (string) ($resource['id'] ?? ''),
+            'product_title'           => mb_substr($title, 0, 255),
+            'handle'                  => mb_substr((string) ($resource['handle'] ?? ''), 0, 255),
+            'sku'                     => null,
             'meta_title'              => mb_substr($metaTitle, 0, 512),
             'meta_description'        => mb_substr($metaDesc, 0, 1024),
             'meta_title_length'       => $titleLength,
             'meta_description_length' => $descLength,
             'description_length'      => mb_strlen($description),
-            'image_count'             => min($imageCount, 65535),
-            'images_missing_alt'      => min($missingAlt, 65535),
-            'tag_count'               => min($tagCount, 65535),
+            'image_count'             => 0,
+            'images_missing_alt'      => 0,
+            'tag_count'               => 0,
             'issues'                  => $issues,
-            'issue_count'             => count($issues),
-            'score'                   => SeoAuditItem::scoreFor($issues),
         ];
+    }
+
+    /** Scores the row once every check has had its say. */
+    private function finalise(array $row): array
+    {
+        $row['issue_count'] = count($row['issues']);
+        $row['score']       = SeoAuditItem::scoreFor($row['issues']);
+
+        return $row;
     }
 
     /**
@@ -244,16 +305,18 @@ class RunSeoAuditJob implements ShouldQueue
         return $counts;
     }
 
-    private function summarise(SeoAuditSession $session, int $scanned, array $counts): void
+    private function summarise(SeoAuditSession $session, int $products, int $collections, array $counts): void
     {
         $base = SeoAuditItem::where('seo_audit_session_id', $session->id);
 
+        $scanned    = $products + $collections;
         $withIssues = (clone $base)->where('issue_count', '>', 0)->count();
         $average    = (clone $base)->avg('score');
 
         $session->update([
             'status'               => 'completed',
-            'scanned_products'     => $scanned,
+            'scanned_products'     => $products,
+            'scanned_collections'  => $collections,
             'clean_products'       => $scanned - $withIssues,
             'products_with_issues' => $withIssues,
             'total_issues'         => array_sum($counts),

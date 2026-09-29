@@ -147,6 +147,20 @@
                         @enderror
                     </div>
                     <div>
+                        <label class="block text-xs font-medium text-gray-600 mb-1">Search Console site <span class="text-gray-400 font-normal">(for impressions, clicks and ranking)</span></label>
+                        <input type="text" name="gsc_site_url" value="{{ $store->gsc_site_url }}"
+                            placeholder="sc-domain:example.com"
+                            class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent">
+                        <p class="mt-1 text-xs text-gray-400">
+                            Copy it exactly as Search Console shows it — <code class="rounded bg-gray-100 px-1">sc-domain:example.com</code>
+                            for a domain property, or the full address with its trailing slash. The service
+                            account must be added as a user on the property.
+                        </p>
+                        @error('gsc_site_url')
+                            <p class="mt-1 text-xs text-rose-600">{{ $message }}</p>
+                        @enderror
+                    </div>
+                    <div>
                         <label class="block text-xs font-medium text-gray-600 mb-1">Access Token <span class="text-gray-400 font-normal">(paste directly or use Connect Shopify)</span></label>
                         <input type="password" name="shopify_access_token" value="{{ $store->shopify_access_token }}"
                             placeholder="shpat_xxxxxxxxxxxx — leave blank to keep existing"
@@ -235,6 +249,12 @@
                         <label class="block text-xs font-medium text-gray-600 mb-1">GA4 Property ID <span class="text-gray-400 font-normal">(optional)</span></label>
                         <input type="text" name="ga4_property_id" inputmode="numeric"
                             placeholder="123456789 — digits only, not G-XXXXXXX"
+                            class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-gray-600 mb-1">Search Console site <span class="text-gray-400 font-normal">(optional)</span></label>
+                        <input type="text" name="gsc_site_url"
+                            placeholder="sc-domain:example.com"
                             class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent">
                     </div>
                     <div class="pt-1 border-t border-gray-100">

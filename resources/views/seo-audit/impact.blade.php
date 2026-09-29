@@ -70,6 +70,46 @@
         </div>
     </div>
 
+    {{-- Search Console: what the results page itself did --}}
+    @if($summary['search_measured'] > 0)
+    <div class="bg-white rounded-xl border border-gray-200 p-6">
+        <h3 class="font-semibold text-gray-800">In the search results</h3>
+        <p class="text-xs text-gray-500 mt-0.5">
+            Across {{ number_format($summary['search_measured']) }} products Search Console could answer for.
+            Click-through rate is the reading that moves first — a better description changes how many
+            people click what they were already being shown, before it changes where the page ranks.
+        </p>
+
+        <div class="grid grid-cols-2 lg:grid-cols-3 gap-4 mt-4">
+            <div class="rounded-lg border border-gray-200 p-4">
+                <p class="text-xs text-gray-500 mb-1">Impressions</p>
+                <p class="text-xl font-bold text-gray-800">
+                    {{ number_format($summary['impressions_before']) }}
+                    <span class="text-gray-300 font-normal">→</span>
+                    {{ number_format($summary['impressions_after']) }}
+                </p>
+            </div>
+            <div class="rounded-lg border border-gray-200 p-4">
+                <p class="text-xs text-gray-500 mb-1">Clicks</p>
+                <p class="text-xl font-bold text-gray-800">
+                    {{ number_format($summary['clicks_before']) }}
+                    <span class="text-gray-300 font-normal">→</span>
+                    {{ number_format($summary['clicks_after']) }}
+                </p>
+            </div>
+            <div class="rounded-lg border border-gray-200 p-4">
+                <p class="text-xs text-gray-500 mb-1">Click-through rate</p>
+                @php $ctrUp = ($summary['ctr_after'] ?? 0) >= ($summary['ctr_before'] ?? 0); @endphp
+                <p class="text-xl font-bold {{ $ctrUp ? 'text-green-600' : 'text-red-500' }}">
+                    {{ $summary['ctr_before'] }}%
+                    <span class="text-gray-300 font-normal">→</span>
+                    {{ $summary['ctr_after'] }}%
+                </p>
+            </div>
+        </div>
+    </div>
+    @endif
+
     {{-- Pushes --}}
     <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
         <div class="px-6 py-4 border-b border-gray-100 flex flex-wrap items-center gap-2">
@@ -97,9 +137,10 @@
                         <th class="px-6 py-3 text-left">Pushed</th>
                         <th class="px-6 py-3 text-left">Product</th>
                         <th class="px-6 py-3 text-left">Meta Title Written</th>
-                        <th class="px-6 py-3 text-center">Before</th>
-                        <th class="px-6 py-3 text-center">After</th>
+                        <th class="px-6 py-3 text-center">Sessions</th>
                         <th class="px-6 py-3 text-center">Change</th>
+                        <th class="px-6 py-3 text-center">CTR</th>
+                        <th class="px-6 py-3 text-center">Position</th>
                         <th class="px-6 py-3 text-left">By</th>
                     </tr>
                 </thead>
@@ -118,8 +159,11 @@
                         </td>
 
                         @if($push->measurement_status === 'measured')
-                            <td class="px-6 py-3 text-center text-gray-700">{{ number_format($push->sessions_before) }}</td>
-                            <td class="px-6 py-3 text-center text-gray-700">{{ number_format($push->sessions_after) }}</td>
+                            <td class="px-6 py-3 text-center text-gray-700 whitespace-nowrap">
+                                {{ number_format($push->sessions_before) }}
+                                <span class="text-gray-300">→</span>
+                                {{ number_format($push->sessions_after) }}
+                            </td>
                             <td class="px-6 py-3 text-center">
                                 @php $change = $push->changePercent(); @endphp
                                 @if($change === null)
@@ -131,8 +175,31 @@
                                     </span>
                                 @endif
                             </td>
+                            <td class="px-6 py-3 text-center whitespace-nowrap">
+                                @php $ctr = $push->ctrChangePoints(); @endphp
+                                @if($ctr === null)
+                                    <span class="text-gray-300">—</span>
+                                @else
+                                    <span class="text-gray-700">{{ $push->ctr_before }}% <span class="text-gray-300">→</span> {{ $push->ctr_after }}%</span>
+                                    <span class="block text-xs {{ $ctr >= 0 ? 'text-green-600' : 'text-red-500' }}">
+                                        {{ $ctr >= 0 ? '+' : '' }}{{ $ctr }} pts
+                                    </span>
+                                @endif
+                            </td>
+                            <td class="px-6 py-3 text-center whitespace-nowrap">
+                                @php $moved = $push->positionChange(); @endphp
+                                @if($moved === null)
+                                    <span class="text-gray-300">—</span>
+                                @else
+                                    <span class="text-gray-700">{{ $push->position_before }} <span class="text-gray-300">→</span> {{ $push->position_after }}</span>
+                                    {{-- Positive means it climbed: Search Console counts 1 as the top. --}}
+                                    <span class="block text-xs {{ $moved >= 0 ? 'text-green-600' : 'text-red-500' }}">
+                                        {{ $moved > 0 ? 'up ' : ($moved < 0 ? 'down ' : '') }}{{ abs($moved) ?: 'no move' }}{{ $moved != 0 ? ' places' : '' }}
+                                    </span>
+                                @endif
+                            </td>
                         @else
-                            <td colspan="3" class="px-6 py-3 text-center">
+                            <td colspan="4" class="px-6 py-3 text-center">
                                 @php
                                     $tone = ['pending' => 'gray', 'no_data' => 'amber', 'failed' => 'red'][$push->measurement_status] ?? 'gray';
                                     $text = [

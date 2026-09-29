@@ -113,6 +113,28 @@
                 </p>
             </div>
 
+            {{-- Target search terms: applies to every product in the batch --}}
+            <div class="border-t border-gray-100 px-6 py-5">
+                <label for="keywords" class="text-sm font-medium text-gray-700">
+                    Target search terms <span class="font-normal text-gray-400">— optional</span>
+                </label>
+                <textarea id="keywords" name="keywords" rows="2"
+                          placeholder="cabin suitcase, carry-on luggage, hand luggage qatar"
+                          class="mt-1.5 w-full resize-y rounded-lg border px-3.5 py-2.5 text-sm transition focus:border-brand-500 focus:outline-none focus:ring-4 focus:ring-brand-500/15 {{ $errors->has('keywords') ? 'border-red-400' : 'border-gray-300' }}">{{ old('keywords') }}</textarea>
+                @error('keywords')
+                    <p class="mt-1 text-xs text-red-600">{{ $message }}</p>
+                @enderror
+                <p class="mt-1.5 text-xs text-gray-400">
+                    Comma or line separated. Without these the model writes from the photograph alone —
+                    it has no idea what anyone searches for. Terms that don't describe the product are
+                    ignored rather than forced in.
+                    @if($activeStore?->gsc_site_url)
+                        Search Console is connected, so the terms each product already ranks for are
+                        added to these automatically.
+                    @endif
+                </p>
+            </div>
+
             {{-- Actions --}}
             <div class="flex items-center justify-between gap-3 border-t border-gray-100 bg-gray-50 px-6 py-4">
                 <a href="{{ route('ai-content.dashboard') }}" class="text-sm text-gray-500 hover:text-gray-700">Cancel</a>

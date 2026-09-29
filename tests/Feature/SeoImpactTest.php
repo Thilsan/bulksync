@@ -6,6 +6,7 @@ use App\Jobs\MeasureSeoImpactJob;
 use App\Models\SeoContentPush;
 use App\Models\Store;
 use App\Models\User;
+use App\Services\SearchConsoleService;
 use App\Services\SeoImpactService;
 use App\Services\ShopifyService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -37,13 +38,14 @@ class SeoImpactTest extends TestCase
         ]);
     }
 
-    private function storeFor(User $user, ?string $propertyId = '12345'): Store
+    private function storeFor(User $user, ?string $propertyId = '12345', ?string $siteUrl = null): Store
     {
         return Store::create([
             'name'                 => 'Test Store',
             'shopify_domain'       => 'test.myshopify.com',
             'shopify_access_token' => 'shpat_test',
             'ga4_property_id'      => $propertyId,
+            'gsc_site_url'         => $siteUrl,
             'user_id'              => $user->id,
         ]);
     }
@@ -70,19 +72,50 @@ class SeoImpactTest extends TestCase
         ], array_keys($pathsToSessions), $pathsToSessions)];
     }
 
-    /** Runs the measurement with GA4 and Shopify both faked out. */
-    private function measure(array $before, array $after, ?ShopifyService $shopify = null): void
+    /**
+     * A Search Console search-analytics response, as the API returns one.
+     *
+     * @param  array<string, array{0:int,1:int,2:float}>  $pages  url => [impressions, clicks, position]
+     */
+    private function searchRows(array $pages): array
     {
+        return array_map(fn ($url, $figures) => [
+            'keys'        => [$url],
+            'impressions' => $figures[0],
+            'clicks'      => $figures[1],
+            'position'    => $figures[2],
+        ], array_keys($pages), $pages);
+    }
+
+    /** Runs the measurement with Google and Shopify all faked out. */
+    private function measure(
+        array $before,
+        array $after,
+        ?ShopifyService $shopify = null,
+        ?array $searchBefore = null,
+        ?array $searchAfter = null,
+    ): void {
         $service = new SeoImpactService(
             fn (string $propertyId, array $requests) => [$this->report($before), $this->report($after)]
         );
 
-        $job = new class($service, $shopify) extends MeasureSeoImpactJob {
-            public function __construct(private $service, private $shopify) {}
+        // Two calls, before-window then after-window, in that order.
+        $windows = [$this->searchRows($searchBefore ?? []), $this->searchRows($searchAfter ?? [])];
+        $console = new SearchConsoleService(function (string $site, array $request) use (&$windows) {
+            return array_shift($windows) ?? [];
+        });
+
+        $job = new class($service, $console, $shopify) extends MeasureSeoImpactJob {
+            public function __construct(private $service, private $console, private $shopify) {}
 
             protected function impactService(): SeoImpactService
             {
                 return $this->service;
+            }
+
+            protected function searchConsoleService(): SearchConsoleService
+            {
+                return $this->console;
             }
 
             protected function shopifyFor(Store $store): ShopifyService
@@ -150,7 +183,10 @@ class SeoImpactTest extends TestCase
         // count, which is a different statement about the rewrite.
         $this->assertSame('no_data', $push->measurement_status);
         $this->assertNull($push->changePercent());
-        $this->assertSame('No organic sessions to this URL in either window.', $push->measurement_note);
+        $this->assertSame(
+            'This URL had no organic sessions and no search impressions in either window.',
+            $push->measurement_note,
+        );
     }
 
     public function test_a_push_from_zero_sessions_reports_the_counts_but_no_percentage(): void
@@ -241,7 +277,7 @@ class SeoImpactTest extends TestCase
         $push->refresh();
 
         $this->assertSame('no_data', $push->measurement_status);
-        $this->assertStringContainsString('No GA4 property', $push->measurement_note);
+        $this->assertStringContainsString('Neither a GA4 property nor a Search Console site', $push->measurement_note);
     }
 
     public function test_the_report_totals_sessions_rather_than_averaging_percentages(): void
@@ -291,6 +327,131 @@ class SeoImpactTest extends TestCase
 
         $this->assertCount(1, $due);
         $this->assertSame('settled', $due->first()->product_id);
+    }
+
+    public function test_search_console_figures_are_recorded_alongside_the_sessions(): void
+    {
+        $user  = $this->operator();
+        $store = $this->storeFor($user, siteUrl: 'sc-domain:test.com');
+        $push  = $this->push($user, $store);
+
+        $this->measure(
+            before: ['/products/linen-shirt' => 100],
+            after:  ['/products/linen-shirt' => 150],
+            searchBefore: ['https://test.com/products/linen-shirt' => [10000, 200, 8.4]],
+            searchAfter:  ['https://test.com/products/linen-shirt' => [10000, 300, 8.2]],
+        );
+
+        $push->refresh();
+
+        $this->assertSame(10000, $push->impressions_before);
+        $this->assertSame(300, $push->clicks_after);
+        $this->assertEquals(2.0, $push->ctr_before);
+        $this->assertEquals(3.0, $push->ctr_after);
+
+        // The same impressions, more clicks: the description did its job
+        // without the page moving. Sessions alone could not have told those
+        // two explanations apart.
+        $this->assertSame(1.0, $push->ctrChangePoints());
+    }
+
+    public function test_a_page_that_climbed_reports_a_positive_move_despite_the_number_falling(): void
+    {
+        $user  = $this->operator();
+        $store = $this->storeFor($user, siteUrl: 'sc-domain:test.com');
+        $push  = $this->push($user, $store);
+
+        $this->measure(
+            before: [],
+            after:  [],
+            searchBefore: ['https://test.com/products/linen-shirt' => [500, 5, 12.0]],
+            searchAfter:  ['https://test.com/products/linen-shirt' => [900, 20, 7.5]],
+        );
+
+        // Search Console counts position downwards, so 12th to 7.5th is a rise
+        // of 4.5 places, not a fall.
+        $this->assertSame(4.5, $push->refresh()->positionChange());
+    }
+
+    public function test_a_page_shown_but_never_clicked_still_counts_as_measured(): void
+    {
+        $user  = $this->operator();
+        $store = $this->storeFor($user, siteUrl: 'sc-domain:test.com');
+        $push  = $this->push($user, $store);
+
+        $this->measure(
+            before: [],
+            after:  [],
+            searchBefore: ['https://test.com/products/linen-shirt' => [400, 0, 30.0]],
+            searchAfter:  ['https://test.com/products/linen-shirt' => [600, 0, 28.0]],
+        );
+
+        $push->refresh();
+
+        // Nobody arrived, so Analytics has nothing — but the page was put in
+        // front of a thousand people, and "shown and ignored" is a finding
+        // rather than an absence of one.
+        $this->assertSame('measured', $push->measurement_status);
+        $this->assertSame(0, $push->sessions_after);
+        $this->assertSame(600, $push->impressions_after);
+    }
+
+    public function test_average_position_is_weighted_by_impressions_when_urls_are_folded(): void
+    {
+        $user  = $this->operator();
+        $store = $this->storeFor($user, siteUrl: 'sc-domain:test.com');
+        $push  = $this->push($user, $store);
+
+        $this->measure(
+            before: [],
+            after:  [],
+            searchBefore: [
+                'https://test.com/products/linen-shirt'            => [9900, 100, 5.0],
+                'https://test.com/products/linen-shirt?variant=2'  => [100,  1,   95.0],
+            ],
+            searchAfter: ['https://test.com/products/linen-shirt' => [10000, 120, 5.0]],
+        );
+
+        // A straight mean of 5 and 95 would report 50th place for a page that
+        // essentially always sits 5th.
+        $this->assertEquals(5.9, $push->refresh()->position_before);
+    }
+
+    /**
+     * Search Console has no data for its last few days and answers with a
+     * partial window rather than an error, which would read as a collapse in
+     * traffic. The settle period has to clear both the measurement window and
+     * that reporting lag, and the job carries a guard for when it does not.
+     *
+     * The guard cannot fire while these constants hold, so what is pinned here
+     * is the relationship between them: retune one and this fails rather than
+     * quietly starting to compare a full window against a half-empty one.
+     */
+    public function test_the_settle_period_clears_both_the_window_and_search_consoles_lag(): void
+    {
+        $this->assertGreaterThan(
+            SeoContentPush::WINDOW_DAYS + SearchConsoleService::LAG_DAYS,
+            SeoContentPush::SETTLE_DAYS,
+        );
+    }
+
+    public function test_a_store_with_only_search_console_is_still_measured(): void
+    {
+        $user  = $this->operator();
+        $store = $this->storeFor($user, propertyId: null, siteUrl: 'sc-domain:test.com');
+        $push  = $this->push($user, $store);
+
+        $this->measure(
+            before: [],
+            after:  [],
+            searchBefore: ['https://test.com/products/linen-shirt' => [1000, 30, 9.0]],
+            searchAfter:  ['https://test.com/products/linen-shirt' => [1000, 45, 9.0]],
+        );
+
+        $push->refresh();
+
+        $this->assertSame('measured', $push->measurement_status);
+        $this->assertSame(1.5, $push->ctrChangePoints());
     }
 
     protected function tearDown(): void

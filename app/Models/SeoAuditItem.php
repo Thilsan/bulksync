@@ -21,6 +21,10 @@ class SeoAuditItem extends Model
     /** Body copy below this many characters of plain text reads as a stub. */
     public const THIN_DESCRIPTION = 200;
 
+    /** The two kinds of page this audit grades. */
+    public const TYPE_PRODUCT    = 'product';
+    public const TYPE_COLLECTION = 'collection';
+
     /**
      * Every issue the audit can raise: the label shown to the merchant, and the
      * points knocked off a product's score. Weights are ordered by what actually
@@ -38,13 +42,17 @@ class SeoAuditItem extends Model
         'thin_description'          => ['label' => 'Thin description',           'weight' => 10, 'severity' => 'medium'],
         'meta_title_too_long'       => ['label' => 'Meta title over 60 chars',   'weight' => 8,  'severity' => 'medium'],
         'meta_description_too_long' => ['label' => 'Meta description over 160',  'weight' => 8,  'severity' => 'medium'],
+        // Only the unambiguous title fault is graded. A minimum length was
+        // tried and dropped: it flagged "Relaxed Linen Shirt" as a problem,
+        // and a check that punishes good titles buries the real ones.
+        'title_single_word'         => ['label' => 'One-word title',            'weight' => 8,  'severity' => 'medium'],
         'no_tags'                   => ['label' => 'No tags',                    'weight' => 5,  'severity' => 'low'],
         'meta_title_too_short'      => ['label' => 'Meta title under 30 chars',  'weight' => 4,  'severity' => 'low'],
         'meta_description_too_short'=> ['label' => 'Meta description under 70',  'weight' => 4,  'severity' => 'low'],
     ];
 
     protected $fillable = [
-        'seo_audit_session_id', 'product_id', 'product_title', 'handle', 'sku',
+        'seo_audit_session_id', 'resource_type', 'product_id', 'product_title', 'handle', 'sku',
         'meta_title', 'meta_description', 'meta_title_length', 'meta_description_length',
         'description_length', 'image_count', 'images_missing_alt', 'tag_count',
         'issues', 'issue_count', 'score',
@@ -79,5 +87,18 @@ class SeoAuditItem extends Model
     public static function label(string $code): string
     {
         return self::ISSUES[$code]['label'] ?? $code;
+    }
+
+    /** The public URL path, which is how Analytics and Search Console name it. */
+    public function path(): string
+    {
+        $prefix = $this->resource_type === self::TYPE_COLLECTION ? '/collections/' : '/products/';
+
+        return $prefix . $this->handle;
+    }
+
+    public function isCollection(): bool
+    {
+        return $this->resource_type === self::TYPE_COLLECTION;
     }
 }

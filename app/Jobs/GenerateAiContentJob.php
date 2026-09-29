@@ -8,6 +8,7 @@ use App\Models\AiContentItem;
 use App\Models\AiContentSession;
 use App\Models\Store;
 use App\Services\GeminiService;
+use App\Services\SearchConsoleService;
 use App\Services\ShopifyService;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -33,6 +34,16 @@ class GenerateAiContentJob implements ShouldQueue
      * picks up where it left off.
      */
     private const CHUNK_SECONDS = 2400;
+
+    /**
+     * Search terms handed to the model, and how far back they are read.
+     *
+     * Ten is enough to steer the wording without the prompt turning into a
+     * list to be satisfied; ninety days is long enough for a slow-selling
+     * product to have accumulated something to say.
+     */
+    private const MAX_SEARCH_TERMS        = 10;
+    private const SEARCH_TERM_WINDOW_DAYS = 90;
 
     public function __construct(
         public readonly int $sessionId,
@@ -255,6 +266,75 @@ class GenerateAiContentJob implements ShouldQueue
         return $done;
     }
 
+    /**
+     * The search terms to write this product against.
+     *
+     * Two sources, in order of authority. Whatever the merchant typed for the
+     * batch applies to everything in it. On top of that, if the store has a
+     * Search Console site, the terms this exact page is already being shown
+     * for — which beat any guess, because they are what people really typed.
+     *
+     * Returns nothing at all when neither is available, and the prompt then
+     * behaves exactly as it did before any of this existed.
+     *
+     * @return list<string>
+     */
+    protected function searchTermsFor(AiContentSession $session, string $handle): array
+    {
+        $manual = collect(preg_split('/[\n,]+/', (string) $session->keywords))
+            ->map(fn ($term) => trim($term))
+            ->filter()
+            ->all();
+
+        $store = $session->store_id ? Store::find($session->store_id) : null;
+
+        if (!$handle || !$store?->gsc_site_url) {
+            return array_slice($manual, 0, self::MAX_SEARCH_TERMS);
+        }
+
+        try {
+            $to   = SearchConsoleService::latestCompleteDay();
+            $from = $to->copy()->subDays(self::SEARCH_TERM_WINDOW_DAYS);
+
+            $queries = array_column(
+                $this->searchConsole()->topQueriesForPage(
+                    (string) $store->gsc_site_url,
+                    '/products/' . $handle,
+                    $from,
+                    $to,
+                    self::MAX_SEARCH_TERMS,
+                ),
+                'query',
+            );
+        } catch (\Throwable $e) {
+            // A search-term lookup is an enhancement, never a reason to abandon
+            // a generation run that would otherwise have produced good content.
+            Log::warning('GenerateAiContentJob: search terms unavailable', [
+                'session' => $session->id,
+                'handle'  => $handle,
+                'error'   => $e->getMessage(),
+            ]);
+
+            $queries = [];
+        }
+
+        // Merged case-insensitively so a merchant's term and Google's spelling
+        // of the same thing do not both go in and read as repetition.
+        $merged = collect($manual)->merge($queries)
+            ->unique(fn ($term) => mb_strtolower($term))
+            ->take(self::MAX_SEARCH_TERMS)
+            ->values()
+            ->all();
+
+        return $merged;
+    }
+
+    /** Seam: overridden in tests so nothing reaches Google. */
+    protected function searchConsole(): SearchConsoleService
+    {
+        return new SearchConsoleService();
+    }
+
     private function generateForProduct(
         AiContentSession $session,
         ShopifyService $shopify,
@@ -289,12 +369,14 @@ class GenerateAiContentJob implements ShouldQueue
         $images = $shopify->getProductImages($productId);
 
         if (empty($images)) {
-            return $this->generateForProductWithoutImage($item, $gemini, $productTitle, $vendor, $productType, $tags, $collections, $sku, $storeName, $existingDescription, $existingMaterial, $existingFeatures, $collectionTitles);
+            return $this->generateForProductWithoutImage($item, $gemini, $productTitle, $vendor, $productType, $tags, $collections, $sku, $storeName, $existingDescription, $existingMaterial, $existingFeatures, $collectionTitles, $this->searchTermsFor($session, $variant['handle'] ?? ''));
         }
 
         $hero = $images[0];
 
-        $content = $gemini->generateFromImageUrl($hero['src'], $productTitle, $vendor, $productType, $tags, $collections, $sku, $storeName, $existingDescription, $existingMaterial, $existingFeatures, $collectionTitles);
+        $searchQueries = $this->searchTermsFor($session, $variant['handle'] ?? '');
+
+        $content = $gemini->generateFromImageUrl($hero['src'], $productTitle, $vendor, $productType, $tags, $collections, $sku, $storeName, $existingDescription, $existingMaterial, $existingFeatures, $collectionTitles, $searchQueries);
         // Pacing lives in GeminiService::throttle() now — one place, measured
         // from the last call rather than a flat wait on top of it.
 
@@ -386,8 +468,9 @@ class GenerateAiContentJob implements ShouldQueue
         string $existingMaterial,
         array $existingFeatures,
         array $collectionTitles,
+        array $searchQueries = [],
     ): AiContentItem {
-        $content = $gemini->generateFromTextOnly($productTitle, $vendor, $productType, $tags, $collections, $sku, $storeName, $existingDescription, $existingMaterial, $existingFeatures, $collectionTitles);
+        $content = $gemini->generateFromTextOnly($productTitle, $vendor, $productType, $tags, $collections, $sku, $storeName, $existingDescription, $existingMaterial, $existingFeatures, $collectionTitles, $searchQueries);
         // Pacing lives in GeminiService::throttle() now — one place, measured
         // from the last call rather than a flat wait on top of it.
 

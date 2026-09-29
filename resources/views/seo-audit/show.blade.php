@@ -18,6 +18,7 @@
                 @csrf
                 <input type="hidden" name="filter" :value="filter">
                 <input type="hidden" name="search" :value="search">
+                <input type="hidden" name="type" :value="type">
                 <button type="submit"
                     class="bg-brand-600 hover:bg-brand-700 text-white px-4 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5">
                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -119,6 +120,47 @@
         </div>
     </div>
 
+    {{-- Duplicate clusters: which pages are actually competing with each other --}}
+    <div x-show="status === 'completed' && hasDuplicates()" class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div class="px-6 py-4 border-b border-gray-100 flex flex-wrap items-center gap-3">
+            <div>
+                <h3 class="font-semibold text-gray-800">Pages competing with each other</h3>
+                <p class="text-xs text-gray-500 mt-0.5">Same text on more than one page — they split the same search result.</p>
+            </div>
+            <div class="flex gap-2 ml-auto">
+                <button @click="loadDuplicates('meta_title')"
+                    :class="dupField === 'meta_title' ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'"
+                    class="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors">Meta titles</button>
+                <button @click="loadDuplicates('meta_description')"
+                    :class="dupField === 'meta_description' ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'"
+                    class="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors">Meta descriptions</button>
+            </div>
+        </div>
+
+        <div class="divide-y divide-gray-100">
+            <template x-for="cluster in duplicates" :key="cluster.value">
+                <div class="px-6 py-4">
+                    <div class="flex items-start gap-3">
+                        <span class="inline-flex shrink-0 items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-red-50 text-red-600"
+                              x-text="cluster.pages + ' pages'"></span>
+                        <p class="text-sm text-gray-700 italic" x-text="'“' + cluster.value + '”'"></p>
+                    </div>
+                    <div class="mt-2 ml-1 flex flex-wrap gap-x-6 gap-y-1">
+                        <template x-for="page in cluster.shown" :key="page.path">
+                            <div class="text-xs text-gray-500 flex items-center gap-1.5">
+                                <span class="inline-flex px-1.5 rounded bg-gray-100 text-gray-500"
+                                      x-text="page.type === 'collection' ? 'collection' : (page.sku || 'product')"></span>
+                                <span x-text="page.title"></span>
+                            </div>
+                        </template>
+                        <span class="text-xs text-gray-400" x-show="cluster.pages > cluster.shown.length"
+                              x-text="'+ ' + (cluster.pages - cluster.shown.length) + ' more'"></span>
+                    </div>
+                </div>
+            </template>
+        </div>
+    </div>
+
     {{-- Results table --}}
     <div x-show="status === 'completed'" class="bg-white rounded-xl border border-gray-200 overflow-hidden">
         <div class="px-6 py-4 border-b border-gray-100 flex flex-wrap items-center gap-4">
@@ -139,6 +181,14 @@
                     All (<span x-text="scanned.toLocaleString()"></span>)
                 </button>
             </div>
+            <div class="flex gap-2 border-l border-gray-200 pl-4">
+                <template x-for="option in [{k:'all',l:'Everything'},{k:'product',l:'Products'},{k:'collection',l:'Collections'}]" :key="option.k">
+                    <button @click="setType(option.k)"
+                        :class="type === option.k ? 'bg-brand-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'"
+                        class="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors" x-text="option.l"></button>
+                </template>
+            </div>
+
             <div class="flex-1 max-w-xs">
                 <input type="text" x-model.debounce.400ms="search" @input="loadItems(1)"
                     placeholder="Search SKU, title or handle…"
@@ -171,8 +221,18 @@
                                             : (item.score >= 50 ? 'bg-amber-50 text-amber-700' : 'bg-red-50 text-red-600')"
                                       x-text="item.score"></span>
                             </td>
-                            <td class="px-6 py-3 font-mono font-medium text-gray-800" x-text="item.sku || '—'"></td>
-                            <td class="px-6 py-3 text-gray-600 max-w-xs truncate" x-text="item.product_title"></td>
+                            <td class="px-6 py-3 font-mono font-medium text-gray-800">
+                                <template x-if="item.resource_type === 'collection'">
+                                    <span class="font-sans inline-flex px-2 py-0.5 rounded-full text-xs bg-violet-50 text-violet-700">Collection</span>
+                                </template>
+                                <template x-if="item.resource_type !== 'collection'">
+                                    <span x-text="item.sku || '—'"></span>
+                                </template>
+                            </td>
+                            <td class="px-6 py-3 text-gray-600 max-w-xs">
+                                <p class="truncate" x-text="item.product_title"></p>
+                                <p class="text-xs text-gray-400 font-mono truncate" x-text="item.path"></p>
+                            </td>
                             <td class="px-6 py-3 text-gray-600 max-w-xs">
                                 <p class="truncate" x-text="item.meta_title || '—'"></p>
                                 <p class="text-xs mt-0.5"
@@ -240,6 +300,9 @@ function seoAuditPage(sessionId, initialStatus) {
         issueSummary:  @json($session->issueSummary()),
         filter:        'issues',
         search:        '',
+        type:          'all',
+        duplicates:    [],
+        dupField:      'meta_title',
         items:         [],
         itemTotal:     0,
         currentPage:   1,
@@ -249,9 +312,31 @@ function seoAuditPage(sessionId, initialStatus) {
         init() {
             if (this.status === 'completed') {
                 this.loadItems(1);
+                this.loadDuplicates(this.dupField);
             } else if (this.status !== 'failed') {
                 this.startPolling();
             }
+        },
+
+        /** Whether the audit found any clashing text worth drawing a panel for. */
+        hasDuplicates() {
+            return this.issueSummary.some(
+                i => i.code === 'duplicate_meta_title' || i.code === 'duplicate_meta_description'
+            );
+        },
+
+        async loadDuplicates(field) {
+            this.dupField = field;
+
+            const res  = await fetch(`/seo-audit/${sessionId}/duplicates?field=${field}`);
+            const data = await res.json();
+
+            this.duplicates = data.clusters;
+        },
+
+        setType(t) {
+            this.type = t;
+            this.loadItems(1);
         },
 
         startPolling() {
@@ -273,7 +358,10 @@ function seoAuditPage(sessionId, initialStatus) {
 
             if (data.status === 'completed' || data.status === 'failed') {
                 clearInterval(this.pollTimer);
-                if (data.status === 'completed') this.loadItems(1);
+                if (data.status === 'completed') {
+                    this.loadItems(1);
+                    this.loadDuplicates(this.dupField);
+                }
             }
         },
 
@@ -303,7 +391,9 @@ function seoAuditPage(sessionId, initialStatus) {
         },
 
         query() {
-            return `filter=${encodeURIComponent(this.filter)}&search=${encodeURIComponent(this.search)}`;
+            return `filter=${encodeURIComponent(this.filter)}`
+                 + `&search=${encodeURIComponent(this.search)}`
+                 + `&type=${encodeURIComponent(this.type)}`;
         },
 
         downloadUrl() {

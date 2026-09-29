@@ -91,6 +91,7 @@ class AiContentController extends Controller
             'input_type' => 'required|in:sku_list,csv_upload',
             'sku_raw'    => 'required_if:input_type,sku_list|nullable|string',
             'csv_file'   => 'required_if:input_type,csv_upload|nullable|file|mimes:csv,txt|max:10240',
+            'keywords'   => 'nullable|string|max:2000',
         ]);
 
         if ($request->input_type === 'sku_list') {
@@ -115,6 +116,7 @@ class AiContentController extends Controller
             'input_type' => $request->input_type,
             'sku_raw'    => $request->input_type === 'sku_list' ? $request->sku_raw : null,
             'skus_json'  => json_encode($skus->values()->all()),
+            'keywords'   => $request->input('keywords') ?: null,
             'status'     => 'pending',
             'total_items' => $skus->count(),
         ]);

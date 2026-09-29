@@ -88,11 +88,22 @@ meta descriptions and image alt text.
 | Images without alt text | Any product image has an empty `altText` |
 | No images | The product has none at all |
 | Thin description | Under 200 characters of body copy |
+| One-word title | The visible title is a bare model name — "NOBLETON", "Altra" |
 | No tags | The product carries none |
 
-Each product scores out of 100, with points deducted per issue. Lengths are
+Each page scores out of 100, with points deducted per issue. Lengths are
 counted in characters rather than bytes, so Arabic content is not wrongly
 reported as too long.
+
+**Collections are audited too.** Collection pages rank for category searches
+("cabin luggage qatar") while product pages compete for model names, so they
+carry a share of search demand out of all proportion to their number. The image,
+alt-text and tag checks do not apply to them and are left off rather than passing
+trivially. Filter the table with the Everything / Products / Collections tabs.
+
+**Duplicate clusters** are shown above the table: which pages share a meta title
+or description, and therefore split the same search result. A flat list shows a
+row without showing what it clashes with, which is not enough to fix it.
 
 Audits are pruned daily: the ten most recent per person are kept, and older ones
 past 90 days are deleted with their rows.
@@ -124,8 +135,39 @@ mostly measure the crawl delay. Paid search is excluded, and a URL with no
 organic sessions on either side is reported as *no data* rather than as a flat
 result.
 
-Requires a GA4 property ID on the store (Stores → edit) and the service-account
-key described under `services.ga4.credentials`.
+Where a **Search Console site** is also set on the store, the same comparison
+records impressions, clicks, click-through rate and average position. That is the
+better instrument for judging a rewritten meta description: it changes how many
+people click what they were already being shown, before it changes where the page
+ranks, and sessions alone cannot tell those two explanations apart.
+
+Either source alone is enough to produce a reading. Positions are averaged by
+impression, so a URL shown twice does not weigh as much as one shown ten thousand
+times, and a page shown but never clicked counts as measured — "shown and
+ignored" is a finding, not an absence of one.
+
+Requires a GA4 property ID and/or a Search Console site on the store
+(Stores → edit), plus the service-account key described under
+`services.ga4.credentials` / `services.search_console.credentials`. The service
+account must be granted access separately on each side — Analytics by property,
+Search Console by site.
+
+## Keyword-grounded generation
+
+Left to itself the model writes from the photograph: it describes what the
+product looks like and has no idea what anyone is searching for. Two sources fix
+that, and both are optional.
+
+- **Target search terms** on the generation form, applied to every product in the
+  batch.
+- **Real queries from Search Console** for that exact product page, when the store
+  has a site configured — read over the last 90 days, ten at most.
+
+They are merged case-insensitively so a merchant's spelling and Google's do not
+both go in and read as emphasis. The prompt is told these are facts about demand
+rather than about the product: a term naming something the product is not is
+ignored, and no term overrides the accuracy or colour-neutral rules. With neither
+source the prompt behaves exactly as it did before.
 
 ---
 

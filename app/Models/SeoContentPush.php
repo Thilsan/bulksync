@@ -30,6 +30,10 @@ class SeoContentPush extends Model
         'user_id', 'store_id', 'product_id', 'handle', 'product_title',
         'meta_title', 'meta_description', 'pushed_at',
         'sessions_before', 'sessions_after', 'measured_at',
+        'impressions_before', 'impressions_after',
+        'clicks_before', 'clicks_after',
+        'ctr_before', 'ctr_after',
+        'position_before', 'position_after',
         'measurement_status', 'measurement_note',
     ];
 
@@ -56,6 +60,41 @@ class SeoContentPush extends Model
         }
 
         return round((($this->sessions_after - $this->sessions_before) / $this->sessions_before) * 100, 1);
+    }
+
+    /**
+     * Percentage-point change in click-through rate.
+     *
+     * Reported in points rather than percent because a CTR going from 2% to 3%
+     * is a rise of one point and of fifty percent, and only one of those two
+     * numbers is worth putting on a card.
+     *
+     * This is the reading that matters most for a rewritten meta description:
+     * it changes how many people click what they were already being shown,
+     * before it changes anything about where the page ranks.
+     */
+    public function ctrChangePoints(): ?float
+    {
+        if ($this->ctr_before === null || $this->ctr_after === null) {
+            return null;
+        }
+
+        return round((float) $this->ctr_after - (float) $this->ctr_before, 2);
+    }
+
+    /**
+     * Change in average position, positive meaning the page moved up.
+     *
+     * Search Console counts position downwards — 1 is the top — so the
+     * subtraction is the other way round from every other figure here.
+     */
+    public function positionChange(): ?float
+    {
+        if (!$this->position_before || !$this->position_after) {
+            return null;
+        }
+
+        return round((float) $this->position_before - (float) $this->position_after, 1);
     }
 
     /** Pushes old enough that the after-window has fully closed. */

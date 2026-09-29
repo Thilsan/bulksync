@@ -10,7 +10,7 @@ class SeoAuditSession extends Model
 {
     protected $fillable = [
         'user_id', 'store_id', 'status',
-        'total_products', 'scanned_products', 'clean_products',
+        'total_products', 'scanned_products', 'total_collections', 'scanned_collections', 'clean_products',
         'products_with_issues', 'total_issues', 'average_score',
         'issue_breakdown', 'error_message',
     ];
@@ -21,10 +21,19 @@ class SeoAuditSession extends Model
     public function store(): BelongsTo { return $this->belongsTo(Store::class); }
     public function items(): HasMany   { return $this->hasMany(SeoAuditItem::class); }
 
+    /** Everything the audit graded: product pages and collection pages alike. */
+    public function scannedTotal(): int
+    {
+        return $this->scanned_products + $this->scanned_collections;
+    }
+
     public function progressPercent(): int
     {
-        if ($this->total_products === 0) return 0;
-        return (int) min(100, round($this->scanned_products / $this->total_products * 100));
+        $total = $this->total_products + $this->total_collections;
+
+        if ($total === 0) return 0;
+
+        return (int) min(100, round($this->scannedTotal() / $total * 100));
     }
 
     /**

@@ -9,6 +9,7 @@ use App\Models\SeoAuditItem;
 use App\Models\SeoAuditSession;
 use App\Models\Store;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class SeoAuditController extends Controller
 {
@@ -28,6 +29,10 @@ class SeoAuditController extends Controller
      * times one with two.
      */
     public const COST_PER_PRODUCT_USD = 0.014;
+
+    /** Duplicate groups shown at once, and pages listed inside each. */
+    public const MAX_CLUSTERS        = 50;
+    public const MAX_CLUSTER_MEMBERS = 12;
 
     public function index()
     {
@@ -91,6 +96,8 @@ class SeoAuditController extends Controller
         return response()->json([
             'items' => collect($items->items())->map(fn (SeoAuditItem $item) => [
                 'product_id'       => $item->product_id,
+                'resource_type'    => $item->resource_type,
+                'path'             => $item->path(),
                 'product_title'    => $item->product_title,
                 'handle'           => $item->handle,
                 'sku'              => $item->sku,
@@ -109,6 +116,61 @@ class SeoAuditController extends Controller
         ]);
     }
 
+    /**
+     * Products and collections grouped by the meta title or description they
+     * share.
+     *
+     * The table can already filter to "duplicate meta title", but a flat list
+     * shows a row without showing what it clashes with — and a duplicate is
+     * only fixable once you can see the other pages competing with it. This
+     * returns the clusters themselves.
+     */
+    public function duplicates(SeoAuditSession $seoAuditSession, Request $request)
+    {
+        abort_if($seoAuditSession->user_id !== auth()->id(), 403);
+
+        $field  = $request->get('field') === 'meta_description' ? 'meta_description' : 'meta_title';
+        $column = $field;
+
+        $values = SeoAuditItem::where('seo_audit_session_id', $seoAuditSession->id)
+            ->where($column, '<>', '')
+            ->whereNotNull($column)
+            ->select(DB::raw("LOWER(TRIM({$column})) as normalised"), DB::raw('COUNT(*) as pages'))
+            ->groupBy('normalised')
+            ->havingRaw('COUNT(*) > 1')
+            ->orderByDesc('pages')
+            ->limit(self::MAX_CLUSTERS)
+            // get()->pluck(), not the builder's pluck(): the builder's swaps
+            // the select list for the named column, dropping the raw aliases.
+            ->get();
+
+        $clusters = $values->map(function ($group) use ($seoAuditSession, $column) {
+            $members = SeoAuditItem::where('seo_audit_session_id', $seoAuditSession->id)
+                ->whereRaw("LOWER(TRIM({$column})) = ?", [$group->normalised])
+                ->orderBy('product_title')
+                ->limit(self::MAX_CLUSTER_MEMBERS + 1)
+                ->get(['resource_type', 'product_id', 'product_title', 'handle', 'sku', $column]);
+
+            return [
+                'value'   => $members->first()->{$column},
+                'pages'   => (int) $group->pages,
+                // The cap is a rendering limit, not a counting one: the group
+                // still reports its true size above.
+                'shown'   => $members->take(self::MAX_CLUSTER_MEMBERS)->map(fn (SeoAuditItem $item) => [
+                    'type'  => $item->resource_type,
+                    'title' => $item->product_title,
+                    'sku'   => $item->sku,
+                    'path'  => $item->path(),
+                ])->all(),
+            ];
+        })->all();
+
+        return response()->json([
+            'field'    => $field,
+            'clusters' => $clusters,
+        ]);
+    }
+
     public function download(SeoAuditSession $seoAuditSession, Request $request)
     {
         abort_if($seoAuditSession->user_id !== auth()->id(), 403);
@@ -123,7 +185,7 @@ class SeoAuditController extends Controller
             $handle = fopen('php://output', 'w');
 
             fputcsv($handle, [
-                'SKU', 'Product Title', 'Handle', 'Product ID', 'Score',
+                'Type', 'SKU', 'Product Title', 'Handle', 'Product ID', 'Score',
                 'Meta Title', 'Meta Title Length',
                 'Meta Description', 'Meta Description Length',
                 'Description Length', 'Images', 'Images Missing Alt', 'Tags',
@@ -133,6 +195,7 @@ class SeoAuditController extends Controller
             $query->chunk(500, function ($items) use ($handle) {
                 foreach ($items as $item) {
                     fputcsv($handle, [
+                        $item->resource_type,
                         $item->sku,
                         $item->product_title,
                         $item->handle,
@@ -176,7 +239,12 @@ class SeoAuditController extends Controller
             return back()->with('warning', 'Wait for the audit to finish before fixing anything.');
         }
 
-        $rows = $this->filtered($seoAuditSession, $request)->get(['sku', 'product_title']);
+        // Products only. A collection has no SKU and the generator writes from
+        // product photographs, so sweeping collections in would silently send
+        // nothing and report a count nobody could account for.
+        $rows = $this->filtered($seoAuditSession, $request)
+            ->where('resource_type', SeoAuditItem::TYPE_PRODUCT)
+            ->get(['sku', 'product_title']);
 
         // A product whose first variant carries no SKU cannot be looked up
         // again — the generator only knows products by SKU. Counted and said
@@ -206,6 +274,7 @@ class SeoAuditController extends Controller
             'input_type'  => 'sku_list',
             'sku_raw'     => $skus->implode("\n"),
             'skus_json'   => json_encode($skus->all()),
+            'keywords'    => $request->input('keywords') ?: null,
             'status'      => 'pending',
             'total_items' => $skus->count(),
         ]);
@@ -241,8 +310,13 @@ class SeoAuditController extends Controller
     {
         $filter = (string) $request->get('filter', 'issues');
         $search = trim((string) $request->get('search', ''));
+        $type   = (string) $request->get('type', 'all');
 
         $query = $session->items();
+
+        if (in_array($type, [SeoAuditItem::TYPE_PRODUCT, SeoAuditItem::TYPE_COLLECTION], true)) {
+            $query->where('resource_type', $type);
+        }
 
         if ($filter === 'issues') {
             $query->where('issue_count', '>', 0);

@@ -220,4 +220,11 @@ return [
         'timeout'     => (int) env('GA4_TIMEOUT', 30),
     ],
 
+    // The same service-account key usually serves both, but access is granted
+    // separately: Analytics by property, Search Console by site.
+    'search_console' => [
+        'credentials' => env('SEARCH_CONSOLE_CREDENTIALS_PATH', env('GA4_CREDENTIALS_PATH', storage_path('app/google/analytics.json'))),
+        'timeout'     => (int) env('SEARCH_CONSOLE_TIMEOUT', 30),
+    ],
+
 ];

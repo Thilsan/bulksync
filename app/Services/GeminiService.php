@@ -28,13 +28,13 @@ class GeminiService
      *
      * @return array{description: string, meta_title: string, meta_description: string, alt_text: string}|null
      */
-    public function generateFromImageUrl(string $imageUrl, string $productTitle = '', string $vendor = '', string $productType = '', array $tags = [], array $collections = [], string $sku = '', string $storeName = '', string $existingDescription = '', string $existingMaterial = '', array $existingFeatures = [], array $availableCollections = []): ?array
+    public function generateFromImageUrl(string $imageUrl, string $productTitle = '', string $vendor = '', string $productType = '', array $tags = [], array $collections = [], string $sku = '', string $storeName = '', string $existingDescription = '', string $existingMaterial = '', array $existingFeatures = [], array $availableCollections = [], array $searchQueries = []): ?array
     {
         try {
             $imageContent = $this->downloadImage($imageUrl);
             if (!$imageContent) return null;
 
-            return $this->generateFromImageBytes($imageContent, $productTitle, $vendor, $productType, $tags, $collections, $sku, $storeName, $existingDescription, $existingMaterial, $existingFeatures, $availableCollections);
+            return $this->generateFromImageBytes($imageContent, $productTitle, $vendor, $productType, $tags, $collections, $sku, $storeName, $existingDescription, $existingMaterial, $existingFeatures, $availableCollections, $searchQueries);
         } catch (GeminiQuotaException $e) {
             // Not this image's problem — the account is out. Let it stop the run.
             throw $e;
@@ -49,7 +49,7 @@ class GeminiService
      *
      * @return array{description: string, meta_title: string, meta_description: string, alt_text: string}|null
      */
-    public function generateFromImageBytes(string $imageBytes, string $productTitle = '', string $vendor = '', string $productType = '', array $tags = [], array $collections = [], string $sku = '', string $storeName = '', string $existingDescription = '', string $existingMaterial = '', array $existingFeatures = [], array $availableCollections = []): ?array
+    public function generateFromImageBytes(string $imageBytes, string $productTitle = '', string $vendor = '', string $productType = '', array $tags = [], array $collections = [], string $sku = '', string $storeName = '', string $existingDescription = '', string $existingMaterial = '', array $existingFeatures = [], array $availableCollections = [], array $searchQueries = []): ?array
     {
         $imageBytes = $this->shrinkForApi($imageBytes);
         $mimeType   = $this->detectMimeType($imageBytes);
@@ -66,6 +66,10 @@ class GeminiService
         if ($existingMaterial)    $context[] = "CONFIRMED material (from store data, not a guess): \"{$existingMaterial}\" — use this exact material, do not visually guess a different one.";
         if (!empty($existingFeatures)) $context[] = "CONFIRMED features already on file (from store data): " . implode(', ', $existingFeatures);
         if (!empty($availableCollections)) $context[] = "Collections that EXIST in this store and could potentially apply (choose only from this exact list, never invent a new one): " . implode(', ', $availableCollections);
+        // What people actually typed to reach this page, straight from Search
+        // Console. Without it the model writes a description of a photograph;
+        // with it, it writes an answer to something somebody searched for.
+        if (!empty($searchQueries)) $context[] = "REAL search terms people already use to find this exact product page, most-used first (from Google Search Console — these are facts about demand, not descriptions of the product): " . implode(', ', $searchQueries);
         if ($existingDescription) {
             $plainExisting = trim(strip_tags($existingDescription));
             if ($plainExisting) $context[] = "Existing product description already on the store (for reference only — may be outdated or inaccurate, do not copy blindly, but stay consistent with any facts here that you can also visually confirm):\n\"{$plainExisting}\"";
@@ -86,6 +90,12 @@ Writing style rules (apply to every field below):
 - Vary how paragraphs open — do not default to \"This product...\" or \"These [item]...\" every time. Use different natural sentence structures.
 - NEVER reference the image, photo, or picture itself (e.g. never write \"as shown in the image\", \"this photo displays\", \"pictured here\"). Write as a direct product description, not as a description of a photograph.
 - NEVER use HTML entities (e.g. \"&nbsp;\", \"&amp;\", \"&#39;\"). Use plain characters only (a normal space, the word \"and\", a normal apostrophe). Only HTML tags allowed are <p>, <strong>, <ul>, <li>.
+
+Search terms rule (only applies if REAL search terms were listed above):
+- Those terms are what people actually type. Where a term names something the product genuinely is, prefer that wording over a synonym — write \"cabin suitcase\" rather than \"compact travel case\" if that is what people search for.
+- Work them in naturally, and only where they fit the sentence. Never list them, never repeat one to force it in, and never bend a sentence around a term. Two or three used well beats all of them crammed in.
+- They never override the accuracy rules. If a term describes something this product is NOT, ignore it completely — a search term is evidence of what people want, not evidence about this product.
+- They never override the color-neutral rule either: a search term naming a color must not put that color into \"description\", \"meta_title\", \"meta_description\" or \"title\".
 
 Color-neutral rule (critical — this product likely comes in multiple color options, and this photo shows only one of them):
 - The \"description\", \"meta_title\", \"meta_description\", and \"title\" fields below are shared across EVERY color variant of this product, not just the one shown in this photo. NEVER name or imply a specific color in those four fields (no \"red\", \"navy\", \"the elegant white...\", etc.) — describe silhouette, pattern, finish, texture, and material instead.
@@ -168,7 +178,7 @@ Return only valid JSON. No markdown, no code blocks, no extra text.";
      *
      * @return array{description: string, meta_title: string, meta_description: string}|null
      */
-    public function generateFromTextOnly(string $productTitle = '', string $vendor = '', string $productType = '', array $tags = [], array $collections = [], string $sku = '', string $storeName = '', string $existingDescription = '', string $existingMaterial = '', array $existingFeatures = [], array $availableCollections = []): ?array
+    public function generateFromTextOnly(string $productTitle = '', string $vendor = '', string $productType = '', array $tags = [], array $collections = [], string $sku = '', string $storeName = '', string $existingDescription = '', string $existingMaterial = '', array $existingFeatures = [], array $availableCollections = [], array $searchQueries = []): ?array
     {
         $context = [];
         if ($productTitle)   $context[] = "Product title: \"{$productTitle}\"";
@@ -181,6 +191,10 @@ Return only valid JSON. No markdown, no code blocks, no extra text.";
         if ($existingMaterial)    $context[] = "CONFIRMED material (from store data): \"{$existingMaterial}\"";
         if (!empty($existingFeatures)) $context[] = "CONFIRMED features already on file (from store data): " . implode(', ', $existingFeatures);
         if (!empty($availableCollections)) $context[] = "Collections that EXIST in this store and could potentially apply (choose only from this exact list, never invent a new one): " . implode(', ', $availableCollections);
+        // What people actually typed to reach this page, straight from Search
+        // Console. Without it the model writes a description of a photograph;
+        // with it, it writes an answer to something somebody searched for.
+        if (!empty($searchQueries)) $context[] = "REAL search terms people already use to find this exact product page, most-used first (from Google Search Console — these are facts about demand, not descriptions of the product): " . implode(', ', $searchQueries);
         if ($existingDescription) {
             $plainExisting = trim(strip_tags($existingDescription));
             if ($plainExisting) $context[] = "Existing product description already on the store (you may draw on its facts, but rephrase and improve rather than copy verbatim):\n\"{$plainExisting}\"";
@@ -198,6 +212,12 @@ Return only valid JSON. No markdown, no code blocks, no extra text.";
 - Vary how paragraphs open — do not default to \"This product...\" or \"These [item]...\" every time.
 - NEVER reference an image, photo, or picture (there isn't one for this product) — write as a direct product description.
 - NEVER use HTML entities (e.g. \"&nbsp;\", \"&amp;\", \"&#39;\"). Use plain characters only. Only HTML tags allowed are <p>, <strong>, <ul>, <li>.
+
+Search terms rule (only applies if REAL search terms were listed above):
+- Those terms are what people actually type. Where a term names something the product genuinely is, prefer that wording over a synonym — write \"cabin suitcase\" rather than \"compact travel case\" if that is what people search for.
+- Work them in naturally, and only where they fit the sentence. Never list them, never repeat one to force it in, and never bend a sentence around a term. Two or three used well beats all of them crammed in.
+- They never override the accuracy rules. If a term describes something this product is NOT, ignore it completely — a search term is evidence of what people want, not evidence about this product.
+- They never override the color-neutral rule either: a search term naming a color must not put that color into \"description\", \"meta_title\", \"meta_description\" or \"title\".
 
 Color-neutral rule (critical — this product likely comes in multiple color options, and none is confirmed here): the \"description\", \"meta_title\", \"meta_description\", and \"title\" fields are shared across EVERY color variant of this product. Do not name or invent any color, even one that seems implied by the title or existing description, unless it is the product's own name for a finish (e.g. \"Gold-Plated\" as a material, not a color) — describe silhouette, material, and category instead.
 

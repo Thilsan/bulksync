@@ -43,7 +43,15 @@ class StoreController extends Controller
 
     private const GA4_MESSAGES = [
         'ga4_property_id.regex' => 'The GA4 property ID is all digits (e.g. 123456789). A measurement ID like G-AB12CD34EF is a different thing and will not work here.',
+        'gsc_site_url.regex'    => 'Search Console site URLs come in two shapes: a domain property is "sc-domain:example.com", and a URL-prefix property is the full address with its trailing slash, e.g. "https://example.com/". Copy it exactly as Search Console shows it.',
     ];
+
+    /**
+     * Search Console will only answer for a site string it issued itself, in
+     * one of its own two shapes. Anything else leaves a store looking connected
+     * while every query it makes returns a 403.
+     */
+    private const GSC_RULES = ['nullable', 'string', 'max:255', 'regex:/^(sc-domain:[a-z0-9.-]+|https?:\/\/[^\s]+\/)$/i'];
 
     public function store(Request $request): RedirectResponse
     {
@@ -54,6 +62,7 @@ class StoreController extends Controller
             'shopify_client_secret' => ['nullable', 'string', 'max:500'],
             'shopify_access_token'  => ['nullable', 'string', 'max:500'],
             'ga4_property_id'       => self::GA4_RULES,
+            'gsc_site_url'          => self::GSC_RULES,
             'requires_sku_mapping'  => ['nullable', 'boolean'],
         ], self::GA4_MESSAGES);
 
@@ -80,6 +89,7 @@ class StoreController extends Controller
             'shopify_client_secret' => ['nullable', 'string', 'max:500'],
             'shopify_access_token'  => ['nullable', 'string', 'max:500'],
             'ga4_property_id'       => self::GA4_RULES,
+            'gsc_site_url'          => self::GSC_RULES,
             'requires_sku_mapping'  => ['nullable', 'boolean'],
         ], self::GA4_MESSAGES);
 
@@ -90,6 +100,7 @@ class StoreController extends Controller
         // that never carried the field at all is a different thing again, and
         // validate() simply omits it, so it is read defensively.
         $validated['ga4_property_id'] = ($validated['ga4_property_id'] ?? null) ?: null;
+        $validated['gsc_site_url']    = ($validated['gsc_site_url'] ?? null) ?: null;
 
         $mappingChanged = $store->requires_sku_mapping !== $validated['requires_sku_mapping'];
 

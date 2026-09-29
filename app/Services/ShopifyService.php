@@ -89,6 +89,7 @@ class ShopifyService
                 return [
                     'product_id'           => $productId,
                     'product_title'        => $node['product']['title'] ?? '',
+                    'handle'               => $node['product']['handle'] ?? '',
                     'variant_id'           => $variantId,
                     'variant_sku'          => $node['sku'],
                     'published'            => ($node['product']['status'] ?? '') === 'ACTIVE',
@@ -1281,6 +1282,100 @@ class ShopifyService
         } while ($cursor);
     }
 
+    /**
+     * How many collections the store holds, for the audit's progress bar.
+     *
+     * Custom and smart collections are separate endpoints in REST, and a store
+     * uses both, so the two counts are added. Returns 0 rather than throwing:
+     * a missing count costs a progress bar and nothing else.
+     */
+    public function getCollectionCount(): int
+    {
+        $total = 0;
+
+        foreach (['custom_collections', 'smart_collections'] as $endpoint) {
+            $this->throttle();
+
+            try {
+                $response = $this->http->get("admin/api/{$this->apiVersion}/{$endpoint}/count.json");
+                $total += (int) (json_decode((string) $response->getBody(), true)['count'] ?? 0);
+            } catch (\Throwable $e) {
+                Log::warning("Shopify getCollectionCount ({$endpoint}): " . $e->getMessage());
+            }
+        }
+
+        return $total;
+    }
+
+    /**
+     * Stream every collection with the fields an SEO audit needs.
+     *
+     * Worth auditing separately from products because collection pages are what
+     * rank for category searches — "cabin luggage qatar" — while a product page
+     * competes for a model name almost nobody types. There are only ever a few
+     * dozen of them, and they carry a share of search demand out of all
+     * proportion to their number.
+     *
+     * GraphQL's `collections` covers both custom and smart collections, so
+     * unlike the count above this needs only one pass.
+     */
+    public function streamCollectionsForSeoAudit(callable $callback): void
+    {
+        $cursor = null;
+
+        do {
+            $this->throttle();
+
+            $response = $this->http->post("admin/api/{$this->apiVersion}/graphql.json", [
+                'json' => [
+                    'query'     => $this->collectionSeoQuery(),
+                    'variables' => ['cursor' => $cursor],
+                ],
+            ]);
+
+            $data = json_decode((string) $response->getBody(), true);
+            $this->assertNoGraphQlErrors($data, 'streamCollectionsForSeoAudit');
+
+            $connection  = $data['data']['collections'] ?? [];
+            $collections = array_map(fn (array $edge) => [
+                'id'               => $this->numericId($edge['node']['id'] ?? ''),
+                'title'            => $edge['node']['title'] ?? '',
+                'handle'           => $edge['node']['handle'] ?? '',
+                'description'      => $edge['node']['description'] ?? '',
+                'meta_title'       => $edge['node']['seo']['title'] ?? null,
+                'meta_description' => $edge['node']['seo']['description'] ?? null,
+            ], $connection['edges'] ?? []);
+
+            if (!empty($collections)) {
+                $callback($collections);
+            }
+
+            $cursor = ($connection['pageInfo']['hasNextPage'] ?? false)
+                ? ($connection['pageInfo']['endCursor'] ?? null)
+                : null;
+        } while ($cursor);
+    }
+
+    private function collectionSeoQuery(): string
+    {
+        return <<<'GQL'
+        query($cursor: String) {
+          collections(first: 100, after: $cursor) {
+            pageInfo { hasNextPage endCursor }
+            edges {
+              node {
+                id
+                title
+                handle
+                description
+                seo { title description }
+              }
+            }
+          }
+        }
+        GQL;
+    }
+
     private function seoAuditQuery(): string
     {
         $page  = self::SEO_PAGE;
@@ -1807,7 +1902,9 @@ class ShopifyService
             ? 'query($q:String!){productVariants(first:50,query:$q){edges{node{id sku ' . ($field === 'barcode' ? 'barcode ' : '') . 'product{id title status}}}}}'
             // descriptionHtml is read back only on the SKU path (the content
             // generator's "existing description"), so the barcode form leaves it out.
-            : 'query($q:String!){productVariants(first:250,query:$q){edges{node{id sku ' . ($field === 'barcode' ? 'barcode ' : '') . 'product{id title status vendor productType tags ' . ($field === 'sku' ? 'descriptionHtml ' : '') . 'collections(first:20){edges{node{title}}}}}}}}';
+            // handle rides along free on a query already being made: it is the
+            // product's URL, and Search Console knows a page by nothing else.
+            : 'query($q:String!){productVariants(first:250,query:$q){edges{node{id sku ' . ($field === 'barcode' ? 'barcode ' : '') . 'product{id title handle status vendor productType tags ' . ($field === 'sku' ? 'descriptionHtml ' : '') . 'collections(first:20){edges{node{title}}}}}}}}';
     }
 
     /**

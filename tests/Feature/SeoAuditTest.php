@@ -68,8 +68,22 @@ class SeoAuditTest extends TestCase
         ], $overrides);
     }
 
+    /** A collection as streamCollectionsForSeoAudit() shapes it. */
+    private function healthyCollection(array $overrides = []): array
+    {
+        return array_merge([
+            'id'               => '100',
+            'title'            => 'Cabin Luggage for Short Trips',
+            'handle'           => 'cabin-luggage',
+            'description'      => str_repeat('A considered collection description. ', 10),
+            'meta_title'       => 'Cabin Luggage and Carry-On Suitcases in Qatar',
+            'meta_description' => 'Hard and soft cabin suitcases sized for airline lockers, '
+                                . 'with four-wheel spinners and TSA locks, at Test Store in Qatar.',
+        ], $overrides);
+    }
+
     /** Runs the job against a fake catalogue, returning the finished session. */
-    private function audit(User $user, Store $store, array $products): SeoAuditSession
+    private function audit(User $user, Store $store, array $products, array $collections = []): SeoAuditSession
     {
         $session = SeoAuditSession::create([
             'user_id'  => $user->id,
@@ -79,9 +93,13 @@ class SeoAuditTest extends TestCase
 
         $shopify = Mockery::mock(ShopifyService::class);
         $shopify->shouldReceive('getProductCount')->andReturn(count($products));
+        $shopify->shouldReceive('getCollectionCount')->andReturn(count($collections));
         $shopify->shouldReceive('streamProductsForSeoAudit')
             ->once()
             ->andReturnUsing(fn (callable $callback) => $callback($products));
+        $shopify->shouldReceive('streamCollectionsForSeoAudit')
+            ->once()
+            ->andReturnUsing(fn (callable $callback) => $collections ? $callback($collections) : null);
 
         $job = new class($session->id, $shopify) extends RunSeoAuditJob {
             public function __construct(int $sessionId, private $fake)
@@ -255,9 +273,11 @@ class SeoAuditTest extends TestCase
 
         $shopify = Mockery::mock(ShopifyService::class);
         $shopify->shouldReceive('getProductCount')->andReturn(1);
+        $shopify->shouldReceive('getCollectionCount')->andReturn(0);
         $shopify->shouldReceive('streamProductsForSeoAudit')
             ->once()
             ->andReturnUsing(fn (callable $cb) => $cb([$this->healthyProduct()]));
+        $shopify->shouldReceive('streamCollectionsForSeoAudit')->once()->andReturnNull();
 
         $job = new class($session->id, $shopify) extends RunSeoAuditJob {
             public function __construct(int $sessionId, private $fake)
@@ -505,6 +525,164 @@ class SeoAuditTest extends TestCase
             ->assertForbidden();
 
         Bus::assertNothingDispatched();
+    }
+
+    public function test_a_one_word_product_title_is_flagged(): void
+    {
+        $user  = $this->operator();
+        $store = $this->storeFor($user);
+
+        $session = $this->audit($user, $store, [
+            $this->healthyProduct(['id' => '1', 'title' => 'NOBLETON']),
+            $this->healthyProduct(['id' => '2', 'title' => 'Relaxed Linen Shirt', 'sku' => 'SHIRT-2']),
+        ]);
+
+        $this->assertContains(
+            'title_single_word',
+            $session->items()->where('product_id', '1')->first()->issues,
+        );
+
+        // Nineteen characters, three words, and a perfectly good title — a
+        // length rule would have called this a problem.
+        $this->assertNotContains(
+            'title_single_word',
+            $session->items()->where('product_id', '2')->first()->issues,
+        );
+    }
+
+    public function test_collections_are_audited_alongside_products(): void
+    {
+        $user  = $this->operator();
+        $store = $this->storeFor($user);
+
+        $session = $this->audit(
+            $user,
+            $store,
+            [$this->healthyProduct()],
+            [$this->healthyCollection(), $this->healthyCollection(['id' => '101', 'handle' => 'hold-luggage', 'meta_title' => null])],
+        );
+
+        $this->assertSame(1, $session->scanned_products);
+        $this->assertSame(2, $session->scanned_collections);
+        $this->assertSame(3, $session->scannedTotal());
+
+        $broken = $session->items()->where('product_id', '101')->first();
+
+        $this->assertTrue($broken->isCollection());
+        $this->assertSame('/collections/hold-luggage', $broken->path());
+        $this->assertContains('missing_meta_title', $broken->issues);
+    }
+
+    public function test_a_collection_is_not_reported_as_having_no_images_or_tags(): void
+    {
+        $user  = $this->operator();
+        $store = $this->storeFor($user);
+
+        $session = $this->audit($user, $store, [], [$this->healthyCollection()]);
+
+        // A collection has no gallery and no tags. Passing those checks
+        // trivially would bury the products that genuinely have none.
+        $issues = $session->items()->sole()->issues;
+
+        $this->assertNotContains('no_images', $issues);
+        $this->assertNotContains('missing_alt_text', $issues);
+        $this->assertNotContains('no_tags', $issues);
+        $this->assertSame([], $issues);
+    }
+
+    public function test_the_table_can_be_narrowed_to_collections_only(): void
+    {
+        $user  = $this->operator();
+        $store = $this->storeFor($user);
+
+        $session = $this->audit(
+            $user,
+            $store,
+            [$this->healthyProduct(['meta_title' => null])],
+            [$this->healthyCollection(['meta_title' => null])],
+        );
+
+        $response = $this->actingAs($user)
+            ->getJson(route('seo-audit.items', $session) . '?filter=issues&type=collection');
+
+        $response->assertOk();
+        $this->assertCount(1, $response->json('items'));
+        $this->assertSame('collection', $response->json('items.0.resource_type'));
+        $this->assertSame('/collections/cabin-luggage', $response->json('items.0.path'));
+    }
+
+    public function test_fixing_never_sends_collections_because_the_generator_needs_a_sku(): void
+    {
+        Bus::fake();
+
+        $user  = $this->operator();
+        $store = $this->storeFor($user);
+
+        $session = $this->audit(
+            $user,
+            $store,
+            [$this->healthyProduct(['meta_title' => null])],
+            [$this->healthyCollection(['meta_title' => null])],
+        );
+
+        $this->actingAs($user)->post(route('seo-audit.fix', $session), ['filter' => 'issues', 'type' => 'all']);
+
+        // The collection is not counted as a skip either — it was never a
+        // candidate, so reporting it as one would only confuse the total.
+        $content = AiContentSession::sole();
+        $this->assertSame(['SHIRT-1'], json_decode($content->skus_json, true));
+    }
+
+    public function test_duplicate_clusters_group_the_pages_that_clash(): void
+    {
+        $user  = $this->operator();
+        $store = $this->storeFor($user);
+
+        $shared = 'Relaxed Linen Shirt with Camp Collar for Men';
+
+        $session = $this->audit($user, $store, [
+            $this->healthyProduct(['id' => '1', 'sku' => 'SHIRT-1', 'meta_title' => $shared]),
+            $this->healthyProduct(['id' => '2', 'sku' => 'SHIRT-2', 'meta_title' => strtoupper($shared)]),
+            $this->healthyProduct(['id' => '3', 'sku' => 'SHIRT-3', 'meta_title' => 'A Title Entirely Of Its Own Here']),
+        ]);
+
+        $response = $this->actingAs($user)
+            ->getJson(route('seo-audit.duplicates', $session) . '?field=meta_title');
+
+        $response->assertOk();
+
+        // One cluster: the pair. The unique title is not a cluster of one.
+        $this->assertCount(1, $response->json('clusters'));
+        $this->assertSame(2, $response->json('clusters.0.pages'));
+
+        $skus = collect($response->json('clusters.0.shown'))->pluck('sku')->sort()->values()->all();
+        $this->assertSame(['SHIRT-1', 'SHIRT-2'], $skus);
+    }
+
+    public function test_a_product_and_a_collection_sharing_a_meta_title_are_one_cluster(): void
+    {
+        $user  = $this->operator();
+        $store = $this->storeFor($user);
+
+        $shared = 'Cabin Luggage and Carry-On Suitcases in Qatar';
+
+        $session = $this->audit(
+            $user,
+            $store,
+            [$this->healthyProduct(['meta_title' => $shared])],
+            [$this->healthyCollection(['meta_title' => $shared])],
+        );
+
+        $response = $this->actingAs($user)
+            ->getJson(route('seo-audit.duplicates', $session) . '?field=meta_title');
+
+        // They compete in the same result page regardless of what kind of page
+        // each one is, so the clash is real and reported as one group.
+        $this->assertCount(1, $response->json('clusters'));
+        $this->assertSame(2, $response->json('clusters.0.pages'));
+
+        $types = collect($response->json('clusters.0.shown'))->pluck('type')->sort()->values()->all();
+        $this->assertSame(['collection', 'product'], $types);
     }
 
     protected function tearDown(): void
