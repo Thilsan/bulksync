@@ -1437,6 +1437,81 @@ class ProductRequestSheetSyncTest extends TestCase
         $this->assertSame(1, ProductRequest::count());
     }
 
+    /**
+     * A Completed typed by mistake and then cleared has to reach the request.
+     * Publishing closes it, so nobody could correct it from the UI — the sheet
+     * that caused it is the only thing that can take it back.
+     */
+    public function test_clearing_completed_on_the_sheet_reopens_the_request(): void
+    {
+        Queue::fake();
+        Notification::fake();
+        $this->syncUser();
+        $this->store();
+        $this->fakeSheet(['E-com Status' => 'Completed']);
+
+        app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $request = ProductRequest::sole();
+        $this->assertSame(ProductRequest::PUBLISHED, $request->status);
+        $this->assertNotNull($request->published_at);
+
+        // The cell is emptied on the sheet and the sync runs again.
+        $this->fakeSheet(['E-com Status' => '']);
+        app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $request->refresh();
+        $this->assertSame(ProductRequest::SKU_VERIFIED, $request->status);
+        $this->assertNull($request->published_at);
+        $this->assertNull($request->completed_at);
+    }
+
+    /** A publish somebody did here is real work, and an empty cell is not an undo. */
+    public function test_clearing_completed_does_not_reopen_a_request_published_by_a_person(): void
+    {
+        Queue::fake();
+        Notification::fake();
+        $this->syncUser();
+        $this->store();
+        $this->fakeSheet();
+
+        app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $request = ProductRequest::sole();
+        $actor   = User::where('email', config('product_request_sync.sync_user_email'))->sole();
+
+        app(\App\Services\ProductRequestWorkflow::class)->transition(
+            request: $request,
+            to:      ProductRequest::PUBLISHED,
+            actor:   $actor,
+            force:   true,
+            notify:  false,
+        );
+
+        $this->fakeSheet(['E-com Status' => '']);
+        app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertSame(ProductRequest::PUBLISHED, $request->refresh()->status);
+    }
+
+    /** A dry run says what it would reopen without touching anything. */
+    public function test_a_dry_run_reports_the_reopen_without_making_it(): void
+    {
+        Queue::fake();
+        Notification::fake();
+        $this->syncUser();
+        $this->store();
+        $this->fakeSheet(['E-com Status' => 'Completed']);
+
+        app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->fakeSheet(['E-com Status' => '']);
+        $result = app(ProductRequestSheetSyncService::class)->run(commit: false);
+
+        $this->assertSame(ProductRequest::PUBLISHED, ProductRequest::sole()->status);
+        $this->assertStringContainsString('reopened', implode(' ', $result['log']));
+    }
+
     public function test_a_dry_run_creates_nothing(): void
     {
         Queue::fake();

@@ -1317,7 +1317,7 @@ class ProductRequest extends Model
     public function hasBeenToMapping(): bool
     {
         return $this->activities()
-            ->where('action', 'status_changed')
+            ->whereIn('action', ['status_changed', 'created'])
             ->where('to_status', self::WAITING_MAPPING)
             ->exists();
     }
@@ -1582,6 +1582,28 @@ class ProductRequest extends Model
         return 'The photoshoot is not finished ('
             . strtolower(self::SHOOT_STATUSES[$this->photoshoot_status] ?? 'not started')
             . '). The Photoshoot Schedule releases this request when the shoot is marked completed.';
+    }
+
+    /**
+     * Whether this request is published only because the sheet said so.
+     *
+     * The sheet is allowed to take back a Completed it never meant, but only
+     * its own claim: a request somebody published here did real work, and a
+     * cleared cell must not undo it. Sheet-driven publishes are the ones with
+     * no actor and a remark naming the sheet — both the import and the later
+     * sync write them that way.
+     */
+    public function publishedFromSheet(): bool
+    {
+        $lastPublish = $this->activities()
+            ->where('to_status', self::PUBLISHED)
+            ->orderByDesc('created_at')
+            ->orderByDesc('id')
+            ->first();
+
+        return $lastPublish !== null
+            && $lastPublish->user_id === null
+            && str_contains(strtolower((string) $lastPublish->remarks), 'sheet');
     }
 
     public function canTransitionTo(string $status): bool

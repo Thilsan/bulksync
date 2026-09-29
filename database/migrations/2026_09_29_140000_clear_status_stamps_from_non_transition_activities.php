@@ -15,7 +15,7 @@ return new class extends Migration
     public function up(): void
     {
         DB::table('product_request_activities')
-            ->where('action', '<>', 'status_changed')
+            ->whereNotIn('action', ['status_changed', 'created'])
             ->update(['from_status' => null, 'to_status' => null]);
     }
 

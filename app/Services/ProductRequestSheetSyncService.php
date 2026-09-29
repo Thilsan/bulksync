@@ -1229,6 +1229,36 @@ class ProductRequestSheetSyncService
             $fixed[] = 'published (Completed on the sheet)';
         }
 
+        // And the way back. A Completed typed by mistake is taken back on the
+        // sheet, and until this existed the request stayed published for good —
+        // publishing closes it, so allowedTransitions() offers nothing and there
+        // was no way to correct it short of editing the database.
+        //
+        // Only a publish the sheet itself caused is reversed. Somebody who
+        // published here did the work, and an empty cell is not an instruction
+        // to undo it.
+        if (!$this->sheetSaysPublished($data)
+            && $productRequest->status === ProductRequest::PUBLISHED
+            && $productRequest->publishedFromSheet()) {
+
+            if ($commit) {
+                $this->workflow->transition(
+                    request: $productRequest,
+                    to:      ProductRequest::SKU_VERIFIED,
+                    remarks: 'The tracking sheet no longer marks this Completed',
+                    force:   true,
+                    notify:  false,
+                );
+
+                // transition() stamps milestones but never clears them, and a
+                // request that is no longer published must not keep the date it
+                // supposedly went live — the dashboards count on it.
+                $productRequest->update(['published_at' => null, 'completed_at' => null]);
+            }
+
+            $fixed[] = 'reopened (Completed cleared on the sheet)';
+        }
+
         // staffFromCategory already skips any role that has someone on it, so an
         // untouched request gets staffed and a half-staffed one keeps its people.
         $unstaffed = $productRequest->currentAssignments()->count() === 0;

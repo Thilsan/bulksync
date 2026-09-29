@@ -50,7 +50,7 @@
                         </td>
                         <td class="px-3 py-3 text-gray-700">{{ $entry->description }}</td>
                         <td class="px-3 py-3">
-                            @if($entry->action === 'status_changed' && $entry->to_status)
+                            @if(in_array($entry->action, ['status_changed', 'created'], true) && $entry->to_status)
                                 <span class="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium border whitespace-nowrap {{ $entry->statusColor() }}">
                                     {{ $entry->statusLabel() }}
                                 </span>
