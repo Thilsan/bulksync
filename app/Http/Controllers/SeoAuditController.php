@@ -75,6 +75,11 @@ class SeoAuditController extends Controller
             'status'               => $seoAuditSession->status,
             'total_products'       => $seoAuditSession->total_products,
             'scanned_products'     => $seoAuditSession->scanned_products,
+            'scanned_collections'  => $seoAuditSession->scanned_collections,
+            // The denominator for "clean" and "with issues", which count every
+            // page graded rather than the products among them.
+            'scanned_total'        => $seoAuditSession->scannedTotal(),
+            'not_live_pages'       => $seoAuditSession->not_live_pages,
             'progress'             => $seoAuditSession->progressPercent(),
             'clean_products'       => $seoAuditSession->clean_products,
             'products_with_issues' => $seoAuditSession->products_with_issues,
@@ -97,6 +102,8 @@ class SeoAuditController extends Controller
             'items' => collect($items->items())->map(fn (SeoAuditItem $item) => [
                 'product_id'       => $item->product_id,
                 'resource_type'    => $item->resource_type,
+                'status'           => $item->status,
+                'is_live'          => $item->isLive(),
                 'path'             => $item->path(),
                 'product_title'    => $item->product_title,
                 'handle'           => $item->handle,
@@ -185,7 +192,7 @@ class SeoAuditController extends Controller
             $handle = fopen('php://output', 'w');
 
             fputcsv($handle, [
-                'Type', 'SKU', 'Product Title', 'Handle', 'Product ID', 'Score',
+                'Type', 'Status', 'SKU', 'Product Title', 'Handle', 'Product ID', 'Score',
                 'Meta Title', 'Meta Title Length',
                 'Meta Description', 'Meta Description Length',
                 'Description Length', 'Images', 'Images Missing Alt', 'Tags',
@@ -196,6 +203,7 @@ class SeoAuditController extends Controller
                 foreach ($items as $item) {
                     fputcsv($handle, [
                         $item->resource_type,
+                        $item->status ?? 'active',
                         $item->sku,
                         $item->product_title,
                         $item->handle,
@@ -311,11 +319,21 @@ class SeoAuditController extends Controller
         $filter = (string) $request->get('filter', 'issues');
         $search = trim((string) $request->get('search', ''));
         $type   = (string) $request->get('type', 'all');
+        // Live by default. A draft product's missing meta title is not a
+        // problem anyone can see, and having it sit at the top of the fix
+        // queue would spend money on a page nobody can visit.
+        $status = (string) $request->get('status', 'live');
 
         $query = $session->items();
 
         if (in_array($type, [SeoAuditItem::TYPE_PRODUCT, SeoAuditItem::TYPE_COLLECTION], true)) {
             $query->where('resource_type', $type);
+        }
+
+        if ($status === 'live') {
+            $query->live();
+        } elseif ($status === 'not_live') {
+            $query->notLive();
         }
 
         if ($filter === 'issues') {

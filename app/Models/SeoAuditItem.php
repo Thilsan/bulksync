@@ -25,6 +25,9 @@ class SeoAuditItem extends Model
     public const TYPE_PRODUCT    = 'product';
     public const TYPE_COLLECTION = 'collection';
 
+    /** The only Shopify status that puts a page on the storefront. */
+    public const STATUS_ACTIVE = 'active';
+
     /**
      * Every issue the audit can raise: the label shown to the merchant, and the
      * points knocked off a product's score. Weights are ordered by what actually
@@ -52,7 +55,7 @@ class SeoAuditItem extends Model
     ];
 
     protected $fillable = [
-        'seo_audit_session_id', 'resource_type', 'product_id', 'product_title', 'handle', 'sku',
+        'seo_audit_session_id', 'resource_type', 'status', 'product_id', 'product_title', 'handle', 'sku',
         'meta_title', 'meta_description', 'meta_title_length', 'meta_description_length',
         'description_length', 'image_count', 'images_missing_alt', 'tag_count',
         'issues', 'issue_count', 'score',
@@ -100,5 +103,29 @@ class SeoAuditItem extends Model
     public function isCollection(): bool
     {
         return $this->resource_type === self::TYPE_COLLECTION;
+    }
+
+    /**
+     * Whether a search engine can see this page at all.
+     *
+     * A null status is a collection, which has no such setting in Shopify and
+     * is always reachable.
+     */
+    public function isLive(): bool
+    {
+        return $this->status === null || $this->status === self::STATUS_ACTIVE;
+    }
+
+    /** Only live pages are graded in the headline figures. */
+    public function scopeLive($query)
+    {
+        return $query->where(function ($q) {
+            $q->whereNull('status')->orWhere('status', self::STATUS_ACTIVE);
+        });
+    }
+
+    public function scopeNotLive($query)
+    {
+        return $query->whereNotNull('status')->where('status', '<>', self::STATUS_ACTIVE);
     }
 }

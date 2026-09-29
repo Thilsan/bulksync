@@ -1263,6 +1263,7 @@ class ShopifyService
                     'id'               => $this->numericId($node['id'] ?? ''),
                     'title'            => $node['title'] ?? '',
                     'handle'           => $node['handle'] ?? '',
+                    'status'           => strtolower((string) ($node['status'] ?? '')),
                     'tags'             => $node['tags'] ?? [],
                     'description'      => $node['description'] ?? '',
                     'meta_title'       => $node['seo']['title'] ?? null,
@@ -1390,6 +1391,7 @@ class ShopifyService
                 id
                 title
                 handle
+                status
                 tags
                 description
                 seo { title description }

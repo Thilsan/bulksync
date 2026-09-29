@@ -19,8 +19,9 @@
                 <input type="hidden" name="filter" :value="filter">
                 <input type="hidden" name="search" :value="search">
                 <input type="hidden" name="type" :value="type">
-                <button type="submit"
-                    class="bg-brand-600 hover:bg-brand-700 text-white px-4 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5">
+                <input type="hidden" name="status" :value="statusFilter">
+                <button type="submit" :disabled="itemTotal === 0"
+                    class="bg-brand-600 hover:bg-brand-700 text-white px-4 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed">
                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"/>
                     </svg>
@@ -41,7 +42,7 @@
     </div>
 
     {{-- Headline numbers --}}
-    <div class="grid grid-cols-2 lg:grid-cols-5 gap-4">
+    <div class="grid grid-cols-2 lg:grid-cols-6 gap-4">
         <div class="bg-white rounded-xl border border-gray-200 p-5">
             <p class="text-xs text-gray-500 mb-1">Status</p>
             <p class="text-sm font-semibold capitalize"
@@ -53,16 +54,30 @@
                }" x-text="status"></p>
         </div>
         <div class="bg-white rounded-xl border border-gray-200 p-5">
-            <p class="text-xs text-gray-500 mb-1">Products</p>
+            <p class="text-xs text-gray-500 mb-1">Pages audited</p>
             <p class="text-2xl font-bold text-gray-800" x-text="scanned.toLocaleString()">0</p>
+            {{-- Spelled out because "clean" and "with issues" count both kinds,
+                 and a single number labelled "products" made those two look
+                 like they did not add up. --}}
+            <p class="text-xs text-gray-400 mt-1">
+                <span x-text="products.toLocaleString()"></span> products
+                <span x-show="collections > 0">
+                    · <span x-text="collections.toLocaleString()"></span> collections
+                </span>
+            </p>
         </div>
         <div class="bg-white rounded-xl border border-green-100 p-5">
-            <p class="text-xs text-gray-500 mb-1">Clean</p>
+            <p class="text-xs text-gray-500 mb-1">Clean (live)</p>
             <p class="text-2xl font-bold text-green-600" x-text="clean.toLocaleString()">0</p>
         </div>
         <div class="bg-white rounded-xl border border-red-100 p-5">
-            <p class="text-xs text-gray-500 mb-1">With Issues</p>
+            <p class="text-xs text-gray-500 mb-1">With Issues (live)</p>
             <p class="text-2xl font-bold text-red-500" x-text="withIssues.toLocaleString()">0</p>
+        </div>
+        <div class="bg-white rounded-xl border border-gray-200 p-5" x-show="notLive > 0">
+            <p class="text-xs text-gray-500 mb-1">Not live</p>
+            <p class="text-2xl font-bold text-gray-400" x-text="notLive.toLocaleString()">0</p>
+            <p class="text-xs text-gray-400 mt-1">Draft or archived — not graded</p>
         </div>
         <div class="bg-white rounded-xl border border-gray-200 p-5">
             <p class="text-xs text-gray-500 mb-1">Average Score</p>
@@ -178,9 +193,17 @@
                 <button @click="setFilter('all')"
                     :class="filter === 'all' ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'"
                     class="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors">
-                    All (<span x-text="scanned.toLocaleString()"></span>)
+                    All (<span x-text="typeTotal().toLocaleString()"></span>)
                 </button>
             </div>
+            <div class="flex gap-2 border-l border-gray-200 pl-4">
+                <template x-for="option in [{k:'live',l:'Live'},{k:'not_live',l:'Draft'},{k:'all',l:'Any status'}]" :key="option.k">
+                    <button @click="setStatus(option.k)"
+                        :class="statusFilter === option.k ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'"
+                        class="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors" x-text="option.l"></button>
+                </template>
+            </div>
+
             <div class="flex gap-2 border-l border-gray-200 pl-4">
                 <template x-for="option in [{k:'all',l:'Everything'},{k:'product',l:'Products'},{k:'collection',l:'Collections'}]" :key="option.k">
                     <button @click="setType(option.k)"
@@ -226,7 +249,12 @@
                                     <span class="font-sans inline-flex px-2 py-0.5 rounded-full text-xs bg-violet-50 text-violet-700">Collection</span>
                                 </template>
                                 <template x-if="item.resource_type !== 'collection'">
-                                    <span x-text="item.sku || '—'"></span>
+                                    <span>
+                                        <span x-text="item.sku || '—'"></span>
+                                        <span class="font-sans block mt-0.5 text-xs" x-show="!item.is_live"
+                                              :class="item.status === 'archived' ? 'text-gray-400' : 'text-amber-600'"
+                                              x-text="item.status"></span>
+                                    </span>
                                 </template>
                             </td>
                             <td class="px-6 py-3 text-gray-600 max-w-xs">
@@ -292,7 +320,9 @@ function seoAuditPage(sessionId, initialStatus) {
     return {
         status:        initialStatus,
         progress:      {{ $session->progressPercent() }},
-        scanned:       {{ $session->scanned_products }},
+        scanned:       {{ $session->scannedTotal() }},
+        products:      {{ $session->scanned_products }},
+        collections:   {{ $session->scanned_collections }},
         totalProducts: {{ $session->total_products }},
         clean:         {{ $session->clean_products }},
         withIssues:    {{ $session->products_with_issues }},
@@ -301,6 +331,8 @@ function seoAuditPage(sessionId, initialStatus) {
         filter:        'issues',
         search:        '',
         type:          'all',
+        statusFilter:  'live',
+        notLive:       {{ $session->not_live_pages }},
         duplicates:    [],
         dupField:      'meta_title',
         items:         [],
@@ -339,6 +371,19 @@ function seoAuditPage(sessionId, initialStatus) {
             this.loadItems(1);
         },
 
+        setStatus(s) {
+            this.statusFilter = s;
+            this.loadItems(1);
+        },
+
+        /** How many rows "All" covers, given whichever type tab is active. */
+        typeTotal() {
+            if (this.type === 'product')    return this.products;
+            if (this.type === 'collection') return this.collections;
+
+            return this.scanned;
+        },
+
         startPolling() {
             this.pollTimer = setInterval(() => this.poll(), 3000);
         },
@@ -349,7 +394,10 @@ function seoAuditPage(sessionId, initialStatus) {
 
             this.status        = data.status;
             this.progress      = data.progress;
-            this.scanned       = data.scanned_products;
+            this.scanned       = data.scanned_total;
+            this.products      = data.scanned_products;
+            this.collections   = data.scanned_collections;
+            this.notLive       = data.not_live_pages;
             this.totalProducts = data.total_products;
             this.clean         = data.clean_products;
             this.withIssues    = data.products_with_issues;
@@ -393,7 +441,8 @@ function seoAuditPage(sessionId, initialStatus) {
         query() {
             return `filter=${encodeURIComponent(this.filter)}`
                  + `&search=${encodeURIComponent(this.search)}`
-                 + `&type=${encodeURIComponent(this.type)}`;
+                 + `&type=${encodeURIComponent(this.type)}`
+                 + `&status=${encodeURIComponent(this.statusFilter)}`;
         },
 
         downloadUrl() {

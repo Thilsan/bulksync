@@ -65,6 +65,7 @@ class SeoAuditTest extends TestCase
                                 . 'mother-of-pearl buttons, available at Test Store in Qatar.',
             'images'           => [['alt' => 'Light blue relaxed linen shirt']],
             'sku'              => 'SHIRT-1',
+            'status'           => 'active',
         ], $overrides);
     }
 
@@ -683,6 +684,137 @@ class SeoAuditTest extends TestCase
 
         $types = collect($response->json('clusters.0.shown'))->pluck('type')->sort()->values()->all();
         $this->assertSame(['collection', 'product'], $types);
+    }
+
+    public function test_the_page_count_accounts_for_every_row_the_totals_cover(): void
+    {
+        $user  = $this->operator();
+        $store = $this->storeFor($user);
+
+        $session = $this->audit(
+            $user,
+            $store,
+            [$this->healthyProduct(['id' => '1']), $this->healthyProduct(['id' => '2', 'sku' => 'S2', 'meta_title' => null])],
+            [$this->healthyCollection(['id' => '100', 'meta_title' => null])],
+        );
+
+        $status = $this->actingAs($user)->getJson(route('seo-audit.status', $session))->json();
+
+        // "Clean" and "with issues" grade every page, so the headline count has
+        // to be every page too — a products-only number made the three look
+        // like they did not add up.
+        $this->assertSame(2, $status['scanned_products']);
+        $this->assertSame(1, $status['scanned_collections']);
+        $this->assertSame(3, $status['scanned_total']);
+        $this->assertSame(
+            $status['scanned_total'],
+            $status['clean_products'] + $status['products_with_issues'],
+        );
+    }
+
+    public function test_a_draft_product_is_kept_but_left_out_of_the_headline_figures(): void
+    {
+        $user  = $this->operator();
+        $store = $this->storeFor($user);
+
+        $session = $this->audit($user, $store, [
+            $this->healthyProduct(['id' => '1']),
+            $this->healthyProduct(['id' => '2', 'sku' => 'S2', 'status' => 'draft', 'meta_title' => null]),
+            $this->healthyProduct(['id' => '3', 'sku' => 'S3', 'status' => 'archived', 'meta_title' => null]),
+        ]);
+
+        // Still graded and still on file — a draft gets published one day.
+        $this->assertSame(3, $session->items()->count());
+        $this->assertContains(
+            'missing_meta_title',
+            $session->items()->where('product_id', '2')->first()->issues,
+        );
+
+        // But a search engine cannot see it, so it is not a problem with the
+        // store anyone can visit.
+        $this->assertSame(2, $session->not_live_pages);
+        $this->assertSame(1, $session->clean_products);
+        $this->assertSame(0, $session->products_with_issues);
+        $this->assertSame(100, $session->average_score);
+    }
+
+    public function test_the_issue_tiles_count_only_what_the_table_will_show(): void
+    {
+        $user  = $this->operator();
+        $store = $this->storeFor($user);
+
+        $session = $this->audit($user, $store, [
+            $this->healthyProduct(['id' => '1', 'meta_title' => null]),
+            $this->healthyProduct(['id' => '2', 'sku' => 'S2', 'status' => 'draft', 'meta_title' => null]),
+        ]);
+
+        // A tile reading 2 above a table showing 1 is the kind of mismatch
+        // that makes someone stop trusting the whole screen.
+        $this->assertSame(1, $session->issue_breakdown['missing_meta_title']);
+
+        $response = $this->actingAs($user)
+            ->getJson(route('seo-audit.items', $session) . '?filter=missing_meta_title');
+
+        $this->assertCount(1, $response->json('items'));
+    }
+
+    public function test_drafts_can_be_listed_on_purpose(): void
+    {
+        $user  = $this->operator();
+        $store = $this->storeFor($user);
+
+        $session = $this->audit($user, $store, [
+            $this->healthyProduct(['id' => '1']),
+            $this->healthyProduct(['id' => '2', 'sku' => 'S2', 'status' => 'draft', 'meta_title' => null]),
+        ]);
+
+        $response = $this->actingAs($user)
+            ->getJson(route('seo-audit.items', $session) . '?filter=all&status=not_live');
+
+        $this->assertCount(1, $response->json('items'));
+        $this->assertSame('draft', $response->json('items.0.status'));
+        $this->assertFalse($response->json('items.0.is_live'));
+    }
+
+    public function test_a_draft_does_not_count_as_a_duplicate_of_a_live_page(): void
+    {
+        $user  = $this->operator();
+        $store = $this->storeFor($user);
+
+        $shared = 'Relaxed Linen Shirt with Camp Collar for Men';
+
+        $session = $this->audit($user, $store, [
+            $this->healthyProduct(['id' => '1', 'meta_title' => $shared]),
+            $this->healthyProduct(['id' => '2', 'sku' => 'S2', 'status' => 'draft', 'meta_title' => $shared]),
+        ]);
+
+        // The draft is not in the search results, so nothing is competing with
+        // anything and flagging a clash would send someone hunting a problem
+        // that does not exist.
+        $this->assertNotContains(
+            'duplicate_meta_title',
+            $session->items()->where('product_id', '1')->first()->issues,
+        );
+        $this->assertArrayNotHasKey('duplicate_meta_title', $session->issue_breakdown ?? []);
+    }
+
+    public function test_fixing_defaults_to_live_products_only(): void
+    {
+        Bus::fake();
+
+        $user  = $this->operator();
+        $store = $this->storeFor($user);
+
+        $session = $this->audit($user, $store, [
+            $this->healthyProduct(['id' => '1', 'sku' => 'LIVE-1', 'meta_title' => null]),
+            $this->healthyProduct(['id' => '2', 'sku' => 'DRAFT-1', 'status' => 'draft', 'meta_title' => null]),
+        ]);
+
+        $this->actingAs($user)->post(route('seo-audit.fix', $session), ['filter' => 'issues']);
+
+        // Paying to write search copy for a page nobody can visit is waste —
+        // but it is still reachable on purpose through the Draft tab.
+        $this->assertSame(['LIVE-1'], json_decode(AiContentSession::sole()->skus_json, true));
     }
 
     protected function tearDown(): void

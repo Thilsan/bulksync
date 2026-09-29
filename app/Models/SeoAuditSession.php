@@ -10,7 +10,7 @@ class SeoAuditSession extends Model
 {
     protected $fillable = [
         'user_id', 'store_id', 'status',
-        'total_products', 'scanned_products', 'total_collections', 'scanned_collections', 'clean_products',
+        'total_products', 'scanned_products', 'total_collections', 'scanned_collections', 'not_live_pages', 'clean_products',
         'products_with_issues', 'total_issues', 'average_score',
         'issue_breakdown', 'error_message',
     ];

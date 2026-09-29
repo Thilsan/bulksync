@@ -65,8 +65,15 @@ class RunSeoAuditJob implements ShouldQueue
 
             // Shared by both passes: grade, count the issues, buffer the row.
             $collect = function (array $row) use ($session, &$buffer, &$counts) {
-                foreach ($row['issues'] as $code) {
-                    $counts[$code] = ($counts[$code] ?? 0) + 1;
+                // Draft and archived pages are kept but not counted, so the
+                // issue tiles agree with the table beneath them — which shows
+                // live pages unless asked otherwise.
+                $live = $row['status'] === null || $row['status'] === SeoAuditItem::STATUS_ACTIVE;
+
+                if ($live) {
+                    foreach ($row['issues'] as $code) {
+                        $counts[$code] = ($counts[$code] ?? 0) + 1;
+                    }
                 }
 
                 // Assigned rather than merged: `+` keeps the left-hand key, so
@@ -149,6 +156,11 @@ class RunSeoAuditJob implements ShouldQueue
             $row['issues'][] = 'no_tags';
         }
 
+        // A draft or archived product is not on the storefront, so it is still
+        // graded and kept — it will be published one day — but left out of the
+        // headline figures, which are a statement about pages a search engine
+        // can actually see.
+        $row['status']             = $product['status'] ?: SeoAuditItem::STATUS_ACTIVE;
         $row['sku']                = $product['sku'] ? mb_substr((string) $product['sku'], 0, 255) : null;
         $row['image_count']        = min($imageCount, 65535);
         $row['images_missing_alt'] = min($missingAlt, 65535);
@@ -222,6 +234,8 @@ class RunSeoAuditJob implements ShouldQueue
 
         return [
             'resource_type'           => $type,
+            // Collections have no status in Shopify and are always reachable.
+            'status'                  => null,
             'product_id'              => (string) ($resource['id'] ?? ''),
             'product_title'           => mb_substr($title, 0, 255),
             'handle'                  => mb_substr((string) ($resource['handle'] ?? ''), 0, 255),
@@ -259,7 +273,12 @@ class RunSeoAuditJob implements ShouldQueue
             'meta_title'       => 'duplicate_meta_title',
             'meta_description' => 'duplicate_meta_description',
         ] as $column => $code) {
+            // Live pages only, on both sides: a draft product is not in the
+            // search results, so it cannot be competing with anything — and
+            // pairing a live page with a draft would report a clash that does
+            // not exist.
             $duplicated = SeoAuditItem::where('seo_audit_session_id', $session->id)
+                ->live()
                 ->where($column, '<>', '')
                 ->whereNotNull($column)
                 ->select(DB::raw("LOWER(TRIM({$column})) as normalised"))
@@ -281,6 +300,7 @@ class RunSeoAuditJob implements ShouldQueue
             // limit.
             foreach ($duplicated->chunk(200) as $chunk) {
                 SeoAuditItem::where('seo_audit_session_id', $session->id)
+                    ->live()
                     ->whereIn(DB::raw("LOWER(TRIM({$column}))"), $chunk->all())
                     ->chunkById(500, function ($items) use ($code, &$counts) {
                         foreach ($items as $item) {
@@ -309,15 +329,20 @@ class RunSeoAuditJob implements ShouldQueue
     {
         $base = SeoAuditItem::where('seo_audit_session_id', $session->id);
 
-        $scanned    = $products + $collections;
-        $withIssues = (clone $base)->where('issue_count', '>', 0)->count();
-        $average    = (clone $base)->avg('score');
+        // Live pages only. A draft product's missing meta title is not a
+        // problem a search engine can see, and counting it would report a
+        // catalogue as worse than the one anybody can actually visit.
+        $live       = (clone $base)->live();
+        $liveCount  = (clone $live)->count();
+        $withIssues = (clone $live)->where('issue_count', '>', 0)->count();
+        $average    = (clone $live)->avg('score');
 
         $session->update([
             'status'               => 'completed',
             'scanned_products'     => $products,
             'scanned_collections'  => $collections,
-            'clean_products'       => $scanned - $withIssues,
+            'not_live_pages'       => (clone $base)->notLive()->count(),
+            'clean_products'       => $liveCount - $withIssues,
             'products_with_issues' => $withIssues,
             'total_issues'         => array_sum($counts),
             'average_score'        => (int) round($average ?? 0),
