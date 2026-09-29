@@ -50,7 +50,11 @@ class SkuMappingService
             // cache first — which cost twenty minutes on the largest store and
             // could not fit it, so entries evicted each other and a missing one
             // read back as "not in Shopify".
-            $found = $shopify ? $this->lookupShopify($shopify, $rows->pluck('sku')->all()) : [];
+            // null means Shopify never answered — no connection, or a lookup
+            // that failed and was swallowed. Only a real answer is evidence.
+            $found    = $shopify ? $this->lookupShopify($shopify, $rows->pluck('sku')->all()) : null;
+            $answered = $found !== null;
+            $found  ??= [];
 
             foreach ($rows as $row) {
                 $variants  = $found[$row->sku] ?? [];
@@ -75,7 +79,7 @@ class SkuMappingService
                 $row->update($attributes);
             }
 
-            $this->rollUp($request, 'completed');
+            $this->rollUp($request, 'completed', $answered);
 
         } catch (\Throwable $e) {
             Log::error("SkuMappingService: validation failed for request {$request->id}: " . $e->getMessage());
@@ -108,7 +112,7 @@ class SkuMappingService
     }
 
     /** Recompute the denormalised counters the dashboard and workflow gate read. */
-    public function rollUp(ProductRequest $request, ?string $validationStatus = null): void
+    public function rollUp(ProductRequest $request, ?string $validationStatus = null, bool $shopifyAnswered = false): void
     {
         $counts = $request->skus()
             ->selectRaw('mapping_status, COUNT(*) as aggregate')
@@ -124,8 +128,9 @@ class SkuMappingService
             'mapped_skus'       => $mapped,
             'pending_skus'      => $pending,
             'not_mapped_skus'   => $notMapped,
-            'validated_at'      => now(),
-            'validation_status' => $validationStatus,
+            'validated_at'        => now(),
+            'shopify_verified_at' => $shopifyAnswered ? now() : null,
+            'validation_status'   => $validationStatus,
             'validation_error'  => null,
         ], fn ($v) => $v !== null));
     }
@@ -178,15 +183,15 @@ class SkuMappingService
      * its own batch rather than the whole request.
      *
      * @param  list<string>  $skus
-     * @return array<string, list<array<string, mixed>>>
+     * @return array<string, list<array<string, mixed>>>|null  null when the lookup failed
      */
-    private function lookupShopify(ShopifyService $shopify, array $skus): array
+    private function lookupShopify(ShopifyService $shopify, array $skus): ?array
     {
         try {
             return $shopify->findVariantsBySkus($skus);
         } catch (\Throwable $e) {
             Log::warning('SkuMappingService: Shopify lookup failed for ' . count($skus) . ' SKUs: ' . $e->getMessage());
-            return [];
+            return null;
         }
     }
 }

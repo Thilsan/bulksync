@@ -1237,9 +1237,14 @@ class ProductRequestSheetSyncService
         // Only a publish the sheet itself caused is reversed. Somebody who
         // published here did the work, and an empty cell is not an instruction
         // to undo it.
+        // The cleared cell is necessary but not sufficient. Most requests the
+        // sheet published really are live — a dry run over the real sheet found
+        // two of three candidates with every SKU in Shopify — so the catalogue
+        // has the last word: nothing live, or nothing changes.
         if (!$this->sheetSaysPublished($data)
             && $productRequest->status === ProductRequest::PUBLISHED
-            && $productRequest->publishedFromSheet()) {
+            && $productRequest->publishedFromSheet()
+            && $productRequest->nothingLiveInShopify()) {
 
             if ($commit) {
                 $this->workflow->transition(

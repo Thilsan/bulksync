@@ -661,6 +661,7 @@ class ProductRequest extends Model
         'pending_skus',
         'not_mapped_skus',
         'validated_at',
+        'shopify_verified_at',
         'validation_error',
         'on_hold',
         'hold_reason',
@@ -689,6 +690,7 @@ class ProductRequest extends Model
             'on_hold'                   => 'boolean',
             'hold_since'                => 'datetime',
             'validated_at'              => 'datetime',
+            'shopify_verified_at'       => 'datetime',
             'published_at'              => 'datetime',
             'completed_at'              => 'datetime',
             'cancelled_at'              => 'datetime',
@@ -1593,6 +1595,21 @@ class ProductRequest extends Model
      * no actor and a remark naming the sheet — both the import and the later
      * sync write them that way.
      */
+    /**
+     * Shopify was really asked, and none of these products are there.
+     *
+     * The evidence a request is not published in any sense that matters. Held
+     * to the stamp rather than the SKU rows because a failed lookup reads
+     * identically to an absent product, and reopening a finished request on the
+     * strength of an API timeout is worse than leaving a wrong one published.
+     */
+    public function nothingLiveInShopify(): bool
+    {
+        return $this->shopify_verified_at !== null
+            && $this->total_skus > 0
+            && !$this->skus()->where('in_shopify', true)->exists();
+    }
+
     public function publishedFromSheet(): bool
     {
         // Somebody publishing it here takes it back off the sheet, whatever the

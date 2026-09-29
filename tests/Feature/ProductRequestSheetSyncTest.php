@@ -1456,6 +1456,10 @@ class ProductRequestSheetSyncTest extends TestCase
         $this->assertSame(ProductRequest::PUBLISHED, $request->status);
         $this->assertNotNull($request->published_at);
 
+        // Shopify was asked and has none of them — without this the reopen
+        // holds off, which is the point of the gate.
+        $request->update(['shopify_verified_at' => now()]);
+
         // The cell is emptied on the sheet and the sync runs again.
         $this->fakeSheet(['E-com Status' => '']);
         app(ProductRequestSheetSyncService::class)->run(commit: true);
@@ -1510,6 +1514,7 @@ class ProductRequestSheetSyncTest extends TestCase
         app(ProductRequestSheetSyncService::class)->run(commit: true);
 
         $request = ProductRequest::sole();
+        $request->update(['shopify_verified_at' => now()]);
         $request->activities()->where('action', 'created')
             ->update(['from_status' => null, 'to_status' => null]);
 
@@ -1519,6 +1524,51 @@ class ProductRequestSheetSyncTest extends TestCase
         app(ProductRequestSheetSyncService::class)->run(commit: true);
 
         $this->assertSame(ProductRequest::SKU_VERIFIED, $request->refresh()->status);
+    }
+
+    /**
+     * The case that matters most: a request the sheet published whose products
+     * really are live. A dry run over the real sheet turned up two of these
+     * against one genuine mistake, and reopening finished work is the worse
+     * failure of the two.
+     */
+    public function test_a_request_whose_skus_are_live_is_not_reopened(): void
+    {
+        Queue::fake();
+        Notification::fake();
+        $this->syncUser();
+        $this->store();
+        $this->fakeSheet(['E-com Status' => 'Completed']);
+
+        app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $request = ProductRequest::sole();
+        $request->update(['shopify_verified_at' => now()]);
+        $request->skus()->update(['in_shopify' => true]);
+
+        $this->fakeSheet(['E-com Status' => '']);
+        app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertSame(ProductRequest::PUBLISHED, $request->refresh()->status);
+    }
+
+    /** Nobody has asked Shopify yet, so nothing is concluded from silence. */
+    public function test_an_unverified_request_is_not_reopened(): void
+    {
+        Queue::fake();
+        Notification::fake();
+        $this->syncUser();
+        $this->store();
+        $this->fakeSheet(['E-com Status' => 'Completed']);
+
+        app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertNull(ProductRequest::sole()->shopify_verified_at);
+
+        $this->fakeSheet(['E-com Status' => '']);
+        app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertSame(ProductRequest::PUBLISHED, ProductRequest::sole()->status);
     }
 
     /** A dry run says what it would reopen without touching anything. */
@@ -1531,6 +1581,7 @@ class ProductRequestSheetSyncTest extends TestCase
         $this->fakeSheet(['E-com Status' => 'Completed']);
 
         app(ProductRequestSheetSyncService::class)->run(commit: true);
+        ProductRequest::sole()->update(['shopify_verified_at' => now()]);
 
         $this->fakeSheet(['E-com Status' => '']);
         $result = app(ProductRequestSheetSyncService::class)->run(commit: false);
