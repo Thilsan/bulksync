@@ -25,7 +25,15 @@
                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"/>
                     </svg>
-                    Fix <span x-text="itemTotal.toLocaleString()"></span> with AI
+                    {{-- Says the cap before the click rather than after it: a
+                         button promising 690 that quietly sends 500 is worse
+                         than one that reads "500 of 690" from the start. --}}
+                    <span x-show="itemTotal <= maxBatch">
+                        Fix <span x-text="itemTotal.toLocaleString()"></span> with AI
+                    </span>
+                    <span x-show="itemTotal > maxBatch" x-cloak>
+                        Fix <span x-text="maxBatch.toLocaleString()"></span> of <span x-text="itemTotal.toLocaleString()"></span> with AI
+                    </span>
                 </button>
             </form>
 
@@ -332,6 +340,7 @@ function seoAuditPage(sessionId, initialStatus) {
         search:        '',
         type:          'all',
         statusFilter:  'live',
+        maxBatch:      {{ \App\Http\Controllers\SeoAuditController::MAX_FIX_BATCH }},
         notLive:       {{ $session->not_live_pages }},
         duplicates:    [],
         dupField:      'meta_title',
@@ -424,14 +433,22 @@ function seoAuditPage(sessionId, initialStatus) {
          * it is about to change 217 live product pages.
          */
         confirmFix(event) {
-            const cost = (this.itemTotal * {{ \App\Http\Controllers\SeoAuditController::COST_PER_PRODUCT_USD }}).toFixed(2);
+            const sending = Math.min(this.itemTotal, this.maxBatch);
+            const cost    = (sending * {{ \App\Http\Controllers\SeoAuditController::COST_PER_PRODUCT_USD }}).toFixed(2);
 
-            const ok = confirm(
-                `Generate SEO content for ${this.itemTotal.toLocaleString()} product(s)?\n\n` +
-                `Estimated cost: about $${cost}.\n\n` +
-                `Nothing is written to Shopify yet — you will review everything first, ` +
-                `then choose what to push.`
-            );
+            let message = `Generate SEO content for ${sending.toLocaleString()} product(s)?\n\n`;
+
+            if (this.itemTotal > this.maxBatch) {
+                message += `That is the ${sending.toLocaleString()} worst-scoring of `
+                         + `${this.itemTotal.toLocaleString()} — run Fix again afterwards `
+                         + `for the remaining ${(this.itemTotal - sending).toLocaleString()}.\n\n`;
+            }
+
+            message += `Estimated cost: about $${cost}.\n\n`
+                     + `Nothing is written to Shopify yet — you will review everything first, `
+                     + `then choose what to push.`;
+
+            const ok = confirm(message);
 
             if (!ok) event.preventDefault();
 

@@ -19,6 +19,10 @@ class SeoAuditController extends Controller
      * Not a technical limit — the generator chunks itself and would happily
      * take more. It is a spending limit: generation is billed per product, and
      * a filter left on "All" over a large catalogue is a four-figure click.
+     *
+     * A view holding more than this is capped rather than refused, taking the
+     * worst-scoring end of it. Refusing outright left anyone with a large
+     * catalogue facing a button that could only ever say no.
      */
     public const MAX_FIX_BATCH = 500;
 
@@ -250,9 +254,15 @@ class SeoAuditController extends Controller
         // Products only. A collection has no SKU and the generator writes from
         // product photographs, so sweeping collections in would silently send
         // nothing and report a count nobody could account for.
-        $rows = $this->filtered($seoAuditSession, $request)
-            ->where('resource_type', SeoAuditItem::TYPE_PRODUCT)
-            ->get(['sku', 'product_title']);
+        $candidates = $this->filtered($seoAuditSession, $request)
+            ->where('resource_type', SeoAuditItem::TYPE_PRODUCT);
+
+        $available = (clone $candidates)->count();
+
+        // Capped rather than refused. The view is ordered worst-score-first, so
+        // the cap takes the pages that most need the work — and a button that
+        // can only ever say "no" on a catalogue this size is no use to anyone.
+        $rows = $candidates->limit(self::MAX_FIX_BATCH)->get(['sku', 'product_title']);
 
         // A product whose first variant carries no SKU cannot be looked up
         // again — the generator only knows products by SKU. Counted and said
@@ -263,17 +273,6 @@ class SeoAuditController extends Controller
 
         if ($skus->isEmpty()) {
             return back()->with('warning', 'Nothing in this view can be fixed automatically — none of these products have a SKU.');
-        }
-
-        if ($skus->count() > self::MAX_FIX_BATCH) {
-            // Generation is billed per product, so one mis-aimed click on a
-            // large catalogue is real money. Narrowing the filter is cheap;
-            // an accidental five-thousand-product run is not.
-            return back()->with('warning', sprintf(
-                'That is %s products, over the %s per run limit. Filter to one issue, or search, and fix in batches.',
-                number_format($skus->count()),
-                number_format(self::MAX_FIX_BATCH),
-            ));
         }
 
         $session = AiContentSession::create([
@@ -293,6 +292,19 @@ class SeoAuditController extends Controller
             'Generating content for %s product(s) from the SEO audit. Review it here, then push to Shopify.',
             number_format($skus->count()),
         );
+
+        $remaining = $available - $rows->count();
+
+        if ($remaining > 0) {
+            // Said plainly, because the danger of a cap is someone believing
+            // the whole list went and never coming back for the rest.
+            $message .= sprintf(
+                ' That is the %s worst-scoring of %s — run Fix again for the remaining %s.',
+                number_format($rows->count()),
+                number_format($available),
+                number_format($remaining),
+            );
+        }
 
         if ($skipped > 0) {
             $message .= sprintf(' %s skipped — no SKU to look them up by.', number_format($skipped));

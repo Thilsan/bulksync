@@ -460,29 +460,46 @@ class SeoAuditTest extends TestCase
         Bus::assertNothingDispatched();
     }
 
-    public function test_an_oversized_batch_is_refused_because_generation_costs_money(): void
+    public function test_an_oversized_view_sends_the_worst_scoring_batch_and_says_what_is_left(): void
     {
         Bus::fake();
 
         $user  = $this->operator();
         $store = $this->storeFor($user);
 
-        $catalogue = collect(range(1, SeoAuditController::MAX_FIX_BATCH + 1))
+        $over = SeoAuditController::MAX_FIX_BATCH + 20;
+
+        // Every tenth product is worse than the rest — two faults, not one —
+        // so there is a definite worst end for the cap to take.
+        $catalogue = collect(range(1, $over))
             ->map(fn ($n) => $this->healthyProduct([
-                'id'         => (string) $n,
-                'sku'        => "SHIRT-{$n}",
-                'meta_title' => null,
+                'id'               => (string) $n,
+                'sku'              => "SHIRT-{$n}",
+                'meta_title'       => null,
+                'meta_description' => $n % 10 === 0 ? null : "A distinct description number {$n} for a linen shirt with a camp collar, at Test Store in Qatar.",
             ]))
             ->all();
 
         $session = $this->audit($user, $store, $catalogue);
 
-        $this->actingAs($user)
-            ->post(route('seo-audit.fix', $session), ['filter' => 'issues'])
-            ->assertSessionHas('warning', fn ($message) => str_contains($message, 'batches'));
+        $response = $this->actingAs($user)
+            ->post(route('seo-audit.fix', $session), ['filter' => 'issues']);
 
-        $this->assertSame(0, AiContentSession::count());
-        Bus::assertNothingDispatched();
+        $sent = json_decode(AiContentSession::sole()->skus_json, true);
+
+        $this->assertCount(SeoAuditController::MAX_FIX_BATCH, $sent);
+
+        // The worst-scoring pages are the ones that most need the work, so the
+        // cap takes those rather than whichever happened to be listed first.
+        $worst = $session->items()->orderBy('score')->limit(10)->pluck('sku');
+        foreach ($worst as $sku) {
+            $this->assertContains($sku, $sent);
+        }
+
+        // Said out loud: the danger of a cap is believing the whole list went.
+        $response->assertSessionHas('success', fn ($message) => str_contains($message, 'remaining 20'));
+
+        Bus::assertDispatched(GenerateAiContentJob::class);
     }
 
     public function test_an_unfinished_audit_cannot_be_fixed(): void
