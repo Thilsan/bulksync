@@ -11,6 +11,22 @@
     <div class="flex items-center justify-between">
         <a href="{{ route('seo-audit.index') }}" class="text-sm text-gray-500 hover:text-gray-700">← Back to Audits</a>
         <div class="flex items-center gap-2" x-show="status === 'completed'">
+            {{-- Sends the rows currently filtered on screen for generation. The
+                 hidden fields mirror the Alpine state so the server filters the
+                 same set the table is showing. --}}
+            <form method="POST" action="{{ route('seo-audit.fix', $session) }}" @submit="return confirmFix($event)">
+                @csrf
+                <input type="hidden" name="filter" :value="filter">
+                <input type="hidden" name="search" :value="search">
+                <button type="submit"
+                    class="bg-brand-600 hover:bg-brand-700 text-white px-4 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"/>
+                    </svg>
+                    Fix <span x-text="itemTotal.toLocaleString()"></span> with AI
+                </button>
+            </form>
+
             {{-- Exports the rows currently filtered on screen, so the fix list
                  and the CSV can never disagree. --}}
             <a :href="downloadUrl()"
@@ -264,6 +280,26 @@ function seoAuditPage(sessionId, initialStatus) {
         setFilter(f) {
             this.filter = f;
             this.loadItems(1);
+        },
+
+        /**
+         * Says the count, the money and — the part people get wrong — that this
+         * writes nothing to Shopify yet. Without that last line "Fix" reads like
+         * it is about to change 217 live product pages.
+         */
+        confirmFix(event) {
+            const cost = (this.itemTotal * {{ \App\Http\Controllers\SeoAuditController::COST_PER_PRODUCT_USD }}).toFixed(2);
+
+            const ok = confirm(
+                `Generate SEO content for ${this.itemTotal.toLocaleString()} product(s)?\n\n` +
+                `Estimated cost: about $${cost}.\n\n` +
+                `Nothing is written to Shopify yet — you will review everything first, ` +
+                `then choose what to push.`
+            );
+
+            if (!ok) event.preventDefault();
+
+            return ok;
         },
 
         query() {

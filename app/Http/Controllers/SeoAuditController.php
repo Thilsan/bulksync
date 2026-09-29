@@ -2,7 +2,9 @@
 
 namespace App\Http\Controllers;
 
+use App\Jobs\GenerateAiContentJob;
 use App\Jobs\RunSeoAuditJob;
+use App\Models\AiContentSession;
 use App\Models\SeoAuditItem;
 use App\Models\SeoAuditSession;
 use App\Models\Store;
@@ -10,6 +12,23 @@ use Illuminate\Http\Request;
 
 class SeoAuditController extends Controller
 {
+    /**
+     * Products one "Fix" press may send for generation.
+     *
+     * Not a technical limit — the generator chunks itself and would happily
+     * take more. It is a spending limit: generation is billed per product, and
+     * a filter left on "All" over a large catalogue is a four-figure click.
+     */
+    public const MAX_FIX_BATCH = 500;
+
+    /**
+     * Rough US dollars per product, for the confirmation dialog only. Observed
+     * average — the real figure follows image count, since most of the spend is
+     * one alt-text call per photo, so a product with ten pictures costs several
+     * times one with two.
+     */
+    public const COST_PER_PRODUCT_USD = 0.014;
+
     public function index()
     {
         $sessions = SeoAuditSession::where('user_id', auth()->id())
@@ -139,6 +158,70 @@ class SeoAuditController extends Controller
             'Content-Type'        => 'text/csv',
             'Content-Disposition' => "attachment; filename=\"{$filename}\"",
         ]);
+    }
+
+    /**
+     * Hand the rows currently on screen to the AI Content Generator.
+     *
+     * Deliberately stops at generation rather than pushing to Shopify: the
+     * review screen is the only thing standing between one bad meta
+     * description and two hundred products carrying it. The audit says what is
+     * wrong; a person still says what goes live.
+     */
+    public function fix(SeoAuditSession $seoAuditSession, Request $request)
+    {
+        abort_if($seoAuditSession->user_id !== auth()->id(), 403);
+
+        if ($seoAuditSession->status !== 'completed') {
+            return back()->with('warning', 'Wait for the audit to finish before fixing anything.');
+        }
+
+        $rows = $this->filtered($seoAuditSession, $request)->get(['sku', 'product_title']);
+
+        // A product whose first variant carries no SKU cannot be looked up
+        // again — the generator only knows products by SKU. Counted and said
+        // out loud rather than silently dropped, so the numbers add up for
+        // whoever reads the result.
+        $skus    = $rows->pluck('sku')->map(fn ($sku) => strtoupper(trim((string) $sku)))->filter()->unique()->values();
+        $skipped = $rows->count() - $skus->count();
+
+        if ($skus->isEmpty()) {
+            return back()->with('warning', 'Nothing in this view can be fixed automatically — none of these products have a SKU.');
+        }
+
+        if ($skus->count() > self::MAX_FIX_BATCH) {
+            // Generation is billed per product, so one mis-aimed click on a
+            // large catalogue is real money. Narrowing the filter is cheap;
+            // an accidental five-thousand-product run is not.
+            return back()->with('warning', sprintf(
+                'That is %s products, over the %s per run limit. Filter to one issue, or search, and fix in batches.',
+                number_format($skus->count()),
+                number_format(self::MAX_FIX_BATCH),
+            ));
+        }
+
+        $session = AiContentSession::create([
+            'user_id'     => auth()->id(),
+            'store_id'    => $seoAuditSession->store_id,
+            'input_type'  => 'sku_list',
+            'sku_raw'     => $skus->implode("\n"),
+            'skus_json'   => json_encode($skus->all()),
+            'status'      => 'pending',
+            'total_items' => $skus->count(),
+        ]);
+
+        GenerateAiContentJob::dispatch($session->id)->onQueue('bulkupload');
+
+        $message = sprintf(
+            'Generating content for %s product(s) from the SEO audit. Review it here, then push to Shopify.',
+            number_format($skus->count()),
+        );
+
+        if ($skipped > 0) {
+            $message .= sprintf(' %s skipped — no SKU to look them up by.', number_format($skipped));
+        }
+
+        return redirect()->route('ai-content.show', $session)->with('success', $message);
     }
 
     public function destroy(SeoAuditSession $seoAuditSession)

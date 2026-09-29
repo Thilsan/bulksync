@@ -76,6 +76,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/seo-audit/{seoAuditSession}/status',      [SeoAuditController::class, 'status'])->name('seo-audit.status');
     Route::get('/seo-audit/{seoAuditSession}/items',       [SeoAuditController::class, 'items'])->name('seo-audit.items');
     Route::get('/seo-audit/{seoAuditSession}/download',    [SeoAuditController::class, 'download'])->name('seo-audit.download');
+    Route::post('/seo-audit/{seoAuditSession}/fix',        [SeoAuditController::class, 'fix'])->name('seo-audit.fix');
     Route::delete('/seo-audit/{seoAuditSession}',          [SeoAuditController::class, 'destroy'])->name('seo-audit.destroy');
 
     Route::get('/store-image-sync',                          [StoreImageSyncController::class, 'index'])->name('store-image-sync.index');

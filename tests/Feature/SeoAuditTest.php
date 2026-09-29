@@ -2,13 +2,17 @@
 
 namespace Tests\Feature;
 
+use App\Jobs\GenerateAiContentJob;
 use App\Jobs\RunSeoAuditJob;
+use App\Http\Controllers\SeoAuditController;
+use App\Models\AiContentSession;
 use App\Models\SeoAuditItem;
 use App\Models\SeoAuditSession;
 use App\Models\Store;
 use App\Models\User;
 use App\Services\ShopifyService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Bus;
 use Mockery;
 use Tests\TestCase;
 
@@ -341,6 +345,166 @@ class SeoAuditTest extends TestCase
         $this->actingAs($intruder)
             ->get(route('seo-audit.show', $session))
             ->assertForbidden();
+    }
+
+    public function test_fixing_sends_exactly_the_filtered_rows_for_generation(): void
+    {
+        Bus::fake();
+
+        $user  = $this->operator();
+        $store = $this->storeFor($user);
+
+        $session = $this->audit($user, $store, [
+            $this->healthyProduct(['id' => '1']),
+            $this->healthyProduct([
+                'id'               => '2',
+                'sku'              => 'SHIRT-2',
+                'meta_title'       => null,
+                'meta_description' => 'A lightweight cotton overshirt with patch pockets and a '
+                                    . 'straight hem, available at Test Store in Qatar.',
+            ]),
+        ]);
+
+        $this->actingAs($user)
+            ->post(route('seo-audit.fix', $session), ['filter' => 'missing_meta_title'])
+            ->assertRedirect();
+
+        $content = AiContentSession::sole();
+
+        // The clean product is not sent: paying to rewrite content that is
+        // already right is the whole thing the filter exists to prevent.
+        $this->assertSame(['SHIRT-2'], json_decode($content->skus_json, true));
+        $this->assertSame(1, $content->total_items);
+        $this->assertSame($store->id, $content->store_id);
+
+        Bus::assertDispatched(GenerateAiContentJob::class);
+    }
+
+    public function test_fixing_stops_at_generation_and_writes_nothing_to_shopify(): void
+    {
+        Bus::fake();
+
+        $user  = $this->operator();
+        $store = $this->storeFor($user);
+        $session = $this->audit($user, $store, [$this->healthyProduct(['meta_title' => null])]);
+
+        $this->actingAs($user)
+            ->post(route('seo-audit.fix', $session), ['filter' => 'issues'])
+            // Lands on the review screen, not back on the audit with a "done".
+            ->assertRedirect(route('ai-content.show', AiContentSession::sole()));
+
+        // The session is queued for generation, not pushed: a person still
+        // decides what goes live.
+        $this->assertSame('pending', AiContentSession::sole()->status);
+    }
+
+    public function test_products_without_a_sku_are_skipped_and_counted_rather_than_sent(): void
+    {
+        Bus::fake();
+
+        $user  = $this->operator();
+        $store = $this->storeFor($user);
+
+        $session = $this->audit($user, $store, [
+            $this->healthyProduct(['id' => '1', 'sku' => null, 'meta_title' => null]),
+            $this->healthyProduct([
+                'id'               => '2',
+                'sku'              => 'SHIRT-2',
+                'meta_title'       => null,
+                'meta_description' => 'A lightweight cotton overshirt with patch pockets and a '
+                                    . 'straight hem, available at Test Store in Qatar.',
+            ]),
+        ]);
+
+        $response = $this->actingAs($user)
+            ->post(route('seo-audit.fix', $session), ['filter' => 'missing_meta_title']);
+
+        $this->assertSame(['SHIRT-2'], json_decode(AiContentSession::sole()->skus_json, true));
+        $response->assertSessionHas('success', fn ($message) => str_contains($message, '1 skipped'));
+    }
+
+    public function test_a_view_with_nothing_fixable_says_so_instead_of_opening_an_empty_session(): void
+    {
+        Bus::fake();
+
+        $user  = $this->operator();
+        $store = $this->storeFor($user);
+        $session = $this->audit($user, $store, [$this->healthyProduct(['sku' => null])]);
+
+        $this->actingAs($user)
+            ->post(route('seo-audit.fix', $session), ['filter' => 'all'])
+            ->assertSessionHas('warning');
+
+        $this->assertSame(0, AiContentSession::count());
+        Bus::assertNothingDispatched();
+    }
+
+    public function test_an_oversized_batch_is_refused_because_generation_costs_money(): void
+    {
+        Bus::fake();
+
+        $user  = $this->operator();
+        $store = $this->storeFor($user);
+
+        $catalogue = collect(range(1, SeoAuditController::MAX_FIX_BATCH + 1))
+            ->map(fn ($n) => $this->healthyProduct([
+                'id'         => (string) $n,
+                'sku'        => "SHIRT-{$n}",
+                'meta_title' => null,
+            ]))
+            ->all();
+
+        $session = $this->audit($user, $store, $catalogue);
+
+        $this->actingAs($user)
+            ->post(route('seo-audit.fix', $session), ['filter' => 'issues'])
+            ->assertSessionHas('warning', fn ($message) => str_contains($message, 'batches'));
+
+        $this->assertSame(0, AiContentSession::count());
+        Bus::assertNothingDispatched();
+    }
+
+    public function test_an_unfinished_audit_cannot_be_fixed(): void
+    {
+        Bus::fake();
+
+        $user  = $this->operator();
+        $store = $this->storeFor($user);
+
+        $session = SeoAuditSession::create([
+            'user_id'  => $user->id,
+            'store_id' => $store->id,
+            'status'   => 'running',
+        ]);
+
+        $this->actingAs($user)
+            ->post(route('seo-audit.fix', $session), ['filter' => 'issues'])
+            ->assertSessionHas('warning');
+
+        Bus::assertNothingDispatched();
+    }
+
+    public function test_another_users_audit_cannot_be_fixed(): void
+    {
+        Bus::fake();
+
+        $owner   = $this->operator();
+        $store   = $this->storeFor($owner);
+        $session = $this->audit($owner, $store, [$this->healthyProduct(['meta_title' => null])]);
+
+        $intruder = User::create([
+            'name'           => 'Someone Else',
+            'email'          => 'intruder@example.test',
+            'password'       => 'password',
+            'is_active'      => true,
+            'perm_seo_audit' => true,
+        ]);
+
+        $this->actingAs($intruder)
+            ->post(route('seo-audit.fix', $session))
+            ->assertForbidden();
+
+        Bus::assertNothingDispatched();
     }
 
     protected function tearDown(): void

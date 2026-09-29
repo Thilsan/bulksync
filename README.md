@@ -97,6 +97,20 @@ reported as too long.
 Audits are pruned daily: the ten most recent per person are kept, and older ones
 past 90 days are deleted with their rows.
 
+### Fixing what it finds
+
+**Fix N with AI** on the results screen sends the rows currently filtered on
+screen to the AI Content Generator. Filter to one issue first — the button
+always acts on exactly what the table is showing.
+
+It stops at generation. Nothing reaches Shopify until someone opens the review
+screen and pushes, which is what stops one bad meta description shipping to two
+hundred products. Up to 500 products per press; generation is billed per
+product, so larger sets are done in batches on purpose.
+
+Products whose first variant has no SKU are skipped and counted in the result
+message — the generator can only look products up by SKU.
+
 ## SEO Impact
 
 Every push from the AI Content Generator is recorded. Thirty-five days later a
