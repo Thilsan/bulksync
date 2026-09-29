@@ -1494,6 +1494,33 @@ class ProductRequestSheetSyncTest extends TestCase
         $this->assertSame(ProductRequest::PUBLISHED, $request->refresh()->status);
     }
 
+    /**
+     * The rows imported before 2026_09_29_140000 learned to spare them had their
+     * to_status cleared, so the reopen must not depend on it. This is what
+     * production actually looks like for every request imported as Completed.
+     */
+    public function test_the_reopen_survives_a_created_row_with_its_status_stamp_cleared(): void
+    {
+        Queue::fake();
+        Notification::fake();
+        $this->syncUser();
+        $this->store();
+        $this->fakeSheet(['E-com Status' => 'Completed']);
+
+        app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $request = ProductRequest::sole();
+        $request->activities()->where('action', 'created')
+            ->update(['from_status' => null, 'to_status' => null]);
+
+        $this->assertTrue($request->publishedFromSheet());
+
+        $this->fakeSheet(['E-com Status' => '']);
+        app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertSame(ProductRequest::SKU_VERIFIED, $request->refresh()->status);
+    }
+
     /** A dry run says what it would reopen without touching anything. */
     public function test_a_dry_run_reports_the_reopen_without_making_it(): void
     {

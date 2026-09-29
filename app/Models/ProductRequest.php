@@ -1595,15 +1595,28 @@ class ProductRequest extends Model
      */
     public function publishedFromSheet(): bool
     {
-        $lastPublish = $this->activities()
+        // Somebody publishing it here takes it back off the sheet, whatever the
+        // sheet said before. Only a person's status change counts — the sync
+        // never sets an actor.
+        $publishedByHand = $this->activities()
+            ->where('action', 'status_changed')
             ->where('to_status', self::PUBLISHED)
-            ->orderByDesc('created_at')
-            ->orderByDesc('id')
-            ->first();
+            ->whereNotNull('user_id')
+            ->exists();
 
-        return $lastPublish !== null
-            && $lastPublish->user_id === null
-            && str_contains(strtolower((string) $lastPublish->remarks), 'sheet');
+        if ($publishedByHand) {
+            return false;
+        }
+
+        // Matched on the remark rather than to_status: the column was cleared on
+        // historic rows by 2026_09_29_140000, which ran before it learned to
+        // spare the 'created' row. The remark is what both sheet-driven publishes
+        // have always written — the import's and the later sync's.
+        return $this->activities()
+            ->whereNull('user_id')
+            ->whereIn('action', ['created', 'status_changed'])
+            ->where('remarks', 'like', '%sheet marks this Completed%')
+            ->exists();
     }
 
     public function canTransitionTo(string $status): bool
