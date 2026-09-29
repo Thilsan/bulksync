@@ -128,11 +128,16 @@ class SkuMappingService
             'mapped_skus'       => $mapped,
             'pending_skus'      => $pending,
             'not_mapped_skus'   => $notMapped,
-            'validated_at'        => now(),
-            'shopify_verified_at' => $shopifyAnswered ? now() : null,
-            'validation_status'   => $validationStatus,
+            'validated_at'      => now(),
+            'validation_status' => $validationStatus,
             'validation_error'  => null,
-        ], fn ($v) => $v !== null));
+        ], fn ($v) => $v !== null) + [
+            // Set outside the filter, which drops nulls: a run that never reached
+            // Shopify has to clear the stamp, not inherit the last good one. Left
+            // in place, a stale stamp says the catalogue was checked when it was
+            // not, and the reopen acts on it.
+            'shopify_verified_at' => $shopifyAnswered ? now() : null,
+        ]);
     }
 
     /** Replace the SKU list on a request, keeping existing rows' recorded state. */
@@ -188,7 +193,10 @@ class SkuMappingService
     private function lookupShopify(ShopifyService $shopify, array $skus): ?array
     {
         try {
-            return $shopify->findVariantsBySkus($skus);
+            // true, per findVariantsBySkus' own contract: this caller writes a
+            // per-SKU verdict, so it must be told a lookup failed rather than
+            // handed an empty result that reads as "none of these exist".
+            return $shopify->findVariantsBySkus($skus, throwOnFailure: true);
         } catch (\Throwable $e) {
             Log::warning('SkuMappingService: Shopify lookup failed for ' . count($skus) . ' SKUs: ' . $e->getMessage());
             return null;
