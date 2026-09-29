@@ -1316,7 +1316,10 @@ class ProductRequest extends Model
      */
     public function hasBeenToMapping(): bool
     {
-        return $this->activities()->where('to_status', self::WAITING_MAPPING)->exists();
+        return $this->activities()
+            ->where('action', 'status_changed')
+            ->where('to_status', self::WAITING_MAPPING)
+            ->exists();
     }
 
     /**

@@ -1392,7 +1392,7 @@
                         <div class="flex-1 min-w-0 pb-1">
                             <div class="flex items-start justify-between gap-2">
                                 <p class="text-xs text-gray-400">{{ $entry->created_at->format('d M Y, h:i A') }}</p>
-                                @if($entry->to_status)
+                                @if($entry->action === 'status_changed' && $entry->to_status)
                                     <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium border shrink-0 {{ $entry->statusColor() }}">
                                         {{ $entry->statusLabel() }}
                                     </span>

@@ -679,7 +679,7 @@ class ProductRequestWorkflow
             'user_id'            => $actor?->id,
             'action'             => $action,
             'from_status'        => $fromStatus,
-            'to_status'          => $toStatus ?? $request->status,
+            'to_status'          => $toStatus,
             'description'        => $description,
             'remarks'            => $remarks,
             'created_at'         => now(),
