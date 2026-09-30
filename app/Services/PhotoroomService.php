@@ -867,6 +867,30 @@ class PhotoroomService
      */
     public const GHOST_MANNEQUIN_HINT = 'Remove mannequin and keep the same orientation';
 
+    /*
+     * Photoroom's wording for garments whose detail the mannequin hides.
+     *
+     * Sent after we showed Adam a nightwear batch that failed three different
+     * ways — legs left in the frame, a scalloped lace hem returned as plain
+     * satin, and one SKU coming back as a column dress in one shot and a
+     * gathered skirt in the other, same run, same prompt.
+     *
+     * His explanation is the part worth keeping: where the mannequin covers
+     * the garment, the model has to generate what it cannot see, so lace,
+     * straps and hemlines are reconstructed rather than preserved. He ruled
+     * out the 1024 output as the cause of the structural failures. A longer
+     * prompt narrows the odds; it cannot make a generative redraw faithful to
+     * fabric it was never shown.
+     *
+     * So this is for lace, lingerie and nightwear, and it is a second option
+     * rather than a new default — it is longer and more specific than
+     * GHOST_MANNEQUIN_HINT, and on garments that already work, more words is
+     * not the same as better.
+     */
+    public const GHOST_MANNEQUIN_HINT_FINE = 'Remove the mannequin completely, including visible legs, '
+        . 'while keeping the exact garment shape, orientation, lace, sleeves, hem, fabric details, '
+        . 'and proportions unchanged';
+
     public const GHOST_MANNEQUIN_PROMPT = 'Remove only the hanger, hook, clothes rail, garment rack, mannequin, '
         . 'dress form, headless body or stand that this garment is displayed on, including any piece of it still '
         . 'showing at the shoulder, above the collar, or through the neckline or any other opening in the garment. '

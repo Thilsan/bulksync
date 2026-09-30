@@ -245,6 +245,9 @@ class RunSeoAuditJob implements ShouldQueue
             'meta_title_length'       => $titleLength,
             'meta_description_length' => $descLength,
             'description_length'      => mb_strlen($description),
+            // Kept so the screen can show what Shopify falls back to when no
+            // meta description was ever written.
+            'description_excerpt'     => mb_substr($description, 0, 200),
             'image_count'             => 0,
             'images_missing_alt'      => 0,
             'tag_count'               => 0,

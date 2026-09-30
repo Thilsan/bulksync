@@ -1456,6 +1456,33 @@ class PhotoEditorTest extends TestCase
         $this->assertFalse(PhotoEditSession::sole()->edits['accept_recut_redraw']);
     }
 
+    /*
+     * The second wording is offered, not imposed.
+     *
+     * Photoroom sent it after a nightwear batch failed three ways at once, and
+     * their explanation is why it is a choice: where the mannequin covers the
+     * garment the model generates what it cannot see, so lace and hemlines are
+     * reconstructed rather than kept. Naming them narrows the odds on that
+     * category. On garments that already work, a longer prompt is just a
+     * longer prompt.
+     */
+    public function test_both_of_photorooms_wordings_are_offered_on_the_form(): void
+    {
+        $this->actingAs($this->editor())
+            ->get(route('photo-editor.index'))
+            ->assertOk()
+            ->assertSee(PhotoroomService::GHOST_MANNEQUIN_HINT, false)
+            ->assertSee('Lace / lingerie');
+
+        // The general one is what a run starts on.
+        $this->assertSame(
+            PhotoroomService::GHOST_MANNEQUIN_HINT,
+            PhotoroomService::defaultEdits()['apparel_prompt'],
+        );
+
+        $this->assertStringContainsString('including visible legs', PhotoroomService::GHOST_MANNEQUIN_HINT_FINE);
+    }
+
     /** Output colour is pinned so one product looks the same on every listing. */
     public function test_srgb_is_sent_by_default(): void
     {

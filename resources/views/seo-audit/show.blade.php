@@ -37,6 +37,19 @@
                 </button>
             </form>
 
+            {{-- Collections cannot go through Fix — no SKU, no photograph — so
+                 they get their own way out of this screen rather than being
+                 diagnosed and then abandoned. --}}
+            <form method="POST" action="{{ route('collection-content.from-audit', $session) }}"
+                  x-show="collectionsWithIssues > 0" x-cloak
+                  onsubmit="return confirm('Write SEO content for the collections this audit flagged?\n\nNothing is written to Shopify yet — you will review everything first.')">
+                @csrf
+                <button type="submit"
+                    class="bg-violet-600 hover:bg-violet-700 text-white px-4 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5">
+                    Fix <span x-text="collectionsWithIssues.toLocaleString()"></span> collections
+                </button>
+            </form>
+
             {{-- Exports the rows currently filtered on screen, so the fix list
                  and the CSV can never disagree. --}}
             <a :href="downloadUrl()"
@@ -120,6 +133,15 @@
         <div class="px-6 py-4 border-b border-gray-100">
             <h3 class="font-semibold text-gray-800">What needs fixing</h3>
             <p class="text-xs text-gray-500 mt-0.5">Click an issue to filter the table below.</p>
+            {{-- Shopify's own Search engine listing box pre-fills these with
+                 the fallbacks, which makes an unset field look like a set one.
+                 Said here so nobody has to work that out twice. --}}
+            <p class="text-xs text-gray-400 mt-2 max-w-3xl">
+                "No meta title set" does not mean the page has no title. Shopify falls back to the
+                product title, and to the product description for the meta description — which is what
+                its Search engine listing box shows you. The problem is that nobody chose those words:
+                a product title alone rarely carries the brand, category or country somebody searched for.
+            </p>
         </div>
         <div class="p-6 grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3">
             <template x-for="issue in issueSummary" :key="issue.code">
@@ -181,6 +203,47 @@
                     </div>
                 </div>
             </template>
+        </div>
+    </div>
+
+    {{-- Products that look like one product split in two --}}
+    <div x-show="status === 'completed' && mergeCandidates.length > 0" x-cloak class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div class="px-6 py-4 border-b border-gray-100">
+            <h3 class="font-semibold text-gray-800">Possibly the same product, catalogued twice</h3>
+            <p class="text-xs text-gray-500 mt-0.5">
+                Same product title on more than one Shopify product. While they stay split they divide their
+                own ranking between two URLs — and their generated meta titles will keep matching, because
+                the one thing that distinguishes them is usually colour, which never goes in a meta title.
+            </p>
+        </div>
+
+        <div class="divide-y divide-gray-100">
+            <template x-for="group in mergeCandidates" :key="group.title">
+                <div class="px-6 py-4">
+                    <div class="flex items-start gap-3 flex-wrap">
+                        <span class="inline-flex shrink-0 items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-700"
+                              x-text="group.pages + ' products'"></span>
+                        <p class="text-sm font-medium text-gray-800" x-text="group.title"></p>
+                        <span x-show="group.adjacent"
+                              class="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-red-50 text-red-600">
+                            consecutive SKUs
+                        </span>
+                    </div>
+                    <div class="mt-2 ml-1 flex flex-wrap gap-x-6 gap-y-1">
+                        <template x-for="member in group.members" :key="member.path">
+                            <span class="text-xs text-gray-500 font-mono" x-text="member.sku || member.path"></span>
+                        </template>
+                    </div>
+                </div>
+            </template>
+        </div>
+
+        <div class="px-6 py-3 bg-gray-50 border-t border-gray-100">
+            <p class="text-xs text-gray-500">
+                Merging them into one product with variants is the proper fix — one URL, all the ranking in
+                one place. Where that is too big a change, give each a meta title naming whatever actually
+                differs.
+            </p>
         </div>
     </div>
 
@@ -270,18 +333,40 @@
                                 <p class="text-xs text-gray-400 font-mono truncate" x-text="item.path"></p>
                             </td>
                             <td class="px-6 py-3 text-gray-600 max-w-xs">
-                                <p class="truncate" x-text="item.meta_title || '—'"></p>
-                                <p class="text-xs mt-0.5"
-                                   :class="item.title_length > 60 || (item.title_length > 0 && item.title_length < 30)
-                                        ? 'text-red-500' : 'text-gray-400'"
-                                   x-text="item.title_length + ' chars'"></p>
+                                {{-- When nothing was set, show what Shopify
+                                     renders instead. Otherwise this column reads
+                                     as "the page has no title", which is not
+                                     true and makes people distrust the audit. --}}
+                                <template x-if="item.meta_title">
+                                    <div>
+                                        <p class="truncate" x-text="item.meta_title"></p>
+                                        <p class="text-xs mt-0.5"
+                                           :class="item.title_length > 60 || item.title_length < 30 ? 'text-red-500' : 'text-gray-400'"
+                                           x-text="item.title_length + ' chars'"></p>
+                                    </div>
+                                </template>
+                                <template x-if="!item.meta_title">
+                                    <div>
+                                        <p class="truncate text-gray-400 italic" x-text="item.fallback_title || '—'"></p>
+                                        <p class="text-xs mt-0.5 text-amber-600">falls back to product title</p>
+                                    </div>
+                                </template>
                             </td>
                             <td class="px-6 py-3 text-gray-600 max-w-xs">
-                                <p class="truncate" x-text="item.meta_description || '—'"></p>
-                                <p class="text-xs mt-0.5"
-                                   :class="item.desc_length > 160 || (item.desc_length > 0 && item.desc_length < 70)
-                                        ? 'text-red-500' : 'text-gray-400'"
-                                   x-text="item.desc_length + ' chars'"></p>
+                                <template x-if="item.meta_description">
+                                    <div>
+                                        <p class="truncate" x-text="item.meta_description"></p>
+                                        <p class="text-xs mt-0.5"
+                                           :class="item.desc_length > 160 || item.desc_length < 70 ? 'text-red-500' : 'text-gray-400'"
+                                           x-text="item.desc_length + ' chars'"></p>
+                                    </div>
+                                </template>
+                                <template x-if="!item.meta_description">
+                                    <div>
+                                        <p class="truncate text-gray-400 italic" x-text="item.fallback_desc || '—'"></p>
+                                        <p class="text-xs mt-0.5 text-amber-600">falls back to description</p>
+                                    </div>
+                                </template>
                             </td>
                             <td class="px-6 py-3 text-center">
                                 <span :class="item.missing_alt > 0 ? 'text-red-500 font-semibold' : 'text-gray-500'"
@@ -341,8 +426,10 @@ function seoAuditPage(sessionId, initialStatus) {
         type:          'all',
         statusFilter:  'live',
         maxBatch:      {{ \App\Http\Controllers\SeoAuditController::MAX_FIX_BATCH }},
+        collectionsWithIssues: {{ $session->items()->where('resource_type', 'collection')->where('issue_count', '>', 0)->count() }},
         notLive:       {{ $session->not_live_pages }},
         duplicates:    [],
+        mergeCandidates: [],
         dupField:      'meta_title',
         items:         [],
         itemTotal:     0,
@@ -354,6 +441,7 @@ function seoAuditPage(sessionId, initialStatus) {
             if (this.status === 'completed') {
                 this.loadItems(1);
                 this.loadDuplicates(this.dupField);
+                this.loadMergeCandidates();
             } else if (this.status !== 'failed') {
                 this.startPolling();
             }
@@ -373,6 +461,13 @@ function seoAuditPage(sessionId, initialStatus) {
             const data = await res.json();
 
             this.duplicates = data.clusters;
+        },
+
+        async loadMergeCandidates() {
+            const res  = await fetch(`/seo-audit/${sessionId}/merge-candidates`);
+            const data = await res.json();
+
+            this.mergeCandidates = data.candidates;
         },
 
         setType(t) {
@@ -418,6 +513,7 @@ function seoAuditPage(sessionId, initialStatus) {
                 if (data.status === 'completed') {
                     this.loadItems(1);
                     this.loadDuplicates(this.dupField);
+                    this.loadMergeCandidates();
                 }
             }
         },

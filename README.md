@@ -122,6 +122,48 @@ product, so larger sets are done in batches on purpose.
 Products whose first variant has no SKU are skipped and counted in the result
 message — the generator can only look products up by SKU.
 
+## Collection SEO
+
+Collection pages rank for the category somebody types — "cabin luggage qatar" —
+while a product page competes for a model name. There are only a few dozen of
+them and they carry a share of search demand out of all proportion to their
+number.
+
+They need their own module because a collection has no SKU to look it up by and
+no photograph to write from: the products inside it are the evidence of what the
+page is about, so the generator reads a sample of their titles, types and brands.
+
+Start a run over every collection from **Collection SEO**, or over just the ones
+an audit flagged with **Fix N collections** on the audit results screen. Review
+everything before anything is written; the body description is only replaced when
+you tick to replace it, since a collection description is often written by hand.
+
+## Merge candidates
+
+The duplicate panel reports a symptom. This reports the cause: Shopify products
+sharing a title, which are usually one product split into several by colour or
+size. While they stay split they divide their own ranking between two URLs, and
+their generated meta titles will keep matching — the thing that distinguishes
+them is normally colour, which never goes into a meta title.
+
+Consecutive SKUs (`SFR207ACC01095` / `…096`) are called out as the strongest
+signal. The check is deliberately conservative, because a false "these are the
+same product" invites a merge that would lose a real one.
+
+## Almost Ranking
+
+Queries where a page sits between position 11 and 30 — page two, where almost
+nobody looks. Google already considers those pages relevant enough to show, so
+moving position 14 to position 8 is a fraction of the work of ranking something
+new and worth several times the traffic.
+
+Sorted by impressions, so the biggest prize for the same effort is first. Terms
+with fewer than ten impressions are dropped: position 12 shown twice is noise.
+Feed a row's search term into the Target search terms box on the AI Content
+Generator or Collection SEO.
+
+Requires a Search Console site on the store.
+
 ## SEO Impact
 
 Every push from the AI Content Generator is recorded. Thirty-five days later a

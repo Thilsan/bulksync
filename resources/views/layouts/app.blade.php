@@ -498,11 +498,13 @@
                         'label' => 'SEO Audit',
                         'url'   => route('seo-audit.index'),
                         'icon'  => 'check',
-                        'on'    => request()->routeIs('seo-audit.*'),
+                        'on'    => request()->routeIs('seo-audit.*') || request()->routeIs('collection-content.*'),
                         'show'  => $u->hasFeature('seo_audit'),
                         // Parent links to the audit list, so it isn't repeated here.
                         'children' => [
-                            ['label' => 'Impact Report', 'url' => route('seo-audit.impact'), 'on' => request()->routeIs('seo-audit.impact')],
+                            ['label' => 'Collection SEO', 'url' => route('collection-content.index'), 'on' => request()->routeIs('collection-content.*')],
+                            ['label' => 'Almost Ranking', 'url' => route('seo-audit.striking-distance'), 'on' => request()->routeIs('seo-audit.striking-distance')],
+                            ['label' => 'Impact Report',  'url' => route('seo-audit.impact'),         'on' => request()->routeIs('seo-audit.impact')],
                         ],
                     ],
                 ],

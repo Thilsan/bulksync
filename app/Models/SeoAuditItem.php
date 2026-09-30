@@ -29,6 +29,25 @@ class SeoAuditItem extends Model
     public const STATUS_ACTIVE = 'active';
 
     /**
+     * What Shopify renders when a field is left unset.
+     *
+     * A product with no title_tag metafield still has a <title> — the theme
+     * falls back to the product title, and to the description for the meta
+     * description. So these issues never mean "this page has nothing"; they
+     * mean nobody chose what it says, and the default is rarely what would
+     * earn a click.
+     */
+    public function fallbackMetaTitle(): string
+    {
+        return (string) $this->product_title;
+    }
+
+    public function fallbackMetaDescription(): string
+    {
+        return (string) $this->description_excerpt;
+    }
+
+    /**
      * Every issue the audit can raise: the label shown to the merchant, and the
      * points knocked off a product's score. Weights are ordered by what actually
      * costs traffic — an absent meta title outranks a slightly long one, and a
@@ -36,8 +55,8 @@ class SeoAuditItem extends Model
      * compete with each other.
      */
     public const ISSUES = [
-        'missing_meta_title'        => ['label' => 'No meta title',              'weight' => 20, 'severity' => 'high'],
-        'missing_meta_description'  => ['label' => 'No meta description',        'weight' => 20, 'severity' => 'high'],
+        'missing_meta_title'        => ['label' => 'No meta title set',          'weight' => 20, 'severity' => 'high'],
+        'missing_meta_description'  => ['label' => 'No meta description set',    'weight' => 20, 'severity' => 'high'],
         'duplicate_meta_title'      => ['label' => 'Duplicate meta title',       'weight' => 15, 'severity' => 'high'],
         'no_images'                 => ['label' => 'No images',                  'weight' => 15, 'severity' => 'high'],
         'missing_alt_text'          => ['label' => 'Images without alt text',    'weight' => 12, 'severity' => 'medium'],
@@ -57,7 +76,7 @@ class SeoAuditItem extends Model
     protected $fillable = [
         'seo_audit_session_id', 'resource_type', 'status', 'product_id', 'product_title', 'handle', 'sku',
         'meta_title', 'meta_description', 'meta_title_length', 'meta_description_length',
-        'description_length', 'image_count', 'images_missing_alt', 'tag_count',
+        'description_length', 'description_excerpt', 'image_count', 'images_missing_alt', 'tag_count',
         'issues', 'issue_count', 'score',
     ];
 

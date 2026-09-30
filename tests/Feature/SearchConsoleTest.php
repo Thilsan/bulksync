@@ -122,6 +122,74 @@ class SearchConsoleTest extends TestCase
         $this->assertSame(4.2, $queries[0]['position']);
     }
 
+    /** @param list<array{0:string,1:string,2:int,3:int,4:float}> $rows query, page, impressions, clicks, position */
+    private function queryPageService(array $rows): SearchConsoleService
+    {
+        return new SearchConsoleService(fn () => array_map(fn ($r) => [
+            'keys'        => [$r[0], $r[1]],
+            'impressions' => $r[2],
+            'clicks'      => $r[3],
+            'ctr'         => $r[2] > 0 ? $r[3] / $r[2] : 0,
+            'position'    => $r[4],
+        ], $rows));
+    }
+
+    public function test_only_queries_stranded_on_page_two_are_returned(): void
+    {
+        [$from, $to] = $this->range();
+
+        $rows = $this->queryPageService([
+            ['cabin suitcase',   'https://test.com/products/a', 500, 40, 3.2],   // already winning
+            ['carry on luggage', 'https://test.com/products/b', 800, 5,  14.0],  // the opportunity
+            ['luggage sale',     'https://test.com/products/c', 200, 0,  45.0],  // too far back to move cheaply
+        ])->strikingDistance('sc-domain:test.com', $from, $to);
+
+        $this->assertCount(1, $rows);
+        $this->assertSame('carry on luggage', $rows[0]['query']);
+        $this->assertSame(14.0, $rows[0]['position']);
+    }
+
+    public function test_a_query_nobody_is_shown_for_is_not_an_opportunity(): void
+    {
+        [$from, $to] = $this->range();
+
+        $rows = $this->queryPageService([
+            ['obscure phrase',   'https://test.com/products/a', 2,   0, 12.0],
+            ['carry on luggage', 'https://test.com/products/b', 800, 5, 12.0],
+        ])->strikingDistance('sc-domain:test.com', $from, $to);
+
+        // Position 12 shown twice is noise; the same position with hundreds of
+        // impressions is a month of traffic one page away.
+        $this->assertCount(1, $rows);
+        $this->assertSame('carry on luggage', $rows[0]['query']);
+    }
+
+    public function test_the_biggest_prize_for_the_same_effort_comes_first(): void
+    {
+        [$from, $to] = $this->range();
+
+        $rows = $this->queryPageService([
+            ['smaller prize', 'https://test.com/products/a', 100,  2, 12.0],
+            ['bigger prize',  'https://test.com/products/b', 5000, 9, 18.0],
+        ])->strikingDistance('sc-domain:test.com', $from, $to);
+
+        $this->assertSame('bigger prize', $rows[0]['query']);
+    }
+
+    public function test_each_opportunity_names_the_page_it_belongs_to(): void
+    {
+        [$from, $to] = $this->range();
+
+        $rows = $this->queryPageService([
+            ['cabin luggage qatar', 'https://test.com/collections/cabin-luggage', 900, 10, 13.0],
+        ])->strikingDistance('sc-domain:test.com', $from, $to);
+
+        // Without the page there is nothing to act on — the term has to go
+        // into a specific page's copy.
+        $this->assertSame('cabin-luggage', $rows[0]['handle']);
+        $this->assertStringContainsString('/collections/cabin-luggage', $rows[0]['page']);
+    }
+
     public function test_the_latest_answerable_day_stops_short_of_todays_missing_data(): void
     {
         // Search Console returns a partial window rather than an error for its

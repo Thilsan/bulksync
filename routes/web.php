@@ -13,8 +13,10 @@ use App\Http\Controllers\ShopifyAuthController;
 use App\Http\Controllers\StoreController;
 use App\Http\Controllers\SuperAdminController;
 use App\Http\Controllers\ImageAuditController;
+use App\Http\Controllers\CollectionContentController;
 use App\Http\Controllers\SeoAuditController;
 use App\Http\Controllers\SeoImpactController;
+use App\Http\Controllers\StrikingDistanceController;
 use App\Http\Controllers\SkuCheckerController;
 use App\Http\Controllers\StoreImageSyncController;
 use App\Http\Controllers\MetafieldUpdateController;
@@ -72,13 +74,26 @@ Route::middleware('auth')->group(function () {
     // Declared above the {seoAuditSession} route below, which would otherwise
     // match "impact" as a session id and 404 on the binding.
     Route::get('/seo-audit/impact',                        [SeoImpactController::class, 'index'])->name('seo-audit.impact');
+    Route::get('/seo-audit/almost-ranking',                [StrikingDistanceController::class, 'index'])->name('seo-audit.striking-distance');
     Route::get('/seo-audit/{seoAuditSession}',             [SeoAuditController::class, 'show'])->name('seo-audit.show');
     Route::get('/seo-audit/{seoAuditSession}/status',      [SeoAuditController::class, 'status'])->name('seo-audit.status');
     Route::get('/seo-audit/{seoAuditSession}/items',       [SeoAuditController::class, 'items'])->name('seo-audit.items');
     Route::get('/seo-audit/{seoAuditSession}/duplicates',  [SeoAuditController::class, 'duplicates'])->name('seo-audit.duplicates');
+    Route::get('/seo-audit/{seoAuditSession}/merge-candidates', [SeoAuditController::class, 'mergeCandidates'])->name('seo-audit.merge-candidates');
     Route::get('/seo-audit/{seoAuditSession}/download',    [SeoAuditController::class, 'download'])->name('seo-audit.download');
     Route::post('/seo-audit/{seoAuditSession}/fix',        [SeoAuditController::class, 'fix'])->name('seo-audit.fix');
     Route::delete('/seo-audit/{seoAuditSession}',          [SeoAuditController::class, 'destroy'])->name('seo-audit.destroy');
+
+    // Collection SEO: the pages that rank for a category rather than a model
+    // name. Separate from the AI Content Generator because a collection has no
+    // SKU to look it up by and no photograph to write from.
+    Route::get('/collection-seo',                                   [CollectionContentController::class, 'index'])->name('collection-content.index');
+    Route::post('/collection-seo',                                  [CollectionContentController::class, 'store'])->name('collection-content.store');
+    Route::post('/collection-seo/from-audit/{seoAuditSession}',     [CollectionContentController::class, 'fromAudit'])->name('collection-content.from-audit');
+    Route::get('/collection-seo/{collectionContentSession}',        [CollectionContentController::class, 'show'])->name('collection-content.show');
+    Route::get('/collection-seo/{collectionContentSession}/status', [CollectionContentController::class, 'status'])->name('collection-content.status');
+    Route::post('/collection-seo/{collectionContentSession}/push',  [CollectionContentController::class, 'push'])->name('collection-content.push');
+    Route::delete('/collection-seo/{collectionContentSession}',     [CollectionContentController::class, 'destroy'])->name('collection-content.destroy');
 
     Route::get('/store-image-sync',                          [StoreImageSyncController::class, 'index'])->name('store-image-sync.index');
     Route::post('/store-image-sync',                         [StoreImageSyncController::class, 'start'])->name('store-image-sync.start');

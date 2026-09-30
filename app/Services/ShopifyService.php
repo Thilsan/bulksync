@@ -1357,6 +1357,118 @@ class ShopifyService
         } while ($cursor);
     }
 
+    /**
+     * Read one collection's own fields plus a sample of what is inside it.
+     *
+     * The product titles are the point: a collection has no photograph to write
+     * from, so what it actually contains is the only evidence of what it is.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function getCollectionForContent(string $collectionId, int $sampleSize = 12): ?array
+    {
+        $this->throttle();
+
+        try {
+            $response = $this->http->post("admin/api/{$this->apiVersion}/graphql.json", [
+                'json' => [
+                    'query' => 'query($id:ID!,$n:Int!){collection(id:$id){id title handle description seo{title description}'
+                        . 'products(first:$n){edges{node{title productType vendor}}}}}',
+                    'variables' => [
+                        'id' => "gid://shopify/Collection/{$collectionId}",
+                        'n'  => $sampleSize,
+                    ],
+                ],
+            ]);
+
+            $data = json_decode((string) $response->getBody(), true);
+            $this->assertNoGraphQlErrors($data, "getCollectionForContent({$collectionId})");
+
+            $node = $data['data']['collection'] ?? null;
+
+            if (!$node) {
+                return null;
+            }
+
+            $products = array_map(fn ($edge) => [
+                'title'  => $edge['node']['title'] ?? '',
+                'type'   => $edge['node']['productType'] ?? '',
+                'vendor' => $edge['node']['vendor'] ?? '',
+            ], $node['products']['edges'] ?? []);
+
+            return [
+                'id'               => $this->numericId($node['id'] ?? ''),
+                'title'            => $node['title'] ?? '',
+                'handle'           => $node['handle'] ?? '',
+                'description'      => $node['description'] ?? '',
+                'meta_title'       => $node['seo']['title'] ?? null,
+                'meta_description' => $node['seo']['description'] ?? null,
+                'products'         => $products,
+            ];
+        } catch (\Throwable $e) {
+            Log::error("Shopify getCollectionForContent({$collectionId}) failed: " . $e->getMessage());
+
+            return null;
+        }
+    }
+
+    /**
+     * Write a collection's description and SEO fields.
+     *
+     * GraphQL rather than the REST pair used for products: a collection's seo
+     * fields are settable directly on collectionUpdate, so one call does what
+     * would otherwise be a PUT plus two metafield posts.
+     *
+     * An empty string leaves a field alone rather than blanking it — nothing
+     * here should be able to erase copy somebody wrote by hand.
+     */
+    public function updateCollectionContent(
+        string $collectionId,
+        string $description = '',
+        string $metaTitle = '',
+        string $metaDescription = '',
+    ): void {
+        $input = ['id' => "gid://shopify/Collection/{$collectionId}"];
+
+        if ($description !== '') {
+            $input['descriptionHtml'] = $description;
+        }
+
+        $seo = [];
+        if ($metaTitle !== '')       $seo['title'] = $metaTitle;
+        if ($metaDescription !== '') $seo['description'] = $metaDescription;
+        if ($seo)                    $input['seo'] = $seo;
+
+        // Nothing but the id: there is no change to make, and sending it would
+        // spend a call to tell Shopify so.
+        if (count($input) === 1) {
+            return;
+        }
+
+        $this->throttle();
+
+        $response = $this->http->post("admin/api/{$this->apiVersion}/graphql.json", [
+            'json' => [
+                'query'     => 'mutation($input:CollectionInput!){collectionUpdate(input:$input){userErrors{field message}}}',
+                'variables' => ['input' => $input],
+            ],
+        ]);
+
+        $data = json_decode((string) $response->getBody(), true);
+        $this->assertNoGraphQlErrors($data, "updateCollectionContent({$collectionId})");
+
+        // userErrors are not GraphQL errors — the call succeeds and reports the
+        // refusal in the payload, so it has to be read separately or a rejected
+        // write looks like a successful one.
+        $userErrors = $data['data']['collectionUpdate']['userErrors'] ?? [];
+
+        if (!empty($userErrors)) {
+            $detail = implode('; ', array_map(fn ($e) => $e['message'] ?? 'unknown', $userErrors));
+
+            throw new \RuntimeException("Shopify refused the collection update: {$detail}");
+        }
+    }
+
     private function collectionSeoQuery(): string
     {
         return <<<'GQL'

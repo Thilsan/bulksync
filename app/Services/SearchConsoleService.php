@@ -124,6 +124,68 @@ class SearchConsoleService
     }
 
     /**
+     * Queries a site already ranks for, but only just off the front page.
+     *
+     * This is the cheapest traffic on the internet. Google already considers
+     * the page relevant enough to show — it is simply sitting where nobody
+     * looks. Moving position 14 to position 8 is a fraction of the work of
+     * ranking something new, and worth several times the traffic.
+     *
+     * The API cannot filter on position, so the range is applied here and the
+     * row limit has to be generous enough that the interesting rows are not
+     * cut off before they arrive.
+     *
+     * @return list<array{query: string, page: string, handle: ?string, impressions: int, clicks: int, ctr: float, position: float}>
+     */
+    public function strikingDistance(
+        string $siteUrl,
+        Carbon $from,
+        Carbon $to,
+        float $minPosition = 11.0,
+        float $maxPosition = 30.0,
+        int $minImpressions = 10,
+        int $limit = 200,
+    ): array {
+        $rows = ($this->reporter)($siteUrl, [
+            'startDate'  => $from->toDateString(),
+            'endDate'    => $to->toDateString(),
+            'dimensions' => ['query', 'page'],
+            'rowLimit'   => self::ROW_LIMIT,
+        ]);
+
+        $candidates = [];
+
+        foreach ($rows as $row) {
+            $position    = (float) ($row['position'] ?? 0);
+            $impressions = (int) ($row['impressions'] ?? 0);
+
+            // Impressions are the filter that matters. A query at position 12
+            // that was shown twice is noise; the same position with four
+            // hundred impressions is a month of traffic sitting one page away.
+            if ($position < $minPosition || $position > $maxPosition || $impressions < $minImpressions) {
+                continue;
+            }
+
+            $page = (string) ($row['keys'][1] ?? '');
+
+            $candidates[] = [
+                'query'       => (string) ($row['keys'][0] ?? ''),
+                'page'        => $page,
+                'handle'      => $this->handleFromUrl($page),
+                'impressions' => $impressions,
+                'clicks'      => (int) ($row['clicks'] ?? 0),
+                'ctr'         => round(((float) ($row['ctr'] ?? 0)) * 100, 2),
+                'position'    => round($position, 1),
+            ];
+        }
+
+        // Most impressions first: the biggest prize for the same effort.
+        usort($candidates, fn ($a, $b) => $b['impressions'] <=> $a['impressions']);
+
+        return array_slice($candidates, 0, $limit);
+    }
+
+    /**
      * The last full day Search Console can answer for.
      *
      * Asking for today returns a window that is mostly empty and looks like a

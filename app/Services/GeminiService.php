@@ -170,6 +170,124 @@ Return only valid JSON. No markdown, no code blocks, no extra text.";
     }
 
     /**
+     * Write the SEO content for a collection page.
+     *
+     * A collection has no photograph, so the evidence is what it contains: the
+     * titles of the products inside it say what the page is about far more
+     * reliably than its own name, which is often a single word.
+     *
+     * Collection pages are also a different job from product pages. A product
+     * page competes for a model name; a collection page competes for the
+     * category term somebody actually types — "cabin luggage qatar" — so the
+     * copy here is deliberately broader.
+     *
+     * @param  list<array{title: string, type: string, vendor: string}>  $products
+     * @return array{description: string, meta_title: string, meta_description: string}|null
+     */
+    public function generateForCollection(
+        string $collectionTitle,
+        string $existingDescription = '',
+        array $products = [],
+        string $storeName = '',
+        array $searchQueries = [],
+    ): ?array {
+        if (trim($collectionTitle) === '') {
+            return null;
+        }
+
+        $context = ["Collection name: \"{$collectionTitle}\""];
+
+        if ($storeName) {
+            $context[] = "Store name: \"{$storeName}\" (based in Qatar)";
+        }
+
+        if (!empty($products)) {
+            $titles = array_slice(array_values(array_filter(array_column($products, 'title'))), 0, 12);
+            if ($titles) {
+                $context[] = "Products actually in this collection (this is the evidence of what the page is about — there is no photograph):\n- " . implode("\n- ", $titles);
+            }
+
+            $types = array_values(array_unique(array_filter(array_column($products, 'type'))));
+            if ($types) {
+                $context[] = "Product types present: " . implode(', ', array_slice($types, 0, 10));
+            }
+
+            $vendors = array_values(array_unique(array_filter(array_column($products, 'vendor'))));
+            if ($vendors) {
+                $context[] = "Brands present: " . implode(', ', array_slice($vendors, 0, 10));
+            }
+        }
+
+        if ($searchQueries) {
+            $context[] = "REAL search terms people already use to reach this collection page, most-used first (from Google Search Console — facts about demand, not about the products): " . implode(', ', $searchQueries);
+        }
+
+        $plainExisting = trim(strip_tags($existingDescription));
+        if ($plainExisting !== '') {
+            $context[] = "Existing collection description already on the store (draw on its facts, but rephrase and improve rather than copy verbatim):\n\"{$plainExisting}\"";
+        }
+
+        $contextBlock = implode("\n", $context) . "\n\n";
+
+        $prompt = "Write the on-page SEO content for an e-commerce COLLECTION page (a category listing page, not a single product).
+
+{$contextBlock}What a collection page is for:
+- It lists many products of one kind. Somebody reaching it typed a category, not a model name — \"cabin luggage\", \"women's watches\", \"travel accessories\" — so the copy must describe the CATEGORY and what the shopper will find here.
+- Never describe one individual product, never name a single product, and never write as though there is a photograph.
+
+Writing style rules:
+- Use British English spelling throughout (e.g. colour, favourite, personalise, grey, fibre) — never American spelling.
+- Do NOT use generic marketing clichés or vague filler such as \"a true embodiment of\", \"timeless sophistication\", \"perfect for every occasion\", \"elevate your style\", \"must-have\", \"curated selection of\", \"the epitome of\".
+- NEVER use HTML entities (e.g. \"&nbsp;\", \"&amp;\"). Use plain characters only. The only HTML tags allowed are <p>, <strong>, <ul>, <li>.
+
+Search terms rule (only applies if REAL search terms were listed above):
+- Those terms are what people actually type. Where a term names the category this page genuinely is, prefer that wording over a synonym.
+- Work them in naturally, and only where they fit. Never list them, never repeat one to force it in. Two or three used well beats all of them crammed in.
+- If a term describes something this collection does NOT contain, ignore it completely.
+
+Strict accuracy rules:
+- Base every statement on the collection name and the products listed above. Do NOT invent product types, brands, materials, price points, or claims about stock, delivery, returns, warranty or exclusivity.
+- Do not state how many products the collection holds — the number changes and the copy does not.
+- If the evidence is thin, write something honest and general rather than inventing specifics.
+
+Return a JSON object with exactly these fields:
+
+- \"description\": HTML content for the collection page, MAXIMUM 700 characters including all tags.
+  1. Two short paragraphs (<p> tags): what this collection covers, and what distinguishes the range within it (styles, formats, use cases, brands present) — all grounded in the products listed above.
+  2. Nothing else. No specifications block and no bullet list — a collection page has no single set of specifications.
+  Keep the HTML valid and complete; shorten the content itself rather than cutting a tag.
+- \"meta_title\": An SEO page title, MAXIMUM 60 characters, built around the CATEGORY term a shopper would type. Include the category and, where it fits, the country or store — e.g. \"Cabin Luggage and Carry-On Suitcases in Qatar\". Never a single bare word.
+- \"meta_description\": An SEO meta description, MAXIMUM 160 characters, saying what the shopper will find on this page. If a store name was given above, naturally work the store name and \"Qatar\" in while staying within 160 characters.
+
+Return only valid JSON. No markdown, no code blocks, no extra text.";
+
+        $payload = [
+            'contents' => [[
+                'parts' => [['text' => $prompt]],
+            ]],
+            'generationConfig' => [
+                'responseMimeType' => 'application/json',
+                'temperature'      => 0.15,
+            ],
+        ];
+
+        $response = $this->postWithRetry($payload);
+        if (!$response) return null;
+
+        $text = $response->json('candidates.0.content.parts.0.text') ?? '';
+        if (!$text) return null;
+
+        $data = json_decode($text, true);
+        if (!is_array($data)) return null;
+
+        return [
+            'description'      => trim($data['description'] ?? ''),
+            'meta_title'       => mb_substr(trim($data['meta_title'] ?? ''), 0, 60),
+            'meta_description' => mb_substr(trim($data['meta_description'] ?? ''), 0, 160),
+        ];
+    }
+
+    /**
      * Generate description/meta content with NO image at all — used when a
      * product has zero images in Shopify. Grounded strictly in confirmed store
      * data (title, vendor, type, tags, collections, existing description);

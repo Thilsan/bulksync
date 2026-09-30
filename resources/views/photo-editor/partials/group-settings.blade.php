@@ -168,6 +168,25 @@
                 different garments answer the same words differently. Long lists of prohibitions do not work here;
                 this field tells the model what to make, not what to avoid. Clear it to send no hint at all.
             </p>
+
+            {{-- Two wordings Photoroom's own support arrived at, rather than a
+                 free-text box and a guess. The second is longer because it
+                 names what the model keeps reconstructing on lace and
+                 nightwear; on garments that already work, more words is not
+                 the same as better, which is why it is a choice and not the
+                 default. --}}
+            <div class="mt-1.5 flex flex-wrap gap-1.5">
+                @foreach ([
+                    'General'          => \App\Services\PhotoroomService::GHOST_MANNEQUIN_HINT,
+                    'Lace / lingerie'  => \App\Services\PhotoroomService::GHOST_MANNEQUIN_HINT_FINE,
+                ] as $preset => $wording)
+                    <button type="button" title="{{ $wording }}"
+                            @click="document.getElementById('ghost-prompt-{{ $uid }}').value = @js($wording)"
+                            class="rounded-full border border-gray-300 px-2.5 py-0.5 text-[11px] text-gray-600 hover:border-brand-500 hover:text-brand-600">
+                        {{ $preset }}
+                    </button>
+                @endforeach
+            </div>
         </div>
 
         {{-- The override on a refused redraw.

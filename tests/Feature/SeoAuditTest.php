@@ -834,6 +834,96 @@ class SeoAuditTest extends TestCase
         $this->assertSame(['LIVE-1'], json_decode(AiContentSession::sole()->skus_json, true));
     }
 
+    public function test_products_sharing_a_title_are_reported_as_possible_merges(): void
+    {
+        $user  = $this->operator();
+        $store = $this->storeFor($user);
+
+        $session = $this->audit($user, $store, [
+            $this->healthyProduct(['id' => '1', 'sku' => 'SFR207ACC01095', 'title' => 'MOSAFER TRAVEL TOWEL ETRAVEL']),
+            $this->healthyProduct(['id' => '2', 'sku' => 'SFR207ACC01096', 'title' => 'Mosafer Travel Towel Etravel']),
+            $this->healthyProduct(['id' => '3', 'sku' => 'HED207BAG01017', 'title' => 'Hedgren Inner City Backpack']),
+        ]);
+
+        $candidates = $this->actingAs($user)
+            ->getJson(route('seo-audit.merge-candidates', $session))
+            ->json('candidates');
+
+        $this->assertCount(1, $candidates);
+        $this->assertSame(2, $candidates[0]['pages']);
+
+        // Consecutive SKUs are the strongest signal that this is one item
+        // catalogued twice rather than two things sharing a name.
+        $this->assertTrue($candidates[0]['adjacent']);
+    }
+
+    public function test_a_shared_title_with_unrelated_skus_is_not_called_consecutive(): void
+    {
+        $user  = $this->operator();
+        $store = $this->storeFor($user);
+
+        $session = $this->audit($user, $store, [
+            $this->healthyProduct(['id' => '1', 'sku' => 'AAA-1', 'title' => 'Travel Towel']),
+            $this->healthyProduct(['id' => '2', 'sku' => 'ZZZ-900', 'title' => 'Travel Towel']),
+        ]);
+
+        $candidates = $this->actingAs($user)
+            ->getJson(route('seo-audit.merge-candidates', $session))
+            ->json('candidates');
+
+        // Still worth showing — but a false "these are the same product"
+        // invites a merge that would lose a real one, so the claim is held back.
+        $this->assertCount(1, $candidates);
+        $this->assertFalse($candidates[0]['adjacent']);
+    }
+
+    public function test_a_draft_is_not_offered_as_a_merge_candidate(): void
+    {
+        $user  = $this->operator();
+        $store = $this->storeFor($user);
+
+        $session = $this->audit($user, $store, [
+            $this->healthyProduct(['id' => '1', 'sku' => 'A-1', 'title' => 'Travel Towel']),
+            $this->healthyProduct(['id' => '2', 'sku' => 'A-2', 'title' => 'Travel Towel', 'status' => 'draft']),
+        ]);
+
+        // One live product is not competing with anything.
+        $this->assertSame([], $this->actingAs($user)
+            ->getJson(route('seo-audit.merge-candidates', $session))
+            ->json('candidates'));
+    }
+
+    public function test_an_unset_meta_field_reports_what_shopify_falls_back_to(): void
+    {
+        $user  = $this->operator();
+        $store = $this->storeFor($user);
+
+        $session = $this->audit($user, $store, [$this->healthyProduct([
+            'title'            => 'Briefcase S',
+            'description'      => 'VIGON II is our latest collection featuring a matt-finishing exterior.',
+            'meta_title'       => null,
+            'meta_description' => null,
+        ])]);
+
+        $item = $session->items()->sole();
+
+        // Shopify's own editor pre-fills its boxes with exactly these, which is
+        // what makes an unset field look like a set one. The audit has to be
+        // able to say what the page renders today, or its finding reads as
+        // plainly wrong to anyone who has just looked at Shopify.
+        $this->assertSame('Briefcase S', $item->fallbackMetaTitle());
+        $this->assertStringStartsWith('VIGON II is our latest collection', $item->fallbackMetaDescription());
+
+        $row = $this->actingAs($user)
+            ->getJson(route('seo-audit.items', $session) . '?filter=missing_meta_title')
+            ->json('items.0');
+
+        // Stored as an empty string rather than null, which is what the
+        // table's "did anyone set this" check reads.
+        $this->assertEmpty($row['meta_title']);
+        $this->assertSame('Briefcase S', $row['fallback_title']);
+    }
+
     protected function tearDown(): void
     {
         Mockery::close();

@@ -114,6 +114,9 @@ class SeoAuditController extends Controller
                 'sku'              => $item->sku,
                 'meta_title'       => $item->meta_title,
                 'meta_description' => $item->meta_description,
+                // What the storefront renders today when nothing was set.
+                'fallback_title'   => $item->fallbackMetaTitle(),
+                'fallback_desc'    => $item->fallbackMetaDescription(),
                 'title_length'     => $item->meta_title_length,
                 'desc_length'      => $item->meta_description_length,
                 'image_count'      => $item->image_count,
@@ -180,6 +183,96 @@ class SeoAuditController extends Controller
             'field'    => $field,
             'clusters' => $clusters,
         ]);
+    }
+
+    /**
+     * Products that look like one product split into several.
+     *
+     * The duplicate-meta-title panel reports a symptom; this reports the cause.
+     * Two Shopify products with the same title, the same vendor and adjacent
+     * SKUs are almost always one product in two colours or sizes — and while
+     * they stay split they divide their own ranking between two URLs, and no
+     * amount of rewriting can stop their generated titles matching.
+     *
+     * Built from the audit rows rather than a fresh scan: the catalogue was
+     * already read once, and reading it again to group titles would be a second
+     * pass over the same data.
+     */
+    public function mergeCandidates(SeoAuditSession $seoAuditSession)
+    {
+        abort_if($seoAuditSession->user_id !== auth()->id(), 403);
+
+        $groups = SeoAuditItem::where('seo_audit_session_id', $seoAuditSession->id)
+            ->where('resource_type', SeoAuditItem::TYPE_PRODUCT)
+            ->live()
+            ->where('product_title', '<>', '')
+            ->select(DB::raw('LOWER(TRIM(product_title)) as normalised'), DB::raw('COUNT(*) as pages'))
+            ->groupBy('normalised')
+            ->havingRaw('COUNT(*) > 1')
+            ->orderByDesc('pages')
+            ->limit(self::MAX_CLUSTERS)
+            ->get();
+
+        $candidates = $groups->map(function ($group) use ($seoAuditSession) {
+            $members = SeoAuditItem::where('seo_audit_session_id', $seoAuditSession->id)
+                ->whereRaw('LOWER(TRIM(product_title)) = ?', [$group->normalised])
+                ->orderBy('sku')
+                ->limit(self::MAX_CLUSTER_MEMBERS)
+                ->get(['product_title', 'sku', 'handle', 'meta_title']);
+
+            $skus = $members->pluck('sku')->filter()->values();
+
+            return [
+                'title'    => $members->first()->product_title,
+                'pages'    => (int) $group->pages,
+                'skus'     => $skus->all(),
+                // Adjacent SKUs are the strongest signal that these are the
+                // same item catalogued twice rather than two things that happen
+                // to share a name.
+                'adjacent' => $this->skusLookAdjacent($skus->all()),
+                'members'  => $members->map(fn (SeoAuditItem $item) => [
+                    'sku'        => $item->sku,
+                    'path'       => $item->path(),
+                    'meta_title' => $item->meta_title,
+                ])->all(),
+            ];
+        })->all();
+
+        return response()->json(['candidates' => $candidates]);
+    }
+
+    /**
+     * Whether a group's SKUs are consecutive once their shared prefix is taken
+     * off — "SFR207ACC01095" and "SFR207ACC01096".
+     *
+     * Deliberately conservative: it answers no unless every SKU shares a prefix
+     * and the trailing numbers form a run, because a false "these are the same
+     * product" invites a merge that would lose a real product.
+     */
+    private function skusLookAdjacent(array $skus): bool
+    {
+        if (count($skus) < 2) {
+            return false;
+        }
+
+        $numbers = [];
+
+        foreach ($skus as $sku) {
+            if (!preg_match('/^(.*?)(\d+)$/', (string) $sku, $matches)) {
+                return false;
+            }
+
+            $prefixes[] = $matches[1];
+            $numbers[]  = (int) $matches[2];
+        }
+
+        if (count(array_unique($prefixes)) !== 1) {
+            return false;
+        }
+
+        sort($numbers);
+
+        return ($numbers[count($numbers) - 1] - $numbers[0]) === (count($numbers) - 1);
     }
 
     public function download(SeoAuditSession $seoAuditSession, Request $request)
