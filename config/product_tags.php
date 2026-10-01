@@ -23,239 +23,25 @@
 | Tags are written exactly as they appear in Shopify (casing included), so
 | adding one here never creates a near-duplicate of an existing tag.
 |
+| Shape, for reference while this is still being filled in:
+|
+|     'store.myshopify.com' => [
+|         'Category Name' => [
+|             'base'  => ['Tag on every type in this category'],
+|             'types' => [
+|                 'Type Name' => ['Tag', 'Another tag'],
+|             ],
+|         ],
+|     ],
+|
 */
 
 return [
 
-    // Bluesalon
+    // Bluesalon. Categories are added one at a time, each derived from that
+    // category's own Shopify product export.
     'qatarbluesalon.myshopify.com' => [
 
-        'Women Clothing' => [
-
-            'base' => [
-                'All Clothing',
-                'Clothing',
-                'ClothingWomen',
-                'Collection: Women Fashion',
-                'GCC',
-                'mcat: Women Clothing',
-                'Scat: New In Women Clothing',
-                'Women',
-                'Women All Clothing',
-                'Womens',
-                'Womens Fashion',
-            ],
-
-            'types' => [
-
-                'Dresses' => [
-                    'Dress',
-                    'Dresses',
-                    'scat: Dresses',
-                    'Women All Clothing Dresses',
-                    'Women Dresses',
-                ],
-
-                'Long Dresses' => [
-                    'Dress',
-                    'Dresses',
-                    'Long Dress',
-                    'scat: Dresses',
-                    'Women All Clothing Dresses',
-                    'Women Dresses',
-                ],
-
-                'Occasion Dresses & Gowns' => [
-                    'Dress',
-                    'Dresses',
-                    'Gown',
-                    'Long Dress',
-                    'Occasion Dresses',
-                    'scat: Dresses',
-                    'scat: Gowns',
-                    'Women All Clothing Dresses',
-                    'Women Dresses',
-                ],
-
-                'Abayas & Kaftans' => [
-                    'Abaya',
-                    'Kaftans & Abayas',
-                    'scat: Abayas And Kaftans',
-                    'Scat: New In Abayas and Kaftans',
-                ],
-
-                'Coats & Jackets' => [
-                    'Jacket',
-                    'Jackets',
-                    'scat: Coats & Jackets',
-                    'Women All Clothing Coats & Jackets',
-                    'Women All Clothing Tailoring Coats & Jackets',
-                    'women jacket',
-                    'Women Jackets',
-                ],
-
-                'Blazers' => [
-                    'Blazer',
-                    'Blazers',
-                    'scat: Blazers',
-                ],
-
-                'Cardigans' => [
-                    'Cardigan',
-                    'scat: Cardigan And Coverups',
-                    'Sweaters and Cardigans',
-                ],
-
-                'Knitwear & Sweaters' => [
-                    'scat: Knitwear & Sweaters',
-                    'Women Knitwear',
-                    'Women Knitwear & sweater',
-                ],
-
-                'Shirts' => [
-                    'Shirt',
-                    'Shirts',
-                    'scat: Shirts & Blouses',
-                    'Women All Clothing Shirts & Blouses',
-                ],
-
-                'Blouses' => [
-                    'Blouse',
-                    'scat: Shirts & Blouses',
-                    'Women All Clothing Shirts & Blouses',
-                ],
-
-                'Trousers' => [
-                    'Trouser',
-                    'Trousers',
-                    'scat: Trousers',
-                    'Women All Clothing Trousers',
-                    'Women All Clothing Trousers Tailoring',
-                ],
-
-                'Skirts' => [
-                    'Skirt',
-                    'scat: Skirts',
-                    'Women All Clothing Skirts',
-                ],
-
-            ],
-        ],
-
-        'Men Clothing' => [
-
-            'base' => [
-                'All Clothing',
-                'Men',
-                'Mens',
-                'Scat: New In Men Clothing',
-            ],
-
-            'types' => [
-
-                'Polo Shirts' => [
-                    "Men's Polo Shirt",
-                    'Polo shirt',
-                    'scat: Polo shirts',
-                ],
-
-                'Shirts' => [
-                    'scat: Shirts',
-                    'Shirts & T-Shirts',
-                ],
-
-                'T-Shirts' => [
-                    'scat: T-Shirts',
-                    'Tops & T-Shirts',
-                ],
-
-                'Sweaters & Cardigans' => [
-                    'Men sweater',
-                    'scat: sweaters and cardigans',
-                    'Sweaters and Cardigans',
-                ],
-
-                'Sweatshirts & Hoodies' => [
-                    'Men Sweatshirt & Hoodies',
-                    'scat: Sweatshirts & hoodies',
-                ],
-
-                'Coats & Jackets' => [
-                    'Coats & Jackets',
-                    'scat: Jackets & coats',
-                ],
-
-                'Trousers' => [
-                    'Men Trousers',
-                    'scat: Trousers',
-                ],
-
-                'Jeans' => [
-                    'Denim',
-                    'scat: Jeans',
-                ],
-
-                'Sportswear' => [
-                    'scat: Sportswear',
-                    'Sportswear',
-                ],
-
-            ],
-        ],
-
-        /*
-        | Accessories and shoes sit outside "All Clothing", so they are separate
-        | categories rather than types under Men Clothing.
-        */
-        'Men Accessories' => [
-
-            'base' => [
-                'All Accessories',
-                'Men',
-                'Mens',
-            ],
-
-            'types' => [
-
-                'Caps & Hats' => [
-                    'Cap',
-                    'Men Caps and Hats',
-                    'scat: Caps & hats',
-                ],
-
-                'Scarves' => [
-                    'Men Scarf',
-                    'scat: Scarves',
-                ],
-
-                'Ties & Bowties' => [
-                    'scat: Ties & bowties',
-                    'Ties',
-                ],
-
-            ],
-        ],
-
-        'Men Shoes' => [
-
-            'base' => [
-                'All Shoes',
-                'Men',
-                'Mens',
-            ],
-
-            'types' => [
-
-                'Sneakers' => [
-                    'Men Sneaker',
-                    'scat: Sneakers',
-                    'Scat: new In Men Footwear',
-                    'Sneaker',
-                    'Sneakers',
-                ],
-
-            ],
-        ],
     ],
 
 ];
