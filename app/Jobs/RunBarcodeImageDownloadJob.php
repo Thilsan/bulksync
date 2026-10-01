@@ -78,12 +78,22 @@ class RunBarcodeImageDownloadJob implements ShouldQueue
         $refused = [];
 
         foreach ($sites as $site) {
-            $why = $scraper->refusedBy($site) ?? $scraper->searchability($site, $barcodes[0]);
+            // Which of the two it is matters to the person reading the screen:
+            // a blocked site is somebody else's rule and is fixed by asking
+            // them, while an unreadable one will never work however often it
+            // is tried.
+            if ($why = $scraper->refusedBy($site)) {
+                $refused[$site] = ['label' => 'Blocked', 'kind' => 'blocked', 'why' => $why];
 
-            if ($why) {
-                $refused[$site] = $why;
+                Log::info("RunBarcodeImageDownloadJob: skipping {$site} — blocked");
 
-                Log::info("RunBarcodeImageDownloadJob: skipping {$site} — {$why}");
+                continue;
+            }
+
+            if ($why = $scraper->searchability($site, $barcodes[0])) {
+                $refused[$site] = ['label' => 'Cannot be read', 'kind' => 'unreadable', 'why' => $why];
+
+                Log::info("RunBarcodeImageDownloadJob: skipping {$site} — unreadable");
 
                 continue;
             }
@@ -101,6 +111,7 @@ class RunBarcodeImageDownloadJob implements ShouldQueue
                 'status'        => 'failed',
                 'site_url'      => $sites[0],
                 'site_urls'     => $sites,
+                'site_issues'   => $refused,
                 'raw_barcodes'  => null,
                 'error_message' => $this->whyNoneCanBeRead($refused),
             ]);
@@ -112,6 +123,7 @@ class RunBarcodeImageDownloadJob implements ShouldQueue
             'status'         => 'running',
             'site_url'       => array_key_first($usable),
             'site_urls'      => $sites,
+            'site_issues'    => $refused ?: null,
             'total_barcodes' => count($barcodes),
             'error_message'  => $refused === [] ? null : $this->whySomeWereSkipped($refused),
         ]);
@@ -287,16 +299,16 @@ class RunBarcodeImageDownloadJob implements ShouldQueue
     /**
      * Why the run stopped: every site on the list, and what each said.
      *
-     * @param array<string,string> $refused
+     * @param array<string,array{label: string, kind: string, why: string}> $refused
      */
     private function whyNoneCanBeRead(array $refused): string
     {
-        if (count($refused) === 1) return reset($refused);
+        if (count($refused) === 1) return reset($refused)['why'];
 
         $lines = [];
 
-        foreach ($refused as $site => $why) {
-            $lines[] = parse_url($site, PHP_URL_HOST) . ' — ' . $why;
+        foreach ($refused as $site => $issue) {
+            $lines[] = parse_url($site, PHP_URL_HOST) . ' — ' . $issue['why'];
         }
 
         return 'None of the websites on this run could be read.' . "\n\n" . implode("\n\n", $lines);
@@ -306,14 +318,14 @@ class RunBarcodeImageDownloadJob implements ShouldQueue
      * A note on the run that carried on without one of its sites, so that
      * "half the barcodes are missing" has its explanation in the same place.
      *
-     * @param array<string,string> $refused
+     * @param array<string,array{label: string, kind: string, why: string}> $refused
      */
     private function whySomeWereSkipped(array $refused): string
     {
         $lines = [];
 
-        foreach ($refused as $site => $why) {
-            $lines[] = parse_url($site, PHP_URL_HOST) . ' was left out of this run — ' . $why;
+        foreach ($refused as $site => $issue) {
+            $lines[] = parse_url($site, PHP_URL_HOST) . ' was left out of this run — ' . $issue['why'];
         }
 
         return implode("\n\n", $lines);

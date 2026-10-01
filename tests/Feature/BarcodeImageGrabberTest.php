@@ -648,6 +648,31 @@ class BarcodeImageGrabberTest extends TestCase
         $session->deleteFiles();
     }
 
+    public function test_the_run_screen_marks_a_blocked_site_as_blocked(): void
+    {
+        $session = BarcodeImageSession::create([
+            'user_id'     => $this->operator()->id,
+            'site_url'    => 'https://blocked.test',
+            'site_urls'   => ['https://blocked.test', 'https://open.test'],
+            'site_issues' => [
+                'https://blocked.test' => [
+                    'label' => 'Blocked',
+                    'kind'  => 'blocked',
+                    'why'   => 'This site is refusing this server: its security service answered with a block page (403).',
+                ],
+            ],
+            'status'         => 'completed',
+            'total_barcodes' => 2,
+        ]);
+
+        $this->actingAs($session->user)
+            ->get(route('barcode-images.show', $session))
+            ->assertOk()
+            ->assertSee('Blocked')
+            ->assertSee('refusing this server', false)
+            ->assertSee('blocked.test');
+    }
+
     public function test_a_run_whose_every_site_refuses_the_server_stops_and_names_them_all(): void
     {
         $block = '<html><head><title>Attention Required! | Cloudflare</title></head>'

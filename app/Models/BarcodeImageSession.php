@@ -23,6 +23,7 @@ class BarcodeImageSession extends Model
         'name',
         'site_url',
         'site_urls',
+        'site_issues',
         'status',
         'total_barcodes',
         'processed',
@@ -42,8 +43,22 @@ class BarcodeImageSession extends Model
     ];
 
     protected $casts = [
-        'site_urls' => 'array',
+        'site_urls'   => 'array',
+        'site_issues' => 'array',
     ];
+
+    /**
+     * What stopped a site being used, keyed by the site, or null where it was
+     * read normally.
+     *
+     * @return array{label: string, kind: string, why: string}|null
+     */
+    public function issueWith(string $site): ?array
+    {
+        $issue = ($this->site_issues ?? [])[$site] ?? null;
+
+        return is_array($issue) ? $issue : null;
+    }
 
     /**
      * The websites this run tries, in the order it tries them.

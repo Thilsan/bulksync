@@ -13,15 +13,26 @@
         </div>
     @endif
 
+    @php($issues = $session->site_issues ?? [])
+
     {{-- ── Header ──────────────────────────────────────────────────────── --}}
     <div class="flex flex-wrap items-start justify-between gap-3 rounded-xl border border-gray-200 bg-white p-5">
         <div class="min-w-0">
             <h2 class="text-lg font-semibold text-gray-900">{{ $session->name ?: 'Image grab' }}</h2>
             <p class="mt-1 truncate text-sm text-gray-500">
                 @foreach($session->sites() as $i => $siteUrl)
+                    @php($issue = $session->issueWith($siteUrl))
                     @if($i > 0)<span class="text-gray-300"> · </span>@endif
                     <a href="{{ $siteUrl }}" target="_blank" rel="noopener noreferrer"
-                       class="text-brand-600 hover:text-brand-800">{{ parse_url($siteUrl, PHP_URL_HOST) ?: $siteUrl }}</a>
+                       class="{{ $issue ? 'text-gray-400 line-through' : 'text-brand-600 hover:text-brand-800' }}">{{ parse_url($siteUrl, PHP_URL_HOST) ?: $siteUrl }}</a>
+                    @if($issue)
+                        {{-- Said where the site is named, because a note at the
+                             bottom of the screen is not where somebody looking
+                             at a table of misses is looking. --}}
+                        <span class="ml-1 rounded-full bg-{{ $issue['kind'] === 'blocked' ? 'red' : 'amber' }}-100 px-2 py-0.5 text-xs font-medium text-{{ $issue['kind'] === 'blocked' ? 'red' : 'amber' }}-700">
+                            {{ $issue['label'] }}
+                        </span>
+                    @endif
                 @endforeach
                 · started {{ $session->created_at->format('d M Y, h:i A') }}
                 @if($session->user_id !== auth()->id())
@@ -178,7 +189,24 @@
             </div>
         </div>
 
-        <p x-show="error" x-cloak class="mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700" x-text="error"></p>
+        @if($issues)
+            <div class="mt-4 space-y-3">
+                @foreach($issues as $siteUrl => $issue)
+                    <div class="rounded-lg border px-4 py-3 text-sm {{ $issue['kind'] === 'blocked' ? 'border-red-200 bg-red-50 text-red-800' : 'border-amber-200 bg-amber-50 text-amber-800' }}">
+                        <p class="font-semibold">
+                            {{ parse_url($siteUrl, PHP_URL_HOST) ?: $siteUrl }} — {{ $issue['label'] }}
+                        </p>
+                        <p class="mt-1 leading-relaxed">{{ $issue['why'] }}</p>
+                    </div>
+                @endforeach
+            </div>
+        @endif
+
+        {{-- The same words are already above, site by site, when there are
+             site notes — one copy of a reason is enough. --}}
+        @if(!$issues)
+            <p x-show="error" x-cloak class="mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700" x-text="error"></p>
+        @endif
     </div>
 
     {{-- ── The barcodes ────────────────────────────────────────────────── --}}
