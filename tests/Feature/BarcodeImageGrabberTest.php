@@ -521,6 +521,160 @@ class BarcodeImageGrabberTest extends TestCase
         $this->assertSame([], app(ProductImageScraper::class)->findProducts('https://shop.test', '99999999'));
     }
 
+    // ── Several websites per run ─────────────────────────────────────────────
+
+    public function test_a_run_takes_a_list_of_websites_in_the_order_they_were_typed(): void
+    {
+        Bus::fake();
+
+        $this->actingAs($this->operator())
+            ->post(route('barcode-images.start'), [
+                'site_url' => "albertoshop.de\nherrenausstatter.de, ALBERTOSHOP.de",
+                'barcodes' => '42071367',
+            ])
+            ->assertRedirect();
+
+        $session = BarcodeImageSession::sole();
+
+        // Typed twice is asked once, and the first one named leads.
+        $this->assertSame(
+            ['https://albertoshop.de', 'https://herrenausstatter.de'],
+            $session->sites()
+        );
+        $this->assertSame('https://albertoshop.de', $session->site_url);
+    }
+
+    /**
+     * The run that prompted all of this: the first site refuses the server, and
+     * forty-one barcodes that exist on the second came back empty because the
+     * run had nowhere else to look.
+     */
+    public function test_a_site_that_refuses_the_server_is_skipped_and_the_next_one_answers(): void
+    {
+        $block = '<html><head><title>Attention Required! | Cloudflare</title></head>'
+            . '<body><div id="cf-error-details">blocked</div></body></html>';
+
+        Http::fake([
+            'blocked.test/*' => Http::response($block, 403),
+
+            'open.test/search/suggest.json*' => Http::response('', 404),
+            'open.test/search?query=*' => function ($request) {
+                parse_str((string) parse_url($request->url(), PHP_URL_QUERY), $query);
+
+                return ($query['query'] ?? '') === '42071367'
+                    ? Http::response($this->nextJsSearchPage('42071367', [['443939', '42071367/849']]))
+                    : Http::response($this->nextJsListing());
+            },
+            'open.test/search?q=*' => Http::response($this->nextJsListing()),
+            'open.test/alberto-jeans-443939' => Http::response($this->nextJsProductPage('443939', '42071367')),
+            'cdn.test/*' => Http::response($this->onePixelPng(), 200, ['Content-Type' => 'image/jpeg']),
+            '*' => Http::response('', 404),
+        ]);
+
+        $session = BarcodeImageSession::create([
+            'user_id'      => $this->operator()->id,
+            'site_url'     => 'https://blocked.test',
+            'site_urls'    => ['https://blocked.test', 'https://open.test'],
+            'status'       => 'pending',
+            'raw_barcodes' => '42071367',
+        ]);
+
+        app(RunBarcodeImageDownloadJob::class, ['sessionId' => $session->id])
+            ->handle(app(ProductImageScraper::class));
+
+        $session->refresh();
+        $item = $session->items()->sole();
+
+        // The run carried on without the site that refused it, rather than
+        // stopping or reporting a barcode that was there all along as missing.
+        $this->assertSame('completed', $session->status);
+        $this->assertSame('found', $item->status);
+        $this->assertSame(3, $item->image_count);
+        $this->assertSame('https://open.test', $item->source_site);
+
+        // And why the other site was left out is recorded where the person
+        // looking at a half-empty run will find it.
+        $this->assertStringContainsString('blocked.test was left out', (string) $session->error_message);
+
+        $session->deleteFiles();
+    }
+
+    public function test_a_barcode_the_first_site_does_not_stock_is_looked_for_on_the_next(): void
+    {
+        Http::fake([
+            'thin.test/search/suggest.json*' => Http::response('', 404),
+            'thin.test/search*' => Http::response('<p>Nothing found.</p>'),
+
+            'deep.test/search/suggest.json*' => Http::response('', 404),
+            'deep.test/search?query=*' => function ($request) {
+                parse_str((string) parse_url($request->url(), PHP_URL_QUERY), $query);
+
+                return ($query['query'] ?? '') === '42071367'
+                    ? Http::response($this->nextJsSearchPage('42071367', [['443939', '42071367/849']]))
+                    : Http::response($this->nextJsListing());
+            },
+            'deep.test/search?q=*' => Http::response($this->nextJsListing()),
+            'deep.test/alberto-jeans-443939' => Http::response($this->nextJsProductPage('443939', '42071367')),
+            'cdn.test/*' => Http::response($this->onePixelPng(), 200, ['Content-Type' => 'image/jpeg']),
+            '*' => Http::response('', 404),
+        ]);
+
+        $session = BarcodeImageSession::create([
+            'user_id'      => $this->operator()->id,
+            'site_url'     => 'https://thin.test',
+            'site_urls'    => ['https://thin.test', 'https://deep.test'],
+            'status'       => 'pending',
+            'raw_barcodes' => "42071367\n99999999",
+        ]);
+
+        app(RunBarcodeImageDownloadJob::class, ['sessionId' => $session->id])
+            ->handle(app(ProductImageScraper::class));
+
+        $session->refresh();
+
+        $found   = $session->items()->where('barcode', '42071367')->sole();
+        $missing = $session->items()->where('barcode', '99999999')->sole();
+
+        $this->assertSame('found', $found->status);
+        $this->assertSame('https://deep.test', $found->source_site);
+
+        // One nobody stocks says so for the list, not for one shop.
+        $this->assertSame('not_found', $missing->status);
+        $this->assertStringContainsString('any of the 2 websites', (string) $missing->message);
+
+        $this->assertSame(1, $session->found_count);
+        $this->assertSame(1, $session->missing_count);
+
+        $session->deleteFiles();
+    }
+
+    public function test_a_run_whose_every_site_refuses_the_server_stops_and_names_them_all(): void
+    {
+        $block = '<html><head><title>Attention Required! | Cloudflare</title></head>'
+            . '<body><div id="cf-error-details">blocked</div></body></html>';
+
+        Http::fake(['*' => Http::response($block, 403)]);
+
+        $session = BarcodeImageSession::create([
+            'user_id'      => $this->operator()->id,
+            'site_url'     => 'https://one.test',
+            'site_urls'    => ['https://one.test', 'https://two.test'],
+            'status'       => 'pending',
+            'raw_barcodes' => "42071367\n42071764",
+        ]);
+
+        app(RunBarcodeImageDownloadJob::class, ['sessionId' => $session->id])
+            ->handle(app(ProductImageScraper::class));
+
+        $session->refresh();
+
+        $this->assertSame('failed', $session->status);
+        $this->assertStringContainsString('None of the websites', (string) $session->error_message);
+        $this->assertStringContainsString('one.test', (string) $session->error_message);
+        $this->assertStringContainsString('two.test', (string) $session->error_message);
+        $this->assertSame(0, $session->items()->count());
+    }
+
     /**
      * The fifth way Albertoshop came back: the search the operator can see
      * working from the office is answered for the server with a Cloudflare

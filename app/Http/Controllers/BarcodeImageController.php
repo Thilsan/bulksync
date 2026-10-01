@@ -22,6 +22,9 @@ class BarcodeImageController extends Controller
      * than at the top of nine methods. The sidebar already hides the link; this
      * is what stops somebody who has the URL.
      */
+    /** More sites than this is a list nobody reads the results of. */
+    private const MAX_SITES = 5;
+
     public function __construct(private readonly ProductImageScraper $scraper)
     {
         abort_unless(auth()->user()?->hasFeature('barcode_images'), 403);
@@ -70,15 +73,15 @@ class BarcodeImageController extends Controller
     public function start(Request $request)
     {
         $request->validate([
-            'site_url' => ['required', 'string', 'max:255'],
+            'site_url' => ['required', 'string', 'max:1000'],
             'barcodes' => ['nullable', 'string'],
             'csv_file' => ['nullable', 'file', 'mimes:csv,txt', 'max:20480'],
             'name'     => ['nullable', 'string', 'max:120'],
         ]);
 
-        $site = $this->scraper->normaliseSite($request->string('site_url')->toString());
+        $sites = $this->parseSites($request->string('site_url')->toString());
 
-        if (!$site) {
+        if ($sites === []) {
             return back()
                 ->withInput()
                 ->withErrors(['site_url' => 'That does not look like a website address. Try something like bluesalon.com.']);
@@ -95,7 +98,8 @@ class BarcodeImageController extends Controller
         $session = BarcodeImageSession::create([
             'user_id'        => auth()->id(),
             'name'           => $request->string('name')->toString() ?: null,
-            'site_url'       => $site,
+            'site_url'       => $sites[0],
+            'site_urls'      => $sites,
             'status'         => 'pending',
             'total_barcodes' => count($barcodes),
             'raw_barcodes'   => implode("\n", $barcodes),
@@ -332,6 +336,30 @@ class BarcodeImageController extends Controller
     }
 
     /** @return string[] */
+    /**
+     * The websites a run was given, in the order they were typed.
+     *
+     * One per line, or separated by commas — nobody knows which catalogue
+     * carries a given article, so a run takes several and keeps the first that
+     * answers with pictures. Anything that is not a website is dropped rather
+     * than refusing the whole list, and duplicates are collapsed so a site is
+     * never asked the same question twice.
+     *
+     * @return list<string>
+     */
+    private function parseSites(string $input): array
+    {
+        $sites = [];
+
+        foreach (preg_split('/[\r\n,;]+/', $input) ?: [] as $candidate) {
+            if ($site = $this->scraper->normaliseSite($candidate)) {
+                $sites[$site] = true;
+            }
+        }
+
+        return array_slice(array_keys($sites), 0, self::MAX_SITES);
+    }
+
     private function parseBarcodes(Request $request): array
     {
         $raw = [];

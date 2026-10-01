@@ -12,6 +12,7 @@ class BarcodeImageItem extends Model
         'barcode',
         'status',
         'product_url',
+        'source_site',
         'product_title',
         'image_count',
         'message',

@@ -18,8 +18,11 @@
         <div class="min-w-0">
             <h2 class="text-lg font-semibold text-gray-900">{{ $session->name ?: 'Image grab' }}</h2>
             <p class="mt-1 truncate text-sm text-gray-500">
-                <a href="{{ $session->site_url }}" target="_blank" rel="noopener noreferrer"
-                   class="text-brand-600 hover:text-brand-800">{{ $session->site_url }}</a>
+                @foreach($session->sites() as $i => $siteUrl)
+                    @if($i > 0)<span class="text-gray-300"> · </span>@endif
+                    <a href="{{ $siteUrl }}" target="_blank" rel="noopener noreferrer"
+                       class="text-brand-600 hover:text-brand-800">{{ parse_url($siteUrl, PHP_URL_HOST) ?: $siteUrl }}</a>
+                @endforeach
                 · started {{ $session->created_at->format('d M Y, h:i A') }}
                 @if($session->user_id !== auth()->id())
                     {{-- Only a super admin reaches somebody else's run, and
@@ -216,6 +219,11 @@
                                    class="block truncate text-brand-600 hover:text-brand-800"
                                    x-text="item.product_title || item.product_url"></a>
                                 <span x-show="!item.product_url" class="text-gray-400">—</span>
+                                {{-- Which of the run's websites these pictures came from, so a
+                                     source whose photography is not wanted can be spotted. --}}
+                                <span x-show="item.source_site && {{ count($session->sites()) > 1 ? 'true' : 'false' }}"
+                                      class="mt-0.5 block truncate text-xs text-gray-400"
+                                      x-text="item.source_site && item.source_site.replace(/^https?:\/\//, '')"></span>
                             </td>
                             <td class="px-5 py-3 text-center figure"
                                 :class="item.image_count > 0 ? 'text-gray-900' : 'text-gray-300'"

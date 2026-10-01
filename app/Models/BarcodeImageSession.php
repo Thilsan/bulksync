@@ -22,6 +22,7 @@ class BarcodeImageSession extends Model
         'user_id',
         'name',
         'site_url',
+        'site_urls',
         'status',
         'total_barcodes',
         'processed',
@@ -39,6 +40,25 @@ class BarcodeImageSession extends Model
         'push_failed',
         'push_error',
     ];
+
+    protected $casts = [
+        'site_urls' => 'array',
+    ];
+
+    /**
+     * The websites this run tries, in the order it tries them.
+     *
+     * Runs made before a list was possible have the one site they were given,
+     * which is why this falls back rather than returning nothing.
+     *
+     * @return list<string>
+     */
+    public function sites(): array
+    {
+        $sites = array_values(array_filter((array) ($this->site_urls ?: [])));
+
+        return $sites !== [] ? $sites : array_values(array_filter([$this->site_url]));
+    }
 
     /** How a barcode is matched to a product when the images are pushed. */
     public const MATCHING_MODES = [

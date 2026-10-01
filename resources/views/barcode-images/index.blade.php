@@ -60,14 +60,16 @@
 
                     <div class="grid gap-4 md:grid-cols-2">
                         <div>
-                            <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-gray-500">Website</label>
-                            <input type="text" name="site_url" value="{{ old('site_url') }}"
-                                   placeholder="luisaspagnoli.com/en/qa"
-                                   class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm transition focus:border-transparent focus:outline-none focus:ring-2 focus:ring-brand-500">
+                            <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-gray-500">Websites</label>
+                            <textarea name="site_url" rows="3"
+                                      placeholder="albertoshop.de&#10;herrenausstatter.de"
+                                      class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm transition focus:border-transparent focus:outline-none focus:ring-2 focus:ring-brand-500">{{ old('site_url') }}</textarea>
                             <p class="mt-1.5 text-xs text-gray-400">
-                                Include the country if the site has one in its address —
-                                <span class="font-mono text-gray-500">luisaspagnoli.com/en/qa</span> — or it will
-                                answer from wherever this server happens to be.
+                                One per line, up to five. Each barcode tries them in order and stops at the first
+                                site with pictures, so a site that is blocked or does not stock an article no
+                                longer empties the whole run. Include the country if the site has one in its
+                                address — <span class="font-mono text-gray-500">luisaspagnoli.com/en/qa</span> —
+                                or it will answer from wherever this server happens to be.
                             </p>
                             @error('site_url') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                         </div>
