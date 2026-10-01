@@ -141,6 +141,121 @@ return [
 
             ],
         ],
+
+        'Men Clothing' => [
+
+            'base' => [
+                'All Clothing',
+                'Men',
+                'Mens',
+                'Scat: New In Men Clothing',
+            ],
+
+            'types' => [
+
+                'Polo Shirts' => [
+                    "Men's Polo Shirt",
+                    'Polo shirt',
+                    'scat: Polo shirts',
+                ],
+
+                'Shirts' => [
+                    'scat: Shirts',
+                    'Shirts & T-Shirts',
+                ],
+
+                'T-Shirts' => [
+                    'scat: T-Shirts',
+                    'Tops & T-Shirts',
+                ],
+
+                'Sweaters & Cardigans' => [
+                    'Men sweater',
+                    'scat: sweaters and cardigans',
+                    'Sweaters and Cardigans',
+                ],
+
+                'Sweatshirts & Hoodies' => [
+                    'Men Sweatshirt & Hoodies',
+                    'scat: Sweatshirts & hoodies',
+                ],
+
+                'Coats & Jackets' => [
+                    'Coats & Jackets',
+                    'scat: Jackets & coats',
+                ],
+
+                'Trousers' => [
+                    'Men Trousers',
+                    'scat: Trousers',
+                ],
+
+                'Jeans' => [
+                    'Denim',
+                    'scat: Jeans',
+                ],
+
+                'Sportswear' => [
+                    'scat: Sportswear',
+                    'Sportswear',
+                ],
+
+            ],
+        ],
+
+        /*
+        | Accessories and shoes sit outside "All Clothing", so they are separate
+        | categories rather than types under Men Clothing.
+        */
+        'Men Accessories' => [
+
+            'base' => [
+                'All Accessories',
+                'Men',
+                'Mens',
+            ],
+
+            'types' => [
+
+                'Caps & Hats' => [
+                    'Cap',
+                    'Men Caps and Hats',
+                    'scat: Caps & hats',
+                ],
+
+                'Scarves' => [
+                    'Men Scarf',
+                    'scat: Scarves',
+                ],
+
+                'Ties & Bowties' => [
+                    'scat: Ties & bowties',
+                    'Ties',
+                ],
+
+            ],
+        ],
+
+        'Men Shoes' => [
+
+            'base' => [
+                'All Shoes',
+                'Men',
+                'Mens',
+            ],
+
+            'types' => [
+
+                'Sneakers' => [
+                    'Men Sneaker',
+                    'scat: Sneakers',
+                    'Scat: new In Men Footwear',
+                    'Sneaker',
+                    'Sneakers',
+                ],
+
+            ],
+        ],
     ],
 
 ];
