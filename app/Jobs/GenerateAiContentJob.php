@@ -399,7 +399,6 @@ class GenerateAiContentJob implements ShouldQueue
             'ai_meta_title'       => $content['meta_title'],
             'ai_meta_description' => $content['meta_description'],
             'ai_title'            => $content['title'],
-            'ai_new_tags'         => $content['new_tags'] ?? [],
             'ai_new_collections'  => $content['new_collections'] ?? [],
         ]);
 
@@ -485,7 +484,6 @@ class GenerateAiContentJob implements ShouldQueue
             'ai_meta_title'       => $this->sanitizeText($content['meta_title']),
             'ai_meta_description' => $this->sanitizeText($content['meta_description']),
             'ai_title'            => $this->sanitizeText($content['title'] ?? ''),
-            'ai_new_tags'         => $content['new_tags'] ?? [],
             'ai_new_collections'  => $content['new_collections'] ?? [],
         ]);
 

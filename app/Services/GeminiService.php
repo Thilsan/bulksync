@@ -61,7 +61,7 @@ class GeminiService
         if ($vendor)         $context[] = "Brand/vendor: \"{$vendor}\"";
         if ($productType)    $context[] = "Product type/category: \"{$productType}\"";
         if ($storeName)      $context[] = "Store name: \"{$storeName}\" (based in Qatar)";
-        if (!empty($tags))        $context[] = "Tags ALREADY on this product (do not repeat these as new suggestions): " . implode(', ', $tags);
+        if (!empty($tags))        $context[] = "Tags on this product (context only — never list tags in your output): " . implode(', ', $tags);
         if (!empty($collections)) $context[] = "Collections this product ALREADY belongs to (do not repeat these as new suggestions): " . implode(', ', $collections);
         if ($existingMaterial)    $context[] = "CONFIRMED material (from store data, not a guess): \"{$existingMaterial}\" — use this exact material, do not visually guess a different one.";
         if (!empty($existingFeatures)) $context[] = "CONFIRMED features already on file (from store data): " . implode(', ', $existingFeatures);
@@ -131,7 +131,6 @@ Return a JSON object with exactly these fields:
 - \"meta_description\": An SEO meta description (max 160 characters) summarizing only the product's visible/confirmed attributes — no mention of model/background, and never a specific color, per the color-neutral rule above. If a store name was given above, naturally work the store name and \"Qatar\" into the sentence (e.g. \"...available at {{store name}} in Qatar.\") while staying within 160 characters — shorten the product details if needed to fit both in.
 - \"alt_text\": A concise, literal description of the PRODUCT itself for accessibility (max 125 characters) — e.g. \"Light blue relaxed-fit shorts with side pockets and elasticated waistband\". Unlike the fields above, this one SHOULD name the actual color shown in THIS photo, since it describes this specific image, not the whole product across all its color variants. Do NOT describe a person/model wearing it, their pose, or the background — describe the garment/item as if on its own. If the product has two or more similar parts (e.g. two ends of a bracelet, a pair of earrings), do NOT assume they look the same — describe only what THIS specific image actually shows, which may be a back/reverse angle where the parts genuinely differ.
 - \"title\": A clear, accurate SEO-friendly product title (max 80 characters) reflecting brand, product type, and main visible style/design attribute — grounded in the same accuracy rules as everything else, and never a specific color, per the color-neutral rule above. This is a SUGGESTION for the merchant to review, not automatically applied.
-- \"new_tags\": An array of 3-8 short, genuinely NEW descriptive tags for this product (e.g. colour, material, style, occasion) that are NOT already in the \"Tags ALREADY on this product\" list above. Do not repeat existing tags. Return an empty array if you have nothing confident to add.
 - \"new_collections\": An array of collection names this product should ALSO belong to, chosen ONLY from the \"Collections that EXIST in this store\" list given above (if one was given) — copy the name exactly as listed. Only include a collection if the product clearly, confidently fits it based on visible/confirmed facts. Never invent a collection name not in that list. Return an empty array if unsure or if no list was given.
 
 Return only valid JSON. No markdown, no code blocks, no extra text.";
@@ -164,7 +163,6 @@ Return only valid JSON. No markdown, no code blocks, no extra text.";
             'meta_description' => mb_substr(trim($data['meta_description'] ?? ''), 0, 160),
             'alt_text'         => mb_substr(trim($data['alt_text'] ?? ''), 0, 125),
             'title'            => mb_substr(trim($data['title'] ?? ''), 0, 80),
-            'new_tags'         => is_array($data['new_tags'] ?? null) ? array_values(array_filter(array_map('trim', $data['new_tags']))) : [],
             'new_collections'  => is_array($data['new_collections'] ?? null) ? array_values(array_filter(array_map('trim', $data['new_collections']))) : [],
         ];
     }
@@ -304,7 +302,7 @@ Return only valid JSON. No markdown, no code blocks, no extra text.";
         if ($vendor)         $context[] = "Brand/vendor: \"{$vendor}\"";
         if ($productType)    $context[] = "Product type/category: \"{$productType}\"";
         if ($storeName)      $context[] = "Store name: \"{$storeName}\" (based in Qatar)";
-        if (!empty($tags))        $context[] = "Tags ALREADY on this product (do not repeat these as new suggestions): " . implode(', ', $tags);
+        if (!empty($tags))        $context[] = "Tags on this product (context only — never list tags in your output): " . implode(', ', $tags);
         if (!empty($collections)) $context[] = "Collections this product ALREADY belongs to (do not repeat these as new suggestions): " . implode(', ', $collections);
         if ($existingMaterial)    $context[] = "CONFIRMED material (from store data): \"{$existingMaterial}\"";
         if (!empty($existingFeatures)) $context[] = "CONFIRMED features already on file (from store data): " . implode(', ', $existingFeatures);
@@ -360,7 +358,6 @@ Return a JSON object with exactly these fields:
 - \"meta_title\": An SEO page title (max 60 characters) based on the confirmed product title/type/brand.
 - \"meta_description\": An SEO meta description (max 160 characters) summarizing only the confirmed attributes. If a store name was given above, naturally work the store name and \"Qatar\" into the sentence while staying within 160 characters.
 - \"title\": A clear, accurate SEO-friendly product title (max 80 characters) based only on the confirmed data above. This is a SUGGESTION for the merchant to review, not automatically applied.
-- \"new_tags\": An array of 3-8 short, genuinely NEW descriptive tags for this product that are NOT already in the \"Tags ALREADY on this product\" list above and are clearly supported by the confirmed data. Return an empty array if you have nothing confident to add.
 - \"new_collections\": An array of collection names this product should ALSO belong to, chosen ONLY from the \"Collections that EXIST in this store\" list given above (if one was given) — copy the name exactly as listed. Only include if clearly, confidently supported by the confirmed data. Never invent a collection name. Return an empty array if unsure or if no list was given.
 
 Return only valid JSON. No markdown, no code blocks, no extra text.";
@@ -389,7 +386,6 @@ Return only valid JSON. No markdown, no code blocks, no extra text.";
             'meta_title'       => mb_substr(trim($data['meta_title'] ?? ''), 0, 60),
             'meta_description' => mb_substr(trim($data['meta_description'] ?? ''), 0, 160),
             'title'            => mb_substr(trim($data['title'] ?? ''), 0, 80),
-            'new_tags'         => is_array($data['new_tags'] ?? null) ? array_values(array_filter(array_map('trim', $data['new_tags']))) : [],
             'new_collections'  => is_array($data['new_collections'] ?? null) ? array_values(array_filter(array_map('trim', $data['new_collections']))) : [],
         ];
     }

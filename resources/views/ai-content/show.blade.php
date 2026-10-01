@@ -5,7 +5,7 @@
 
 @section('content')
 <div class="space-y-5"
-     x-data="aiContentShow({{ $aiContentSession->id }}, '{{ $aiContentSession->status }}')"
+     x-data="aiContentShow({{ $aiContentSession->id }}, '{{ $aiContentSession->status }}', {{ Js::from($tagTaxonomy) }})"
      x-init="init()">
 
     {{-- Header --}}
@@ -304,13 +304,35 @@
                                                 </div>
                                             </div>
 
-                                            {{-- Suggested new tags — additive only, never touches existing tags --}}
-                                            <div x-show="item.ai_new_tags && item.ai_new_tags.length > 0">
+                                            {{-- Tags come from the store's own vocabulary, keyed by category
+                                                 and type — not from the model, which used to invent near-duplicates
+                                                 of tags the store already had. --}}
+                                            <div>
                                                 <label class="block text-xs font-medium text-gray-500 mb-1">
-                                                    Suggested New Tags <span class="text-gray-400">(unchecked = not added, existing tags are never touched)</span>
+                                                    Tags <span class="text-gray-400">(pick a category and type — unchecked = not added, existing tags are never touched)</span>
                                                 </label>
+
                                                 <div class="flex flex-wrap gap-2">
-                                                    <template x-for="tag in item.ai_new_tags" :key="tag">
+                                                    <select x-model="item.tag_category" @change="onCategoryChange(item)"
+                                                        class="rounded-md border border-gray-200 px-3 py-1.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-400 focus:border-transparent">
+                                                        <option value="">Category…</option>
+                                                        <template x-for="category in categories()" :key="category">
+                                                            <option :value="category" x-text="category"></option>
+                                                        </template>
+                                                    </select>
+
+                                                    <select x-model="item.tag_type" @change="onTypeChange(item)"
+                                                        :disabled="!item.tag_category"
+                                                        class="rounded-md border border-gray-200 px-3 py-1.5 text-sm text-gray-700 disabled:bg-gray-50 disabled:text-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-400 focus:border-transparent">
+                                                        <option value="">Type…</option>
+                                                        <template x-for="type in typesFor(item.tag_category)" :key="type">
+                                                            <option :value="type" x-text="type"></option>
+                                                        </template>
+                                                    </select>
+                                                </div>
+
+                                                <div class="flex flex-wrap gap-2 mt-2" x-show="tagsFor(item).length > 0">
+                                                    <template x-for="tag in tagsFor(item)" :key="tag">
                                                         <label class="inline-flex items-center gap-1.5 bg-gray-50 border border-gray-200 rounded-full px-3 py-1 cursor-pointer select-none hover:bg-gray-100">
                                                             <input type="checkbox" :name="`selected_tags[${item.id}][]`" :value="tag"
                                                                 x-model="item.selected_tags"
@@ -319,6 +341,10 @@
                                                         </label>
                                                     </template>
                                                 </div>
+
+                                                <p class="text-xs text-gray-400 mt-1" x-show="!item.tag_type">
+                                                    No tags will be added to this product until a type is chosen.
+                                                </p>
                                             </div>
 
                                             {{-- Suggested new collections — additive only, chosen from real existing store collections --}}
@@ -363,10 +389,11 @@
 </div>
 
 <script>
-function aiContentShow(sessionId, initialStatus) {
+function aiContentShow(sessionId, initialStatus, tagTaxonomy) {
     return {
         sessionId,
         status: initialStatus,
+        tagTaxonomy: tagTaxonomy || {},
         progress: 0,
         totalItems: 0,
         processedItems: 0,
@@ -425,6 +452,8 @@ function aiContentShow(sessionId, initialStatus) {
                 ...i,
                 confirmed: i.is_confirmed,
                 overwrite_title: false,
+                tag_category: '',
+                tag_type: '',
                 selected_tags: [],
                 selected_collections: [],
             }));
@@ -440,6 +469,36 @@ function aiContentShow(sessionId, initialStatus) {
             document.querySelectorAll('.confirm-checkbox').forEach(cb => {
                 if (!cb.disabled) cb.checked = checked;
             });
+        },
+
+        categories() {
+            return Object.keys(this.tagTaxonomy);
+        },
+
+        typesFor(category) {
+            return Object.keys(this.tagTaxonomy[category]?.types || {});
+        },
+
+        // Base tags for the category plus the type's own, de-duplicated so a
+        // tag listed in both is offered once.
+        tagsFor(item) {
+            const category = this.tagTaxonomy[item.tag_category];
+            if (!category || !item.tag_type) return [];
+
+            return [...new Set([...(category.base || []), ...(category.types?.[item.tag_type] || [])])];
+        },
+
+        onCategoryChange(item) {
+            // The old type belongs to the old category; keeping it would leave
+            // stale tags checked under a category that never had them.
+            item.tag_type = '';
+            item.selected_tags = [];
+        },
+
+        onTypeChange(item) {
+            // Every tag in the set is checked by default — unchecking is how
+            // you opt out of one, which is the rarer case.
+            item.selected_tags = this.tagsFor(item);
         },
 
         ucfirst(str) {

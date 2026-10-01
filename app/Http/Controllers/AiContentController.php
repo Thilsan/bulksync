@@ -159,7 +159,11 @@ class AiContentController extends Controller
     {
         abort_if($aiContentSession->user_id !== auth()->id(), 403);
 
-        return view('ai-content.show', compact('aiContentSession'));
+        // The fixed tag vocabulary the review screen offers per category/type,
+        // in place of model-invented tags.
+        $tagTaxonomy = config('product_tags', []);
+
+        return view('ai-content.show', compact('aiContentSession', 'tagTaxonomy'));
     }
 
     public function status(AiContentSession $aiContentSession)
