@@ -9,6 +9,7 @@ use App\Models\AiContentSession;
 use App\Models\SeoContentPush;
 use App\Models\Store;
 use App\Services\ShopifyService;
+use App\Support\ProductTagTaxonomy;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 
@@ -159,9 +160,9 @@ class AiContentController extends Controller
     {
         abort_if($aiContentSession->user_id !== auth()->id(), 403);
 
-        // The fixed tag vocabulary the review screen offers per category/type,
-        // in place of model-invented tags.
-        $tagTaxonomy = config('product_tags', []);
+        // The fixed tag vocabulary this store offers per category/type, in
+        // place of model-invented tags. Empty for a store not yet configured.
+        $tagTaxonomy = ProductTagTaxonomy::forStore($aiContentSession->store);
 
         return view('ai-content.show', compact('aiContentSession', 'tagTaxonomy'));
     }

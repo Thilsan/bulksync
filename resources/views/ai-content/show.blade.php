@@ -331,8 +331,18 @@
 
                                                 <div class="p-3 space-y-3">
 
+                                                    {{-- Each store merchandises differently, so the vocabulary is
+                                                         configured per store. Without one, an empty dropdown would
+                                                         read as a bug rather than as work not done yet. --}}
+                                                    <div x-show="categories().length === 0"
+                                                        class="rounded-md border border-dashed border-amber-200 bg-amber-50/60 px-3 py-3 text-xs text-amber-800">
+                                                        No tag vocabulary is set up for
+                                                        <strong class="font-semibold">{{ $aiContentSession->store?->name ?? 'this store' }}</strong> yet,
+                                                        so no tags can be added from here. Everything else on this page still pushes normally.
+                                                    </div>
+
                                                     {{-- Category narrows the types, so they read as one step each --}}
-                                                    <div class="grid gap-2 sm:grid-cols-2">
+                                                    <div class="grid gap-2 sm:grid-cols-2" x-show="categories().length > 0">
                                                         <div>
                                                             <label class="mb-1 block text-[11px] font-medium uppercase tracking-wide text-gray-400">Category</label>
                                                             <select x-model="item.tag_category" @change="onCategoryChange(item)"
@@ -379,7 +389,7 @@
                                                     </div>
 
                                                     {{-- Nothing chosen yet: say what will happen, not just that it is empty --}}
-                                                    <div x-show="!item.tag_type"
+                                                    <div x-show="!item.tag_type && categories().length > 0"
                                                         class="rounded-md border border-dashed border-gray-200 px-3 py-3 text-center text-xs text-gray-400">
                                                         Pick a category and type to load its tags.
                                                         No tags are added to this product until you do.
