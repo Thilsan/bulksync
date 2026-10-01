@@ -182,6 +182,8 @@ class ProductImageScraper
      */
     public function searchability(string $base, string $sampleBarcode): ?string
     {
+        if ($refusal = $this->refusedBy($base)) return $refusal;
+
         if ($landed = $this->searchRedirectsTo($base)) {
             return "This site sent the search to {$landed} instead of answering it. "
                 . 'Catalogues that run a storefront per country decide which one to show from where the '
@@ -224,6 +226,49 @@ class ProductImageScraper
         }
 
         return null;
+    }
+
+    /**
+     * Whether the site's security service is refusing this server outright.
+     *
+     * Albertoshop sent this back a fifth time: the search worked perfectly
+     * from an office in Doha and every barcode came back missing from the
+     * server, because Cloudflare answers the server's address with a block
+     * page instead of the shop. From inside the lookup a 403 is
+     * indistinguishable from a barcode that is not stocked, so a whole list
+     * reads as wrong when nothing was ever read at all.
+     *
+     * The block is the shop's own call and theirs to lift, which is why the
+     * message names the address to give them rather than offering a way round
+     * it. Returns the sentence to stop the run with, or null.
+     */
+    public function refusedBy(string $base): ?string
+    {
+        try {
+            $response = $this->client()->get($this->origin($base) . '/');
+        } catch (\Throwable $e) {
+            return null; // Unreachable is a different problem, reported per barcode.
+        }
+
+        if (!in_array($response->status(), [401, 403, 429, 503], true)) return null;
+
+        $body = $response->body();
+
+        if (!preg_match('~cloudflare|cf-error-details|attention required|access denied|forbidden~i', $body)) {
+            return null;
+        }
+
+        // The block page states the address it is refusing, which is the one
+        // thing the shop needs in order to allow it.
+        $address = preg_match('~id=["\']cf-footer-ip["\'][^>]*>\s*([0-9a-fA-F.:]+)~', $body, $m)
+            ? $m[1]
+            : null;
+
+        return 'This site is refusing this server: its security service answered with a block page ('
+            . $response->status() . ') rather than the shop, so nothing on it could be read and the list '
+            . 'is not at fault. Ask them to allow this server'
+            . ($address ? " — its address is {$address}" : '')
+            . ', or run the grab from a network they already accept.';
     }
 
     /**

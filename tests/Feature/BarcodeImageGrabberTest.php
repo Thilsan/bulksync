@@ -521,6 +521,39 @@ class BarcodeImageGrabberTest extends TestCase
         $this->assertSame([], app(ProductImageScraper::class)->findProducts('https://shop.test', '99999999'));
     }
 
+    /**
+     * The fifth way Albertoshop came back: the search the operator can see
+     * working from the office is answered for the server with a Cloudflare
+     * block page, and forty-one "not found" rows read as a bad list.
+     */
+    public function test_a_site_refusing_this_server_says_so_rather_than_missing_every_barcode(): void
+    {
+        $block = '<html><head><title>Attention Required! | Cloudflare</title></head><body>'
+            . '<div id="cf-error-details"><h1>Sorry, you have been blocked</h1>'
+            . '<span class="hidden" id="cf-footer-ip">168.144.191.37</span></div></body></html>';
+
+        Http::fake(['*' => Http::response($block, 403)]);
+
+        $session = BarcodeImageSession::create([
+            'user_id'      => $this->operator()->id,
+            'site_url'     => 'https://shop.test',
+            'status'       => 'pending',
+            'raw_barcodes' => "42071367\n42071764",
+        ]);
+
+        app(RunBarcodeImageDownloadJob::class, ['sessionId' => $session->id])
+            ->handle(app(ProductImageScraper::class));
+
+        $session->refresh();
+
+        $this->assertSame('failed', $session->status);
+        $this->assertStringContainsString('refusing this server', (string) $session->error_message);
+        $this->assertStringContainsString('168.144.191.37', (string) $session->error_message);
+
+        // Stopped, rather than reporting two barcodes that were never looked up.
+        $this->assertSame(0, $session->items()->count());
+    }
+
     /** A grid of tiles, each naming its own article and linking by internal id. */
     private function nextJsSearchPage(string $searchedFor, array $tiles): string
     {
