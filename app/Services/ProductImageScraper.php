@@ -31,6 +31,9 @@ class ProductImageScraper
     /** A barcode matching more pages than this is a search being loose, not a catalogue. */
     private const MAX_PRODUCTS_PER_BARCODE = 6;
 
+    /** As much markup before a link as can still belong to that link's own tile. */
+    private const MAX_TILE_BYTES = 6000;
+
     /** Above this many product links, a page is showing a listing rather than an empty result. */
     private const PRODUCTS_MEANING_A_LISTING = 5;
 
@@ -187,18 +190,33 @@ class ProductImageScraper
                 . 'for example www.luisaspagnoli.com/en/qa, and run it again.';
         }
 
-        try {
-            $nonsense = $this->searchFingerprint($base, 'zzqq-no-such-thing-99');
-            $real     = $this->searchFingerprint($base, $sampleBarcode);
-        } catch (\Throwable $e) {
-            return null; // Unreachable is a different problem, reported per barcode.
+        // Every way of asking is tried before the site is called unreadable:
+        // Albertoshop answers ?query= and sends ?q= to its homepage, so judging
+        // it on ?q= alone condemns a site whose search works perfectly well.
+        $servedListing = false;
+
+        foreach (array_keys($this->searchUrls($base, 'x')) as $shape) {
+            try {
+                $nonsense = $this->searchFingerprint($this->searchUrls($base, 'zzqq-no-such-thing-99')[$shape]);
+                $real     = $this->searchFingerprint($this->searchUrls($base, $sampleBarcode)[$shape]);
+            } catch (\Throwable $e) {
+                return null; // Unreachable is a different problem, reported per barcode.
+            }
+
+            // Two different answers: this way of asking is read and answered,
+            // which is all that had to be established.
+            if ($nonsense['links'] !== $real['links']) return null;
+
+            // Identical pages that are both full of products: the search
+            // ignored the question and served the storefront. A pair of
+            // identical *empty* pages is an honest "no results" for both,
+            // which is a miss and not a reason to stop.
+            if ($nonsense['products'] >= self::PRODUCTS_MEANING_A_LISTING) {
+                $servedListing = true;
+            }
         }
 
-        // Identical pages that are both full of products: the search ignored
-        // the question and served the storefront. A pair of identical *empty*
-        // pages is an honest "no results" for both, which is a miss and not a
-        // reason to stop.
-        if ($nonsense['links'] === $real['links'] && $nonsense['products'] >= self::PRODUCTS_MEANING_A_LISTING) {
+        if ($servedListing) {
             return 'This website builds its search results in the browser, so the page that reaches this '
                 . 'server is the same one whatever is searched for — there is nothing in it to read. '
                 . 'Its pictures cannot be collected this way. Ask the brand for the images directly, or '
@@ -206,6 +224,29 @@ class ProductImageScraper
         }
 
         return null;
+    }
+
+    /**
+     * Every way this knows to ask a site's own search for one term.
+     *
+     * No two platforms agree on what the search parameter is called, and a
+     * name a site does not recognise is not a polite empty result — Shopware
+     * and the Next.js storefronts answer it with a 307 to the homepage, which
+     * reads from here as "that barcode is not stocked" for every barcode on
+     * the list. Albertoshop and Herrenausstatter both came back that way:
+     * ?q= goes to the homepage, ?query= answers.
+     *
+     * @return list<string>
+     */
+    private function searchUrls(string $base, string $term): array
+    {
+        $encoded = rawurlencode($term);
+
+        return [
+            "{$base}/search?q={$encoded}",
+            "{$base}/search?query={$encoded}",
+            "{$base}/?s={$encoded}&post_type=product",
+        ];
     }
 
     /**
@@ -224,9 +265,9 @@ class ProductImageScraper
      *
      * @return array{links: string[], products: int}
      */
-    private function searchFingerprint(string $base, string $term): array
+    private function searchFingerprint(string $searchUrl): array
     {
-        $response = $this->client()->get("{$base}/search", ['q' => $term]);
+        $response = $this->client()->get($searchUrl);
 
         if (!$response->successful()) return ['links' => [], 'products' => 0];
 
@@ -298,31 +339,46 @@ class ProductImageScraper
      * report every barcode as missing, which reads as "your list is wrong"
      * when the truth is "you are asking the wrong storefront" — so the run
      * says so instead of grinding through a thousand certain misses.
+     *
+     * Every way of asking is probed, because a site that sends one parameter
+     * name to its homepage commonly answers another perfectly well, and
+     * stopping a run on the first bounce would refuse a readable catalogue.
      */
     public function searchRedirectsTo(string $base): ?string
     {
-        try {
-            $response = $this->client()
-                ->withOptions(['allow_redirects' => ['max' => 5, 'track_redirects' => true]])
-                ->get("{$base}/search", ['q' => 'barcode-probe']);
-        } catch (\Throwable $e) {
-            return null; // Unreachable is a different problem, reported elsewhere.
+        $landed = null;
+
+        foreach ($this->searchUrls($base, 'barcode-probe') as $url) {
+            try {
+                $response = $this->client()
+                    ->withOptions(['allow_redirects' => ['max' => 5, 'track_redirects' => true]])
+                    ->get($url);
+            } catch (\Throwable $e) {
+                return null; // Unreachable is a different problem, reported elsewhere.
+            }
+
+            $history = array_filter(explode(', ', (string) $response->header('X-Guzzle-Redirect-History')));
+
+            // Answered where it was asked. A shape the site simply does not
+            // have is no evidence either way, and is left to the next one.
+            if ($history === []) {
+                if ($response->successful()) return null;
+
+                continue;
+            }
+
+            $last = (string) end($history);
+
+            // Whether the question survived the journey is the thing that
+            // matters, not where it ended up. A site tidying the address —
+            // http to https, a country prefix added, a trailing slash —
+            // carries the term along and still answers it. One that decided to
+            // show its own homepage instead drops it, and every barcode after
+            // that is a certain miss.
+            if (str_contains($last, 'barcode-probe')) return null;
+
+            $landed ??= $last;
         }
-
-        $history = array_filter(explode(', ', (string) $response->header('X-Guzzle-Redirect-History')));
-
-        if ($history === []) return null;
-
-        $landed = (string) end($history);
-
-        parse_str((string) parse_url($landed, PHP_URL_QUERY), $query);
-
-        // Whether the question survived the journey is the thing that matters,
-        // not where it ended up. A site tidying the address — http to https, a
-        // country prefix added, a trailing slash — carries the query along and
-        // still answers it. One that decided to show its own homepage instead
-        // drops the query, and every barcode after that is a certain miss.
-        if (array_key_exists('q', $query)) return null;
 
         return $landed;
     }
@@ -445,22 +501,17 @@ class ProductImageScraper
     /**
      * The site's own search results page, read as HTML.
      *
-     * Two query shapes rather than one: Shopify and most bespoke carts use
-     * ?q=, WordPress and WooCommerce use ?s=. Whichever answers with links
-     * that look like product pages wins. A storefront that keeps its catalogue
+     * Several query shapes rather than one: Shopify and most bespoke carts
+     * use ?q=, the Next.js storefronts ?query=, WordPress and WooCommerce ?s=.
+     * Whichever answers with links that look like product pages wins — a name
+     * the site does not recognise is answered with its homepage, which has no
+     * product of ours in it. A storefront that keeps its catalogue
      * behind a locale prefix — /en/qa/search on Salesforce Commerce Cloud —
      * redirects the bare path there itself, which is why redirects are followed.
      */
     private function htmlSearch(string $site, string $barcode): array
     {
-        $encoded = rawurlencode($barcode);
-
-        $pages = [
-            "{$site}/search?q={$encoded}",
-            "{$site}/?s={$encoded}&post_type=product",
-        ];
-
-        foreach ($pages as $page) {
+        foreach ($this->searchUrls($site, $barcode) as $page) {
             $response = $this->client()->get($page);
 
             if (!$response->successful()) continue;
@@ -559,6 +610,12 @@ class ProductImageScraper
             return array_slice(array_values($confident), 0, self::MAX_PRODUCTS_PER_BARCODE);
         }
 
+        // Nothing in a link carried it. The tiles themselves may still name it,
+        // which is the only evidence these catalogues offer.
+        if ($named = $this->linksNamingBarcode($site, $html, $core)) {
+            return $named;
+        }
+
         // Nothing named the barcode. Only the shapes that mean "product"
         // outright are trusted now — a bare .html could be the privacy policy.
         $shaped = array_filter(
@@ -567,6 +624,94 @@ class ProductImageScraper
         );
 
         return array_slice(array_values($shaped), 0, self::MAX_PRODUCTS_PER_BARCODE);
+    }
+
+    /**
+     * Links on a results page whose own tile names the barcode.
+     *
+     * Albertoshop puts the shop's internal id in the URL —
+     * /alberto-jeans-443939 is article 42071367 — so there is nothing in the
+     * link to recognise, and its "no results" page is a listing of the whole
+     * department rather than an empty one, so taking the links on the page
+     * would fill the folder with other people's trousers. The number is in the
+     * tile though, as the product's name, so a link is taken only when the
+     * markup between it and the link before it carries the number searched for.
+     *
+     * The window is the gap between one link and the next because that is one
+     * tile on every grid this has met: a card states its name, its picture and
+     * its price, and then links to itself — usually twice, from the photograph
+     * and from the title, which is why the result is keyed by URL.
+     *
+     * A results page also says back what was searched for — "Suchergebnisse
+     * für „42071367“" — and a page with no results says it over a listing of
+     * the whole department, so the tile after the heading would be credited
+     * with a number that belongs to nobody. Every nominee is therefore opened
+     * and made to name the barcode itself before it is believed. That is a
+     * second fetch of a page that will be read again for its pictures, and it
+     * is the price of not filling a folder with the wrong trousers.
+     *
+     * @return list<string>
+     */
+    private function linksNamingBarcode(string $site, string $html, string $core): array
+    {
+        if ($core === '' || mb_strlen($core) < 4) return [];
+
+        // The framework's own payload repeats the query several times over —
+        // "search?query=42071367" — and it sits in the markup between the
+        // tiles, where it would be read as a tile naming the barcode.
+        $html = preg_replace('~<script\b[^>]*>.*?</script>~is', '', $html) ?? $html;
+
+        if (!preg_match_all('~href=["\'](/[^"\'?#]*)["\']~i', $html, $matches, PREG_OFFSET_CAPTURE)) {
+            return [];
+        }
+
+        $needle = strtolower($core);
+        $taken  = [];
+        $end    = 0;
+
+        foreach ($matches[0] as $index => [$whole, $offset]) {
+            // Capped, so that a page with three links on it does not hand the
+            // first of them the whole document to be named in.
+            $start  = max($end, $offset - self::MAX_TILE_BYTES);
+            $window = strtolower(substr($html, $start, max(0, $offset - $start)));
+            $end    = $offset + strlen($whole);
+
+            if (!str_contains($window, $needle)) continue;
+
+            $href = $matches[1][$index][0];
+
+            // The pages every storefront has, which sit in the same markup as
+            // the tiles and would otherwise be followed as products. The
+            // homepage and the departments go with them: a product page is a
+            // slug, not a single word and not the root.
+            if (!preg_match('~^/(?:[^/]+/)*[^/]*[a-z0-9]-[a-z0-9][^/]*$~i', $href)
+                || preg_match('~/(search|cart|basket|checkout|account|login|wishlist|contact|impressum|agb|datenschutz|privacy)(/|$)~i', $href)) {
+                continue;
+            }
+
+            $absolute = $this->absolute($site, html_entity_decode($href));
+
+            if ($absolute && $this->sameHost($site, $absolute)) {
+                $taken[$absolute] = true;
+            }
+        }
+
+        $nominees = array_slice(array_keys($taken), 0, self::MAX_PRODUCTS_PER_BARCODE);
+
+        return array_values(array_filter($nominees, fn (string $url) => $this->pageNames($url, $core)));
+    }
+
+    /** Whether the page at this address says the barcode anywhere on it. */
+    private function pageNames(string $url, string $core): bool
+    {
+        try {
+            $response = $this->client()->get($url);
+        } catch (\Throwable $e) {
+            return false;
+        }
+
+        return $response->successful()
+            && str_contains(strtolower($response->body()), strtolower($core));
     }
 
     private function looksLikeProductPage(string $html): bool

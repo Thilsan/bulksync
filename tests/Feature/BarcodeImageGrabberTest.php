@@ -429,6 +429,148 @@ class BarcodeImageGrabberTest extends TestCase
     }
 
     /**
+     * Albertoshop and Herrenausstatter, which sent this back a fourth time.
+     *
+     * Forty-one barcodes came back "not found" on both, while the operator
+     * could see the products in the site's own search. Two reasons, one on top
+     * of the other: the search is answered at ?query= and every other
+     * parameter name is sent to the homepage, and the links it answers with
+     * carry the shop's internal id — /alberto-jeans-443939 for article
+     * 42071367 — so there is nothing in the link to recognise the article by.
+     */
+    public function test_a_storefront_that_answers_a_different_search_parameter_is_read(): void
+    {
+        Http::fake([
+            'shop.test/search/suggest.json*' => Http::response('', 404),
+
+            // Every name but ?query= is answered with the homepage, whatever
+            // was asked — the shape that reported a thousand certain misses.
+            'shop.test/search?q=*' => Http::response($this->nextJsListing()),
+            'shop.test/?s=*'       => Http::response($this->nextJsListing()),
+
+            // The one name it does read. Anything it has never heard of is
+            // answered with the department rather than an empty page.
+            'shop.test/search?query=*' => function ($request) {
+                parse_str((string) parse_url($request->url(), PHP_URL_QUERY), $query);
+
+                return ($query['query'] ?? '') === '42071367'
+                    ? Http::response($this->nextJsSearchPage('42071367', [
+                        ['443939', '42071367/849'],
+                        ['445087', '48071984/112'],
+                    ]))
+                    : Http::response($this->nextJsListing());
+            },
+
+            'shop.test/alberto-jeans-443939' => Http::response($this->nextJsProductPage('443939', '42071367')),
+            'shop.test/alberto-jeans-445087' => Http::response($this->nextJsProductPage('445087', '48071984')),
+            'cdn.test/*' => Http::response($this->onePixelPng(), 200, ['Content-Type' => 'image/jpeg']),
+            '*' => Http::response('', 404),
+        ]);
+
+        $session = BarcodeImageSession::create([
+            'user_id'      => $this->operator()->id,
+            'site_url'     => 'https://shop.test',
+            'status'       => 'pending',
+            'raw_barcodes' => '42071367',
+        ]);
+
+        app(RunBarcodeImageDownloadJob::class, ['sessionId' => $session->id])
+            ->handle(app(ProductImageScraper::class));
+
+        $session->refresh();
+
+        // Not stopped as unreadable: one way of asking was ignored, another
+        // was answered, and an answer anywhere is enough.
+        $this->assertSame('completed', $session->status);
+
+        $item = $session->items()->sole();
+
+        $this->assertSame('found', $item->status);
+        $this->assertSame('https://shop.test/alberto-jeans-443939', $item->product_url);
+        $this->assertSame(3, $item->image_count);
+
+        // The tile beside it is another article, and its pictures stayed on
+        // the page they belong to.
+        $this->assertStringNotContainsString('445087', (string) $item->product_url);
+
+        $session->deleteFiles();
+    }
+
+    /**
+     * The other half of that site: a search with no results is not an empty
+     * page but the whole department, with the number that was asked for
+     * printed above it. Taking the first tile under that heading would put
+     * somebody else's trousers in the folder and call it a match.
+     */
+    public function test_a_listing_served_under_the_searched_for_number_is_not_a_match(): void
+    {
+        Http::fake([
+            'shop.test/search/suggest.json*' => Http::response('', 404),
+            'shop.test/search?query=*' => Http::response(
+                $this->nextJsSearchPage('99999999', [
+                    ['468727', '48071111/100'],
+                    ['469009', '48072222/200'],
+                ])
+            ),
+            'shop.test/search?q=*' => Http::response($this->nextJsListing()),
+            'shop.test/alberto-jeans-468727' => Http::response($this->nextJsProductPage('468727', '48071111')),
+            'shop.test/alberto-jeans-469009' => Http::response($this->nextJsProductPage('469009', '48072222')),
+            '*' => Http::response('', 404),
+        ]);
+
+        $this->assertSame([], app(ProductImageScraper::class)->findProducts('https://shop.test', '99999999'));
+    }
+
+    /** A grid of tiles, each naming its own article and linking by internal id. */
+    private function nextJsSearchPage(string $searchedFor, array $tiles): string
+    {
+        $cards = '';
+
+        foreach ($tiles as [$id, $article]) {
+            $cards .= '<div itemScope itemType="https://schema.org/Product">'
+                . '<meta itemProp="name" content="Alberto Regular Fit Pipe ' . $article . '"/>'
+                . '<meta itemProp="sku" content="P' . $id . '"/>'
+                . '<a href="/alberto-jeans-' . $id . '"><img src="https://cdn.test/pimages/' . $id . '_suche.jpg"></a>'
+                . '<a href="/alberto-jeans-' . $id . '">Jeans Pipe</a>'
+                . '</div>';
+        }
+
+        // The page says back what was asked for, above the results, and says
+        // it again in the framework's own payload further down.
+        return '<html><body><a href="/">Shop</a>'
+            . '<span>Suchergebnisse für</span><span>„' . $searchedFor . '“</span>'
+            . '<div class="grid">' . $cards . '</div>'
+            . '<script>self.__next_f.push([1,"search?query=' . $searchedFor . '"])</script>'
+            . '</body></html>';
+    }
+
+    /** The homepage, which is what this storefront answers an unknown search with. */
+    private function nextJsListing(): string
+    {
+        return '<html><body>' . implode('', array_map(
+            fn ($n) => '<a href="/alberto-hosen-46914' . $n . '">Alberto</a>',
+            range(0, 7),
+        )) . '</body></html>';
+    }
+
+    private function nextJsProductPage(string $id, string $article): string
+    {
+        return <<<HTML
+            <html><head>
+            <meta property="og:title" content="Alberto, Jeans Pipe, indigo" />
+            <meta property="og:image" content="https://cdn.test/pimages/{$id}_norm.jpg" />
+            </head><body>
+                <img alt="Alberto Regular Fit Pipe {$article}/849 Image 0" src="https://cdn.test/pimages/{$id}_norm.jpg">
+                <img alt="Alberto Regular Fit Pipe {$article}/849 Image 1" src="https://cdn.test/pimages/{$id}_norm2.jpg">
+                <img alt="Alberto Regular Fit Pipe {$article}/849 Image 2" src="https://cdn.test/pimages/{$id}_norm3.jpg">
+                <!-- the recommendation row, which is other people's products -->
+                <img src="https://cdn.test/pimages/999111_suche.jpg">
+                <img src="https://cdn.test/pimages/999222_suche.jpg">
+            </body></html>
+            HTML;
+    }
+
+    /**
      * A page in the shape the rewrite was built against: schema.org naming one
      * image, a gallery of three for the colour being viewed, three more for
      * another colour, and a recommendation carousel — all in one document.
