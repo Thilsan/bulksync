@@ -28,13 +28,13 @@ class GeminiService
      *
      * @return array{description: string, meta_title: string, meta_description: string, alt_text: string}|null
      */
-    public function generateFromImageUrl(string $imageUrl, string $productTitle = '', string $vendor = '', string $productType = '', array $tags = [], array $collections = [], string $sku = '', string $storeName = '', string $existingDescription = '', string $existingMaterial = '', array $existingFeatures = [], array $availableCollections = [], array $searchQueries = []): ?array
+    public function generateFromImageUrl(string $imageUrl, string $productTitle = '', string $vendor = '', string $productType = '', array $tags = [], array $collections = [], string $sku = '', string $storeName = '', string $existingDescription = '', string $existingMaterial = '', array $existingFeatures = [], array $searchQueries = []): ?array
     {
         try {
             $imageContent = $this->downloadImage($imageUrl);
             if (!$imageContent) return null;
 
-            return $this->generateFromImageBytes($imageContent, $productTitle, $vendor, $productType, $tags, $collections, $sku, $storeName, $existingDescription, $existingMaterial, $existingFeatures, $availableCollections, $searchQueries);
+            return $this->generateFromImageBytes($imageContent, $productTitle, $vendor, $productType, $tags, $collections, $sku, $storeName, $existingDescription, $existingMaterial, $existingFeatures, $searchQueries);
         } catch (GeminiQuotaException $e) {
             // Not this image's problem — the account is out. Let it stop the run.
             throw $e;
@@ -49,7 +49,7 @@ class GeminiService
      *
      * @return array{description: string, meta_title: string, meta_description: string, alt_text: string}|null
      */
-    public function generateFromImageBytes(string $imageBytes, string $productTitle = '', string $vendor = '', string $productType = '', array $tags = [], array $collections = [], string $sku = '', string $storeName = '', string $existingDescription = '', string $existingMaterial = '', array $existingFeatures = [], array $availableCollections = [], array $searchQueries = []): ?array
+    public function generateFromImageBytes(string $imageBytes, string $productTitle = '', string $vendor = '', string $productType = '', array $tags = [], array $collections = [], string $sku = '', string $storeName = '', string $existingDescription = '', string $existingMaterial = '', array $existingFeatures = [], array $searchQueries = []): ?array
     {
         $imageBytes = $this->shrinkForApi($imageBytes);
         $mimeType   = $this->detectMimeType($imageBytes);
@@ -65,7 +65,6 @@ class GeminiService
         if (!empty($collections)) $context[] = "Collections this product ALREADY belongs to (do not repeat these as new suggestions): " . implode(', ', $collections);
         if ($existingMaterial)    $context[] = "CONFIRMED material (from store data, not a guess): \"{$existingMaterial}\" — use this exact material, do not visually guess a different one.";
         if (!empty($existingFeatures)) $context[] = "CONFIRMED features already on file (from store data): " . implode(', ', $existingFeatures);
-        if (!empty($availableCollections)) $context[] = "Collections that EXIST in this store and could potentially apply (choose only from this exact list, never invent a new one): " . implode(', ', $availableCollections);
         // What people actually typed to reach this page, straight from Search
         // Console. Without it the model writes a description of a photograph;
         // with it, it writes an answer to something somebody searched for.
@@ -131,7 +130,6 @@ Return a JSON object with exactly these fields:
 - \"meta_description\": An SEO meta description (max 160 characters) summarizing only the product's visible/confirmed attributes — no mention of model/background, and never a specific color, per the color-neutral rule above. If a store name was given above, naturally work the store name and \"Qatar\" into the sentence (e.g. \"...available at {{store name}} in Qatar.\") while staying within 160 characters — shorten the product details if needed to fit both in.
 - \"alt_text\": A concise, literal description of the PRODUCT itself for accessibility (max 125 characters) — e.g. \"Light blue relaxed-fit shorts with side pockets and elasticated waistband\". Unlike the fields above, this one SHOULD name the actual color shown in THIS photo, since it describes this specific image, not the whole product across all its color variants. Do NOT describe a person/model wearing it, their pose, or the background — describe the garment/item as if on its own. If the product has two or more similar parts (e.g. two ends of a bracelet, a pair of earrings), do NOT assume they look the same — describe only what THIS specific image actually shows, which may be a back/reverse angle where the parts genuinely differ.
 - \"title\": A clear, accurate SEO-friendly product title (max 80 characters) reflecting brand, product type, and main visible style/design attribute — grounded in the same accuracy rules as everything else, and never a specific color, per the color-neutral rule above. This is a SUGGESTION for the merchant to review, not automatically applied.
-- \"new_collections\": An array of collection names this product should ALSO belong to, chosen ONLY from the \"Collections that EXIST in this store\" list given above (if one was given) — copy the name exactly as listed. Only include a collection if the product clearly, confidently fits it based on visible/confirmed facts. Never invent a collection name not in that list. Return an empty array if unsure or if no list was given.
 
 Return only valid JSON. No markdown, no code blocks, no extra text.";
 
@@ -163,7 +161,6 @@ Return only valid JSON. No markdown, no code blocks, no extra text.";
             'meta_description' => mb_substr(trim($data['meta_description'] ?? ''), 0, 160),
             'alt_text'         => mb_substr(trim($data['alt_text'] ?? ''), 0, 125),
             'title'            => mb_substr(trim($data['title'] ?? ''), 0, 80),
-            'new_collections'  => is_array($data['new_collections'] ?? null) ? array_values(array_filter(array_map('trim', $data['new_collections']))) : [],
         ];
     }
 
@@ -294,7 +291,7 @@ Return only valid JSON. No markdown, no code blocks, no extra text.";
      *
      * @return array{description: string, meta_title: string, meta_description: string}|null
      */
-    public function generateFromTextOnly(string $productTitle = '', string $vendor = '', string $productType = '', array $tags = [], array $collections = [], string $sku = '', string $storeName = '', string $existingDescription = '', string $existingMaterial = '', array $existingFeatures = [], array $availableCollections = [], array $searchQueries = []): ?array
+    public function generateFromTextOnly(string $productTitle = '', string $vendor = '', string $productType = '', array $tags = [], array $collections = [], string $sku = '', string $storeName = '', string $existingDescription = '', string $existingMaterial = '', array $existingFeatures = [], array $searchQueries = []): ?array
     {
         $context = [];
         if ($productTitle)   $context[] = "Product title: \"{$productTitle}\"";
@@ -306,7 +303,6 @@ Return only valid JSON. No markdown, no code blocks, no extra text.";
         if (!empty($collections)) $context[] = "Collections this product ALREADY belongs to (do not repeat these as new suggestions): " . implode(', ', $collections);
         if ($existingMaterial)    $context[] = "CONFIRMED material (from store data): \"{$existingMaterial}\"";
         if (!empty($existingFeatures)) $context[] = "CONFIRMED features already on file (from store data): " . implode(', ', $existingFeatures);
-        if (!empty($availableCollections)) $context[] = "Collections that EXIST in this store and could potentially apply (choose only from this exact list, never invent a new one): " . implode(', ', $availableCollections);
         // What people actually typed to reach this page, straight from Search
         // Console. Without it the model writes a description of a photograph;
         // with it, it writes an answer to something somebody searched for.
@@ -358,7 +354,6 @@ Return a JSON object with exactly these fields:
 - \"meta_title\": An SEO page title (max 60 characters) based on the confirmed product title/type/brand.
 - \"meta_description\": An SEO meta description (max 160 characters) summarizing only the confirmed attributes. If a store name was given above, naturally work the store name and \"Qatar\" into the sentence while staying within 160 characters.
 - \"title\": A clear, accurate SEO-friendly product title (max 80 characters) based only on the confirmed data above. This is a SUGGESTION for the merchant to review, not automatically applied.
-- \"new_collections\": An array of collection names this product should ALSO belong to, chosen ONLY from the \"Collections that EXIST in this store\" list given above (if one was given) — copy the name exactly as listed. Only include if clearly, confidently supported by the confirmed data. Never invent a collection name. Return an empty array if unsure or if no list was given.
 
 Return only valid JSON. No markdown, no code blocks, no extra text.";
 
@@ -386,7 +381,6 @@ Return only valid JSON. No markdown, no code blocks, no extra text.";
             'meta_title'       => mb_substr(trim($data['meta_title'] ?? ''), 0, 60),
             'meta_description' => mb_substr(trim($data['meta_description'] ?? ''), 0, 160),
             'title'            => mb_substr(trim($data['title'] ?? ''), 0, 80),
-            'new_collections'  => is_array($data['new_collections'] ?? null) ? array_values(array_filter(array_map('trim', $data['new_collections']))) : [],
         ];
     }
 

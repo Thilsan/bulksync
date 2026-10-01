@@ -61,7 +61,6 @@ class GenerateAiContentJob implements ShouldQueue
         }
 
         $storeName           = $store->name ?? '';
-        $availableCollections = $shopify->getAllCollectionTitles();
 
         $session->update(['status' => 'processing']);
 
@@ -81,7 +80,7 @@ class GenerateAiContentJob implements ShouldQueue
         }
 
         try {
-            $nextOffset = $this->processSkus($session, $shopify, $gemini, $storeName, $availableCollections);
+            $nextOffset = $this->processSkus($session, $shopify, $gemini, $storeName);
 
             // Still SKUs left when the time budget ran out. Hand the remainder to
             // a fresh job rather than pushing this one towards $timeout — the
@@ -145,7 +144,7 @@ class GenerateAiContentJob implements ShouldQueue
      *
      * @return int|null Offset for the next job, or null when the list is finished.
      */
-    private function processSkus(AiContentSession $session, ShopifyService $shopify, GeminiService $gemini, string $storeName, array $availableCollections): ?int
+    private function processSkus(AiContentSession $session, ShopifyService $shopify, GeminiService $gemini, string $storeName): ?int
     {
         $skus      = json_decode($session->skus_json ?? '[]', true) ?: [];
         $startedAt = microtime(true);
@@ -221,7 +220,7 @@ class GenerateAiContentJob implements ShouldQueue
                     continue;
                 }
 
-                $item = $this->generateForProduct($session, $shopify, $gemini, $sku, $variant, $productId, $storeName, $availableCollections);
+                $item = $this->generateForProduct($session, $shopify, $gemini, $sku, $variant, $productId, $storeName);
                 $itemsByProductId[$productId] = $item;
             } catch (GeminiQuotaException $e) {
                 // Every remaining SKU would fail the same way. Stop the session
@@ -343,7 +342,6 @@ class GenerateAiContentJob implements ShouldQueue
         array $variant,
         string $productId,
         string $storeName,
-        array $availableCollections,
     ): AiContentItem {
         $productTitle        = $variant['product_title'] ?? '';
         $vendor              = $variant['vendor'] ?? '';
@@ -351,7 +349,6 @@ class GenerateAiContentJob implements ShouldQueue
         $tags                = $variant['tags'] ?? [];
         $collections         = $variant['collections'] ?? [];
         $existingDescription = $variant['existing_description'] ?? '';
-        $collectionTitles    = array_column($availableCollections, 'title');
 
         $materialAndFeatures = $shopify->getProductMaterialAndFeatures($productId);
         $existingMaterial    = $this->stripMaterialPercentage($materialAndFeatures['material']);
@@ -369,14 +366,14 @@ class GenerateAiContentJob implements ShouldQueue
         $images = $shopify->getProductImages($productId);
 
         if (empty($images)) {
-            return $this->generateForProductWithoutImage($item, $gemini, $productTitle, $vendor, $productType, $tags, $collections, $sku, $storeName, $existingDescription, $existingMaterial, $existingFeatures, $collectionTitles, $this->searchTermsFor($session, $variant['handle'] ?? ''));
+            return $this->generateForProductWithoutImage($item, $gemini, $productTitle, $vendor, $productType, $tags, $collections, $sku, $storeName, $existingDescription, $existingMaterial, $existingFeatures, $this->searchTermsFor($session, $variant['handle'] ?? ''));
         }
 
         $hero = $images[0];
 
         $searchQueries = $this->searchTermsFor($session, $variant['handle'] ?? '');
 
-        $content = $gemini->generateFromImageUrl($hero['src'], $productTitle, $vendor, $productType, $tags, $collections, $sku, $storeName, $existingDescription, $existingMaterial, $existingFeatures, $collectionTitles, $searchQueries);
+        $content = $gemini->generateFromImageUrl($hero['src'], $productTitle, $vendor, $productType, $tags, $collections, $sku, $storeName, $existingDescription, $existingMaterial, $existingFeatures, $searchQueries);
         // Pacing lives in GeminiService::throttle() now — one place, measured
         // from the last call rather than a flat wait on top of it.
 
@@ -399,7 +396,6 @@ class GenerateAiContentJob implements ShouldQueue
             'ai_meta_title'       => $content['meta_title'],
             'ai_meta_description' => $content['meta_description'],
             'ai_title'            => $content['title'],
-            'ai_new_collections'  => $content['new_collections'] ?? [],
         ]);
 
         AiContentImage::create([
@@ -466,10 +462,9 @@ class GenerateAiContentJob implements ShouldQueue
         string $existingDescription,
         string $existingMaterial,
         array $existingFeatures,
-        array $collectionTitles,
         array $searchQueries = [],
     ): AiContentItem {
-        $content = $gemini->generateFromTextOnly($productTitle, $vendor, $productType, $tags, $collections, $sku, $storeName, $existingDescription, $existingMaterial, $existingFeatures, $collectionTitles, $searchQueries);
+        $content = $gemini->generateFromTextOnly($productTitle, $vendor, $productType, $tags, $collections, $sku, $storeName, $existingDescription, $existingMaterial, $existingFeatures, $searchQueries);
         // Pacing lives in GeminiService::throttle() now — one place, measured
         // from the last call rather than a flat wait on top of it.
 
@@ -484,7 +479,6 @@ class GenerateAiContentJob implements ShouldQueue
             'ai_meta_title'       => $this->sanitizeText($content['meta_title']),
             'ai_meta_description' => $this->sanitizeText($content['meta_description']),
             'ai_title'            => $this->sanitizeText($content['title'] ?? ''),
-            'ai_new_collections'  => $content['new_collections'] ?? [],
         ]);
 
         return $item;

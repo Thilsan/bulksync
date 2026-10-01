@@ -233,7 +233,6 @@ class AiContentController extends Controller
 
         $shopify           = new ShopifyService($store);
         $confirmed         = $request->input('confirmed', []);
-        $allCollections    = $shopify->getAllCollectionTitles();
         $pushed            = 0;
         $failed            = 0;
 
@@ -272,11 +271,6 @@ class AiContentController extends Controller
                 $selectedTags = array_values(array_filter((array) $request->input("selected_tags.{$itemId}", [])));
                 if (!empty($selectedTags)) {
                     $shopify->addProductTags($item->shopify_product_id, $selectedTags);
-                }
-
-                $selectedCollections = array_values(array_filter((array) $request->input("selected_collections.{$itemId}", [])));
-                if (!empty($selectedCollections)) {
-                    $shopify->addProductToCollections($item->shopify_product_id, $selectedCollections, $allCollections);
                 }
 
                 foreach ($item->images as $image) {

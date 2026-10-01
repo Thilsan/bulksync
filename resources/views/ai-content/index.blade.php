@@ -161,8 +161,8 @@
                         <p class="mt-0.5 text-gray-500">Written from the product's own photos.</p>
                     </li>
                     <li class="px-4 py-3">
-                        <p class="font-medium text-gray-800">Title, tags and collections</p>
-                        <p class="mt-0.5 text-gray-500">Suggested, for you to accept or edit.</p>
+                        <p class="font-medium text-gray-800">Title and tags</p>
+                        <p class="mt-0.5 text-gray-500">A suggested title to accept or edit, plus tags you pick by category and type.</p>
                     </li>
                     <li class="px-4 py-3">
                         <p class="font-medium text-gray-800">Meta title and description</p>

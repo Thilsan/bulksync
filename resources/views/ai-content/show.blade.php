@@ -307,62 +307,86 @@
                                             {{-- Tags come from the store's own vocabulary, keyed by category
                                                  and type — not from the model, which used to invent near-duplicates
                                                  of tags the store already had. --}}
-                                            <div>
-                                                <label class="block text-xs font-medium text-gray-500 mb-1">
-                                                    Tags <span class="text-gray-400">(pick a category and type — unchecked = not added, existing tags are never touched)</span>
-                                                </label>
+                                            <div class="rounded-lg border border-gray-200 overflow-hidden">
 
-                                                <div class="flex flex-wrap gap-2">
-                                                    <select x-model="item.tag_category" @change="onCategoryChange(item)"
-                                                        class="rounded-md border border-gray-200 px-3 py-1.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-400 focus:border-transparent">
-                                                        <option value="">Category…</option>
-                                                        <template x-for="category in categories()" :key="category">
-                                                            <option :value="category" x-text="category"></option>
-                                                        </template>
-                                                    </select>
+                                                {{-- Header: what this is, and the state of it at a glance --}}
+                                                <div class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5 border-b border-gray-100 bg-gray-50/70 px-3 py-2">
+                                                    <div class="flex items-center gap-2">
+                                                        <svg class="h-3.5 w-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.8">
+                                                            <path stroke-linecap="round" stroke-linejoin="round" d="M7 7h.01M7 3h5a2 2 0 011.41.59l7 7a2 2 0 010 2.82l-5 5a2 2 0 01-2.82 0l-7-7A2 2 0 013 10V5a2 2 0 012-2z"/>
+                                                        </svg>
+                                                        <span class="text-xs font-semibold text-gray-700">Tags</span>
+                                                        <span class="text-xs text-gray-400">existing tags are never touched</span>
+                                                    </div>
 
-                                                    <select x-model="item.tag_type" @change="onTypeChange(item)"
-                                                        :disabled="!item.tag_category"
-                                                        class="rounded-md border border-gray-200 px-3 py-1.5 text-sm text-gray-700 disabled:bg-gray-50 disabled:text-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-400 focus:border-transparent">
-                                                        <option value="">Type…</option>
-                                                        <template x-for="type in typesFor(item.tag_category)" :key="type">
-                                                            <option :value="type" x-text="type"></option>
-                                                        </template>
-                                                    </select>
+                                                    <div class="flex items-center gap-2" x-show="tagsFor(item).length > 0">
+                                                        <span class="rounded-full bg-white px-2 py-0.5 text-[11px] font-medium tabular-nums text-gray-500 ring-1 ring-gray-200">
+                                                            <span x-text="item.selected_tags.length"></span> of <span x-text="tagsFor(item).length"></span> selected
+                                                        </span>
+                                                        <button type="button" @click="toggleAllTags(item)"
+                                                            class="text-[11px] font-medium text-brand-600 hover:text-brand-700 hover:underline"
+                                                            x-text="allTagsSelected(item) ? 'Clear all' : 'Select all'"></button>
+                                                    </div>
                                                 </div>
 
-                                                <div class="flex flex-wrap gap-2 mt-2" x-show="tagsFor(item).length > 0">
-                                                    <template x-for="tag in tagsFor(item)" :key="tag">
-                                                        <label class="inline-flex items-center gap-1.5 bg-gray-50 border border-gray-200 rounded-full px-3 py-1 cursor-pointer select-none hover:bg-gray-100">
-                                                            <input type="checkbox" :name="`selected_tags[${item.id}][]`" :value="tag"
-                                                                x-model="item.selected_tags"
-                                                                class="w-3.5 h-3.5 rounded border-gray-300 text-brand-600 focus:ring-brand-500">
-                                                            <span class="text-xs text-gray-700" x-text="tag"></span>
-                                                        </label>
-                                                    </template>
-                                                </div>
+                                                <div class="p-3 space-y-3">
 
-                                                <p class="text-xs text-gray-400 mt-1" x-show="!item.tag_type">
-                                                    No tags will be added to this product until a type is chosen.
-                                                </p>
+                                                    {{-- Category narrows the types, so they read as one step each --}}
+                                                    <div class="grid gap-2 sm:grid-cols-2">
+                                                        <div>
+                                                            <label class="mb-1 block text-[11px] font-medium uppercase tracking-wide text-gray-400">Category</label>
+                                                            <select x-model="item.tag_category" @change="onCategoryChange(item)"
+                                                                class="w-full rounded-md border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-700 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-brand-400">
+                                                                <option value="">Choose a category…</option>
+                                                                <template x-for="category in categories()" :key="category">
+                                                                    <option :value="category" x-text="category"></option>
+                                                                </template>
+                                                            </select>
+                                                        </div>
+
+                                                        <div>
+                                                            <label class="mb-1 block text-[11px] font-medium uppercase tracking-wide text-gray-400">Type</label>
+                                                            <select x-model="item.tag_type" @change="onTypeChange(item)"
+                                                                :disabled="!item.tag_category"
+                                                                class="w-full rounded-md border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-700 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-brand-400 disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-400">
+                                                                <option value="" x-text="item.tag_category ? 'Choose a type…' : 'Pick a category first'"></option>
+                                                                <template x-for="type in typesFor(item.tag_category)" :key="type">
+                                                                    <option :value="type" x-text="type"></option>
+                                                                </template>
+                                                            </select>
+                                                        </div>
+                                                    </div>
+
+                                                    {{-- The checkbox itself is hidden: at this many tags a grid of
+                                                         small squares reads as noise, where filled pills read as a set. --}}
+                                                    <div class="flex flex-wrap gap-1.5" x-show="tagsFor(item).length > 0">
+                                                        <template x-for="tag in tagsFor(item)" :key="tag">
+                                                            <label class="cursor-pointer select-none">
+                                                                <input type="checkbox" class="peer sr-only" :name="`selected_tags[${item.id}][]`" :value="tag"
+                                                                    x-model="item.selected_tags">
+                                                                <span class="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-brand-400 peer-focus-visible:ring-offset-1"
+                                                                    :class="item.selected_tags.includes(tag)
+                                                                        ? 'border-brand-200 bg-brand-50 text-brand-700'
+                                                                        : 'border-gray-200 bg-white text-gray-400 hover:border-gray-300 hover:bg-gray-50 hover:text-gray-600'">
+                                                                    <svg class="h-3 w-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="3">
+                                                                        <path x-show="item.selected_tags.includes(tag)" stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
+                                                                        <path x-show="!item.selected_tags.includes(tag)" stroke-linecap="round" stroke-linejoin="round" d="M12 5v14M5 12h14"/>
+                                                                    </svg>
+                                                                    <span x-text="tag"></span>
+                                                                </span>
+                                                            </label>
+                                                        </template>
+                                                    </div>
+
+                                                    {{-- Nothing chosen yet: say what will happen, not just that it is empty --}}
+                                                    <div x-show="!item.tag_type"
+                                                        class="rounded-md border border-dashed border-gray-200 px-3 py-3 text-center text-xs text-gray-400">
+                                                        Pick a category and type to load its tags.
+                                                        No tags are added to this product until you do.
+                                                    </div>
+                                                </div>
                                             </div>
 
-                                            {{-- Suggested new collections — additive only, chosen from real existing store collections --}}
-                                            <div x-show="item.ai_new_collections && item.ai_new_collections.length > 0">
-                                                <label class="block text-xs font-medium text-gray-500 mb-1">
-                                                    Suggested Collections <span class="text-gray-400">(unchecked = not added, existing collections are never touched)</span>
-                                                </label>
-                                                <div class="flex flex-wrap gap-2">
-                                                    <template x-for="collection in item.ai_new_collections" :key="collection">
-                                                        <label class="inline-flex items-center gap-1.5 bg-gray-50 border border-gray-200 rounded-full px-3 py-1 cursor-pointer select-none hover:bg-gray-100">
-                                                            <input type="checkbox" :name="`selected_collections[${item.id}][]`" :value="collection"
-                                                                x-model="item.selected_collections"
-                                                                class="w-3.5 h-3.5 rounded border-gray-300 text-brand-600 focus:ring-brand-500">
-                                                            <span class="text-xs text-gray-700" x-text="collection"></span>
-                                                        </label>
-                                                    </template>
-                                                </div>
-                                            </div>
                                         </div>
                                     </template>
                                 </div>
@@ -455,7 +479,6 @@ function aiContentShow(sessionId, initialStatus, tagTaxonomy) {
                 tag_category: '',
                 tag_type: '',
                 selected_tags: [],
-                selected_collections: [],
             }));
         },
 
@@ -493,6 +516,15 @@ function aiContentShow(sessionId, initialStatus, tagTaxonomy) {
             // stale tags checked under a category that never had them.
             item.tag_type = '';
             item.selected_tags = [];
+        },
+
+        allTagsSelected(item) {
+            const tags = this.tagsFor(item);
+            return tags.length > 0 && tags.every(tag => item.selected_tags.includes(tag));
+        },
+
+        toggleAllTags(item) {
+            item.selected_tags = this.allTagsSelected(item) ? [] : this.tagsFor(item);
         },
 
         onTypeChange(item) {
