@@ -195,18 +195,31 @@ class PhotoEditorNoRedrawTest extends TestCase
         $this->assertFalse((bool) ($itemEdits['ghost_mannequin'] ?? false));
     }
 
-    /**
-     * The redraw canvas matches the photo's own shape rather than always
-     * being square.
+    /*
+     * Photoroom picks the redraw canvas now; we do not.
      *
-     * apparel_size used to default to SQUARE_HD regardless of what was
-     * photographed. A batch of floor-length gowns — naturally tall, not
-     * square — came back recut by 49-69% across several SKUs, which is what
-     * happens when a model is asked to fill a frame shaped differently than
-     * the garment it is drawing. Passing the photo's real dimensions through
-     * now picks the nearest-shaped preset instead.
+     * The lineage matters, because each step was measured. apparel_size began
+     * as SQUARE_HD for everything, and floor-length gowns came back recut by
+     * 49-69%: a model asked to fill a frame shaped differently from the
+     * garment will reshape the garment. Passing the photo's own dimensions and
+     * picking the nearest preset fixed that batch.
+     *
+     * It did not fix nightwear. Photoroom's own support ran six of our files
+     * with the prompt alone, no size, and could not reproduce our failures.
+     * Running the same six both ways settled it:
+     *
+     *   04065/0_0   55.3% -> 15.8%   a column dress became the gown again
+     *   04116/0_0   26.7% -> 23.6%   lace hem and corset lacing came back
+     *   04116/1_0   42.7% -> 30.4%   the mannequin's legs went away
+     *
+     * Nearest-shape was still us choosing, just choosing better. Not choosing
+     * is better again.
+     *
+     * The cost is in test_ghost_mannequin_runs_and_is_told_what_to_do: a size
+     * also pinned the resolution tier. That is a real trade and the reason the
+     * switch stayed.
      */
-    public function test_the_redraw_canvas_matches_a_tall_photos_own_shape(): void
+    public function test_the_redraw_canvas_is_left_to_photoroom(): void
     {
         [, $itemEdits] = $this->route(
             ['framing_preset' => 'women/top', 'ghost_mannequin' => true],
@@ -214,18 +227,22 @@ class PhotoEditorNoRedrawTest extends TestCase
             1600,
         );
 
-        $this->assertSame('PORTRAIT_HD_16_9', $itemEdits['apparel_size'] ?? null,
-            'a tall gown photo was still sent to the square canvas');
+        $this->assertArrayNotHasKey('apparel_size', $itemEdits,
+            'a canvas shape was dictated to a generative model again');
     }
 
-    /** No photo dimensions available — the old, safe default still applies. */
-    public function test_the_redraw_canvas_defaults_to_square_without_photo_dimensions(): void
+    /** And the old behaviour is one env var away, for the batch that needs it. */
+    public function test_the_shape_matching_can_be_switched_back_on(): void
     {
+        config(['services.photoroom.ghost_size' => true]);
+
         [, $itemEdits] = $this->route(
             ['framing_preset' => 'women/top', 'ghost_mannequin' => true],
+            900,
+            1600,
         );
 
-        $this->assertSame('SQUARE_HD', $itemEdits['apparel_size'] ?? null);
+        $this->assertSame('PORTRAIT_HD_16_9', $itemEdits['apparel_size'] ?? null);
     }
 
     /**

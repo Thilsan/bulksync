@@ -1927,16 +1927,9 @@ class PhotoEditorTest extends TestCase
      * reinvented an Aigner horseshoe monogram as rings, at 4% of the original's
      * print detail, where Ghost Mannequin reproduced the horseshoes.
      *
-     * The prompt and the size are asserted alongside it because neither is
-     * optional. Without the prompt the model is free to reinterpret the pose;
-     * without a size, the resolution tier is Photoroom's to choose, and its
-     * lowest tier is the one that destroys a print.
-     *
-     * The size asserted is the preset nearest the photo's own shape, not
-     * always SQUARE_HD: forcing a tall garment onto a square canvas is what
-     * was recutting floor-length gowns by 49-69% in a real batch. The fixture
-     * here is 300x450 — 2:3 — so PORTRAIT_HD_3_2 is the one Photoroom is
-     * asked for.
+     * What is asserted below is the whole request: the mode, no size, and no
+     * prompt unless one was typed. Each of those three was argued the other
+     * way at some point and settled by measurement rather than reasoning.
      */
     public function test_ghost_mannequin_runs_and_is_told_what_to_do(): void
     {
@@ -1957,8 +1950,24 @@ class PhotoEditorTest extends TestCase
 
         $this->assertSame('ai.auto', $sent['ghostMannequin.mode'] ?? null,
             'ghost mannequin was chosen and Photoroom was never told');
-        $this->assertSame('PORTRAIT_HD_3_2', $sent['ghostMannequin.size'] ?? null,
-            'no size named to match the photo\'s own shape, so the resolution tier is left to chance');
+        /*
+         * And no size, which is a trade rather than a free win.
+         *
+         * Naming one also pinned the resolution tier, and Photoroom's lowest
+         * tier is what reinvented an Aigner monogram. Against that: dictating
+         * a canvas shape to a generative model is what turned one nightgown
+         * into a column dress in one shot and a gathered skirt in the next,
+         * and running six files both ways showed the silhouettes settle when
+         * we stop. Photoroom's own support sent no size and could not
+         * reproduce our failures at all.
+         *
+         * Fidelity of shape beat certainty of tier, on the evidence we have.
+         * If a printed garment comes back soft, the log line "Ghost mannequin
+         * resolution" says what tier was returned, and
+         * PHOTOROOM_GHOST_SIZE=true restores the old behaviour for that run.
+         */
+        $this->assertArrayNotHasKey('ghostMannequin.size', $sent,
+            'a canvas shape was dictated to a generative model again');
         /*
          * And no prompt at all, unless the operator typed one.
          *

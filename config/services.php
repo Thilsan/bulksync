@@ -107,14 +107,27 @@ return [
 
     'photoroom' => [
         /*
-         * Send ghostMannequin.size, or let Photoroom choose the canvas.
+         * Off: let Photoroom choose the canvas for a redraw.
          *
-         * PHOTOROOM_GHOST_SIZE=false stops us dictating a shape to a
-         * generative model. See EditPhotoItemJob for why that is suspected of
-         * causing the same garment to come back with a different silhouette on
-         * different shots of one SKU.
+         * Measured on the six files Photoroom's own support could not
+         * reproduce our failures with. Sending ghostMannequin.size against not
+         * sending it, same garments, same prompt:
+         *
+         *   04065/0_0   55.3% -> 15.8%   a column dress became the gown again
+         *   04065/1_0   44.3% -> 52.1%   and the two shots agree with each other
+         *   04116/0_0   26.7% -> 23.6%   lace hem and corset lacing came back
+         *   04116/1_0   42.7% -> 30.4%   the mannequin's legs went away
+         *
+         * Dictating a canvas shape to a generative model is asking it how to
+         * fill a frame, and a model deciding that is a model deciding how long
+         * a skirt is. Photoroom's support sent no size and got clean output,
+         * which is the whole reason this was suspected.
+         *
+         * PHOTOROOM_GHOST_SIZE=true restores it. Final dimensions do not
+         * depend on it: frameToStandard puts every image on the preset canvas
+         * afterwards, which is what the parameter was originally added for.
          */
-        'ghost_size' => env('PHOTOROOM_GHOST_SIZE', true),
+        'ghost_size' => env('PHOTOROOM_GHOST_SIZE', false),
 
         'api_key' => env('PHOTOROOM_API_KEY'),
 

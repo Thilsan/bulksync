@@ -1030,7 +1030,7 @@ class EditPhotoItemJob implements ShouldQueue
              * Config rather than a deletion, because the claim above is a
              * hypothesis until the six files are run both ways.
              */
-            if (config('services.photoroom.ghost_size', true)) {
+            if (config('services.photoroom.ghost_size', false)) {
                 $itemEdits['apparel_size'] ??= PhotoroomService::closestApparelSize($photoWidth, $photoHeight);
             }
             $itemEdits['apparel_prompt']   = (string) ($edits['apparel_prompt'] ?? '');
