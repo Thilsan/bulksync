@@ -106,6 +106,16 @@ return [
     ],
 
     'photoroom' => [
+        /*
+         * Send ghostMannequin.size, or let Photoroom choose the canvas.
+         *
+         * PHOTOROOM_GHOST_SIZE=false stops us dictating a shape to a
+         * generative model. See EditPhotoItemJob for why that is suspected of
+         * causing the same garment to come back with a different silhouette on
+         * different shots of one SKU.
+         */
+        'ghost_size' => env('PHOTOROOM_GHOST_SIZE', true),
+
         'api_key' => env('PHOTOROOM_API_KEY'),
 
         /*

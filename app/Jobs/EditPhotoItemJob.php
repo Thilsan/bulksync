@@ -1008,7 +1008,31 @@ class EditPhotoItemJob implements ShouldQueue
              * A prompt the operator typed is still sent, because that is a
              * style choice they are making deliberately.
              */
-            $itemEdits['apparel_size']   ??= PhotoroomService::closestApparelSize($photoWidth, $photoHeight);
+            /*
+             * Whether to tell Ghost Mannequin what shape to draw into.
+             *
+             * Photoroom's own support could not reproduce our inconsistent
+             * results: same six files, same prompt, one run each, clean output.
+             * The difference is not the prompt, it is everything else we send
+             * alongside it — and ghostMannequin.size is the part that asks a
+             * generative model to compose the garment into a canvas shape
+             * picked from the source photo rather than one it chose. A model
+             * deciding how to fill a frame is a model deciding how long a
+             * skirt is.
+             *
+             * It was added when redraws came back at pixel sizes that did not
+             * match the erased photos beside them in the same SKU. That is now
+             * handled downstream: frameToStandard runs on ghost mannequin
+             * output too and puts every image on the preset's canvas. So this
+             * may be solving a problem that no longer exists, at the cost of
+             * the one we have.
+             *
+             * Config rather than a deletion, because the claim above is a
+             * hypothesis until the six files are run both ways.
+             */
+            if (config('services.photoroom.ghost_size', true)) {
+                $itemEdits['apparel_size'] ??= PhotoroomService::closestApparelSize($photoWidth, $photoHeight);
+            }
             $itemEdits['apparel_prompt']   = (string) ($edits['apparel_prompt'] ?? '');
             $itemEdits['remove_background'] = true;
 
