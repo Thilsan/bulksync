@@ -774,7 +774,15 @@ class EditPhotoItemJob implements ShouldQueue
              * "HD" and offers no quality parameter, so the only way to know is
              * to measure what arrives.
              */
-            if (in_array($appliedMode, ['ghost_mannequin', 'ghost_print_kept'], true)) {
+            /*
+             * ghost_recut_accepted belongs here too, and its absence hid the
+             * one measurement that mattered. Every redraw an operator accepts
+             * over a refusal takes that mode, so on the batches where the
+             * output is most in question nothing was recorded at all — the
+             * last line in production was three weeks stale while four runs
+             * went past it.
+             */
+            if (in_array($appliedMode, ['ghost_mannequin', 'ghost_print_kept', 'ghost_recut_accepted'], true)) {
                 Log::info('Ghost mannequin resolution', [
                     'item' => $this->itemId,
                     'size' => $this->describeSize($edited),
