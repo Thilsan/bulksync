@@ -107,7 +107,7 @@ class GenerateLifestyleImageJob implements ShouldQueue
             $beforeRel = $session->storageDir() . "/{$item->id}-before.jpg";
             file_put_contents(storage_path('app/' . $beforeRel), $imageService->thumbnail($input, 420));
 
-            $edited = $this->generate($photoroom, $input, $edits, $item->filename);
+            $edited = $this->generate($photoroom, $input, $edits, $item->filename, $item->sku_detected);
             unset($input);
 
             /*
@@ -169,7 +169,7 @@ class GenerateLifestyleImageJob implements ShouldQueue
      * returns three near-identical images, which is not what "three lifestyle
      * shots" means to anyone.
      */
-    private function onModelEdits(array $edits): array
+    private function onModelEdits(array $edits, ?string $sku = null): array
     {
         $scenes = PhotoroomService::VIRTUAL_MODEL_SCENES;
         $poses  = PhotoroomService::VIRTUAL_MODEL_POSES;
@@ -202,7 +202,7 @@ class GenerateLifestyleImageJob implements ShouldQueue
                 : (string) config('services.photoroom.model_scene', 'studio'),
             'vm_pose'  => $this->vary($pose, $poses),
 
-            'vm_model_url'          => $this->modelImage($edits),
+            'vm_model_url'          => $this->modelImage($edits, $sku),
             'vm_scene_url'          => $edits['vm_scene_url'] ?? null,
             'vm_extra_product_urls' => $edits['vm_extra_product_urls'] ?? [],
 
@@ -250,9 +250,9 @@ class GenerateLifestyleImageJob implements ShouldQueue
      * only once — a 429 or a credit problem is not something a second identical
      * request improves, and it would cost another credit to find that out.
      */
-    private function generate(PhotoroomService $photoroom, string $input, array $edits, string $filename): string
+    private function generate(PhotoroomService $photoroom, string $input, array $edits, string $filename, ?string $sku = null): string
     {
-        $wanted = $this->onModelEdits($edits);
+        $wanted = $this->onModelEdits($edits, $sku);
 
         try {
             return $photoroom->edit($input, $wanted, $filename);
@@ -305,7 +305,7 @@ class GenerateLifestyleImageJob implements ShouldQueue
      * Returns null rather than '' when nothing is set, so the preset path
      * stays exactly as it was for every category that has no model photo.
      */
-    private function modelImage(array $edits): ?string
+    private function modelImage(array $edits, ?string $sku = null): ?string
     {
         $typed = trim((string) ($edits['vm_model_url'] ?? ''));
 
@@ -321,7 +321,29 @@ class GenerateLifestyleImageJob implements ShouldQueue
             default                               => null,
         };
 
-        return filled($configured) ? (string) $configured : null;
+        $faces = array_values(array_filter(array_map(
+            'trim',
+            explode(',', (string) $configured),
+        )));
+
+        if ($faces === []) {
+            return null;
+        }
+
+        /*
+         * Which face this product gets, when a category has more than one.
+         *
+         * Keyed on the SKU rather than the shot index, so all three shots of
+         * one nightdress are the same woman and the next nightdress is the
+         * other one. Rotating per shot would put one garment on two people in
+         * the same gallery, which reads as two products.
+         *
+         * A hash rather than a counter because the jobs run in parallel on
+         * several workers and nothing here sees the others. The same SKU
+         * therefore lands on the same face on a re-run too, which is what you
+         * want when one photo of a product is being redone.
+         */
+        return $faces[filled($sku) ? crc32($sku) % count($faces) : 0];
     }
 
     private function defaultModel(array $edits): string

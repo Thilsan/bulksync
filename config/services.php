@@ -126,6 +126,13 @@ return [
          * Shopify Files gives a permanent CDN URL and costs nothing.
          *
          * Left empty, nothing changes and the preset pools still apply.
+         *
+         * Either may be a comma-separated list, and a category with more than
+         * one face spreads them across its products — one model per SKU, every
+         * shot of that SKU on the same person. Not one per shot: a product page
+         * showing the same nightdress on two different women reads as two
+         * products, which is the same reasoning that stopped the backdrop
+         * changing between shots.
          */
         'model_image_women' => env('PHOTOROOM_MODEL_IMAGE_WOMEN'),
         'model_image_men'   => env('PHOTOROOM_MODEL_IMAGE_MEN'),

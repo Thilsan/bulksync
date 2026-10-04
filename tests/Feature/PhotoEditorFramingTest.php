@@ -700,6 +700,38 @@ class PhotoEditorFramingTest extends TestCase
         $this->assertSame('https://cdn.example.com/him.jpg', $men['vm_model_url']);
     }
 
+    /*
+     * More than one face in a category spreads across its products.
+     *
+     * One model per SKU, not one per shot: three shots of one nightdress on
+     * two different women read as two products. Keyed on a hash of the SKU
+     * rather than a counter, because these jobs run in parallel on several
+     * workers and none of them can see the others — and because a re-run of a
+     * single photo then lands on the same face it had before.
+     */
+    public function test_two_configured_faces_are_spread_one_per_sku(): void
+    {
+        config(['services.photoroom.model_image_women' => 'https://cdn.example.com/a.jpg, https://cdn.example.com/b.jpg']);
+
+        $method = new \ReflectionMethod(\App\Jobs\GenerateLifestyleImageJob::class, 'onModelEdits');
+        $method->setAccessible(true);
+
+        $faceFor = fn (string $sku, int $shot) => $method->invoke(
+            new \App\Jobs\GenerateLifestyleImageJob(1, $shot),
+            ['framing_preset' => 'women/top'],
+            $sku,
+        )['vm_model_url'];
+
+        // Every shot of one SKU is the same woman.
+        $this->assertSame($faceFor('LLE-1', 0), $faceFor('LLE-1', 1));
+        $this->assertSame($faceFor('LLE-1', 0), $faceFor('LLE-1', 2));
+
+        // And both faces are in use across a catalogue.
+        $used = collect(range(1, 40))->map(fn ($i) => $faceFor("SKU-{$i}", 0))->unique();
+
+        $this->assertCount(2, $used, 'one of the configured faces is never used');
+    }
+
     /** A URL typed for one run beats the configured default. */
     public function test_a_typed_model_photo_beats_the_configured_one(): void
     {
