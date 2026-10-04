@@ -107,6 +107,40 @@ return [
 
     'photoroom' => [
         /*
+         * The two faces the catalogue uses for on-model shots.
+         *
+         * Photoroom's seventeen stock presets are a bare list of first names.
+         * Their reference documents no appearance for any of them — not even
+         * gender, which is why MALE_VIRTUAL_MODEL_PRESETS is the operator's
+         * read of the names rather than anything measured. A preset is
+         * therefore a lottery re-entered on every image, and a catalogue
+         * cannot be built on that: the same product line wants the same face
+         * twice.
+         *
+         * A custom image is virtualModel.model.custom.imageUrl — Photoroom's
+         * Virtual Try-On, their own feature for exactly this. It overrides the
+         * preset entirely.
+         *
+         * These must be publicly reachable: Photoroom fetches them server-side,
+         * so a localhost or staging-only URL silently falls back to a preset.
+         * Shopify Files gives a permanent CDN URL and costs nothing.
+         *
+         * Left empty, nothing changes and the preset pools still apply.
+         */
+        'model_image_women' => env('PHOTOROOM_MODEL_IMAGE_WOMEN'),
+        'model_image_men'   => env('PHOTOROOM_MODEL_IMAGE_MEN'),
+
+        /*
+         * Where an on-model shot is standing, when nobody said.
+         *
+         * Varied at random until it was pointed out that a catalogue wants a
+         * plain backdrop, not a different street per photograph. 'studio' is
+         * the plainest of Photoroom's scene presets; set
+         * PHOTOROOM_MODEL_SCENE=random to get the old roaming behaviour back.
+         */
+        'model_scene' => env('PHOTOROOM_MODEL_SCENE', 'studio'),
+
+        /*
          * Off: let Photoroom choose the canvas for a redraw.
          *
          * Measured on the six files Photoroom's own support could not

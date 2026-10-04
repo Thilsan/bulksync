@@ -186,10 +186,23 @@ class GenerateLifestyleImageJob implements ShouldQueue
 
             // A chosen scene or pose is honoured on the first shot and varied
             // after it; left unset, every shot varies.
-            'vm_scene' => $this->vary($scene, $scenes),
+            /*
+             * A plain backdrop unless somebody asked for a place.
+             *
+             * This used to vary the scene across a SKU's shots, on the
+             * reasoning that three lifestyle images should not be three of the
+             * same picture. True of lifestyle photography and false of a
+             * catalogue: a product page wants one backdrop and the garment
+             * changing, not a model touring a street, a beach and a library in
+             * the same nightdress. The pose still varies, which is where the
+             * difference between three shots belongs.
+             */
+            'vm_scene' => $scene !== ''
+                ? $this->vary($scene, $scenes)
+                : (string) config('services.photoroom.model_scene', 'studio'),
             'vm_pose'  => $this->vary($pose, $poses),
 
-            'vm_model_url'          => $edits['vm_model_url'] ?? null,
+            'vm_model_url'          => $this->modelImage($edits),
             'vm_scene_url'          => $edits['vm_scene_url'] ?? null,
             'vm_extra_product_urls' => $edits['vm_extra_product_urls'] ?? [],
 
@@ -278,6 +291,39 @@ class GenerateLifestyleImageJob implements ShouldQueue
      * multiple shots, so three lifestyle images do not all show the same
      * one person.
      */
+    /**
+     * The catalogue's own model for this category, if one is configured.
+     *
+     * A preset picks a different stranger each time; one photograph gives the
+     * whole category one face. Chosen the same way defaultModel() picks a
+     * pool — off the framing preset's category — because that is the only
+     * thing in a run that knows whether this is menswear.
+     *
+     * A URL the operator typed for this run wins: they are looking at the
+     * product and the configured default is a default.
+     *
+     * Returns null rather than '' when nothing is set, so the preset path
+     * stays exactly as it was for every category that has no model photo.
+     */
+    private function modelImage(array $edits): ?string
+    {
+        $typed = trim((string) ($edits['vm_model_url'] ?? ''));
+
+        if ($typed !== '') {
+            return $typed;
+        }
+
+        $category = (string) ($edits['framing_preset'] ?? '');
+
+        $configured = match (true) {
+            str_starts_with($category, 'men/')   => config('services.photoroom.model_image_men'),
+            str_starts_with($category, 'women/') => config('services.photoroom.model_image_women'),
+            default                               => null,
+        };
+
+        return filled($configured) ? (string) $configured : null;
+    }
+
     private function defaultModel(array $edits): string
     {
         $chosen = (string) ($edits['vm_model'] ?? '');

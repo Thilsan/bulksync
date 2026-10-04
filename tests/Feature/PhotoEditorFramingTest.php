@@ -674,6 +674,89 @@ class PhotoEditorFramingTest extends TestCase
             "'{$edits['vm_model']}' is not one of the female presets");
     }
 
+    /*
+     * A configured model photo replaces the preset lottery.
+     *
+     * Photoroom's presets are seventeen first names with no documented
+     * appearance, so a catalogue built on them gets a different stranger on
+     * every image. One photograph per category gives the whole category one
+     * face, through virtualModel.model.custom.imageUrl — Photoroom's own
+     * Virtual Try-On, which overrides the preset.
+     */
+    public function test_a_configured_model_photo_is_used_for_its_category(): void
+    {
+        config([
+            'services.photoroom.model_image_women' => 'https://cdn.example.com/her.jpg',
+            'services.photoroom.model_image_men'   => 'https://cdn.example.com/him.jpg',
+        ]);
+
+        $method = new \ReflectionMethod(\App\Jobs\GenerateLifestyleImageJob::class, 'onModelEdits');
+        $method->setAccessible(true);
+
+        $women = $method->invoke(new \App\Jobs\GenerateLifestyleImageJob(1, 0), ['framing_preset' => 'women/top']);
+        $men   = $method->invoke(new \App\Jobs\GenerateLifestyleImageJob(1, 0), ['framing_preset' => 'men/shirts']);
+
+        $this->assertSame('https://cdn.example.com/her.jpg', $women['vm_model_url']);
+        $this->assertSame('https://cdn.example.com/him.jpg', $men['vm_model_url']);
+    }
+
+    /** A URL typed for one run beats the configured default. */
+    public function test_a_typed_model_photo_beats_the_configured_one(): void
+    {
+        config(['services.photoroom.model_image_women' => 'https://cdn.example.com/her.jpg']);
+
+        $method = new \ReflectionMethod(\App\Jobs\GenerateLifestyleImageJob::class, 'onModelEdits');
+        $method->setAccessible(true);
+
+        $edits = $method->invoke(
+            new \App\Jobs\GenerateLifestyleImageJob(1, 0),
+            ['framing_preset' => 'women/top', 'vm_model_url' => 'https://cdn.example.com/other.jpg'],
+        );
+
+        $this->assertSame('https://cdn.example.com/other.jpg', $edits['vm_model_url']);
+    }
+
+    /** Nothing configured leaves the preset path exactly as it was. */
+    public function test_no_configured_photo_leaves_the_presets_alone(): void
+    {
+        config([
+            'services.photoroom.model_image_women' => null,
+            'services.photoroom.model_image_men'   => null,
+        ]);
+
+        $method = new \ReflectionMethod(\App\Jobs\GenerateLifestyleImageJob::class, 'onModelEdits');
+        $method->setAccessible(true);
+
+        $edits = $method->invoke(new \App\Jobs\GenerateLifestyleImageJob(1, 0), ['framing_preset' => 'women/top']);
+
+        $this->assertNull($edits['vm_model_url']);
+        $this->assertContains($edits['vm_model'], PhotoroomService::FEMALE_VIRTUAL_MODEL_PRESETS);
+    }
+
+    /*
+     * One backdrop across a SKU's shots, not a tour.
+     *
+     * The scene used to vary per shot so three lifestyle images were not three
+     * of the same picture. That is lifestyle photography's rule, not a
+     * catalogue's: a product page wants the garment changing against one
+     * backdrop, not a model touring a street, a beach and a library in the
+     * same nightdress. The pose still varies.
+     */
+    public function test_on_model_shots_share_one_plain_backdrop(): void
+    {
+        $method = new \ReflectionMethod(\App\Jobs\GenerateLifestyleImageJob::class, 'onModelEdits');
+        $method->setAccessible(true);
+
+        foreach ([0, 1, 2] as $shot) {
+            $edits = $method->invoke(
+                new \App\Jobs\GenerateLifestyleImageJob(1, $shot),
+                ['framing_preset' => 'women/top'],
+            );
+
+            $this->assertSame('studio', $edits['vm_scene'], "shot {$shot} wandered off the backdrop");
+        }
+    }
+
     /**
      * An operator's own choice of model is never overridden, whatever the
      * category says — only the empty default is ever replaced.
