@@ -393,6 +393,20 @@ class GenerateLifestyleImageJob implements ShouldQueue
 
     private function fitForPhotoroom(string $content, ImageProcessingService $imageService): string
     {
+        /*
+         * Depth first, and before the size checks rather than after.
+         *
+         * Photoroom refuses anything deeper than 8 bits outright, and some
+         * supplier AVIFs are 10-bit HDR. Depth is invisible to every check
+         * below: the file is small, the dimensions are fine, it decodes
+         * cleanly, and the early return hands it straight to the API to be
+         * rejected. EditPhotoItemJob has capped it since that was found; this
+         * copy of the same method never had the line, so an on-model shot
+         * built from a 10-bit original failed where the SKU's cutouts went
+         * through.
+         */
+        $content = $imageService->capBitDepth($content);
+
         $info    = @getimagesizefromstring($content);
         $tooWide = $info && max((int) $info[0], (int) $info[1]) > PhotoroomService::MAX_INPUT_EDGE;
 

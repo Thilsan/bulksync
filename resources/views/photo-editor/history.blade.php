@@ -15,12 +15,17 @@
     {{-- ── Everything run so far ───────────────────────────────────────────
          Summed across every session, not the page below, so paging does not
          move the totals. --}}
-    <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+    <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {{-- No "On Shopify" tile. A photo can be pushed, replaced, re-pushed
+             and deleted again, so the lifetime count of push requests is not
+             the number of photos on Shopify and nobody reading it would guess
+             the difference. The per-session column below still shows pushed
+             against edited, where the two sit side by side and the comparison
+             is the point. --}}
         @foreach ([
             ['sessions', 'Sessions',   'gray'],
             ['found',    'Found',      'gray'],
             ['edited',   'Edited',     'emerald'],
-            ['pushed',   'On Shopify', 'brand'],
             ['failed',   'Failed',     'red'],
         ] as [$key, $label, $color])
         <div class="rounded-xl border border-gray-200 bg-white p-4">

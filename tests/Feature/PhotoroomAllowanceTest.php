@@ -199,12 +199,12 @@ class PhotoroomAllowanceTest extends TestCase
 
         $html = $this->actingAs($user)->get(route('photo-editor.history'))->assertOk()->getContent();
 
-        foreach (['Sessions', 'Found', 'Edited', 'On Shopify', 'Failed'] as $label) {
+        foreach (['Sessions', 'Found', 'Edited', 'Failed'] as $label) {
             $this->assertStringContainsString($label, $html);
         }
 
-        // 10 + 5 found, 8 + 5 edited, 6 + 5 pushed, 2 + 0 failed.
-        foreach (['15', '13', '11'] as $sum) {
+        // 10 + 5 found, 8 + 5 edited. The pushed total is no longer a tile.
+        foreach (['15', '13'] as $sum) {
             $this->assertStringContainsString('>' . $sum . '</p>', str_replace(["\n", ' '], ['', ''], $html),
                 "the {$sum} total is missing");
         }
