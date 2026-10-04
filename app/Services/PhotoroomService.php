@@ -435,11 +435,6 @@ class PhotoroomService
                     'note'  => 'Measured: 11.1% and 11.7% left and right, the product filling 77% of the width and 27% of the height. The width is what holds a pair of sunglasses, as it holds a belt — and belts measured 11.0% and 10.8% independently, which is the same number twice from two unrelated samples. Centred vertically: the one sample sat low, 53.3% above and 20.1% below, but nothing in it explains why and a single supplier crop is not a house rule. If sunglasses are meant to hang low, this is the entry to correct.',
                     'edits' => ['width' => 2000, 'height' => 2000, 'padding' => 0.11],
                 ],
-                'footwear' => [
-                    'label' => 'Footwear',
-                    'note'  => 'Measured: 7.3% and 7.7% left and right, sitting 47% low rather than centred. Bottom-aligned on purpose — a shoe on a line reads as standing, a centred one reads as floating.',
-                    'edits' => ['width' => 2000, 'height' => 2000, 'padding' => 0.07, 'v_align' => 'bottom'],
-                ],
             ],
         ],
 
@@ -460,7 +455,6 @@ class PhotoroomService
                 'trousers' => ['label' => 'Trousers', 'note' => 'House rule, unmeasured: 10% around a 2000 square, centred.', 'edits' => ['width' => 2000, 'height' => 2000, 'padding' => 0.10]],
                 'jeans'    => ['label' => 'Jeans',     'note' => 'Measured off a finished catalogue frame (ZLI202BTM01870) on a 2000 square: the jeans sit 10.00% down, end 10.00% up from the bottom, and fill exactly 80.00% of the height. The same house rule five womenswear categories — tops, t-shirts, blazers, jeans and skirts — measured to independently, now confirmed on a menswear sample rather than only assumed for it.', 'edits' => ['width' => 2000, 'height' => 2000, 'padding' => 0.10]],
                 'bags'     => ['label' => 'Bags',     'note' => 'House rule, unmeasured: 10% around a 2000 square, centred.', 'edits' => ['width' => 2000, 'height' => 2000, 'padding' => 0.10]],
-                'footwear' => ['label' => 'Footwear', 'note' => 'House rule, unmeasured, bottom-aligned as womenswear footwear measured.', 'edits' => ['width' => 2000, 'height' => 2000, 'padding' => 0.10, 'v_align' => 'bottom']],
             ],
         ],
 
@@ -471,7 +465,6 @@ class PhotoroomService
                 'long-dresses' => ['label' => 'Long dresses', 'note' => 'Measured off one finished frame on a 3000 square: the dress sits 7.73% down, ends 92.20% down and fills 84.47% of the height, with 9.73% either side. A longer dress is framed larger than a short one — 84.47% against the 80% the dresses hold — which is why it is its own category rather than a note on that one. One sample, so this is the entry to re-measure when there are three; the perfume preset was set from one live shot too and has held. Side padding is left to the garment: at this height the sample landed on 9.73% by itself, because its shape and the frame\'s happen to agree.', 'edits' => ['width' => 2000, 'height' => 2000, 'padding' => 0.097, 'height_fill' => 0.8447]],
                 'tops'     => ['label' => 'Tops',     'note' => 'House rule, unmeasured: 10% around a 2000 square, centred. The height is declared to bind — a top is the shape most likely to be wider than it is tall, and that is exactly the case fitting-to-whichever-runs-out-first gets wrong.', 'edits' => ['width' => 2000, 'height' => 2000, 'padding' => 0.10, 'height_fill' => 0.80]],
                 'trousers' => ['label' => 'Trousers', 'note' => 'Measured, and it comes out as the dresses do: a Moschino legging on a 2000 square sits 9.8% down, ends 90.1% down and fills 80.3% of the height. Against 10.08/90.00/79.92 and 10.00/90.17/80.17 for the two dresses, so the same 10% baseline rather than a rule of its own — the spread across all three is half a per cent, which is ten pixels. Side padding is left to the garment: this legging centred itself at 21.2% either side where the dresses took 11.1% and 22.3%, because it is the height that is held. The height is declared to bind so it holds whatever the shape.', 'edits' => ['width' => 2000, 'height' => 2000, 'padding' => 0.10, 'height_fill' => 0.80]],
-                'footwear' => ['label' => 'Footwear', 'note' => 'House rule, unmeasured, bottom-aligned as womenswear footwear measured.', 'edits' => ['width' => 2000, 'height' => 2000, 'padding' => 0.10, 'v_align' => 'bottom']],
             ],
         ],
 
@@ -553,6 +546,49 @@ class PhotoroomService
                 'padding'        => 0.10,
                 'padding_bottom' => 0.10,
                 'body_fill'      => 0.48,
+                'v_align'        => 'bottom',
+            ],
+        ],
+
+        /*
+         * A main category with nothing under it, like perfume and luggage.
+         *
+         * It used to be three: a measured entry under womenswear and two house
+         * rules under menswear and kids that said, in as many words, "as
+         * womenswear footwear measured". Three places to change, two of them
+         * admitting they were guesses, for a product that is framed the same
+         * way whoever wears it. A sandal is a sandal.
+         */
+        'footwear' => [
+            'label' => 'Footwear',
+            'note'  => 'The shoe stands on a line 20% up from the bottom, with 10% either side, on a 2000 square. Measured across five shots of one sandal — profile, front, back, top-down and detail — which between them run from 31% to 70% of the frame in height. Bottom-aligned, because that spread is the point: a shelf of shoes at different heights wants one floor, and a centred shoe reads as floating.',
+            'edits' => [
+                'width'  => 2000,
+                'height' => 2000,
+
+                /*
+                 * 20% at the bottom, 10% everywhere else, and the five samples
+                 * agree to within two tenths of a per cent:
+                 *
+                 *   profile    bottom 19.80%   height 30.8%
+                 *   front      bottom 19.90%   height 40.8%
+                 *   back       bottom 19.95%   height 51.4%
+                 *   detail     bottom 20.00%   height 61.9%
+                 *   top-down   bottom 19.85%   height 70.2%
+                 *
+                 * The heights are not noise. 1 - 0.10 - 0.20 is 70%, which is
+                 * exactly what the tallest of them fills, and the rest are
+                 * shorter shoes on the same floor under the same ceiling. Four
+                 * of the five are bound by their width at 80%, which is
+                 * 1 - 0.10 - 0.10. One rule, predicting every frame.
+                 *
+                 * This replaces 7% centred-ish, taken from a single 1200-square
+                 * sample on an older convention — the same trap perfume fell
+                 * into twice. A percentage of one canvas is not a percentage of
+                 * another. Measure footwear against a 2000 square.
+                 */
+                'padding'        => 0.10,
+                'padding_bottom' => 0.20,
                 'v_align'        => 'bottom',
             ],
         ],
@@ -1333,7 +1369,6 @@ class PhotoroomService
         'women/bags'      => 'the bag',
         'women/belts'     => 'the belt',
         'women/sunglasses' => 'the sunglasses',
-        'women/footwear'  => 'the shoes',
 
         'men/shirts'      => 'the shirt',
         'men/jacket'      => 'the jacket',
@@ -1341,14 +1376,13 @@ class PhotoroomService
         'men/trousers'    => 'the trousers',
         'men/jeans'       => 'the jeans',
         'men/bags'        => 'the bag',
-        'men/footwear'    => 'the shoes',
 
         'kids/dresses'    => 'the dress',
         'kids/long-dresses' => 'the dress',
         'kids/tops'       => 'the top',
         'kids/trousers'   => 'the trousers',
-        'kids/footwear'   => 'the shoes',
 
+        'footwear'                    => 'the shoes',
         'perfume'                     => 'the perfume bottle',
 
         'luggage'                     => 'the suitcase',

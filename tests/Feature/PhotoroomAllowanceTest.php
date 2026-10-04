@@ -170,11 +170,13 @@ class PhotoroomAllowanceTest extends TestCase
         $this->assertNull($r['resets_on'], 'a rolling window has no reset date');
     }
 
-    /**
-     * The history page is the Photo Editor's dashboard, so it carries both the
-     * allowance and the running totals — and the totals are summed over every
-     * session rather than the twenty on the page, since a total that changed
-     * when you turned the page would not be one.
+    /*
+     * The history page carries the running totals, summed over every session
+     * rather than the twenty on the page — a total that changed when you
+     * turned the page would not be one.
+     *
+     * It used to carry an allowance bar too. That is gone: see
+     * test_the_allowance_is_not_shown_on_screen below.
      */
     public function test_the_history_page_totals_every_session_not_just_the_page(): void
     {
@@ -197,7 +199,7 @@ class PhotoroomAllowanceTest extends TestCase
 
         $html = $this->actingAs($user)->get(route('photo-editor.history'))->assertOk()->getContent();
 
-        foreach (['Sessions', 'Found', 'Edited', 'On Shopify', 'Failed', 'Left', 'Total'] as $label) {
+        foreach (['Sessions', 'Found', 'Edited', 'On Shopify', 'Failed'] as $label) {
             $this->assertStringContainsString($label, $html);
         }
 
@@ -208,8 +210,27 @@ class PhotoroomAllowanceTest extends TestCase
         }
     }
 
-    /** The screen leads with these, so the page must render them. */
-    public function test_the_photo_editor_screen_shows_the_allowance(): void
+    /*
+     * The allowance is not shown on screen, and that is deliberate.
+     *
+     * It was a bar across the top of both Photo Editor screens: spent, left,
+     * total, with a progress line. Every figure in it is reconstructed from
+     * this app's own rows, so it can only ever undercount — an edit made in
+     * Photoroom's web app, or by another holder of the key, is invisible to
+     * it, and the total was a number typed into an env var by hand because
+     * Photoroom's API does not report the plan.
+     *
+     * It read "75 left" on the morning Photoroom started answering 402, You
+     * have exhausted the number of images in your plan. A caveat under it said
+     * to treat the figure as a minimum; nobody reads a caveat under a number
+     * that large and green.
+     *
+     * A number that is confidently wrong at the one moment it matters is worse
+     * than no number, because a run gets planned against it. The report still
+     * exists for `php artisan photoroom:usage`, where asking for an estimate
+     * is a deliberate act and the output says what it is built from.
+     */
+    public function test_the_allowance_is_not_shown_on_screen(): void
     {
         $user = User::factory()->create(['is_active' => true, 'perm_photo_editor' => true]);
 
@@ -217,11 +238,23 @@ class PhotoroomAllowanceTest extends TestCase
 
         $this->item('edited');
 
-        $this->actingAs($user)
-            ->get(route('photo-editor.index'))
-            ->assertOk()
-            ->assertSee('Edited')
-            ->assertSee('Left')
-            ->assertSee('Total');
+        foreach (['photo-editor.index', 'photo-editor.history'] as $route) {
+            $this->actingAs($user)
+                ->get(route($route))
+                ->assertOk()
+                ->assertDontSee('monthly allowance')
+                ->assertDontSee('sandbox allowance');
+        }
+    }
+
+    /** And the figures it was built from are still available on demand. */
+    public function test_the_usage_command_still_reports_it(): void
+    {
+        config(['services.photoroom.api_key' => 'live_sk_test']);
+
+        $this->item('edited');
+
+        $this->artisan('photoroom:usage')
+            ->assertExitCode(0);
     }
 }

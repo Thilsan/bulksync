@@ -11,64 +11,6 @@
     </div>
     @endif
 
-    {{-- ── What the allowance has gone on ──────────────────────────────
-         The number that decides whether the next run can happen at all, so it
-         leads. Everything below it is history; this is the only figure on the
-         page that constrains what you do next. --}}
-    <div class="rounded-xl border border-gray-200 bg-white px-5 py-4">
-        <div class="flex flex-wrap items-baseline justify-between gap-2">
-            <h2 class="text-sm font-semibold text-gray-800">
-                Photoroom {{ $allowance['is_sandbox'] ? 'sandbox allowance' : 'monthly allowance' }}
-            </h2>
-            <p class="text-xs text-gray-500">
-                @if ($allowance['is_sandbox'])
-                    Rolling 24 hours — capacity returns as each edit ages out
-                @else
-                    Resets {{ $allowance['resets_on']->format('D d M Y') }}
-                @endif
-            </p>
-        </div>
-
-        <div class="mt-3 grid grid-cols-3 gap-4">
-            <div>
-                <p class="figure text-3xl leading-none text-gray-900">{{ number_format($allowance['spent']) }}</p>
-                <p class="text-xs text-gray-500">Credits used</p>
-            </div>
-            <div>
-                <p class="figure text-3xl leading-none {{ $allowance['left'] ? 'text-emerald-600' : 'text-red-600' }}">
-                    {{ number_format($allowance['left']) }}
-                </p>
-                <p class="text-xs text-gray-500">Left</p>
-            </div>
-            <div>
-                {{-- Titled rather than left bare: this is the one figure on the
-                     card that nothing measures. Photoroom publishes no balance
-                     this app can read, so the total is whatever PHOTOROOM_MONTHLY_QUOTA
-                     was set to — which means a top-up bought this morning is
-                     invisible here until somebody raises it. That looked like a
-                     stale reading rather than an unasked question. --}}
-                <p class="figure text-3xl leading-none text-gray-400"
-                   title="Set by hand in PHOTOROOM_MONTHLY_QUOTA. Photoroom is never asked, so a top-up has to be added here.">
-                    {{ number_format($allowance['quota']) }}
-                </p>
-                <p class="text-xs text-gray-500">Total <span class="text-gray-400">&mdash; set by hand</span></p>
-            </div>
-        </div>
-
-        <div class="mt-3 h-1.5 overflow-hidden rounded-full bg-gray-100">
-            <div class="h-full rounded-full {{ $allowance['percent_used'] >= 90 ? 'bg-red-500' : ($allowance['percent_used'] >= 70 ? 'bg-amber-500' : 'bg-brand-500') }}"
-                 style="width: {{ max(2, $allowance['percent_used']) }}%"></div>
-        </div>
-
-        <p class="mt-2 text-xs text-gray-400">
-            Counted from this app's own edits, so treat it as a minimum.
-            The total is the figure in PHOTOROOM_MONTHLY_QUOTA &mdash; top-ups are not read
-            from Photoroom, so raise it there after buying credits.
-            @if ($allowance['charged_failures'])
-                Includes {{ $allowance['charged_failures'] }} failed {{ Str::plural('edit', $allowance['charged_failures']) }} that still cost a request.
-            @endif
-        </p>
-    </div>
 
     {{-- ── Everything run so far ───────────────────────────────────────────
          Summed across every session, not the page below, so paging does not

@@ -157,7 +157,7 @@ class PhotoEditorFramingTest extends TestCase
     public function test_categories_frame_their_own_shape(): void
     {
         $dress = PhotoroomService::applyFramingPreset([], 'women/dresses');
-        $shoes = PhotoroomService::applyFramingPreset([], 'women/footwear');
+        $shoes = PhotoroomService::applyFramingPreset([], 'footwear');
 
         $this->assertSame('center', $this->layoutFields($dress)['verticalAlignment']);
         $this->assertSame('bottom', $this->layoutFields($shoes)['verticalAlignment']);
@@ -231,7 +231,7 @@ class PhotoEditorFramingTest extends TestCase
              * this pair of numbers is what to change.
              */
             'women/sunglasses' => ['0.11', 'center'],
-            'women/footwear'  => ['0.07', 'bottom'],
+            'footwear'        => ['0.1', 'bottom'], // five shots of one sandal; the base line is 20%, below
         ];
 
         foreach ($measured as $key => [$padding, $valign]) {
@@ -480,6 +480,8 @@ class PhotoEditorFramingTest extends TestCase
             'perfume'    => ['verticalAlignment' => 'bottom', 'paddingBottom' => '0.106'],
             // a floor to stand on; the case is sized by its own body, not the handle
             'luggage'    => ['verticalAlignment' => 'bottom', 'paddingBottom' => '0.1'],
+            // five shots of one sandal, 19.80% to 20.00%, 31% to 70% of the frame tall
+            'footwear'   => ['verticalAlignment' => 'bottom', 'paddingBottom' => '0.2'],
             // two catalogue shots, both with the chain running off the top
             'watches_jewellery/necklaces' => [
                 'verticalAlignment' => 'top',

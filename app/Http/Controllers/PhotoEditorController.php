@@ -16,7 +16,6 @@ use App\Services\OneDriveService;
 use App\Services\ImageProcessingService;
 use App\Services\PhotoroomService;
 use App\Services\SetLayoutService;
-use App\Support\PhotoroomAllowance;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -40,7 +39,6 @@ class PhotoEditorController extends Controller implements HasMiddleware
 {
     public function __construct(
         private PhotoroomService $photoroom,
-        private PhotoroomAllowance $allowance,
     ) {}
 
     /**
@@ -69,9 +67,6 @@ class PhotoEditorController extends Controller implements HasMiddleware
             'photoroomConfigured'  => $this->photoroom->isConfigured(),
             'isSandbox'            => $this->photoroom->isSandbox(),
 
-            // What the allowance has gone on, so a run is planned against what
-            // is left rather than started and stopped halfway by a quota wall.
-            'allowance'            => $this->allowance->report(),
 
             // What the settings block on the form starts filled in with. Same
             // array the session is created with, so the two cannot drift.
@@ -130,7 +125,6 @@ class PhotoEditorController extends Controller implements HasMiddleware
                 ->latest()
                 ->paginate(20),
             'totals'       => $totals,
-            'allowance'    => $this->allowance->report(),
             'showOwner'    => $isSuperAdmin,
         ]);
     }
