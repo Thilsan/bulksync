@@ -2109,6 +2109,34 @@ class PhotoroomService
                         'body'    => substr($response->body(), 0, 500),
                     ]);
 
+                    /*
+                     * A spent plan, which 429 is not.
+                     *
+                     * 429 is "too many, too fast" and the quota branch below
+                     * only catches it when the wait Photoroom quotes is longer
+                     * than a rate-limit window. A monthly allowance running out
+                     * comes back as 402 — "You have exhausted the number of
+                     * images in your plan" — and used to be treated as an
+                     * ordinary error, so every remaining item in the batch
+                     * uploaded its several megabytes to be told the same thing.
+                     * Twelve items on the run that prompted this; on a full
+                     * catalogue it would be gigabytes, and each one still
+                     * counts as a request.
+                     *
+                     * The reset date is not in the response — Photoroom's
+                     * dashboard knows it, the API does not say — so the door is
+                     * shut for an hour at a time rather than until the real
+                     * reset. Long enough to stop a batch dead, short enough
+                     * that topping the plan up is picked up without anybody
+                     * clearing a cache.
+                     */
+                    if ($status === 402) {
+                        $this->closeQuota((int) config('services.photoroom.quota_closed_seconds', 3600));
+
+                        $lastError = 'Photoroom returned 402: ' . trim(strip_tags($response->body()));
+                        $retryable = false;
+                    }
+
                     if ($status === 429) {
                         $wait = $this->throttleWait($response);
 

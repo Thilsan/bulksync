@@ -148,6 +148,16 @@ return [
         'model_scene' => env('PHOTOROOM_MODEL_SCENE', 'studio'),
 
         /*
+         * How long a 402 shuts the door for.
+         *
+         * Photoroom's 402 body names no reset date, so this is a holding
+         * period rather than a real one: long enough that the rest of a batch
+         * fails in milliseconds instead of uploading itself, short enough that
+         * a topped-up plan resumes on its own.
+         */
+        'quota_closed_seconds' => (int) env('PHOTOROOM_QUOTA_CLOSED_SECONDS', 3600),
+
+        /*
          * Off: let Photoroom choose the canvas for a redraw.
          *
          * Measured on the six files Photoroom's own support could not
