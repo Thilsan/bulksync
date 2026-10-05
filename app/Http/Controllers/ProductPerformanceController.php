@@ -6,6 +6,7 @@ use App\Jobs\SyncProductSalesJob;
 use App\Models\Store;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Http\Request;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -26,6 +27,8 @@ class ProductPerformanceController extends Controller
     private const TABS = ['best', 'low', 'none'];
 
     private const PER_PAGE = 50;
+
+    private const DIVISIONS_PER_PAGE = 100;
 
     public function index(Request $request)
     {
@@ -127,6 +130,7 @@ class ProductPerformanceController extends Controller
             'tab'     => $tab,
             'brand'   => trim((string) $request->get('brand', '')),
             'search'  => trim((string) $request->get('q', '')),
+            'division'=> strtoupper(trim((string) $request->get('division', ''))),
             'max'     => max(1, min(50, (int) $request->get('max', 2))),
         ];
     }
@@ -181,12 +185,146 @@ class ProductPerformanceController extends Controller
             $query->where('p.vendor', $filters['brand']);
         }
 
+        if (($filters['division'] ?? '') !== '') {
+            $filters['division'] === self::NO_DIVISION
+                ? $query->whereNull('p.division')
+                : $query->where('p.division', $filters['division']);
+        }
+
         if ($filters['search'] !== '') {
             $term = '%' . str_replace(['%', '_'], ['\%', '\_'], $filters['search']) . '%';
             $query->where(fn ($q) => $q->where('p.title', 'like', $term)->orWhere('p.sku', 'like', $term));
         }
 
         return $query;
+    }
+
+    /**
+     * Sales grouped by division — the first three letters and three digits of
+     * the SKU — for each website. One row per website and division, so the
+     * same code on two websites is two rows, never added together.
+     */
+    public function divisions(Request $request)
+    {
+        $filters = $this->filters($request);
+        $all     = $this->divisionRows($filters);
+        $page    = LengthAwarePaginator::resolveCurrentPage();
+
+        $rows = new LengthAwarePaginator(
+            $all->forPage($page, self::DIVISIONS_PER_PAGE)->values(),
+            $all->count(),
+            self::DIVISIONS_PER_PAGE,
+            $page,
+            ['path' => $request->url(), 'query' => $request->query()],
+        );
+
+        return view('product-performance.divisions', [
+            'filters'   => $filters,
+            'rows'      => $rows,
+            'topUnits'  => (int) $all->max('units'),
+            'totals'    => ['divisions' => $all->where('units', '>', 0)->count(), 'units' => (int) $all->sum('units')],
+            'summary'   => $this->summary($filters),
+            'brands'    => $this->brands($filters['stores']),
+            'choices'   => $filters['choices'],
+            'storeById' => $filters['choices']->keyBy('id'),
+            'ranges'    => self::RANGES,
+        ]);
+    }
+
+    public function divisionsDownload(Request $request): StreamedResponse
+    {
+        $filters   = $this->filters($request);
+        $rows      = $this->divisionRows($filters);
+        $storeById = $filters['choices']->keyBy('id');
+        $name      = sprintf('division-performance-%dd-%s.csv', $filters['days'], now()->format('Y-m-d'));
+
+        return response()->streamDownload(function () use ($rows, $storeById) {
+            $out = fopen('php://output', 'w');
+            fputcsv($out, ['Website', 'Division', 'Live products', 'Products sold', 'Units sold', 'Revenue', 'Currency', 'Stock']);
+
+            foreach ($rows as $row) {
+                $store = $storeById[$row['store_id']] ?? null;
+
+                fputcsv($out, [
+                    $store?->name,
+                    $row['division'],
+                    $row['products'],
+                    $row['sold'],
+                    $row['units'],
+                    number_format($row['revenue'], 2, '.', ''),
+                    $store?->sales_currency,
+                    $row['stock'],
+                ]);
+            }
+
+            fclose($out);
+        }, $name, ['Content-Type' => 'text/csv']);
+    }
+
+    /** What a SKU without the three-letters-three-digits start is filed under. */
+    public const NO_DIVISION = 'NONE';
+
+    /** @return Collection<int, array{store_id:int, division:string, products:int, stock:int, sold:int, units:int, revenue:float}> */
+    private function divisionRows(array $filters): Collection
+    {
+        $brand = fn ($q) => $filters['brand'] !== '' ? $q->where('p.vendor', $filters['brand']) : $q;
+
+        // What sold, from the sales side, so a product since deleted still
+        // counts — under no division, since its SKU is no longer known.
+        $sold = DB::query()
+            ->fromSub($this->sales($filters), 's')
+            ->leftJoin('store_products as p', fn ($j) => $j
+                ->on('p.store_id', '=', 's.store_id')
+                ->on('p.product_id', '=', 's.product_id'))
+            ->tap($brand)
+            ->groupBy('s.store_id', 'p.division')
+            ->select('s.store_id', 'p.division')
+            ->selectRaw('COUNT(*) as sold, SUM(s.units) as units, SUM(s.revenue) as revenue')
+            ->get();
+
+        // What is on the shelf, so a division that sold nothing still shows.
+        $catalogue = DB::table('store_products as p')
+            ->whereIn('p.store_id', $filters['stores']->whereNotNull('sales_synced_at')->pluck('id'))
+            ->where('p.status', 'active')
+            ->tap($brand)
+            ->groupBy('p.store_id', 'p.division')
+            ->select('p.store_id', 'p.division')
+            ->selectRaw('COUNT(*) as products, SUM(CASE WHEN p.total_inventory > 0 THEN p.total_inventory ELSE 0 END) as stock')
+            ->get();
+
+        // Keyed by website and division, so a code on two websites stays two rows.
+        $rows = [];
+        $slot = function ($r) use (&$rows): string {
+            $key = $r->store_id . '|' . ($r->division ?? '');
+
+            $rows[$key] ??= [
+                'store_id' => (int) $r->store_id,
+                'division' => $r->division ?? self::NO_DIVISION,
+                'products' => 0, 'stock' => 0, 'sold' => 0, 'units' => 0, 'revenue' => 0.0,
+            ];
+
+            return $key;
+        };
+
+        foreach ($catalogue as $r) {
+            $key = $slot($r);
+            $rows[$key]['products'] = (int) $r->products;
+            $rows[$key]['stock']    = (int) $r->stock;
+        }
+
+        foreach ($sold as $r) {
+            $key = $slot($r);
+            $rows[$key]['sold']    = (int) $r->sold;
+            $rows[$key]['units']   = (int) $r->units;
+            $rows[$key]['revenue'] = (float) $r->revenue;
+        }
+
+        $search = mb_strtoupper($filters['search']);
+
+        return collect($rows)
+            ->when($search !== '', fn ($c) => $c->filter(fn ($r) => str_contains($r['division'], $search)))
+            ->sortBy([['units', 'desc'], ['stock', 'desc'], ['division', 'asc']])
+            ->values();
     }
 
     /** @return array<string, string> "storeId|productId" => last day sold, any time on record */

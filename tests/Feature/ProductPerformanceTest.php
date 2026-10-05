@@ -315,4 +315,69 @@ class ProductPerformanceTest extends TestCase
         $this->assertSame(1, ProductSalesDaily::prune());
         $this->assertSame(1, ProductSalesDaily::count());
     }
+
+    public function test_division_is_the_first_three_letters_and_three_digits_of_the_sku(): void
+    {
+        $this->assertSame('GAT207', StoreProduct::divisionFromSku('GAT207LUG00325'));
+        $this->assertSame('GAT104', StoreProduct::divisionFromSku(' gat104abc '));
+        $this->assertSame('ANK547', StoreProduct::divisionFromSku('ANK547'));
+        $this->assertNull(StoreProduct::divisionFromSku('AB12345'));
+        $this->assertNull(StoreProduct::divisionFromSku('12ABC345'));
+        $this->assertNull(StoreProduct::divisionFromSku(null));
+    }
+
+    public function test_divisions_group_each_websites_products_by_sku_prefix(): void
+    {
+        $user  = $this->user();
+        $doha  = $this->store($user, 'Doha');
+        $other = $this->store($user, 'Outlet');
+
+        $this->product($doha, '1', ['sku' => 'GAT104LUG001', 'division' => 'GAT104']);
+        $this->product($doha, '2', ['sku' => 'GAT104LUG002', 'division' => 'GAT104']);
+        $this->product($doha, '3', ['sku' => 'WNG207BAG001', 'division' => 'WNG207', 'total_inventory' => 4]);
+        $this->product($doha, '4', ['sku' => 'X-100-RED', 'division' => null]);
+        $this->product($other, '5', ['sku' => 'GAT104LUG001', 'division' => 'GAT104']);
+
+        $this->sale($doha, '1', 3, revenue: 300);
+        $this->sale($doha, '2', 2, revenue: 200);
+        $this->sale($doha, '4', 1);
+        $this->sale($other, '5', 9);
+
+        $response = $this->actingAs($user)->get("/product-performance/divisions?store={$doha->id}")->assertOk();
+        $rows = collect($response->viewData('rows')->items());
+
+        $this->assertSame(
+            [['GAT104', 5, 2, 2], ['NONE', 1, 1, 1], ['WNG207', 0, 0, 1]],
+            $rows->map(fn ($r) => [$r['division'], $r['units'], $r['sold'], $r['products']])->all(),
+        );
+        $this->assertSame(500.0, $rows->first()['revenue']);
+
+        // Across websites the same code stays one row per website.
+        $all = collect($this->actingAs($user)->get('/product-performance/divisions')->viewData('rows')->items());
+        $this->assertSame([9, 5], $all->where('division', 'GAT104')->pluck('units')->values()->all());
+
+        // A division row opens the product list filtered to it.
+        $this->actingAs($user)->get("/product-performance?store={$doha->id}&division=GAT104")
+            ->assertSee('GAT104LUG001')->assertSee('GAT104LUG002')->assertDontSee('X-100-RED');
+    }
+
+    public function test_sync_files_each_product_under_its_division(): void
+    {
+        $user  = $this->user();
+        $store = $this->store($user);
+
+        $shopify = Mockery::mock(ShopifyService::class);
+        $shopify->shouldReceive('getShopSettings')->andReturn(['timezone' => 'UTC', 'currency' => 'QAR']);
+        $shopify->shouldReceive('exportProductsForPerformance')->andReturnUsing(function (string $path) {
+            @mkdir(dirname($path), 0775, true);
+            file_put_contents($path, json_encode(['id' => 'gid://shopify/Product/1', 'title' => 'Case', 'status' => 'ACTIVE']) . "\n"
+                . json_encode(['sku' => 'gat207lug00325', '__parentId' => 'gid://shopify/Product/1']) . "\n");
+            return true;
+        });
+        $shopify->shouldReceive('exportOrdersForPerformance')->andReturn(false);
+
+        (new ProductSalesSyncService(fn () => $shopify))->sync($store);
+
+        $this->assertSame('GAT207', StoreProduct::where('store_id', $store->id)->value('division'));
+    }
 }

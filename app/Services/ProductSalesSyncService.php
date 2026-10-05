@@ -124,6 +124,7 @@ class ProductSalesSyncService
                 'status'             => strtolower((string) ($p['status'] ?? 'active')),
                 'total_inventory'    => isset($p['totalInventory']) ? (int) $p['totalInventory'] : null,
                 'sku'                => $firstSku[$productId] ?? null,
+                'division'           => StoreProduct::divisionFromSku($firstSku[$productId] ?? null),
                 'image_url'          => $p['featuredImage']['url'] ?? null,
                 'shopify_created_at' => isset($p['createdAt']) ? Carbon::parse($p['createdAt']) : null,
                 'created_at'         => $now,

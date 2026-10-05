@@ -59,6 +59,8 @@ Route::middleware('auth')->group(function () {
     // than a revenue one.
     Route::get('/product-performance',          [ProductPerformanceController::class, 'index'])->name('product-performance.index');
     Route::get('/product-performance/download', [ProductPerformanceController::class, 'download'])->name('product-performance.download');
+    Route::get('/product-performance/divisions',          [ProductPerformanceController::class, 'divisions'])->name('product-performance.divisions');
+    Route::get('/product-performance/divisions/download', [ProductPerformanceController::class, 'divisionsDownload'])->name('product-performance.divisions.download');
     Route::post('/product-performance/refresh', [ProductPerformanceController::class, 'refresh'])->middleware('super-admin')->name('product-performance.refresh');
 
     // Bulk upload
