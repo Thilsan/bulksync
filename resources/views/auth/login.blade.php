@@ -103,12 +103,12 @@
             and nothing else.
         */
         :root {
-            --accent:      #d9a441;   /* soft gold */
-            --accent-hov:  #c8922e;
-            --accent-edge: #b07d22;
-            --accent-soft: #ecc778;
-            --accent-rgb:  217,164,65;
-            --on-accent:   #111111;
+            --accent:      #5f8c7a;   /* sage */
+            --accent-hov:  #527a69;
+            --accent-edge: #466b5b;
+            --accent-soft: #9dc2b2;
+            --accent-rgb:  95,140,122;
+            --on-accent:   #ffffff;
         }
         body { font-family: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif; background: #ffffff; }
         .font-display { font-family: "Newsreader", ui-serif, Georgia, serif; }

@@ -75,7 +75,7 @@
         <form method="POST" action="{{ route('ai-content.push', $aiContentSession) }}" id="pushForm">
             @csrf
 
-            <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+            <div class="bg-white rounded-xl border border-gray-200 shadow-sm">
                 <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
                     <div>
                         <h2 class="text-base font-semibold text-gray-800">Review Generated Content</h2>
@@ -307,10 +307,10 @@
                                             {{-- Tags come from the store's own vocabulary, keyed by category
                                                  and type — not from the model, which used to invent near-duplicates
                                                  of tags the store already had. --}}
-                                            <div class="rounded-lg border border-gray-200 overflow-hidden">
+                                            <div class="rounded-lg border border-gray-200">
 
                                                 {{-- Header: what this is, and the state of it at a glance --}}
-                                                <div class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5 border-b border-gray-100 bg-gray-50/70 px-3 py-2">
+                                                <div class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5 rounded-t-lg border-b border-gray-100 bg-gray-50/70 px-3 py-2">
                                                     <div class="flex items-center gap-2">
                                                         <svg class="h-3.5 w-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.8">
                                                             <path stroke-linecap="round" stroke-linejoin="round" d="M7 7h.01M7 3h5a2 2 0 011.41.59l7 7a2 2 0 010 2.82l-5 5a2 2 0 01-2.82 0l-7-7A2 2 0 013 10V5a2 2 0 012-2z"/>

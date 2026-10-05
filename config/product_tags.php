@@ -77,13 +77,9 @@ return [
                     'Women Dresses',
                 ],
 
-                'Blouses' => [
-                    'Blouse',
-                    'scat: Shirts & Blouses',
-                    'Women All Clothing Shirts & Blouses',
-                ],
-
-                'Shirts' => [
+                // One type: both shared the same two tags, and a blouse-only
+                // 'Blouse' tag would have mislabelled every shirt filed here.
+                'Shirts & Blouses' => [
                     'scat: Shirts & Blouses',
                     'Women All Clothing Shirts & Blouses',
                 ],

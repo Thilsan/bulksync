@@ -202,12 +202,12 @@
             and nothing else.
         */
         :root {
-            --accent:      #d9a441;   /* soft gold */
-            --accent-hov:  #c8922e;
-            --accent-edge: #b07d22;
-            --accent-soft: #ecc778;
-            --accent-rgb:  217,164,65;
-            --on-accent:   #111111;
+            --accent:      #5f8c7a;   /* sage */
+            --accent-hov:  #527a69;
+            --accent-edge: #466b5b;
+            --accent-soft: #9dc2b2;
+            --accent-rgb:  95,140,122;
+            --on-accent:   #ffffff;
         }
 
         /*
@@ -231,7 +231,8 @@
 
         .topbar {
             background:
-                linear-gradient(90deg, #5f8c7a 0%, #a9ae6c 24%, #5f8c7a 44%, #5f8c7a 68%, #5f8c7a 100%);
+                radial-gradient(520px 200px at 4% -60%, rgba(255,255,255,.14), transparent 70%),
+                linear-gradient(104deg, #1f6f8b 0%, #1a6480 46%, #2b4c85 100%);
         }
         .topbar::after {
             content: ''; position: absolute; inset: auto 0 0 0; height: 1px; pointer-events: none;
