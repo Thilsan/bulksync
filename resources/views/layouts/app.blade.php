@@ -328,8 +328,22 @@
             background-image: linear-gradient(180deg, rgba(255,255,255,.16), rgba(255,255,255,0) 60%);
         }
         main .bg-brand-600:hover {
-            box-shadow: 0 10px 24px -10px rgba(31,111,139,.62);
+            box-shadow: 0 10px 24px -10px rgba(251,212,76,.8);
         }
+
+        /* Buttons: yellow with black text. Avatars and other round brand
+           fills are left alone — only controls that are actually pressed. */
+        main :is(button, a, input[type="submit"]):is(.bg-brand-600, .bg-brand-500):not(.rounded-full),
+        header :is(button, a):is(.bg-brand-600, .bg-brand-500):not(.rounded-full) {
+            background-color: #fbd44c !important;
+            background-image: none !important;
+            color: #111111 !important;
+            border-color: #e8bd25;
+        }
+        main :is(button, a, input[type="submit"]):is(.bg-brand-600, .bg-brand-500):not(.rounded-full):hover:not(:disabled) {
+            background-color: #f5c72a !important;
+        }
+        main :is(button, a):is(.bg-brand-600, .bg-brand-500):not(.rounded-full) :is(svg, span) { color: inherit; }
 
         /* Tinted pills get a hairline of their own colour, so a status reads as
            a token rather than a coloured rectangle. */
@@ -644,7 +658,7 @@
         {{-- Brand --}}
         <div class="relative flex flex-col gap-3 px-4 pb-4 pt-5">
             <div class="flex items-start justify-between gap-2">
-                <span class="rounded-lg bg-white px-2 py-1 shadow-sm"><img src="{{ asset('aih_logo-1.png') }}" alt="Abuissa Holding" class="h-7 w-auto"></span>
+                <img src="{{ asset('aih_logo_whitegray-3.png') }}" alt="Abuissa Holding" class="h-9 w-auto">
                 <button type="button" @click="nav = false"
                         class="-mr-1 grid h-8 w-8 shrink-0 place-items-center rounded-lg text-white/60 transition hover:bg-white/10 hover:text-white lg:hidden"
                         aria-label="Close menu">

@@ -453,7 +453,7 @@
                 </label>
 
                 <button type="submit"
-                        class="w-full rounded-xl bg-brand-600 py-3 text-sm font-semibold text-white shadow-lg shadow-brand-600/25 transition hover:bg-brand-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2">
+                        class="w-full rounded-xl bg-[#fbd44c] py-3 text-sm font-semibold text-black shadow-lg shadow-[#fbd44c]/30 transition hover:bg-[#f5c72a] focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2">
                     Sign in
                 </button>
             </form>
