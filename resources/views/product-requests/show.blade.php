@@ -51,7 +51,7 @@
     $small   = 'inline-flex items-center gap-1.5 rounded-lg text-xs font-medium px-3 py-1.5 transition-colors';
 @endphp
 
-<div class="max-w-6xl mx-auto space-y-5"
+<div class="space-y-5"
      x-data="{
         tab: '{{ request()->has('skus') ? 'skus' : 'details' }}',
         editing: false,
@@ -139,10 +139,10 @@
         @endunless
     </div>
 
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-5 items-start">
+    <div class="grid grid-cols-1 lg:grid-cols-3 2xl:grid-cols-4 gap-5 items-start">
 
         {{-- ── Main column ────────────────────────────────────────────────── --}}
-        <div class="lg:col-span-2 space-y-5 min-w-0">
+        <div class="lg:col-span-2 2xl:col-span-3 space-y-5 min-w-0">
 
             {{-- Things that need an answer. One line each, only when relevant. --}}
             @if($request->status === \App\Models\ProductRequest::CANCELLED && $request->cancel_reason)
