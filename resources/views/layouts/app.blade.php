@@ -599,17 +599,8 @@
                 'gap'   => true,
                 'items' => [
                     ['label' => 'Management Dashboard', 'url' => route('orders.dashboard'), 'icon' => 'chart', 'on' => request()->routeIs('orders.*'), 'show' => $u->hasFeature('orders_dashboard')],
-                    [
-                        'label' => 'Product Performance',
-                        'url'   => route('product-performance.index'),
-                        'icon'  => 'trend',
-                        'on'    => request()->routeIs('product-performance.*'),
-                        'show'  => $u->hasFeature('product_performance'),
-                        // Parent links to the product list, so it isn't repeated here.
-                        'children' => [
-                            ['label' => 'Divisions', 'url' => route('product-performance.divisions'), 'on' => request()->routeIs('product-performance.divisions*')],
-                        ],
-                    ],
+                    // Divisions (product-performance.divisions) is built but hidden for now.
+                    ['label' => 'Product Performance', 'url' => route('product-performance.index'), 'icon' => 'trend', 'on' => request()->routeIs('product-performance.*'), 'show' => $u->hasFeature('product_performance')],
                     ['label' => 'Team Chart', 'url' => route('team.index'), 'icon' => 'team', 'on' => request()->routeIs('team.*')],
                 ],
             ],
