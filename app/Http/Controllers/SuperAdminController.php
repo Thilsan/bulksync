@@ -4,8 +4,10 @@ namespace App\Http\Controllers;
 
 use App\Models\ActivityLog;
 use App\Models\ProductRequest;
+use App\Models\ProductRequestActivity;
 use App\Models\Store;
 use App\Models\User;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -92,6 +94,79 @@ class SuperAdminController extends Controller
         $users = User::orderBy('name')->get(['id', 'name']);
 
         return view('super-admin.activity', compact('logs', 'users'));
+    }
+
+    /**
+     * The top bar's live ticker: who is doing what, newest first. Page views and
+     * sign-ins come from the activity log, workflow moves from the request
+     * history — the latter reads like news, the former like presence.
+     */
+    public function liveFeed(Request $request): JsonResponse
+    {
+        $viewerId = $request->user()->id;
+        $since    = now()->subDay();
+
+        $logs = ActivityLog::with('user:id,name')
+            ->whereIn('action', [ActivityLog::ACTION_PAGE_VIEW, ActivityLog::ACTION_LOGIN, ActivityLog::ACTION_LOGOUT])
+            ->whereNotNull('user_id')
+            ->where('user_id', '!=', $viewerId)
+            ->where('created_at', '>=', $since)
+            ->latest('created_at')->latest('id')
+            ->limit(80)
+            ->get()
+            ->map(fn (ActivityLog $log) => [
+                'id'   => "log-{$log->id}",
+                'user' => $log->user?->name ?? 'Someone',
+                'text' => match ($log->action) {
+                    ActivityLog::ACTION_LOGIN  => 'signed in',
+                    ActivityLog::ACTION_LOGOUT => 'signed out',
+                    default                    => 'is on ' . $log->description,
+                },
+                'kind' => $log->action,
+                'at'   => $log->created_at,
+                'url'  => null,
+                'key'  => "{$log->user_id}|{$log->action}|{$log->description}",
+            ]);
+
+        $moves = ProductRequestActivity::with(['user:id,name', 'productRequest:id,reference'])
+            ->whereNotNull('user_id')
+            ->where('user_id', '!=', $viewerId)
+            ->where('created_at', '>=', $since)
+            ->latest('created_at')->latest('id')
+            ->limit(30)
+            ->get()
+            ->map(fn (ProductRequestActivity $move) => [
+                'id'   => "pcr-{$move->id}",
+                'user' => $move->actorName(),
+                'text' => trim(lcfirst($move->description) . ($move->productRequest ? " · {$move->productRequest->reference}" : '')),
+                'kind' => 'request',
+                'at'   => $move->created_at,
+                'url'  => $move->productRequest ? route('product-requests.show', $move->product_request_id) : null,
+                'key'  => "pcr-{$move->id}",
+            ]);
+
+        // A refresh or a back-and-forth between two tabs would otherwise fill the
+        // strip with the same line; keep only the latest of each repeat.
+        $items = $logs->concat($moves)
+            ->sortByDesc('at')
+            ->unique('key')
+            ->take(25)
+            ->map(fn (array $item) => [
+                'id'   => $item['id'],
+                'user' => $item['user'],
+                'text' => $item['text'],
+                'kind' => $item['kind'],
+                'ago'  => $item['at']->diffForHumans(short: true),
+                'url'  => $item['url'],
+            ])
+            ->values();
+
+        $online = ActivityLog::where('created_at', '>=', now()->subMinutes(10))
+            ->whereNotNull('user_id')
+            ->distinct()
+            ->count('user_id');
+
+        return response()->json(['online' => $online, 'items' => $items]);
     }
 
     public function storeUser(Request $request): RedirectResponse
