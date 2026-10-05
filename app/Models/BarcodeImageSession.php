@@ -93,6 +93,12 @@ class BarcodeImageSession extends Model
                 : ['label' => 'IP blocked', 'colour' => 'red'];
         }
 
+        // Finished, but with not one picture: a green "Completed" next to a
+        // zero reads as success.
+        if ($this->status === 'completed' && (int) $this->total_barcodes > 0 && (int) $this->found_count === 0) {
+            return ['label' => 'Nothing found', 'colour' => 'amber'];
+        }
+
         $colours = ['pending' => 'gray', 'running' => 'brand', 'completed' => 'green', 'failed' => 'red'];
 
         return [

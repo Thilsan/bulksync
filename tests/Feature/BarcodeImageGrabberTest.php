@@ -794,6 +794,55 @@ class BarcodeImageGrabberTest extends TestCase
         $this->assertSame(['label' => 'Completed', 'colour' => 'green'], $session->statusBadge());
     }
 
+    public function test_a_finished_run_with_no_pictures_does_not_read_as_a_green_completed(): void
+    {
+        $session = BarcodeImageSession::create([
+            'user_id'        => $this->operator()->id,
+            'site_url'       => 'https://shop.test',
+            'status'         => 'completed',
+            'total_barcodes' => 41,
+        ]);
+
+        $this->assertSame(['label' => 'Nothing found', 'colour' => 'amber'], $session->statusBadge());
+    }
+
+    public function test_the_recheck_marks_an_old_run_against_a_refusing_site_as_blocked(): void
+    {
+        $block = '<html><head><title>Attention Required! | Cloudflare</title></head>'
+            . '<body><div id="cf-error-details">blocked</div></body></html>';
+
+        Http::fake([
+            '*blocked.test/' => Http::response('<html><body>Welcome</body></html>'),
+            '*blocked.test/*' => Http::response($block, 403),
+            '*' => Http::response('<p>Nothing found.</p>'),
+        ]);
+
+        $user = $this->operator();
+
+        $old = BarcodeImageSession::create([
+            'user_id' => $user->id, 'site_url' => 'https://blocked.test',
+            'status' => 'completed', 'total_barcodes' => 2, 'missing_count' => 2,
+        ]);
+        $old->items()->createMany([
+            ['barcode' => '1001', 'status' => 'not_found'],
+            ['barcode' => '1002', 'status' => 'not_found'],
+        ]);
+
+        $honest = BarcodeImageSession::create([
+            'user_id' => $user->id, 'site_url' => 'https://open.test',
+            'status' => 'completed', 'total_barcodes' => 1, 'missing_count' => 1,
+        ]);
+        $honest->items()->create(['barcode' => '2001', 'status' => 'not_found']);
+
+        $this->artisan('barcode-images:recheck-blocks')->assertSuccessful();
+
+        $this->assertSame('IP blocked', $old->refresh()->statusBadge()['label']);
+        $this->assertSame(2, $old->blocked_count);
+        $this->assertSame(2, $old->items()->where('status', 'blocked')->count());
+
+        $this->assertSame('Nothing found', $honest->refresh()->statusBadge()['label']);
+    }
+
     public function test_a_run_stopped_because_every_site_refused_reads_as_ip_blocked(): void
     {
         $session = BarcodeImageSession::create([
