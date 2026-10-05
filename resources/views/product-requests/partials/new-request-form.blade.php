@@ -11,7 +11,10 @@
           until the fade ends. This only holds the panel open while its
           children animate out. --}}
      x-transition:leave="duration-200"
-     class="fixed inset-x-0 bottom-0 lg:left-64 z-30 flex">
+     {{-- !animate-none: the layout's page-load "rise" (main > * > *) would
+          otherwise replay on every open — sliding the panel 10px down from
+          the top bar and fading it, which also holds back the blur. --}}
+     class="fixed inset-x-0 bottom-0 lg:left-64 z-30 flex !animate-none">
 
     {{-- The glass: fades and blurs in together. It never moves — moving a blurred layer stutters. --}}
     <div class="absolute inset-0 bg-white/40 backdrop-blur-2xl backdrop-saturate-150" @click="newRequestOpen = false"
@@ -28,23 +31,16 @@
         <div class="px-4 sm:px-6 py-4 bg-white/60 border-b border-white/60 shrink-0">
             <div class="max-w-6xl mx-auto flex items-center justify-between">
                 <h2 class="text-base font-semibold text-gray-900">New Product Creation Request</h2>
-                {{-- Actions live up here, Shopify-style: always in view, never under the chat button. --}}
-                <div class="flex items-center gap-3">
-                    <button type="submit" form="new-request-form"
-                            class="text-white text-sm font-medium px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 shadow-sm transition-colors">
-                        Submit request
-                    </button>
-                    <button type="button" @click="newRequestOpen = false" aria-label="Close" title="Close"
-                            class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-red-50 text-red-600 ring-1 ring-red-100 transition-colors hover:bg-red-600 hover:text-white hover:ring-red-600 focus:outline-none focus:ring-2 focus:ring-red-400">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"/>
-                        </svg>
-                    </button>
-                </div>
+                <button type="button" @click="newRequestOpen = false" aria-label="Close" title="Close"
+                        class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-red-50 text-red-600 ring-1 ring-red-100 transition-colors hover:bg-red-600 hover:text-white hover:ring-red-600 focus:outline-none focus:ring-2 focus:ring-red-400">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </button>
             </div>
         </div>
 
-        <form id="new-request-form" method="POST" action="{{ route('product-requests.store') }}" enctype="multipart/form-data"
+        <form method="POST" action="{{ route('product-requests.store') }}" enctype="multipart/form-data"
               class="flex-1 flex flex-col min-h-0 overflow-clip"
               x-init="$watch('imageSource', () => clearLocationIfNotSupplier())"
               x-data="{
@@ -76,7 +72,7 @@
               }">
             @csrf
 
-            <div class="flex-1 min-h-0 overflow-y-auto px-4 pt-6 pb-24 sm:px-6">
+            <div class="flex-1 min-h-0 overflow-y-auto px-4 py-6 sm:px-6">
                 <div class="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-5 items-start">
 
                     <div class="lg:col-span-2 space-y-4">
@@ -287,6 +283,18 @@
                 </div>
             </div>
 
+            <div class="px-4 sm:px-6 py-3.5 bg-white/60 border-t border-white/60 shrink-0">
+                <div class="max-w-6xl mx-auto flex justify-end gap-3">
+                    <button type="button" @click="newRequestOpen = false"
+                            class="border border-gray-300 bg-white text-gray-700 text-sm font-medium px-4 py-2 rounded-lg hover:bg-gray-50 transition-colors">
+                        Cancel
+                    </button>
+                    <button type="submit"
+                            class="text-white text-sm font-medium px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 shadow-sm transition-colors">
+                        Submit request
+                    </button>
+                </div>
+            </div>
         </form>
     </div>
 </div>
