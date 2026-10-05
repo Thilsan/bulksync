@@ -5,33 +5,46 @@
 <div x-show="newRequestOpen" x-cloak @keydown.escape.window="newRequestOpen = false"
      {{-- Covers the page area only: the sidebar and top bar stay in view. --}}
      x-data="{ top: 0, measure() { const bar = document.querySelector('header.topbar'); this.top = bar ? bar.getBoundingClientRect().bottom : 0; } }"
-     x-effect="if (newRequestOpen) measure()" @resize.window="measure()"
+     x-init="measure()" x-effect="if (newRequestOpen) measure()" @resize.window="measure()"
      :style="`top: ${top}px`"
+     {{-- No opacity here: a fading parent stops the browser drawing the blur
+          until the fade ends. This only holds the panel open while its
+          children animate out. --}}
+     x-transition:leave="duration-200"
      class="fixed inset-x-0 bottom-0 lg:left-64 z-30 flex">
 
-    <div class="absolute inset-0 bg-slate-900/20" @click="newRequestOpen = false"
+    {{-- The glass: fades and blurs in together. It never moves — moving a blurred layer stutters. --}}
+    <div class="absolute inset-0 bg-white/40 backdrop-blur-2xl backdrop-saturate-150" @click="newRequestOpen = false"
          x-show="newRequestOpen"
-         x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
-         x-transition:leave="transition ease-in duration-150" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"></div>
+         x-transition:enter="transition-[opacity,backdrop-filter] ease-out duration-300" x-transition:enter-start="opacity-0 backdrop-blur-none" x-transition:enter-end="opacity-100 backdrop-blur-2xl"
+         x-transition:leave="transition-[opacity,backdrop-filter] ease-in duration-200" x-transition:leave-start="opacity-100 backdrop-blur-2xl" x-transition:leave-end="opacity-0 backdrop-blur-none"></div>
 
-    <div class="relative w-full h-full flex flex-col overflow-clip bg-white/40 backdrop-blur-2xl backdrop-saturate-150"
+    {{-- The form glides up a touch as the glass fades in. --}}
+    <div class="relative w-full h-full flex flex-col overflow-clip will-change-transform"
          x-show="newRequestOpen"
-         x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0 translate-y-4" x-transition:enter-end="opacity-100 translate-y-0"
-         x-transition:leave="transition ease-in duration-150" x-transition:leave-start="opacity-100 translate-y-0" x-transition:leave-end="opacity-0 translate-y-4">
+         x-transition:enter="transition ease-[cubic-bezier(.16,1,.3,1)] duration-500" x-transition:enter-start="opacity-0 translate-y-6" x-transition:enter-end="opacity-100 translate-y-0"
+         x-transition:leave="transition ease-in duration-200" x-transition:leave-start="opacity-100 translate-y-0" x-transition:leave-end="opacity-0 translate-y-3">
 
         <div class="px-4 sm:px-6 py-4 bg-white/60 border-b border-white/60 shrink-0">
             <div class="max-w-6xl mx-auto flex items-center justify-between">
                 <h2 class="text-base font-semibold text-gray-900">New Product Creation Request</h2>
-                <button type="button" @click="newRequestOpen = false" aria-label="Close" title="Close"
-                        class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-red-50 text-red-600 ring-1 ring-red-100 transition-colors hover:bg-red-600 hover:text-white hover:ring-red-600 focus:outline-none focus:ring-2 focus:ring-red-400">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"/>
-                    </svg>
-                </button>
+                {{-- Actions live up here, Shopify-style: always in view, never under the chat button. --}}
+                <div class="flex items-center gap-3">
+                    <button type="submit" form="new-request-form"
+                            class="text-white text-sm font-medium px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 shadow-sm transition-colors">
+                        Submit request
+                    </button>
+                    <button type="button" @click="newRequestOpen = false" aria-label="Close" title="Close"
+                            class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-red-50 text-red-600 ring-1 ring-red-100 transition-colors hover:bg-red-600 hover:text-white hover:ring-red-600 focus:outline-none focus:ring-2 focus:ring-red-400">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"/>
+                        </svg>
+                    </button>
+                </div>
             </div>
         </div>
 
-        <form method="POST" action="{{ route('product-requests.store') }}" enctype="multipart/form-data"
+        <form id="new-request-form" method="POST" action="{{ route('product-requests.store') }}" enctype="multipart/form-data"
               class="flex-1 flex flex-col min-h-0 overflow-clip"
               x-init="$watch('imageSource', () => clearLocationIfNotSupplier())"
               x-data="{
@@ -63,7 +76,7 @@
               }">
             @csrf
 
-            <div class="flex-1 min-h-0 overflow-y-auto px-4 py-6 sm:px-6">
+            <div class="flex-1 min-h-0 overflow-y-auto px-4 pt-6 pb-24 sm:px-6">
                 <div class="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-5 items-start">
 
                     <div class="lg:col-span-2 space-y-4">
@@ -274,18 +287,6 @@
                 </div>
             </div>
 
-            <div class="px-4 sm:px-6 py-3.5 bg-white/60 border-t border-white/60 shrink-0">
-                <div class="max-w-6xl mx-auto flex justify-end gap-3">
-                    <button type="button" @click="newRequestOpen = false"
-                            class="border border-gray-300 bg-white text-gray-700 text-sm font-medium px-4 py-2 rounded-lg hover:bg-gray-50 transition-colors">
-                        Cancel
-                    </button>
-                    <button type="submit"
-                            class="text-white text-sm font-medium px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 shadow-sm transition-colors">
-                        Submit request
-                    </button>
-                </div>
-            </div>
         </form>
     </div>
 </div>
