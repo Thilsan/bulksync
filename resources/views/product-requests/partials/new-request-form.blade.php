@@ -1,26 +1,55 @@
 {{--
-    "New Product Creation Request" modal.
+    "New Product Creation Request" panel, filling the page area.
     Expects the parent Alpine scope to expose `newRequestOpen`.
 --}}
 <div x-show="newRequestOpen" x-cloak @keydown.escape.window="newRequestOpen = false"
-     class="fixed inset-0 z-50 flex">
+     {{-- Covers the page area only: the sidebar and top bar stay in view. --}}
+     x-data="{
+         top: 0,
+         nudge: 0,
+         measure() {
+             const bar = document.querySelector('header.topbar');
+             const want = bar ? bar.getBoundingClientRect().bottom : 0;
+             this.top = want + this.nudge;
+             // Once it is on screen, check where it actually landed and remember
+             // any difference, so the next open is right from the first frame.
+             requestAnimationFrame(() => {
+                 if (!this.$el.getClientRects().length) return; // still hidden
+                 const off = want - this.$el.getBoundingClientRect().top;
+                 if (Math.abs(off) > 0.5) { this.nudge += off; this.top += off; }
+             });
+         },
+     }"
+     x-init="measure()" x-effect="if (newRequestOpen) measure()" @resize.window="measure()"
+     :style="{ top: top + 'px' }"
+     {{-- No opacity here: a fading parent stops the browser drawing the blur
+          until the fade ends. This only holds the panel open while its
+          children animate out. --}}
+     x-transition:leave="duration-200"
+     {{-- !animate-none: the layout's page-load "rise" (main > * > *) would
+          otherwise replay on every open — sliding the panel 10px down from
+          the top bar and fading it, which also holds back the blur. --}}
+     class="fixed inset-x-0 bottom-0 lg:left-64 z-30 flex !animate-none">
 
-    <div class="absolute inset-0 bg-gray-900/50" @click="newRequestOpen = false"
+    {{-- The glass: fades and blurs in together. It never moves — moving a blurred layer stutters. --}}
+    <div class="absolute inset-0 bg-white/40 backdrop-blur-2xl backdrop-saturate-150" @click="newRequestOpen = false"
          x-show="newRequestOpen"
-         x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
-         x-transition:leave="transition ease-in duration-150" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"></div>
+         x-transition:enter="transition-[opacity,backdrop-filter] ease-out duration-300" x-transition:enter-start="opacity-0 backdrop-blur-none" x-transition:enter-end="opacity-100 backdrop-blur-2xl"
+         x-transition:leave="transition-[opacity,backdrop-filter] ease-in duration-200" x-transition:leave-start="opacity-100 backdrop-blur-2xl" x-transition:leave-end="opacity-0 backdrop-blur-none"></div>
 
-    <div class="relative w-full h-full bg-white flex flex-col overflow-clip"
+    {{-- The form glides up a touch as the glass fades in. --}}
+    <div class="relative w-full h-full flex flex-col overflow-clip will-change-transform"
          x-show="newRequestOpen"
-         x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0 translate-y-4" x-transition:enter-end="opacity-100 translate-y-0"
-         x-transition:leave="transition ease-in duration-150" x-transition:leave-start="opacity-100 translate-y-0" x-transition:leave-end="opacity-0 translate-y-4">
+         x-transition:enter="transition ease-[cubic-bezier(.16,1,.3,1)] duration-500" x-transition:enter-start="opacity-0 translate-y-6" x-transition:enter-end="opacity-100 translate-y-0"
+         x-transition:leave="transition ease-in duration-200" x-transition:leave-start="opacity-100 translate-y-0" x-transition:leave-end="opacity-0 translate-y-3">
 
-        <div class="px-4 sm:px-6 py-4 bg-white border-b border-gray-200 shrink-0">
+        <div class="px-4 sm:px-6 py-4 bg-white/60 border-b border-white/60 shrink-0">
             <div class="max-w-6xl mx-auto flex items-center justify-between">
                 <h2 class="text-base font-semibold text-gray-900">New Product Creation Request</h2>
-                <button type="button" @click="newRequestOpen = false" class="text-gray-400 hover:text-gray-600 shrink-0">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                <button type="button" @click="newRequestOpen = false" aria-label="Close" title="Close"
+                        class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-red-50 text-red-600 ring-1 ring-red-100 transition-colors hover:bg-red-600 hover:text-white hover:ring-red-600 focus:outline-none focus:ring-2 focus:ring-red-400">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"/>
                     </svg>
                 </button>
             </div>
@@ -58,12 +87,12 @@
               }">
             @csrf
 
-            <div class="flex-1 min-h-0 overflow-y-auto bg-gray-100 px-4 py-6 sm:px-6">
+            <div class="flex-1 min-h-0 overflow-y-auto px-4 py-6 sm:px-6">
                 <div class="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-5 items-start">
 
                     <div class="lg:col-span-2 space-y-4">
                         {{-- Request: name + notes, the "title and description" of it --}}
-                        <section class="bg-white rounded-xl border border-gray-200 shadow-sm p-4 space-y-4">
+                        <section class="bg-white/90 rounded-xl border border-white shadow-[0_8px_30px_-12px_rgba(15,23,42,.18)] p-4 space-y-4">
                             <div>
                                 <label class="block text-sm text-gray-700 mb-1">Request name <span class="text-gray-400">(optional)</span></label>
                                 <input type="text" name="name" value="{{ old('name') }}" maxlength="255"
@@ -77,7 +106,7 @@
                         </section>
 
                         {{-- Products --}}
-                        <section class="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+                        <section class="bg-white/90 rounded-xl border border-white shadow-[0_8px_30px_-12px_rgba(15,23,42,.18)] p-4">
                             <h3 class="text-sm font-semibold text-gray-900 mb-3">Products</h3>
 
                             <label x-data="{ fileName: '', over: false }"
@@ -97,7 +126,7 @@
                         </section>
 
                         {{-- Images --}}
-                        <section class="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+                        <section class="bg-white/90 rounded-xl border border-white shadow-[0_8px_30px_-12px_rgba(15,23,42,.18)] p-4">
                             <h3 class="text-sm font-semibold text-gray-900 mb-3">Images</h3>
 
                             {{-- One answer, three real options. This used to be two yes/no
@@ -133,7 +162,7 @@
                         </section>
 
                         {{-- Content --}}
-                        <section class="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+                        <section class="bg-white/90 rounded-xl border border-white shadow-[0_8px_30px_-12px_rgba(15,23,42,.18)] p-4">
                             <h3 class="text-sm font-semibold text-gray-900 mb-3">Product descriptions</h3>
 
                             <div class="space-y-2">
@@ -160,7 +189,7 @@
                     </div>
 
                     <div class="space-y-4">
-                        <section class="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+                        <section class="bg-white/90 rounded-xl border border-white shadow-[0_8px_30px_-12px_rgba(15,23,42,.18)] p-4">
                             <div>
                                 <h3 class="text-sm font-semibold text-gray-900 mb-3">Website</h3>
                                 @if($stores->isEmpty())
@@ -176,7 +205,7 @@
                             </div>
                         </section>
 
-                        <section class="bg-white rounded-xl border border-gray-200 shadow-sm p-4 space-y-4">
+                        <section class="bg-white/90 rounded-xl border border-white shadow-[0_8px_30px_-12px_rgba(15,23,42,.18)] p-4 space-y-4">
                             <h3 class="text-sm font-semibold text-gray-900">Brand</h3>
                             <div>
                                 <input type="text" name="brand" value="{{ old('brand') }}" required placeholder="e.g. Mosafer" aria-label="Brand name" class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent">
@@ -203,15 +232,17 @@
                         </section>
 
                         {{-- Go-live --}}
-                        <section class="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+                        <section class="bg-white/90 rounded-xl border border-white shadow-[0_8px_30px_-12px_rgba(15,23,42,.18)] p-4">
                             <h3 class="text-sm font-semibold text-gray-900 mb-3">Go-live date</h3>
-                            <input type="datetime-local" name="online_launch_date" x-model="onlineDate" required class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent">
+                            @include('product-requests.partials.date-picker', [
+                                'name' => 'online_launch_date', 'model' => 'onlineDate', 'placeholder' => 'Pick a date',
+                            ])
                             <p x-show="onlineDate && onlineDate < todayIso" x-cloak class="text-sm text-amber-700 mt-2">
                                 This date is in the past.
                             </p>
                         </section>
 
-                        <section class="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+                        <section class="bg-white/90 rounded-xl border border-white shadow-[0_8px_30px_-12px_rgba(15,23,42,.18)] p-4">
                             <h3 class="text-sm font-semibold text-gray-900 mb-3">Priority</h3>
                             <div class="flex rounded-lg bg-gray-100 p-1 gap-1">
                                 @foreach(\App\Models\ProductRequest::PRIORITIES as $value => $label)
@@ -225,7 +256,7 @@
                         </section>
 
                         {{-- Team --}}
-                        <section class="bg-white rounded-xl border border-gray-200 shadow-sm p-4" x-data="{
+                        <section class="bg-white/90 rounded-xl border border-white shadow-[0_8px_30px_-12px_rgba(15,23,42,.18)] p-4" x-data="{
                                 allRoles: {{ Illuminate\Support\Js::from(collect(\App\Models\ProductRequest::assignableRoles())->map(fn ($label, $key) => ['key' => $key, 'label' => $label])->values()) }},
                                 // Only the roles this request will actually use: no shoot
                                 // means no coordinator, and no Cegid means no mapping.
@@ -269,7 +300,7 @@
                 </div>
             </div>
 
-            <div class="px-4 sm:px-6 py-3.5 bg-white border-t border-gray-200 shrink-0">
+            <div class="px-4 sm:px-6 py-3.5 bg-white/60 border-t border-white/60 shrink-0">
                 <div class="max-w-6xl mx-auto flex justify-end gap-3">
                     <button type="button" @click="newRequestOpen = false"
                             class="border border-gray-300 bg-white text-gray-700 text-sm font-medium px-4 py-2 rounded-lg hover:bg-gray-50 transition-colors">

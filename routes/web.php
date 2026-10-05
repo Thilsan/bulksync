@@ -213,6 +213,7 @@ Route::middleware('auth')->group(function () {
     Route::middleware('super-admin')->prefix('super-admin')->name('super-admin.')->group(function () {
         Route::get('/',                              [SuperAdminController::class, 'index'])->name('index');
         Route::get('/activity',                      [SuperAdminController::class, 'activity'])->name('activity');
+        Route::get('/live-feed',                     [SuperAdminController::class, 'liveFeed'])->name('live-feed');
         Route::post('/users',                        [SuperAdminController::class, 'storeUser'])->name('users.store');
         Route::post('/users/{user}/toggle',          [SuperAdminController::class, 'toggleUser'])->name('users.toggle');
         Route::post('/users/{user}/toggle-admin',    [SuperAdminController::class, 'toggleSuperAdmin'])->name('users.toggle-admin');

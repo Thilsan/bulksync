@@ -227,6 +227,22 @@
                 linear-gradient(104deg, #1f6f8b 0%, #1a6480 46%, #2b4c85 100%);
         }
 
+        /* Live ticker. The track holds the list twice, so sliding it by half lands
+           exactly where it started. Hover holds it still long enough to read or
+           click; the fade at each edge keeps names from being sliced mid-word. */
+        .ticker-viewport {
+            -webkit-mask-image: linear-gradient(90deg, transparent, #000 24px, #000 calc(100% - 24px), transparent);
+                    mask-image: linear-gradient(90deg, transparent, #000 24px, #000 calc(100% - 24px), transparent);
+        }
+        .ticker-track { animation: ticker var(--ticker-duration, 60s) linear infinite; }
+        .live-ticker:hover .ticker-track,
+        .live-ticker:focus-within .ticker-track { animation-play-state: paused; }
+        @keyframes ticker { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+        @media (prefers-reduced-motion: reduce) {
+            .ticker-track { animation: none; }
+            .ticker-viewport { overflow-x: auto; }
+        }
+
         /* A full-height scrollbar would cut the panel in half, so keep it hairline. */
         .nav-scroll { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.30) transparent; }
         .nav-scroll::-webkit-scrollbar { width: 6px; }
@@ -916,7 +932,7 @@
         {{-- Top bar --}}
         <header class="topbar relative z-20 flex shrink-0 items-center justify-between gap-3 px-4 py-2.5 transition-shadow sm:px-8"
                 :class="scrolled ? 'shadow-[0_10px_26px_-18px_rgba(18,58,74,.9)]' : ''">
-            <div class="flex min-w-0 items-center gap-3">
+            <div class="flex min-w-0 flex-1 items-center gap-3">
                 <button type="button" @click="nav = true"
                         class="-ml-1 grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-white/25 text-white/80 transition-colors hover:bg-white/15 hover:text-white lg:hidden"
                         aria-label="Open menu">
@@ -924,9 +940,74 @@
                         <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16"/>
                     </svg>
                 </button>
+
+                {{--
+                    Live ticker: what everyone else is doing, scrolling like a news
+                    strip. Admins only — the same data as the Activity Log, which is
+                    theirs alone. Covers the last 30 minutes and polls on its own, so
+                    people drop off without a page refresh; hidden tabs are skipped.
+                --}}
+                @if(auth()->user()->is_super_admin)
+                <div x-data="{
+                        online: 0,
+                        items: [],
+                        load() {
+                            if (document.hidden) return;
+                            fetch('{{ route('super-admin.live-feed') }}', { headers: { 'Accept': 'application/json' } })
+                                .then(r => r.ok ? r.json() : null)
+                                .then(data => { if (data) { this.online = data.online; this.items = data.items; } })
+                                .catch(() => {});
+                        },
+                     }"
+                     x-init="load(); setInterval(() => load(), 20000)"
+                     class="live-ticker hidden h-9 min-w-0 max-w-3xl flex-1 items-center overflow-hidden rounded-lg border border-white/15 bg-black/15 md:flex">
+                    <a href="{{ route('super-admin.activity') }}"
+                       class="flex h-full shrink-0 items-center gap-2 border-r border-white/15 bg-white/10 px-3 text-[11px] font-semibold uppercase tracking-wider text-white hover:bg-white/15"
+                       title="Open the full Activity Log">
+                        <span class="live-dot h-2 w-2 rounded-full" :class="online > 0 ? 'bg-emerald-400' : 'bg-red-400'"></span>
+                        Live
+                        <span class="font-medium normal-case tracking-normal text-white/60"
+                              x-text="online > 0 ? online + ' online' : 'offline'"></span>
+                    </a>
+
+                    <div class="ticker-viewport relative h-full min-w-0 flex-1 overflow-hidden">
+                        <p x-show="!items.length" class="flex h-full items-center px-3 text-xs text-white/55">
+                            Quiet for now — nobody else has been active in the last 30 minutes.
+                        </p>
+                        {{-- Rendered twice so the strip loops without a gap; the
+                             copy is hidden from screen readers. --}}
+                        <div x-show="items.length" x-cloak class="ticker-track flex h-full w-max items-center"
+                             :style="`--ticker-duration: ${Math.max(30, items.length * 6)}s`">
+                            <template x-for="copy in [0, 1]" :key="copy">
+                                <ul class="flex shrink-0 items-center" :aria-hidden="copy === 1">
+                                    <template x-for="item in items" :key="copy + item.id">
+                                        <li class="flex shrink-0 items-center gap-1.5 whitespace-nowrap px-4 text-xs text-white/80">
+                                            <span class="h-1.5 w-1.5 rounded-full"
+                                                  :class="{
+                                                      'bg-amber-300': item.kind === 'request',
+                                                      'bg-emerald-300': item.kind === 'login',
+                                                      'bg-white/40': item.kind === 'logout',
+                                                      'bg-sky-300': item.kind === 'page_view',
+                                                  }"></span>
+                                            <span class="font-semibold text-white" x-text="item.user"></span>
+                                            <template x-if="item.url">
+                                                <a :href="item.url" class="hover:text-white hover:underline" x-text="item.text"></a>
+                                            </template>
+                                            <template x-if="!item.url">
+                                                <span x-text="item.text"></span>
+                                            </template>
+                                            <span class="text-white/45" x-text="'· ' + item.ago"></span>
+                                        </li>
+                                    </template>
+                                </ul>
+                            </template>
+                        </div>
+                    </div>
+                </div>
+                @endif
             </div>
 
-            <div class="flex items-center gap-2">
+            <div class="flex shrink-0 items-center gap-2">
                 {{-- Store switcher --}}
                 @if($allStores->isNotEmpty())
                 <div x-data="{ open: false }" class="relative">
