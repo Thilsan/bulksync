@@ -2040,6 +2040,176 @@ class ShopifyService
             . '}}';
     }
 
+    // ── Product performance (bulk exports) ─────────────────────────────────
+
+    /** How long one bulk export may run before it is given up on. */
+    private const BULK_MAX_WAIT_SECONDS = 2400;
+
+    private const BULK_POLL_SECONDS = 5;
+
+    /**
+     * The shop's own timezone and currency. Sales are bucketed into days in the
+     * shop's timezone, so "yesterday" means what the team there means by it.
+     *
+     * @return array{timezone:string,currency:string}
+     */
+    public function getShopSettings(): array
+    {
+        $this->throttle();
+
+        $response = $this->http->post("admin/api/{$this->apiVersion}/graphql.json", [
+            'json' => ['query' => '{shop{ianaTimezone currencyCode}}'],
+        ]);
+
+        $data = json_decode((string) $response->getBody(), true);
+        $this->assertNoGraphQlErrors($data, 'getShopSettings');
+
+        return [
+            'timezone' => (string) ($data['data']['shop']['ianaTimezone'] ?? 'UTC'),
+            'currency' => (string) ($data['data']['shop']['currencyCode'] ?? 'USD'),
+        ];
+    }
+
+    /**
+     * Every product in the store, with its first variant's SKU, written to
+     * $path as Shopify's JSONL. Returns false when the store has no products.
+     */
+    public function exportProductsForPerformance(string $path): bool
+    {
+        return $this->runBulkExport(<<<'GQL'
+        {
+          products {
+            edges {
+              node {
+                id title handle vendor productType status totalInventory createdAt
+                featuredImage { url }
+                variants { edges { node { sku } } }
+              }
+            }
+          }
+        }
+        GQL, $path);
+    }
+
+    /**
+     * Every order created since $from, with its line items, written to $path as
+     * Shopify's JSONL. Returns false when there are no orders in range.
+     *
+     * A bulk export rather than paging: a year of orders with their line items
+     * is far past what a single GraphQL query may cost, and a bulk operation
+     * has no cost ceiling and no page cap. Without the read_all_orders scope
+     * Shopify silently returns only the last 60 days — the caller reads the
+     * earliest order date back rather than assuming the whole range arrived.
+     */
+    public function exportOrdersForPerformance(Carbon $from, string $path): bool
+    {
+        $since = $from->toIso8601String();
+
+        return $this->runBulkExport(<<<GQL
+        {
+          orders(query: "created_at:>='{$since}'") {
+            edges {
+              node {
+                id createdAt cancelledAt test
+                lineItems {
+                  edges {
+                    node {
+                      quantity
+                      product { id }
+                      discountedTotalSet { shopMoney { amount } }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+        GQL, $path);
+    }
+
+    /**
+     * Starts a bulk query, waits for it, and streams the result to $path.
+     * Shopify allows one bulk query per app per shop at a time, so one already
+     * running (say, a run that was killed mid-wait) is waited out first.
+     */
+    private function runBulkExport(string $query, string $path): bool
+    {
+        $mutation = 'mutation($q:String!){bulkOperationRunQuery(query:$q){bulkOperation{id status} userErrors{field message}}}';
+
+        for ($attempt = 0; $attempt < 2; $attempt++) {
+            $this->throttle();
+
+            $response = $this->http->post("admin/api/{$this->apiVersion}/graphql.json", [
+                'json' => ['query' => $mutation, 'variables' => ['q' => $query]],
+            ]);
+
+            $data = json_decode((string) $response->getBody(), true);
+            $this->assertNoGraphQlErrors($data, 'runBulkExport');
+
+            $userErrors = $data['data']['bulkOperationRunQuery']['userErrors'] ?? [];
+
+            if (empty($userErrors)) {
+                break;
+            }
+
+            $detail = implode('; ', array_map(fn ($e) => $e['message'] ?? 'unknown', $userErrors));
+
+            if ($attempt === 0 && stripos($detail, 'in progress') !== false) {
+                $this->waitForBulkOperation();
+                continue;
+            }
+
+            throw new \RuntimeException("Shopify refused the bulk export: {$detail}");
+        }
+
+        $operation = $this->waitForBulkOperation();
+
+        if (($operation['status'] ?? '') !== 'COMPLETED') {
+            $reason = $operation['errorCode'] ?? $operation['status'] ?? 'unknown';
+            throw new \RuntimeException("Shopify bulk export did not complete: {$reason}");
+        }
+
+        // A completed export with nothing in it has no file at all.
+        if (empty($operation['url'])) {
+            return false;
+        }
+
+        if (!is_dir(dirname($path))) {
+            mkdir(dirname($path), 0775, true);
+        }
+
+        (new Client(['timeout' => 900]))->get($operation['url'], ['sink' => $path]);
+
+        return true;
+    }
+
+    /** Polls the shop's current bulk query until it stops running, and returns it. */
+    private function waitForBulkOperation(): array
+    {
+        $deadline = time() + self::BULK_MAX_WAIT_SECONDS;
+
+        do {
+            $this->throttle();
+
+            $response = $this->http->post("admin/api/{$this->apiVersion}/graphql.json", [
+                'json' => ['query' => '{currentBulkOperation{id status errorCode objectCount url}}'],
+            ]);
+
+            $data = json_decode((string) $response->getBody(), true);
+            $this->assertNoGraphQlErrors($data, 'waitForBulkOperation');
+
+            $operation = $data['data']['currentBulkOperation'] ?? null;
+
+            if (!$operation || !in_array($operation['status'] ?? '', ['CREATED', 'RUNNING', 'CANCELING'], true)) {
+                return $operation ?? [];
+            }
+
+            sleep(self::BULK_POLL_SECONDS);
+        } while (time() < $deadline);
+
+        throw new \RuntimeException('Shopify bulk export was still running after ' . (self::BULK_MAX_WAIT_SECONDS / 60) . ' minutes.');
+    }
+
     // ── Connection test ────────────────────────────────────────────────────
 
     public function testConnection(): bool

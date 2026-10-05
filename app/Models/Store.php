@@ -9,7 +9,11 @@ class Store extends Model
 {
     protected $fillable = ['name', 'shopify_domain', 'shopify_client_id', 'shopify_client_secret', 'shopify_access_token', 'ga4_property_id', 'gsc_site_url', 'requires_sku_mapping', 'user_id'];
 
-    protected $casts = ['requires_sku_mapping' => 'boolean'];
+    protected $casts = [
+        'requires_sku_mapping' => 'boolean',
+        'sales_synced_at'      => 'datetime',
+        'sales_covered_from'   => 'date',
+    ];
 
     /** Websites this user may raise a product creation request against. */
     public static function selectableFor(User $user)

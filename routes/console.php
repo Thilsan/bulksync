@@ -403,3 +403,27 @@ $pruneActivityLogs = function () {
 };
 
 Schedule::call($pruneActivityLogs)->daily()->name('prune-activity-logs')->withoutOverlapping();
+
+// Product Performance reads each website's catalogue and the last two weeks of
+// orders overnight, so the page answers instantly in the day. One job per store
+// on 'maintenance': a year's backfill on a busy store takes minutes and must not
+// sit in front of a user's upload.
+Schedule::job(new \App\Jobs\SyncProductSalesJob, 'maintenance')
+    ->dailyAt('03:00')
+    ->name('sync-product-sales')
+    ->withoutOverlapping();
+
+// The daily sales table is the one part of Product Performance that grows every
+// day, and the export files it is built from are a whole year of orders each.
+// Rows go after a little over a year; files are deleted by the run that wrote
+// them, and swept here in case that run was killed before it could.
+$pruneProductSales = function () {
+    $rows  = \App\Models\ProductSalesDaily::prune();
+    $files = \App\Services\ProductSalesSyncService::sweepWorkFiles();
+
+    if ($rows > 0 || $files > 0) {
+        \Illuminate\Support\Facades\Log::info('Pruned product sales data', ['rows' => $rows, 'files' => $files]);
+    }
+};
+
+Schedule::call($pruneProductSales)->daily()->name('prune-product-sales')->withoutOverlapping();

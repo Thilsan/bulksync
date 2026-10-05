@@ -171,6 +171,7 @@
                                     'orders_dashboard' => 'Management Dashboard (company revenue)',
                                     'barcode_images'   => 'Barcode Image Grabber',
                                     'seo_audit'        => 'SEO Audit',
+                                    'product_performance' => 'Product Performance (sales by product)',
                                 ];
                             @endphp
                             @foreach($features as $key => $label)

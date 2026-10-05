@@ -23,6 +23,7 @@ use App\Http\Controllers\MetafieldUpdateController;
 use App\Http\Controllers\AiContentController;
 use App\Http\Controllers\PhotoEditorController;
 use App\Http\Controllers\PhotoshootRoomController;
+use App\Http\Controllers\ProductPerformanceController;
 use App\Http\Controllers\ProductRequestController;
 use App\Http\Controllers\QueueController;
 use Illuminate\Support\Facades\Route;
@@ -51,6 +52,14 @@ Route::middleware('auth')->group(function () {
     // than a module: the table is written into the view, so there is nothing
     // to query and nothing to keep in sync but the sheet it mirrors.
     Route::view('/team', 'team.index')->name('team.index');
+
+    // Best, low and non-selling products per website. Its own page rather than
+    // a tab on the management dashboard: it reads the nightly product-sales
+    // tables, not the orders endpoint, and answers a buyer's question rather
+    // than a revenue one.
+    Route::get('/product-performance',          [ProductPerformanceController::class, 'index'])->name('product-performance.index');
+    Route::get('/product-performance/download', [ProductPerformanceController::class, 'download'])->name('product-performance.download');
+    Route::post('/product-performance/refresh', [ProductPerformanceController::class, 'refresh'])->middleware('super-admin')->name('product-performance.refresh');
 
     // Bulk upload
     Route::get('/upload',           [BulkUploadController::class, 'dashboard'])->name('upload.dashboard');
