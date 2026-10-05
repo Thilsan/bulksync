@@ -202,12 +202,12 @@
             and nothing else.
         */
         :root {
-            --accent:      #f472b6;   /* rose */
-            --accent-hov:  #ec4fa0;
-            --accent-edge: #d6338a;
-            --accent-soft: #f9a8d4;
-            --accent-rgb:  244,114,182;
-            --on-accent:   #111111;
+            --accent:      #8b5cf6;   /* violet */
+            --accent-hov:  #7c3aed;
+            --accent-edge: #6d28d9;
+            --accent-soft: #c4b5fd;
+            --accent-rgb:  139,92,246;
+            --on-accent:   #ffffff;
         }
 
         /*
