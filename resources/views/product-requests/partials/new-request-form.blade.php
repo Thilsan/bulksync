@@ -3,32 +3,33 @@
     Expects the parent Alpine scope to expose `newRequestOpen`.
 --}}
 <div x-show="newRequestOpen" x-cloak @keydown.escape.window="newRequestOpen = false"
-     class="fixed inset-0 z-50 flex items-center justify-center p-4">
+     class="fixed inset-0 z-50 flex">
 
     <div class="absolute inset-0 bg-gray-900/50" @click="newRequestOpen = false"
          x-show="newRequestOpen"
          x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
          x-transition:leave="transition ease-in duration-150" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"></div>
 
-    <div class="relative w-full max-w-5xl max-h-[92vh] bg-white rounded-2xl shadow-2xl flex flex-col overflow-clip"
+    <div class="relative w-full h-full bg-white flex flex-col overflow-clip"
          x-show="newRequestOpen"
-         x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0 scale-95" x-transition:enter-end="opacity-100 scale-100"
-         x-transition:leave="transition ease-in duration-150" x-transition:leave-start="opacity-100 scale-100" x-transition:leave-end="opacity-0 scale-95">
+         x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0 translate-y-4" x-transition:enter-end="opacity-100 translate-y-0"
+         x-transition:leave="transition ease-in duration-150" x-transition:leave-start="opacity-100 translate-y-0" x-transition:leave-end="opacity-0 translate-y-4">
 
-        <div class="px-5 py-4 bg-white border-b border-gray-200 flex items-center justify-between shrink-0">
-            <h2 class="text-base font-semibold text-gray-900">New Product Creation Request</h2>
-            <button type="button" @click="newRequestOpen = false" class="text-gray-400 hover:text-gray-600 shrink-0">
-                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-                </svg>
-            </button>
+        <div class="px-4 sm:px-6 py-4 bg-white border-b border-gray-200 shrink-0">
+            <div class="max-w-6xl mx-auto flex items-center justify-between">
+                <h2 class="text-base font-semibold text-gray-900">New Product Creation Request</h2>
+                <button type="button" @click="newRequestOpen = false" class="text-gray-400 hover:text-gray-600 shrink-0">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </button>
+            </div>
         </div>
 
         <form method="POST" action="{{ route('product-requests.store') }}" enctype="multipart/form-data"
-              class="flex flex-col min-h-0 overflow-clip"
+              class="flex-1 flex flex-col min-h-0 overflow-clip"
               x-init="$watch('imageSource', () => clearLocationIfNotSupplier())"
               x-data="{
-                  skuInput: 'type',
                   useAi: '{{ old('use_ai_content', '1') }}',
                   imageSource: '{{ old('image_source', '') }}',
                   imagesAt: '{{ old('images_location', '') }}',
@@ -57,8 +58,8 @@
               }">
             @csrf
 
-            <div class="min-h-0 overflow-y-auto bg-gray-100 p-4 sm:p-5">
-                <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
+            <div class="flex-1 min-h-0 overflow-y-auto bg-gray-100 px-4 py-6 sm:px-6">
+                <div class="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-5 items-start">
 
                     <div class="lg:col-span-2 space-y-4">
                         {{-- Request: name + notes, the "title and description" of it --}}
@@ -77,31 +78,22 @@
 
                         {{-- Products --}}
                         <section class="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
-                            <div class="flex items-center justify-between gap-3 mb-3">
-                                <h3 class="text-sm font-semibold text-gray-900">Products</h3>
-                                <div class="flex rounded-lg bg-gray-100 p-1 gap-1">
-                                    <button type="button" @click="skuInput = 'type'"
-                                            :class="skuInput === 'type' ? 'bg-white text-gray-900 font-medium shadow-sm' : 'text-gray-600 hover:text-gray-900'"
-                                            class="rounded-md px-3 py-1 text-xs transition-colors">Type SKUs</button>
-                                    <button type="button" @click="skuInput = 'csv'"
-                                            :class="skuInput === 'csv' ? 'bg-white text-gray-900 font-medium shadow-sm' : 'text-gray-600 hover:text-gray-900'"
-                                            class="rounded-md px-3 py-1 text-xs transition-colors">Upload file</button>
-                                </div>
-                            </div>
+                            <h3 class="text-sm font-semibold text-gray-900 mb-3">Products</h3>
 
-                            <div x-show="skuInput === 'type'">
-                                <textarea name="skus" rows="5" placeholder="NB1001&#10;NB1002&#10;NB1003"
-                                          class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent font-mono resize-y">{{ old('skus') }}</textarea>
-                            </div>
-
-                            <div x-show="skuInput === 'csv'" x-cloak>
-                                <label x-data="{ fileName: '' }" class="relative flex flex-col items-center justify-center gap-1 cursor-pointer rounded-lg border-2 border-dashed border-gray-300 px-4 py-6 text-center hover:bg-gray-50 transition-colors">
-                                    <svg class="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
-                                    <span class="text-sm font-medium text-gray-700" x-text="fileName || 'Choose a CSV file'"></span>
-                                    <input type="file" name="sku_csv" accept=".csv,.txt" class="sr-only"
-                                           @change="fileName = $el.files[0]?.name || ''">
-                                </label>
-                            </div>
+                            <label x-data="{ fileName: '', over: false }"
+                                   @dragover.prevent="over = true" @dragleave.prevent="over = false"
+                                   @drop.prevent="over = false; $refs.skuCsv.files = $event.dataTransfer.files; fileName = $refs.skuCsv.files[0]?.name || ''"
+                                   class="relative flex flex-col items-center justify-center gap-1.5 cursor-pointer rounded-lg border-2 border-dashed px-4 py-8 text-center transition-colors"
+                                   :class="over ? 'border-brand-500 bg-brand-50' : (fileName ? 'border-brand-300 bg-brand-50/50' : 'border-gray-300 hover:bg-gray-50')">
+                                <svg class="w-7 h-7" :class="fileName ? 'text-brand-600' : 'text-gray-400'" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path x-show="!fileName" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
+                                    <path x-show="fileName" x-cloak stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                                </svg>
+                                <span class="text-sm font-medium text-gray-800" x-text="fileName || 'Upload SKU file'"></span>
+                                <span class="text-xs text-gray-400" x-text="fileName ? 'Click to change' : 'CSV · drag and drop or click'"></span>
+                                <input type="file" name="sku_csv" accept=".csv,.txt" x-ref="skuCsv" required class="sr-only"
+                                       @change="fileName = $el.files[0]?.name || ''">
+                            </label>
                         </section>
 
                         {{-- Images --}}
@@ -112,7 +104,8 @@
                                  questions that could contradict each other. --}}
                             <div class="space-y-2">
                                 @foreach(\App\Models\ProductRequest::selectableImageSources() as $value => $meta)
-                                    <label class="flex items-center gap-3 cursor-pointer rounded-lg border border-gray-200 px-3 py-2.5 transition-colors hover:bg-gray-50 has-[:checked]:border-brand-500 has-[:checked]:bg-brand-50/40">
+                                    <label class="flex items-center gap-3 cursor-pointer rounded-lg border px-3 py-2.5 transition-colors"
+                                           :class="imageSource === '{{ $value }}' ? 'border-brand-500 bg-brand-50' : 'border-gray-200 bg-white hover:bg-gray-50'">
                                         <input type="radio" name="image_source" value="{{ $value }}" x-model="imageSource" required class="text-brand-600 focus:ring-brand-500">
                                         <span class="text-sm text-gray-800">{{ $meta['label'] }}</span>
                                     </label>
@@ -144,11 +137,13 @@
                             <h3 class="text-sm font-semibold text-gray-900 mb-3">Product descriptions</h3>
 
                             <div class="space-y-2">
-                                <label class="flex items-center gap-3 cursor-pointer rounded-lg border border-gray-200 px-3 py-2.5 transition-colors hover:bg-gray-50 has-[:checked]:border-brand-500 has-[:checked]:bg-brand-50/40">
+                                <label class="flex items-center gap-3 cursor-pointer rounded-lg border px-3 py-2.5 transition-colors"
+                                       :class="useAi === '1' ? 'border-brand-500 bg-brand-50' : 'border-gray-200 bg-white hover:bg-gray-50'">
                                     <input type="radio" name="use_ai_content" value="1" x-model="useAi" required class="text-brand-600 focus:ring-brand-500">
                                     <span class="text-sm text-gray-800">Write them with AI</span>
                                 </label>
-                                <label class="flex items-center gap-3 cursor-pointer rounded-lg border border-gray-200 px-3 py-2.5 transition-colors hover:bg-gray-50 has-[:checked]:border-brand-500 has-[:checked]:bg-brand-50/40">
+                                <label class="flex items-center gap-3 cursor-pointer rounded-lg border px-3 py-2.5 transition-colors"
+                                       :class="useAi === '0' ? 'border-brand-500 bg-brand-50' : 'border-gray-200 bg-white hover:bg-gray-50'">
                                     <input type="radio" name="use_ai_content" value="0" x-model="useAi" class="text-brand-600 focus:ring-brand-500">
                                     <span class="text-sm text-gray-800">Brand team will send them</span>
                                 </label>
@@ -173,11 +168,10 @@
                                         You don't have access to any website yet. Ask an admin to grant store access before raising a request.
                                     </p>
                                 @else
-                                    <select name="store_id" x-model="storeId" required class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent">
-                                        @foreach($stores as $site)
-                                            <option value="{{ $site->id }}">{{ $site->name }}</option>
-                                        @endforeach
-                                    </select>
+                                    @include('product-requests.partials.pretty-select', [
+                                        'name' => 'store_id', 'model' => 'storeId', 'placeholder' => 'Select a website',
+                                        'options' => $stores->pluck('name', 'id'),
+                                    ])
                                 @endif
                             </div>
                         </section>
@@ -185,17 +179,14 @@
                         <section class="bg-white rounded-xl border border-gray-200 shadow-sm p-4 space-y-4">
                             <h3 class="text-sm font-semibold text-gray-900">Brand</h3>
                             <div>
-                                <label class="block text-sm text-gray-700 mb-1">Name</label>
-                                <input type="text" name="brand" value="{{ old('brand') }}" required placeholder="e.g. New Balance" class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent">
+                                <input type="text" name="brand" value="{{ old('brand') }}" required placeholder="e.g. Mosafer" aria-label="Brand name" class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent">
                             </div>
                             <div>
                                 <label class="block text-sm text-gray-700 mb-1">Category</label>
-                                <select name="category" x-model="category" required class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent">
-                                    <option value="">Select a category</option>
-                                    @foreach(\App\Models\ProductRequest::CATEGORIES as $category)
-                                        <option value="{{ $category }}" {{ old('category') === $category ? 'selected' : '' }}>{{ $category }}</option>
-                                    @endforeach
-                                </select>
+                                @include('product-requests.partials.pretty-select', [
+                                    'name' => 'category', 'model' => 'category', 'placeholder' => 'Select a category',
+                                    'options' => array_combine(\App\Models\ProductRequest::CATEGORIES, \App\Models\ProductRequest::CATEGORIES),
+                                ])
                             </div>
                             <div>
                                 <label class="block text-sm text-gray-700 mb-1">New to the website?</label>
@@ -278,15 +269,17 @@
                 </div>
             </div>
 
-            <div class="px-5 py-3.5 bg-white border-t border-gray-200 flex justify-end gap-3 shrink-0">
-                <button type="button" @click="newRequestOpen = false"
-                        class="border border-gray-300 bg-white text-gray-700 text-sm font-medium px-4 py-2 rounded-lg hover:bg-gray-50 transition-colors">
-                    Cancel
-                </button>
-                <button type="submit"
-                        class="text-white text-sm font-medium px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 shadow-sm transition-colors">
-                    Submit request
-                </button>
+            <div class="px-4 sm:px-6 py-3.5 bg-white border-t border-gray-200 shrink-0">
+                <div class="max-w-6xl mx-auto flex justify-end gap-3">
+                    <button type="button" @click="newRequestOpen = false"
+                            class="border border-gray-300 bg-white text-gray-700 text-sm font-medium px-4 py-2 rounded-lg hover:bg-gray-50 transition-colors">
+                        Cancel
+                    </button>
+                    <button type="submit"
+                            class="text-white text-sm font-medium px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 shadow-sm transition-colors">
+                        Submit request
+                    </button>
+                </div>
             </div>
         </form>
     </div>
