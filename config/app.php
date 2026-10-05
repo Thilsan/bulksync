@@ -123,4 +123,11 @@ return [
         'store' => env('APP_MAINTENANCE_STORE', 'database'),
     ],
 
+    /*
+    | The top bar's live activity ticker. Off until it is wanted back; set
+    | LIVE_TICKER=true to show it to super admins again.
+    */
+
+    'live_ticker' => (bool) env('LIVE_TICKER', false),
+
 ];

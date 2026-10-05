@@ -100,8 +100,19 @@ class LiveActivityFeedTest extends TestCase
         $this->assertSame([], $response->json('items'));
     }
 
+    public function test_ticker_stays_hidden_while_switched_off(): void
+    {
+        config(['app.live_ticker' => false]);
+
+        $this->actingAs($this->admin)->get(route('dashboard'))
+            ->assertOk()
+            ->assertDontSee(route('super-admin.live-feed'));
+    }
+
     public function test_feed_and_ticker_are_admin_only(): void
     {
+        config(['app.live_ticker' => true]);
+
         $this->actingAs($this->member)->getJson(route('super-admin.live-feed'))->assertForbidden();
 
         $this->actingAs($this->member)->get(route('dashboard'))

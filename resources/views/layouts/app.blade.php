@@ -947,7 +947,7 @@
                     theirs alone. Covers the last 30 minutes and polls on its own, so
                     people drop off without a page refresh; hidden tabs are skipped.
                 --}}
-                @if(auth()->user()->is_super_admin)
+                @if(config('app.live_ticker') && auth()->user()->is_super_admin)
                 <div x-data="{
                         online: 0,
                         items: [],
