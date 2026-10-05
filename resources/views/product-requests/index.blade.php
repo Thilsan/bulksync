@@ -43,44 +43,6 @@
         </div>
     </div>
 
-    {{--
-        Orientation, kept but cut to the bone. It used to be two five-step
-        ordered lists and a paragraph, open by default on an empty dashboard —
-        the stages are the pipeline above now, so what is left is the one thing
-        that picture cannot show: who does which part. Closed unless there is
-        nothing else on the page to look at yet.
-    --}}
-    <div class="rounded-xl border border-gray-200 bg-white shadow-sm"
-         x-data="{ how: {{ $stats['total'] === 0 ? 'true' : 'false' }} }">
-        <button type="button" @click="how = !how"
-                class="flex w-full items-center justify-between rounded-xl px-5 py-3 text-left transition-colors hover:bg-gray-50/70">
-            <span class="text-sm font-medium text-gray-600">How this works</span>
-            <svg :class="how ? 'rotate-180' : ''" class="h-4 w-4 shrink-0 text-gray-400 transition-transform"
-                 fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
-            </svg>
-        </button>
-
-        <div x-show="how" x-cloak class="border-t border-gray-100 px-5 py-4">
-            <p class="mb-3 text-[11px] font-semibold uppercase tracking-[.12em] text-gray-400">Who does what</p>
-            <div class="grid gap-3 sm:grid-cols-3">
-                @foreach([
-                    ['Brand Manager', 'Raises the request, supplies samples, approves the copy.', '#c084fc'],
-                    ['E-Commerce Team', 'Runs it end to end — images, copy, QA, publishing.', '#38bdf8'],
-                    ['Photoshoot Coordinator', 'Books the shoot, delivers website-ready images.', '#f59e0b'],
-                ] as [$team, $does, $colour])
-                    <div class="rounded-lg border border-gray-100 bg-gray-50/60 p-3">
-                        <p class="flex items-center gap-2 text-xs font-semibold text-gray-800">
-                            <span class="h-1.5 w-1.5 rounded-full" style="background-color: {{ $colour }}"></span>
-                            {{ $team }}
-                        </p>
-                        <p class="mt-1 text-xs leading-relaxed text-gray-500">{{ $does }}</p>
-                    </div>
-                @endforeach
-            </div>
-        </div>
-    </div>
-
     @include('product-requests.partials.stat-cards')
 
     {{-- Recent requests --}}

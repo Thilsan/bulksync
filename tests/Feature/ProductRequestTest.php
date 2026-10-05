@@ -3473,16 +3473,15 @@ class ProductRequestTest extends TestCase
         $this->assertStringNotContainsString($other->name, $html);
     }
 
-    public function test_the_dashboard_explains_the_process_to_newcomers(): void
+    public function test_the_dashboard_has_no_process_explainer(): void
     {
         $user = $this->ecommerceUser();
 
+        // Kept minimal for non-technical users: no "how this works" panel.
         $this->actingAs($user)->get(route('product-requests.index'))
             ->assertOk()
-            ->assertSee('How this works')
-            ->assertSee('Who does what')
-            // Supply Chain is retired, so the explainer names the roles that exist.
-            ->assertSee('Brand Manager')
+            ->assertDontSee('How this works')
+            ->assertDontSee('Who does what')
             ->assertDontSee('Supply Chain');
     }
 
