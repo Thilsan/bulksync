@@ -65,16 +65,16 @@
                 extend: {
                     colors: {
                         brand: {
-                            50:  '#fbf5f6',
-                            100: '#f6e7e9',
-                            200: '#ecccd2',
-                            300: '#dda6b0',
-                            400: '#c4707f',
-                            500: '#a44b5d',
-                            600: '#7b2d3b',
-                            700: '#67252f',
-                            800: '#551f28',
-                            900: '#3f1720',
+                            50:  '#f0f8fb',
+                            100: '#dceff5',
+                            200: '#bde0ec',
+                            300: '#8fc8dc',
+                            400: '#56a6c4',
+                            500: '#2f87a9',
+                            600: '#1f6f8b',
+                            700: '#1a5a73',
+                            800: '#174a5e',
+                            900: '#123a4a',
                             950: '#2c1016',
                         },
                         parch: {
@@ -105,7 +105,7 @@
             position: relative;
             background:
                 radial-gradient(1000px 520px at 12% -10%, rgba(220,212,196,.16), transparent 60%),
-                radial-gradient(760px 480px at 92% 105%, rgba(123,45,59,.34), transparent 62%),
+                radial-gradient(760px 480px at 92% 105%, rgba(31,111,139,.34), transparent 62%),
                 linear-gradient(160deg, #332e29 0%, #2b2723 45%, #191715 100%);
         }
         /* The weave, and the thread down the edge where the form begins. */
@@ -116,7 +116,7 @@
         }
         .showcase::after {
             content: ''; position: absolute; inset: 0 0 0 auto; width: 2px; pointer-events: none;
-            background: linear-gradient(180deg, transparent, rgba(123,45,59,.85) 22%, rgba(123,45,59,.35) 70%, transparent);
+            background: linear-gradient(180deg, transparent, rgba(31,111,139,.85) 22%, rgba(31,111,139,.35) 70%, transparent);
         }
         /* ---------- Slider ---------- */
         .slide {

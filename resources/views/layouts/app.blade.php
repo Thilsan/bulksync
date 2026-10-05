@@ -120,16 +120,16 @@
                     },
                     colors: {
                         brand: {
-                            50:  '#fbf5f6',
-                            100: '#f6e7e9',
-                            200: '#ecccd2',
-                            300: '#dda6b0',
-                            400: '#c4707f',
-                            500: '#a44b5d',
-                            600: '#7b2d3b',
-                            700: '#67252f',
-                            800: '#551f28',
-                            900: '#3f1720',
+                            50:  '#f0f8fb',
+                            100: '#dceff5',
+                            200: '#bde0ec',
+                            300: '#8fc8dc',
+                            400: '#56a6c4',
+                            500: '#2f87a9',
+                            600: '#1f6f8b',
+                            700: '#1a5a73',
+                            800: '#174a5e',
+                            900: '#123a4a',
                         },
                         /* The shell's cloth and ink. Warm through the whole
                            ramp — a grey neutral next to parchment reads as a
@@ -198,17 +198,17 @@
         /* One line of oxblood down the edge — the only colour on the cloth. */
         .app-sidebar::after {
             content: ''; position: absolute; inset: 0 0 0 auto; width: 1px; pointer-events: none;
-            background: linear-gradient(180deg, transparent, rgba(123,45,59,.55) 16%, rgba(123,45,59,.22) 64%, transparent);
+            background: linear-gradient(180deg, transparent, rgba(31,111,139,.55) 16%, rgba(31,111,139,.22) 64%, transparent);
         }
 
         .topbar {
             background:
                 radial-gradient(520px 200px at 4% -60%, rgba(255,255,255,.14), transparent 70%),
-                linear-gradient(104deg, #7b2d3b 0%, #6f2836 56%, #5f2230 100%);
+                linear-gradient(104deg, #1f6f8b 0%, #1a6480 56%, #2b4c85 100%);
         }
         .topbar::after {
             content: ''; position: absolute; inset: auto 0 0 0; height: 1px; pointer-events: none;
-            background: linear-gradient(90deg, rgba(243,239,231,.55), rgba(243,239,231,.18) 52%, transparent);
+            background: linear-gradient(90deg, rgba(221,192,134,.75), rgba(243,239,231,.2) 52%, transparent);
         }
 
         /* A full-height scrollbar would cut the panel in half, so keep it hairline. */
@@ -234,7 +234,8 @@
         body {
             background:
                 radial-gradient(880px 440px at 80% -14%, rgba(220,212,196,.35), transparent 68%),
-                radial-gradient(560px 380px at 100% 102%, rgba(123,45,59,.05), transparent 72%),
+                radial-gradient(560px 380px at 100% 102%, rgba(43,76,133,.07), transparent 72%),
+                radial-gradient(420px 300px at 0% 100%, rgba(201,164,91,.09), transparent 72%),
                 #faf8f4;
         }
 
@@ -255,7 +256,7 @@
         main .rounded-xl.bg-white:hover,
         main .rounded-2xl.bg-white:hover {
             box-shadow: 0 1px 2px rgba(15,23,42,.05), 0 22px 44px -26px rgba(15,23,42,.42);
-            border-color: rgba(123,45,59,.22);
+            border-color: rgba(31,111,139,.22);
         }
 
         /*
@@ -314,7 +315,7 @@
         main button, main a[class*="rounded-lg"] { transition: transform .12s ease, background-color .2s, color .2s, border-color .2s, box-shadow .2s; }
 
         /* Focus that is visible without being loud, everywhere. */
-        :focus-visible { outline: 2px solid #7b2d3b; outline-offset: 2px; border-radius: 6px; }
+        :focus-visible { outline: 2px solid #1f6f8b; outline-offset: 2px; border-radius: 6px; }
 
         /*
             ── Premium defaults every page inherits ─────────────────────────
@@ -328,7 +329,7 @@
             background-image: linear-gradient(180deg, rgba(255,255,255,.16), rgba(255,255,255,0) 60%);
         }
         main .bg-brand-600:hover {
-            box-shadow: 0 10px 24px -10px rgba(123,45,59,.62);
+            box-shadow: 0 10px 24px -10px rgba(31,111,139,.62);
         }
 
         /* Tinted pills get a hairline of their own colour, so a status reads as
@@ -375,7 +376,7 @@
         }
         .page-hero::after {
             content: ''; position: absolute; inset: 0 0 auto 0; height: 2px; pointer-events: none;
-            background: linear-gradient(90deg, #7b2d3b, rgba(123,45,59,.4) 48%, transparent 80%);
+            background: linear-gradient(90deg, #c9a45b, #1f6f8b 38%, rgba(43,76,133,.45) 70%, transparent);
         }
 
         /* Softer corners across the working area: closer to the hero's radius,
@@ -390,7 +391,7 @@
         */
         .spinner {
             border-radius: 9999px;
-            background: conic-gradient(from 0deg, transparent 0turn, #dda6b0 .5turn, #7b2d3b 1turn);
+            background: conic-gradient(from 0deg, transparent 0turn, #8fc8dc .5turn, #1f6f8b 1turn);
             -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 3px));
                     mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 3px));
             animation: spin 900ms linear infinite;
