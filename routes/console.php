@@ -388,7 +388,7 @@ $pruneSeoAudits = function () {
 Schedule::call($pruneSeoAudits)->daily()->name('prune-seo-audits')->withoutOverlapping();
 
 // Every page view writes an activity_logs row and nothing else ever removes
-// them. The live ticker reads a day back and the admin log is browsed by date;
+// them. The live ticker reads half an hour back and the admin log is browsed by date;
 // six months covers both with room to spare. Chunked so one run never holds a
 // long lock on a table every request writes to.
 $pruneActivityLogs = function () {

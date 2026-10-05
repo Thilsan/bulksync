@@ -944,7 +944,8 @@
                 {{--
                     Live ticker: what everyone else is doing, scrolling like a news
                     strip. Admins only — the same data as the Activity Log, which is
-                    theirs alone. Polls on its own and skips hidden tabs.
+                    theirs alone. Covers the last 30 minutes and polls on its own, so
+                    people drop off without a page refresh; hidden tabs are skipped.
                 --}}
                 @if(auth()->user()->is_super_admin)
                 <div x-data="{
@@ -963,15 +964,15 @@
                     <a href="{{ route('super-admin.activity') }}"
                        class="flex h-full shrink-0 items-center gap-2 border-r border-white/15 bg-white/10 px-3 text-[11px] font-semibold uppercase tracking-wider text-white hover:bg-white/15"
                        title="Open the full Activity Log">
-                        <span class="live-dot h-2 w-2 rounded-full bg-red-400"></span>
+                        <span class="live-dot h-2 w-2 rounded-full" :class="online > 0 ? 'bg-emerald-400' : 'bg-red-400'"></span>
                         Live
-                        <span class="font-medium normal-case tracking-normal text-white/60" x-show="online > 0" x-cloak
-                              x-text="online + ' online'"></span>
+                        <span class="font-medium normal-case tracking-normal text-white/60"
+                              x-text="online > 0 ? online + ' online' : 'offline'"></span>
                     </a>
 
                     <div class="ticker-viewport relative h-full min-w-0 flex-1 overflow-hidden">
                         <p x-show="!items.length" class="flex h-full items-center px-3 text-xs text-white/55">
-                            Quiet for now — nobody else has been active today.
+                            Quiet for now — nobody else has been active in the last 30 minutes.
                         </p>
                         {{-- Rendered twice so the strip loops without a gap; the
                              copy is hidden from screen readers. --}}

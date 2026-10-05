@@ -53,7 +53,7 @@ class LiveActivityFeedTest extends TestCase
     public function test_feed_leaves_out_the_viewer_old_entries_failed_logins_and_repeats(): void
     {
         $this->log($this->admin, ActivityLog::ACTION_PAGE_VIEW, 'Admin Panel');
-        $this->log($this->member, ActivityLog::ACTION_PAGE_VIEW, 'Stores', now()->subDays(2));
+        $this->log($this->member, ActivityLog::ACTION_PAGE_VIEW, 'Stores', now()->subMinutes(31));
         $this->log($this->member, ActivityLog::ACTION_LOGIN_FAILED, 'Failed login attempt for "x@example.com"');
         $this->log($this->member, ActivityLog::ACTION_PAGE_VIEW, 'Dashboard', now()->subMinutes(3));
         $this->log($this->member, ActivityLog::ACTION_PAGE_VIEW, 'Dashboard', now()->subMinute());
@@ -87,6 +87,17 @@ class LiveActivityFeedTest extends TestCase
 
         $this->assertSame("priority changed from Low to High · {$request->reference}", $item['text']);
         $this->assertSame(route('product-requests.show', $request->id), $item['url']);
+    }
+
+    public function test_nobody_counts_as_online_once_their_last_action_is_half_an_hour_old(): void
+    {
+        $this->log($this->admin, ActivityLog::ACTION_PAGE_VIEW, 'Admin Panel');
+        $this->log($this->member, ActivityLog::ACTION_PAGE_VIEW, 'Stores', now()->subMinutes(31));
+
+        $response = $this->actingAs($this->admin)->getJson(route('super-admin.live-feed'))->assertOk();
+
+        $this->assertSame(0, $response->json('online'));
+        $this->assertSame([], $response->json('items'));
     }
 
     public function test_feed_and_ticker_are_admin_only(): void

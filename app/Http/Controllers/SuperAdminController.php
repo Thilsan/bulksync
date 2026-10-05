@@ -104,7 +104,9 @@ class SuperAdminController extends Controller
     public function liveFeed(Request $request): JsonResponse
     {
         $viewerId = $request->user()->id;
-        $since    = now()->subDay();
+        // Only what is happening now: anything older than half an hour is
+        // history, and the Activity Log is where history lives.
+        $since    = now()->subMinutes(30);
 
         $logs = ActivityLog::with('user:id,name')
             ->whereIn('action', [ActivityLog::ACTION_PAGE_VIEW, ActivityLog::ACTION_LOGIN, ActivityLog::ACTION_LOGOUT])
@@ -161,8 +163,9 @@ class SuperAdminController extends Controller
             ])
             ->values();
 
-        $online = ActivityLog::where('created_at', '>=', now()->subMinutes(10))
+        $online = ActivityLog::where('created_at', '>=', $since)
             ->whereNotNull('user_id')
+            ->where('user_id', '!=', $viewerId)
             ->distinct()
             ->count('user_id');
 
