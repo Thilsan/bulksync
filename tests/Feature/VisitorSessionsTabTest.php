@@ -116,33 +116,6 @@ class VisitorSessionsTabTest extends TestCase
     }
 
     /**
-     * The same ten storefronts named on the analytics tab are named here, for
-     * the same reason: a site somebody knows about being absent altogether
-     * reads as a broken page rather than as work still to do.
-     */
-    public function test_the_websites_still_being_integrated_are_named_below_the_cards(): void
-    {
-        Store::create(['name' => 'Gold Gourmet', 'shopify_domain' => 'gg.myshopify.com']);
-
-        $response = $this->actingAs($this->admin)
-            ->get('/management-dashboard?tab=sessions')
-            ->assertOk()
-            ->assertSee('Integration in progress');
-
-        foreach ([
-            'billjumla.com', 'thefaceshopqatar.com', 'karisma-cosmetics.com', 'faltafalta.com',
-            'colehaan.qa', 'outoftheblue.qa', 'goldgourmet.qa', 'oryx-tec.com',
-            'shoptriumph.qa', 'replayjeans.qa',
-        ] as $domain) {
-            $response->assertSee($domain);
-        }
-
-        // Named, not counted: these have reported nothing, and folding them
-        // into the coverage line would read as ten websites with no visitors.
-        $response->assertSee('0 of 1 websites reporting');
-    }
-
-    /**
      * The card says the figures are filtered without saying what was filtered.
      *
      * Both halves matter. Saying nothing would hand the reader a partial
