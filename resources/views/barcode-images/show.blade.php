@@ -163,7 +163,8 @@
     <div class="rounded-xl border border-gray-200 bg-white p-5">
         <div class="mb-3 flex items-center justify-between text-sm">
             <span class="font-medium text-gray-700">
-                <span x-text="status === 'completed' ? 'Finished' : (status === 'failed' ? 'Failed' : 'Working through the list')"></span>
+                <span x-text="wasBlocked() ? badge.label : (status === 'completed' ? 'Finished' : (status === 'failed' ? 'Failed' : 'Working through the list'))"
+                      :class="wasBlocked() ? `text-${badge.colour}-700` : ''"></span>
             </span>
             <span class="figure text-gray-500">
                 <span x-text="processed"></span> of <span x-text="total"></span>
@@ -182,6 +183,11 @@
             <div>
                 <p class="text-[11px] font-medium uppercase tracking-[.12em] text-gray-400">Nothing found</p>
                 <p class="figure mt-1 text-2xl text-gray-500" x-text="missing"></p>
+                {{-- Part of "nothing found", said apart because those barcodes
+                     were never answered rather than answered with a no. --}}
+                <p x-show="blocked > 0" x-cloak class="mt-0.5 text-xs font-medium text-red-600">
+                    <span x-text="blocked"></span> of them blocked by the site
+                </p>
             </div>
             <div>
                 <p class="text-[11px] font-medium uppercase tracking-[.12em] text-gray-400">Images downloaded</p>
@@ -260,8 +266,8 @@
                                 <span class="rounded-full px-2 py-0.5 text-xs font-medium"
                                       :class="item.status === 'found'
                                           ? 'bg-green-100 text-green-700'
-                                          : (item.status === 'failed' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600')"
-                                      x-text="item.status === 'found' ? 'Downloaded' : (item.status === 'failed' ? 'Failed' : 'Not found')"></span>
+                                          : (item.status === 'failed' || item.status === 'blocked' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600')"
+                                      x-text="item.status === 'found' ? 'Downloaded' : (item.status === 'failed' ? 'Failed' : (item.status === 'blocked' ? 'IP blocked' : 'Not found'))"></span>
                                 <p x-show="item.message" class="mt-1 text-xs text-gray-400" x-text="item.message"></p>
                             </td>
                             <td class="px-5 py-3" x-show="push.status">
@@ -321,6 +327,8 @@ function barcodeGrab(sessionId, initialStatus) {
         total:     {{ $session->total_barcodes }},
         found:     {{ $session->found_count }},
         missing:   {{ $session->missing_count }},
+        blocked:   {{ $session->blocked_count }},
+        badge:     @js($session->statusBadge()),
         images:    {{ $session->images_downloaded }},
         error:     @js($session->error_message),
 
@@ -357,6 +365,12 @@ function barcodeGrab(sessionId, initialStatus) {
             }
         },
 
+        // The badge only reads "blocked" once the run is over, so this is
+        // false while it is still going.
+        wasBlocked() {
+            return this.badge.label === 'IP blocked' || this.badge.label === 'Partly blocked';
+        },
+
         busy() {
             const grabbing = this.status !== 'completed' && this.status !== 'failed';
             const pushing  = this.push.status === 'pending' || this.push.status === 'pushing';
@@ -374,6 +388,8 @@ function barcodeGrab(sessionId, initialStatus) {
             this.total     = data.total;
             this.found     = data.found;
             this.missing   = data.missing;
+            this.blocked   = data.blocked;
+            this.badge     = data.badge;
             this.images    = data.images;
             this.error     = data.error;
             this.push      = data.push;

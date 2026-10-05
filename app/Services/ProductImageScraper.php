@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use Illuminate\Http\Client\PendingRequest;
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -59,6 +60,9 @@ class ProductImageScraper
         'payment', 'visa', 'mastercard', 'paypal', 'badge', 'flag', 'avatar',
         'banner', 'no-image', 'noimage', 'blank', 'pixel', 'transparent',
     ];
+
+    /** The status of the last block page seen while looking one barcode up, if any. */
+    private ?int $blockedWith = null;
 
     private function client(): PendingRequest
     {
@@ -250,13 +254,9 @@ class ProductImageScraper
             return null; // Unreachable is a different problem, reported per barcode.
         }
 
-        if (!in_array($response->status(), [401, 403, 429, 503], true)) return null;
+        if (!$this->isBlockPage($response)) return null;
 
         $body = $response->body();
-
-        if (!preg_match('~cloudflare|cf-error-details|attention required|access denied|forbidden~i', $body)) {
-            return null;
-        }
 
         // The block page states the address it is refusing, which is the one
         // thing the shop needs in order to allow it.
@@ -269,6 +269,47 @@ class ProductImageScraper
             . 'is not at fault. Ask them to allow this server'
             . ($address ? " — its address is {$address}" : '')
             . ', or run the grab from a network they already accept.';
+    }
+
+    /**
+     * A security service's refusal rather than the site's own answer.
+     *
+     * A bare 403 or 503 can be the shop's own "not here", so the body has to
+     * say who is refusing. A 429 needs no such proof: it is the site saying
+     * this server has asked too often, whatever the page looks like.
+     */
+    private function isBlockPage(Response $response): bool
+    {
+        if ($response->status() === 429) return true;
+
+        if (!in_array($response->status(), [401, 403, 503], true)) return false;
+
+        return (bool) preg_match(
+            '~cloudflare|cf-error-details|attention required|access denied|forbidden|captcha~i',
+            $response->body(),
+        );
+    }
+
+    /**
+     * A page fetched while looking a barcode up, with a note made of any block.
+     *
+     * The check before a run reads the homepage only. A site that lets that
+     * through and refuses the search — or starts refusing a few dozen
+     * barcodes in — answers each lookup with a block page, which until now
+     * read as "not stocked" and finished the run as Completed with nothing in
+     * it. Noting it here lets the barcode say it was blocked instead.
+     */
+    private function fetch(string $url, ?array $query = null): Response
+    {
+        // Null, not an empty array: an empty one replaces the query string
+        // already in the address — "?q=1234" goes out as a bare /search.
+        $response = $this->client()->get($url, $query);
+
+        if ($this->isBlockPage($response)) {
+            $this->blockedWith = $response->status();
+        }
+
+        return $response;
     }
 
     /**
@@ -438,14 +479,19 @@ class ProductImageScraper
      * that barcode's pictures, so every confident match is read and the images
      * are merged into the one folder.
      *
-     * @return array{url: ?string, title: ?string, images: string[], matches: int}
+     * `blocked` is the status of a block page the site answered with along
+     * the way, so a miss that was really a refusal can be told apart.
+     *
+     * @return array{url: ?string, title: ?string, images: string[], matches: int, blocked: ?int}
      */
     public function forBarcode(string $site, string $barcode): array
     {
+        $this->blockedWith = null;
+
         $products = $this->findProducts($site, $barcode);
 
         if ($products === []) {
-            return ['url' => null, 'title' => null, 'images' => [], 'matches' => 0];
+            return ['url' => null, 'title' => null, 'images' => [], 'matches' => 0, 'blocked' => $this->blockedWith];
         }
 
         $images = [];
@@ -471,6 +517,7 @@ class ProductImageScraper
             'title'   => $title,
             'images'  => array_keys($images),
             'matches' => count($products),
+            'blocked' => $this->blockedWith,
         ];
     }
 
@@ -511,7 +558,7 @@ class ProductImageScraper
     /** Shopify's predictive search endpoint — it matches on barcode. */
     private function shopifySuggest(string $site, string $barcode): array
     {
-        $response = $this->client()->get("{$site}/search/suggest.json", [
+        $response = $this->fetch("{$site}/search/suggest.json", [
             'q'                 => $barcode,
             'resources[type]'   => 'product',
             'resources[limit]'  => 5,
@@ -557,7 +604,7 @@ class ProductImageScraper
     private function htmlSearch(string $site, string $barcode): array
     {
         foreach ($this->searchUrls($site, $barcode) as $page) {
-            $response = $this->client()->get($page);
+            $response = $this->fetch($page);
 
             if (!$response->successful()) continue;
 
@@ -583,7 +630,7 @@ class ProductImageScraper
         if ($handle === '') return [];
 
         foreach (["{$site}/products/{$handle}", "{$site}/product/{$handle}"] as $candidate) {
-            $response = $this->client()->get($candidate);
+            $response = $this->fetch($candidate);
 
             if ($response->successful() && $this->looksLikeProductPage($response->body())) {
                 return [['url' => $candidate, 'title' => null]];
@@ -750,7 +797,7 @@ class ProductImageScraper
     private function pageNames(string $url, string $core): bool
     {
         try {
-            $response = $this->client()->get($url);
+            $response = $this->fetch($url);
         } catch (\Throwable $e) {
             return false;
         }
@@ -795,7 +842,7 @@ class ProductImageScraper
             ];
         }
 
-        $response = $this->client()->get($productUrl);
+        $response = $this->fetch($productUrl);
 
         if (!$response->successful()) return ['title' => null, 'images' => []];
 
@@ -963,7 +1010,7 @@ class ProductImageScraper
 
         if (!str_contains($base, '/products/')) return $empty;
 
-        $response = $this->client()->get(rtrim($base, '/') . '.js');
+        $response = $this->fetch(rtrim($base, '/') . '.js');
 
         if (!$response->successful()) return $empty;
 

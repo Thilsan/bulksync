@@ -136,10 +136,7 @@
                 @else
                     <ul class="divide-y divide-gray-100">
                         @foreach($recent as $run)
-                            @php
-                                $colours = ['pending' => 'gray', 'running' => 'brand', 'completed' => 'green', 'failed' => 'red'];
-                                $c = $colours[$run->status] ?? 'gray';
-                            @endphp
+                            @php($badge = $run->statusBadge())
                             <li class="px-5 py-3.5">
                                 <div class="flex items-start justify-between gap-3">
                                     <div class="min-w-0">
@@ -153,8 +150,8 @@
                                             {{ $run->created_at->diffForHumans() }}
                                         </p>
                                     </div>
-                                    <span class="shrink-0 rounded-full bg-{{ $c }}-100 px-2 py-0.5 text-xs font-medium text-{{ $c }}-700">
-                                        {{ ucfirst($run->status) }}
+                                    <span class="shrink-0 rounded-full bg-{{ $badge['colour'] }}-100 px-2 py-0.5 text-xs font-medium text-{{ $badge['colour'] }}-700">
+                                        {{ $badge['label'] }}
                                     </span>
                                 </div>
                             </li>

@@ -733,6 +733,79 @@ class BarcodeImageGrabberTest extends TestCase
         $this->assertSame(0, $session->items()->count());
     }
 
+    /**
+     * The block the check up front cannot see: the homepage is let through,
+     * and every search behind it is answered with Cloudflare's block page.
+     * That finished as "Completed" with nothing found, which reads as a wrong
+     * list rather than a refused server.
+     */
+    public function test_a_site_that_blocks_the_search_but_not_the_homepage_is_reported_as_ip_blocked(): void
+    {
+        $block = '<html><head><title>Attention Required! | Cloudflare</title></head>'
+            . '<body><div id="cf-error-details">Sorry, you have been blocked</div></body></html>';
+
+        Http::fake([
+            '*shop.test/' => Http::response('<html><body>Welcome</body></html>'),
+            '*'           => Http::response($block, 403),
+        ]);
+
+        $session = BarcodeImageSession::create([
+            'user_id'      => $this->operator()->id,
+            'site_url'     => 'https://shop.test',
+            'status'       => 'pending',
+            'raw_barcodes' => "1001\n1002\n1003\n1004\n1005",
+        ]);
+
+        app(RunBarcodeImageDownloadJob::class, ['sessionId' => $session->id])
+            ->handle(app(ProductImageScraper::class));
+
+        $session->refresh();
+
+        $this->assertSame('completed', $session->status);
+        $this->assertSame(5, $session->blocked_count);
+        $this->assertSame(['label' => 'IP blocked', 'colour' => 'red'], $session->statusBadge());
+        $this->assertSame(5, $session->items()->where('status', 'blocked')->count());
+
+        // Dropped after refusing three barcodes running, rather than being
+        // asked for the rest of the list.
+        $this->assertSame('blocked', $session->issueWith('https://shop.test')['kind'] ?? null);
+        $this->assertStringContainsString('Not looked up', (string) $session->items()->where('barcode', '1005')->value('message'));
+
+        $this->actingAs($session->user)
+            ->get(route('barcode-images.history'))
+            ->assertOk()
+            ->assertSee('IP blocked');
+    }
+
+    public function test_a_run_blocked_on_one_site_but_finding_pictures_on_another_is_partly_blocked(): void
+    {
+        $session = BarcodeImageSession::create([
+            'user_id'       => $this->operator()->id,
+            'site_url'      => 'https://open.test',
+            'status'        => 'completed',
+            'found_count'   => 3,
+            'blocked_count' => 2,
+        ]);
+
+        $this->assertSame('Partly blocked', $session->statusBadge()['label']);
+
+        $session->update(['blocked_count' => 0]);
+
+        $this->assertSame(['label' => 'Completed', 'colour' => 'green'], $session->statusBadge());
+    }
+
+    public function test_a_run_stopped_because_every_site_refused_reads_as_ip_blocked(): void
+    {
+        $session = BarcodeImageSession::create([
+            'user_id'     => $this->operator()->id,
+            'site_url'    => 'https://shop.test',
+            'status'      => 'failed',
+            'site_issues' => ['https://shop.test' => ['label' => 'Blocked', 'kind' => 'blocked', 'why' => 'Refused.']],
+        ]);
+
+        $this->assertSame('IP blocked', $session->statusBadge()['label']);
+    }
+
     /** A grid of tiles, each naming its own article and linking by internal id. */
     private function nextJsSearchPage(string $searchedFor, array $tiles): string
     {

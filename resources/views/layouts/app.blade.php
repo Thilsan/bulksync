@@ -416,9 +416,8 @@
         /*
             The page hero. Same petrol as the sidebar so the shell reads as one
             piece, lit from the top-left, with the champagne thread along its
-            upper edge and a weave of hairlines for texture — the thing that
-            separates a premium surface from a coloured rectangle is that it
-            catches light unevenly.
+            upper edge — the thing that separates a premium surface from a
+            coloured rectangle is that it catches light unevenly.
         */
         .page-hero {
             position: relative;
@@ -428,11 +427,6 @@
             background:
                 linear-gradient(90deg, #303132 0%, #33475f 30%, #38598a 54%, #55768a 62%, #739078 73%, #6a8f7c 100%);
             box-shadow: 0 18px 40px -28px rgba(25,40,60,.85);
-        }
-        .page-hero::before {
-            content: ''; position: absolute; inset: 0; pointer-events: none;
-            background-image: repeating-linear-gradient(115deg, rgba(243,239,231,.045) 0 1px, transparent 1px 22px);
-            mask-image: linear-gradient(105deg, #000, transparent 62%);
         }
         .page-hero::after {
             content: ''; position: absolute; inset: 0 0 auto 0; height: 2px; pointer-events: none;

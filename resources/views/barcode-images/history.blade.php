@@ -45,10 +45,7 @@
             </thead>
             <tbody class="divide-y divide-gray-100">
                 @foreach($sessions as $session)
-                    @php
-                        $colours = ['pending' => 'gray', 'running' => 'brand', 'completed' => 'green', 'failed' => 'red'];
-                        $c = $colours[$session->status] ?? 'gray';
-                    @endphp
+                    @php($badge = $session->statusBadge())
                     <tr class="transition-colors hover:bg-gray-50">
                         <td class="px-6 py-3 text-gray-600">{{ $session->created_at->format('d M Y, h:i A') }}</td>
                         <td class="px-6 py-3 text-gray-800">{{ $session->name ?: '—' }}</td>
@@ -60,8 +57,8 @@
                         <td class="px-6 py-3 text-center font-medium text-green-600">{{ number_format($session->found_count) }}</td>
                         <td class="px-6 py-3 text-center text-gray-700">{{ number_format($session->images_downloaded) }}</td>
                         <td class="px-6 py-3">
-                            <span class="inline-flex items-center rounded-full bg-{{ $c }}-100 px-2 py-0.5 text-xs font-medium text-{{ $c }}-700">
-                                {{ ucfirst($session->status) }}
+                            <span class="inline-flex items-center rounded-full bg-{{ $badge['colour'] }}-100 px-2 py-0.5 text-xs font-medium text-{{ $badge['colour'] }}-700">
+                                {{ $badge['label'] }}
                             </span>
                         </td>
                         <td class="px-6 py-3">

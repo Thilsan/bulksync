@@ -42,6 +42,13 @@ class RunBarcodeImageDownloadJob implements ShouldQueue
     /** The least this waits between requests to one site, where it asks for nothing more. */
     private const PAUSE_MICROSECONDS = 300_000;
 
+    /**
+     * Barcodes in a row a site may refuse before it is left out of the rest
+     * of the run. Once a security service has decided against this server,
+     * asking it two thousand more times only digs the block in deeper.
+     */
+    private const BLOCKS_BEFORE_GIVING_UP = 3;
+
     public function __construct(public readonly int $sessionId) {}
 
     public function handle(ProductImageScraper $scraper): void
@@ -134,11 +141,15 @@ class RunBarcodeImageDownloadJob implements ShouldQueue
         $processed  = 0;
         $found      = 0;
         $missing    = 0;
+        $blocked    = 0;
         $downloaded = 0;
 
         // When each site may next be asked, so the wait one site requests does
         // not hold up the others.
         $nextTurn = array_fill_keys(array_keys($usable), 0.0);
+
+        // How many barcodes in a row each site has answered with a block page.
+        $strikes = array_fill_keys(array_keys($usable), 0);
 
         try {
             foreach ($barcodes as $barcode) {
@@ -148,9 +159,9 @@ class RunBarcodeImageDownloadJob implements ShouldQueue
                     'status'                   => 'pending',
                 ]);
 
-                $attempt = $this->firstSiteWithPictures(
-                    $scraper, $session, $barcode, $usable, $nextTurn
-                );
+                $attempt = $usable === []
+                    ? $this->everySiteGaveUpOn()
+                    : $this->firstSiteWithPictures($scraper, $session, $barcode, $usable, $nextTurn, $strikes);
 
                 $processed++;
 
@@ -161,14 +172,43 @@ class RunBarcodeImageDownloadJob implements ShouldQueue
                     $missing++;
                 }
 
+                if ($attempt['item']['status'] === 'blocked') $blocked++;
+
                 $item->update($attempt['item']);
 
-                $session->update([
+                $update = [
                     'processed'         => $processed,
                     'found_count'       => $found,
                     'missing_count'     => $missing,
+                    'blocked_count'     => $blocked,
                     'images_downloaded' => $downloaded,
-                ]);
+                ];
+
+                // A site that has refused several barcodes running is dropped
+                // from the rest of the run, and recorded the same way as one
+                // the check up front caught.
+                foreach ($strikes as $site => $count) {
+                    if ($count < self::BLOCKS_BEFORE_GIVING_UP) continue;
+
+                    unset($usable[$site], $strikes[$site]);
+
+                    $refused[$site] = [
+                        'label' => 'Blocked',
+                        'kind'  => 'blocked',
+                        'why'   => 'This site started refusing this server part way through the run: its security '
+                            . 'service answered ' . self::BLOCKS_BEFORE_GIVING_UP . ' barcodes in a row with a block '
+                            . 'page, so it was not asked again. The barcodes it refused are marked Blocked — the list '
+                            . 'is not at fault. Ask them to allow this server, or run the grab from a network they '
+                            . 'already accept.',
+                    ];
+
+                    Log::info("RunBarcodeImageDownloadJob: dropping {$site} mid-run — blocked");
+
+                    $update['site_issues']   = $refused;
+                    $update['error_message'] = $this->whySomeWereSkipped($refused);
+                }
+
+                $session->update($update);
             }
 
             $session->update([
@@ -199,8 +239,14 @@ class RunBarcodeImageDownloadJob implements ShouldQueue
      * is the best attempt: pictures beat a product page, and a product page
      * beats nothing.
      *
+     * A site that answered with a block page is not a miss: nobody knows
+     * whether it stocks the barcode. Where no site gave anything better, the
+     * barcode is marked blocked rather than not found, so a run against a
+     * refusing site does not read as a list of wrong barcodes.
+     *
      * @param  array<string,int>   $usable   site => microseconds it asks between requests
      * @param  array<string,float> $nextTurn site => when it may next be asked
+     * @param  array<string,int>   $strikes  site => barcodes in a row it has refused
      * @return array{saved: int, item: array<string,mixed>}
      */
     private function firstSiteWithPictures(
@@ -209,9 +255,11 @@ class RunBarcodeImageDownloadJob implements ShouldQueue
         string $barcode,
         array $usable,
         array &$nextTurn,
+        array &$strikes,
     ): array {
-        $tried = 0;
-        $best  = null;
+        $tried   = 0;
+        $best    = null;
+        $refusal = null;
 
         foreach ($usable as $site => $pause) {
             $this->waitTurn($nextTurn, $site);
@@ -230,6 +278,23 @@ class RunBarcodeImageDownloadJob implements ShouldQueue
             }
 
             $nextTurn[$site] = microtime(true) + $pause / 1_000_000;
+
+            if (!$result['url'] && !empty($result['blocked'])) {
+                $strikes[$site]++;
+                $refusal ??= [
+                    'saved' => 0,
+                    'item'  => [
+                        'status'      => 'blocked',
+                        'source_site' => $site,
+                        'message'     => parse_url($site, PHP_URL_HOST) . ' refused this server (HTTP '
+                            . $result['blocked'] . '), so whether it stocks this barcode is unknown.',
+                    ],
+                ];
+
+                continue;
+            }
+
+            $strikes[$site] = 0;
 
             if (!$result['url']) continue;
 
@@ -277,6 +342,12 @@ class RunBarcodeImageDownloadJob implements ShouldQueue
             ];
         }
 
+        // A page found without pictures says more than a refusal; a refusal
+        // says more than a lookup that errored or came back empty.
+        if ($refusal && empty($best['item']['product_url'])) {
+            return $refusal;
+        }
+
         return $best ?? [
             'saved' => 0,
             'item'  => [
@@ -284,6 +355,18 @@ class RunBarcodeImageDownloadJob implements ShouldQueue
                 'message' => $tried > 1
                     ? "No product matched this barcode on any of the {$tried} websites."
                     : 'No product on that site matched this barcode.',
+            ],
+        ];
+    }
+
+    /** A barcode reached after every site on the run has been dropped for refusing this server. */
+    private function everySiteGaveUpOn(): array
+    {
+        return [
+            'saved' => 0,
+            'item'  => [
+                'status'  => 'blocked',
+                'message' => 'Not looked up: every website on this run had started refusing this server.',
             ],
         ];
     }

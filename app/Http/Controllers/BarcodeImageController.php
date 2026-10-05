@@ -131,6 +131,8 @@ class BarcodeImageController extends Controller
             'progress'  => $barcodeImageSession->progressPercent(),
             'found'     => $barcodeImageSession->found_count,
             'missing'   => $barcodeImageSession->missing_count,
+            'blocked'   => $barcodeImageSession->blocked_count,
+            'badge'     => $barcodeImageSession->statusBadge(),
             'images'    => $barcodeImageSession->images_downloaded,
             'error'     => $barcodeImageSession->error_message,
 
@@ -159,7 +161,7 @@ class BarcodeImageController extends Controller
         if ($filter === 'found') {
             $query->where('status', 'found');
         } elseif ($filter === 'missing') {
-            $query->whereIn('status', ['not_found', 'failed']);
+            $query->whereIn('status', ['not_found', 'failed', 'blocked']);
         }
 
         if ($search !== '') {

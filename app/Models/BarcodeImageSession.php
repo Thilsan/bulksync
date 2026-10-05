@@ -29,6 +29,7 @@ class BarcodeImageSession extends Model
         'processed',
         'found_count',
         'missing_count',
+        'blocked_count',
         'images_downloaded',
         'raw_barcodes',
         'error_message',
@@ -58,6 +59,46 @@ class BarcodeImageSession extends Model
         $issue = ($this->site_issues ?? [])[$site] ?? null;
 
         return is_array($issue) ? $issue : null;
+    }
+
+    /** Whether any site on this run refused this server, before or during the run. */
+    public function wasBlocked(): bool
+    {
+        if ((int) $this->blocked_count > 0) return true;
+
+        foreach ($this->site_issues ?? [] as $issue) {
+            if (is_array($issue) && ($issue['kind'] ?? null) === 'blocked') return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * The status as a person should read it, with the colour of its badge.
+     *
+     * A run that got nothing because a site refused this server is not
+     * "Completed" in any sense that matters to the person looking at it: the
+     * list was never read. Saying "IP blocked" sends them to the shop to be
+     * allowed in, instead of back to their barcodes to look for a mistake.
+     *
+     * @return array{label: string, colour: string}
+     */
+    public function statusBadge(): array
+    {
+        $finished = in_array($this->status, ['completed', 'failed'], true);
+
+        if ($finished && $this->wasBlocked()) {
+            return (int) $this->found_count > 0
+                ? ['label' => 'Partly blocked', 'colour' => 'amber']
+                : ['label' => 'IP blocked', 'colour' => 'red'];
+        }
+
+        $colours = ['pending' => 'gray', 'running' => 'brand', 'completed' => 'green', 'failed' => 'red'];
+
+        return [
+            'label'  => ucfirst((string) $this->status),
+            'colour' => $colours[$this->status] ?? 'gray',
+        ];
     }
 
     /**
