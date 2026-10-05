@@ -10,10 +10,20 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::table('store_products', function (Blueprint $table) {
-            $table->string('division', 16)->nullable()->after('sku');
-            $table->index(['store_id', 'division']);
-        });
+        // Each step checks first: MySQL cannot roll back a schema change, so a
+        // run that failed partway leaves the column behind without recording
+        // the migration, and the retry must pick up where that one stopped.
+        if (!Schema::hasColumn('store_products', 'division')) {
+            Schema::table('store_products', function (Blueprint $table) {
+                $table->string('division', 16)->nullable()->after('sku');
+            });
+        }
+
+        if (!Schema::hasIndex('store_products', ['store_id', 'division'])) {
+            Schema::table('store_products', function (Blueprint $table) {
+                $table->index(['store_id', 'division']);
+            });
+        }
 
         // Rows synced before this column existed. The next nightly sync would
         // fill them anyway, but the Divisions view should not sit empty until then.
