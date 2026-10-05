@@ -42,7 +42,7 @@
                 <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.35-4.35M17 11a6 6 0 11-12 0 6 6 0 0112 0z"/>
             </svg>
             <input type="text" name="search" value="{{ request('search') }}"
-                   placeholder="Search name, brand or category"
+                   placeholder="Search requests"
                    class="w-full rounded-lg border border-gray-300 py-2 pl-9 pr-3 text-sm transition focus:border-transparent focus:outline-none focus:ring-2 focus:ring-brand-500">
         </div>
 
@@ -190,74 +190,58 @@
         <div class="overflow-x-auto">
             <table class="w-full text-sm">
                 <thead>
-                    <tr class="text-left text-xs text-gray-500 border-b border-gray-100 bg-gray-50/60">
-                        <th class="px-3 py-2.5 w-8">
+                    <tr class="text-left text-xs text-gray-500 border-b border-gray-200 bg-gray-50">
+                        <th class="px-3 py-3 w-8">
                             <input type="checkbox" x-model="allOnPage" @change="toggleAll()"
                                    title="Select the requests on this page"
                                    class="rounded border-gray-300 text-brand-600 focus:ring-brand-500">
                         </th>
-                        <th class="px-5 py-2.5 font-medium">Request</th>
-                        <th class="px-3 py-2.5 font-medium">Brand / Category</th>
-                        <th class="px-3 py-2.5 font-medium text-right">SKUs</th>
-                        <th class="px-3 py-2.5 font-medium">Mapping</th>
-                        <th class="px-3 py-2.5 font-medium">Launch</th>
-                        <th class="px-3 py-2.5 font-medium">Status</th>
-                        <th class="px-3 py-2.5 font-medium">Priority</th>
-                        <th class="px-5 py-2.5 font-medium">Waiting On</th>
+                        <th class="px-4 py-3 font-medium">Request</th>
+                        <th class="px-4 py-3 font-medium text-right">Products</th>
+                        <th class="px-4 py-3 font-medium">Go-live</th>
+                        <th class="px-4 py-3 font-medium">Status</th>
+                        <th class="px-4 py-3 font-medium">Priority</th>
+                        <th class="px-4 py-3 font-medium">With</th>
                         @if(auth()->user()->is_super_admin)
                             <th class="px-3 py-2.5 w-8"><span class="sr-only">Delete</span></th>
                         @endif
                     </tr>
                 </thead>
-                <tbody class="divide-y divide-gray-50">
+                <tbody class="divide-y divide-gray-100">
                     @foreach($requests as $item)
                     <tr class="hover:bg-gray-50/70 transition-colors" :class="picked.includes('{{ $item->id }}') && 'bg-brand-50/50'">
                         <td class="px-3 py-3">
                             <input type="checkbox" data-request-id="{{ $item->id }}" value="{{ $item->id }}" x-model="picked"
                                    class="rounded border-gray-300 text-brand-600 focus:ring-brand-500">
                         </td>
-                        <td class="px-5 py-3">
+                        <td class="px-4 py-3">
                             <a href="{{ route('product-requests.show', $item) }}"
-                               class="text-brand-600 hover:text-brand-700 font-medium">{{ $item->displayName() }}</a>
-                            <p class="text-xs text-gray-400">
-                                {{ $item->reference }}
-                                @if($label = $item->sheetLabel())
-                                    &middot; <span title="Request No and Request Date on the tracking sheet">{{ $label }}</span>
-                                @endif
-                                &middot; by {{ $item->requesterName() }}
+                               class="font-medium text-gray-900 hover:text-brand-700 hover:underline">{{ $item->displayName() }}</a>
+                            <p class="text-xs text-gray-400 mt-0.5">
+                                {{ $item->reference }} &middot; {{ $item->store?->name ?? 'No website' }}
                             </p>
                         </td>
-                        <td class="px-3 py-3 text-gray-700">
-                            {{ $item->brand }} / {{ $item->category }}
-                            {{-- The website is what separates two otherwise identical rows: the
-                                 sheet's "BS - PG-SN" is one brand raised against three sites. --}}
-                            <p class="text-xs font-medium" style="color:#b4540a">{{ $item->store?->name ?? 'no website' }}</p>
-                        </td>
-                        <td class="px-3 py-3 text-right text-gray-700 tabular-nums">{{ number_format($item->total_skus) }}</td>
-                        <td class="px-3 py-3">
-                            <div class="flex items-center gap-1.5 text-xs">
-                                <span class="inline-flex items-center gap-1" title="Mapped"><span class="w-2 h-2 rounded-full bg-green-500"></span>{{ $item->mapped_skus }}</span>
-                                <span class="inline-flex items-center gap-1" title="Pending mapping"><span class="w-2 h-2 rounded-full bg-amber-500"></span>{{ $item->pending_skus }}</span>
-                                <span class="inline-flex items-center gap-1" title="Not mapped"><span class="w-2 h-2 rounded-full bg-red-500"></span>{{ $item->not_mapped_skus }}</span>
-                            </div>
-                            @if($item->hasSkuBalance())
-                                {{-- How much of it can actually go live. --}}
-                                <p class="text-[11px] text-amber-700 font-medium mt-1">{{ $item->skuCompletionPercent() }}% ready</p>
+                        <td class="px-4 py-3 text-right whitespace-nowrap">
+                            <p class="text-gray-900 tabular-nums">{{ number_format($item->total_skus) }}</p>
+                            {{-- Only websites with a mapping step have "not ready" SKUs. --}}
+                            @if($item->store?->requires_sku_mapping && $item->total_skus > 0)
+                                @if($item->hasSkuBalance())
+                                    <p class="text-xs text-amber-700 tabular-nums">{{ number_format($item->mapped_skus) }} ready</p>
+                                @else
+                                    <p class="text-xs text-green-700">All ready</p>
+                                @endif
                             @endif
                         </td>
-                        <td class="px-3 py-3 whitespace-nowrap {{ $item->isOverdue() ? 'text-red-600 font-medium' : 'text-gray-600' }}">
+                        <td class="px-4 py-3 whitespace-nowrap {{ $item->isOverdue() ? 'text-red-600 font-medium' : 'text-gray-700' }}">
                             {{ $item->online_launch_date?->format('d M Y') ?? '—' }}
-                            @if($item->online_launch_date)
-                                <p class="text-xs {{ $item->isOverdue() ? 'text-red-500' : 'text-gray-400' }}">{{ $item->online_launch_date->format('H:i') }}</p>
-                            @endif
                         </td>
-                        <td class="px-3 py-3">
-                            <span class="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium border {{ $item->statusColor() }} whitespace-nowrap">
+                        <td class="px-4 py-3">
+                            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border {{ $item->statusColor() }} whitespace-nowrap">
                                 {{ $item->statusLabel() }}
                             </span>
                         </td>
-                        <td class="px-3 py-3">
-                            <span class="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium border {{ $item->priorityColor() }}">
+                        <td class="px-4 py-3">
+                            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border {{ $item->priorityColor() }}">
                                 {{ $item->priorityLabel() }}
                             </span>
                         </td>
@@ -266,24 +250,20 @@
                             $g   = $item->currentGuide();
                             $own = $item->ownershipFor(auth()->user());
                         @endphp
-                        <td class="px-5 py-3">
+                        <td class="px-4 py-3 whitespace-nowrap">
                             @if($item->isClosed())
                                 <span class="text-gray-400">—</span>
                             @elseif($item->isOnHold())
-                                <span class="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-semibold bg-red-600 text-white">On hold</span>
-                                <p class="text-xs text-red-600 truncate max-w-[10rem]" title="{{ $item->hold_reason }}">{{ $item->hold_reason }}</p>
+                                <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-50 text-red-700 border border-red-200"
+                                      title="{{ $item->hold_reason }}">On hold</span>
                             @elseif($own === 'mine')
-                                <span class="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-semibold bg-brand-600 text-white">You</span>
-                                <p class="text-xs text-gray-400">{{ $g['role'] }}</p>
+                                <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-brand-600 text-white" title="{{ $g['role'] }}">You</span>
                             @elseif($own === 'my_team')
-                                <span class="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-amber-100 text-amber-800 border border-amber-200">Your team</span>
-                                <p class="text-xs text-amber-600">unclaimed</p>
+                                <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-800 border border-amber-200" title="{{ $g['role'] }}">Your team</span>
                             @elseif($g['owner'])
-                                <p class="text-gray-700">{{ $g['owner']->name }}</p>
-                                <p class="text-xs text-gray-400">{{ $g['role'] }}</p>
+                                <span class="text-gray-700" title="{{ $g['role'] }}">{{ $g['owner']->name }}</span>
                             @else
-                                <p class="text-gray-500">{{ $g['role'] ?? '—' }}</p>
-                                <p class="text-xs text-amber-600">unassigned</p>
+                                <span class="text-amber-700" title="{{ $g['role'] }}">Not set</span>
                             @endif
                         </td>
                         {{-- Deleting is a super admin's job: everyone else cancels,

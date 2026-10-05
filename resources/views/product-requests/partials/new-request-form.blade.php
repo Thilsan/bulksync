@@ -10,7 +10,7 @@
          x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
          x-transition:leave="transition ease-in duration-150" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"></div>
 
-    <div class="relative w-full max-w-2xl max-h-[90vh] bg-gray-100 rounded-2xl shadow-2xl flex flex-col overflow-hidden"
+    <div class="relative w-full max-w-2xl max-h-[90vh] bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden"
          x-show="newRequestOpen"
          x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0 scale-95" x-transition:enter-end="opacity-100 scale-100"
          x-transition:leave="transition ease-in duration-150" x-transition:leave-start="opacity-100 scale-100" x-transition:leave-end="opacity-0 scale-95">
@@ -25,7 +25,7 @@
         </div>
 
         <form method="POST" action="{{ route('product-requests.store') }}" enctype="multipart/form-data"
-              class="flex-1 flex flex-col overflow-hidden"
+              class="flex flex-col min-h-0 overflow-hidden"
               x-init="$watch('imageSource', () => clearLocationIfNotSupplier())"
               x-data="{
                   skuInput: 'type',
@@ -57,7 +57,7 @@
               }">
             @csrf
 
-            <div class="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4">
+            <div class="min-h-0 overflow-y-auto bg-gray-100 p-4 sm:p-5 space-y-4">
 
                 {{-- Request --}}
                 <section class="bg-white rounded-xl border border-gray-200 shadow-sm p-4 space-y-4">
