@@ -219,24 +219,12 @@
         */
         .app-sidebar {
             background:
-                radial-gradient(520px 260px at 20% -10%, rgba(255,255,255,.14), transparent 70%),
                 radial-gradient(420px 320px at 0% 108%, rgba(var(--accent-rgb),.16), transparent 72%),
                 linear-gradient(172deg, #1f6f8b 0%, #1a6480 46%, #2b4c85 100%);
         }
-        /* One thread of champagne down the edge. */
-        .app-sidebar::after {
-            content: ''; position: absolute; inset: 0 0 0 auto; width: 1px; pointer-events: none;
-            background: linear-gradient(180deg, transparent, rgba(var(--accent-rgb),.6) 16%, rgba(var(--accent-rgb),.2) 64%, transparent);
-        }
-
         .topbar {
             background:
-                radial-gradient(520px 200px at 4% -60%, rgba(255,255,255,.14), transparent 70%),
                 linear-gradient(104deg, #1f6f8b 0%, #1a6480 46%, #2b4c85 100%);
-        }
-        .topbar::after {
-            content: ''; position: absolute; inset: auto 0 0 0; height: 1px; pointer-events: none;
-            background: linear-gradient(90deg, var(--accent-edge), rgba(var(--accent-rgb),.4) 40%, transparent);
         }
 
         /* A full-height scrollbar would cut the panel in half, so keep it hairline. */
@@ -370,10 +358,11 @@
         }
         :is(main, header) :is(.bg-brand-600, .bg-brand-500) :is(svg, span) { color: inherit; }
 
-        /* Outline buttons and chips: yellow edge, black text, faint yellow wash. */
+        /* Outline buttons and chips: accent edge, dark text, faint accent wash.
+           Dark regardless of --on-accent, which is for text on a solid fill. */
         main :is(button, a).border-brand-600 {
             border-color: var(--accent-edge) !important;
-            color: var(--on-accent) !important;
+            color: #1f3d33 !important;
             background-color: rgba(var(--accent-rgb),.14) !important;
         }
         main :is(button, a).border-brand-600:hover:not(:disabled) { background-color: rgba(var(--accent-rgb),.38) !important; }
@@ -421,7 +410,7 @@
             border-radius: 1.15rem;
             padding: 1.6rem 1.75rem 1.75rem;
             background:
-                linear-gradient(90deg, #333331 0%, #2e4a63 36%, #2d5a85 56%, #6f8f78 74%, #a9ae6c 88%, #ecce5c 100%);
+                linear-gradient(90deg, #303132 0%, #33475f 30%, #38598a 54%, #55768a 62%, #739078 73%, #6a8f7c 100%);
             box-shadow: 0 18px 40px -28px rgba(25,40,60,.85);
         }
         .page-hero::before {
@@ -529,6 +518,8 @@
         html.dark main [class*="hover:bg-brand-50"]:hover { background-color: #17414f !important; }
         html.dark :is(.border-brand-200, .border-brand-300) { border-color: #24596b; }
         html.dark .skeleton { background: linear-gradient(100deg, #1b2938 30%, #243649 50%, #1b2938 70%) 0 0 / 220% 100%; }
+
+        html.dark main :is(button, a).border-brand-600 { color: #cfe8dd !important; }
 
         /* Yellow buttons keep black text; the glow is softer on dark */
         html.dark main .bg-brand-600:hover { box-shadow: 0 10px 24px -12px rgba(var(--accent-rgb),.45); }
@@ -792,8 +783,6 @@
                 <p class="mt-0.5 text-[10px] uppercase tracking-[.14em] text-white/60">Abuissa Holding</p>
             </div>
         </div>
-
-        <div class="relative mx-4 h-px bg-gradient-to-r from-transparent via-white/25 to-transparent"></div>
 
         {{-- Navigation --}}
         <nav class="nav-scroll relative flex-1 overflow-y-auto px-3 py-4">
