@@ -192,8 +192,9 @@
         */
         .app-sidebar {
             background:
-                radial-gradient(620px 280px at 50% -14%, rgba(255,255,255,.65), transparent 70%),
-                linear-gradient(172deg, #f3efe7 0%, #ece6da 46%, #e4ddce 100%);
+                radial-gradient(620px 280px at 50% -14%, rgba(255,255,255,.7), transparent 70%),
+                radial-gradient(420px 320px at 0% 108%, rgba(201,164,91,.14), transparent 72%),
+                linear-gradient(172deg, #e3f1f6 0%, #d3e7ef 46%, #c3dce8 100%);
         }
         /* One line of oxblood down the edge — the only colour on the cloth. */
         .app-sidebar::after {
@@ -212,11 +213,11 @@
         }
 
         /* A full-height scrollbar would cut the panel in half, so keep it hairline. */
-        .nav-scroll { scrollbar-width: thin; scrollbar-color: rgba(93,86,76,.30) transparent; }
+        .nav-scroll { scrollbar-width: thin; scrollbar-color: rgba(31,111,139,.30) transparent; }
         .nav-scroll::-webkit-scrollbar { width: 6px; }
         .nav-scroll::-webkit-scrollbar-track { background: transparent; }
-        .nav-scroll::-webkit-scrollbar-thumb { background: rgba(93,86,76,.30); border-radius: 999px; }
-        .nav-scroll::-webkit-scrollbar-thumb:hover { background: rgba(93,86,76,.45); }
+        .nav-scroll::-webkit-scrollbar-thumb { background: rgba(31,111,139,.30); border-radius: 999px; }
+        .nav-scroll::-webkit-scrollbar-thumb:hover { background: rgba(31,111,139,.45); }
 
         .live-dot { animation: live 2.4s ease-in-out infinite; }
         @keyframes live { 0%,100% { opacity: 1 } 50% { opacity: .35 } }
@@ -233,10 +234,7 @@
         /* Canvas: a barely-there wash so white panels sit on something. */
         body {
             background:
-                radial-gradient(880px 440px at 80% -14%, rgba(220,212,196,.35), transparent 68%),
-                radial-gradient(560px 380px at 100% 102%, rgba(43,76,133,.07), transparent 72%),
-                radial-gradient(420px 300px at 0% 100%, rgba(201,164,91,.09), transparent 72%),
-                #faf8f4;
+                #ffffff;
         }
 
         /* Figures read as figures: serif, aligned, never re-flowing mid-count. */
