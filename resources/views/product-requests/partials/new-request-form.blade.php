@@ -4,7 +4,22 @@
 --}}
 <div x-show="newRequestOpen" x-cloak @keydown.escape.window="newRequestOpen = false"
      {{-- Covers the page area only: the sidebar and top bar stay in view. --}}
-     x-data="{ top: 0, measure() { const bar = document.querySelector('header.topbar'); this.top = bar ? bar.getBoundingClientRect().bottom : 0; } }"
+     x-data="{
+         top: 0,
+         nudge: 0,
+         measure() {
+             const bar = document.querySelector('header.topbar');
+             const want = bar ? bar.getBoundingClientRect().bottom : 0;
+             this.top = want + this.nudge;
+             // Once it is on screen, check where it actually landed and remember
+             // any difference, so the next open is right from the first frame.
+             requestAnimationFrame(() => {
+                 if (!this.$el.getClientRects().length) return; // still hidden
+                 const off = want - this.$el.getBoundingClientRect().top;
+                 if (Math.abs(off) > 0.5) { this.nudge += off; this.top += off; }
+             });
+         },
+     }"
      x-init="measure()" x-effect="if (newRequestOpen) measure()" @resize.window="measure()"
      :style="{ top: top + 'px' }"
      {{-- No opacity here: a fading parent stops the browser drawing the blur
@@ -219,7 +234,9 @@
                         {{-- Go-live --}}
                         <section class="bg-white/90 rounded-xl border border-white shadow-[0_8px_30px_-12px_rgba(15,23,42,.18)] p-4">
                             <h3 class="text-sm font-semibold text-gray-900 mb-3">Go-live date</h3>
-                            <input type="datetime-local" name="online_launch_date" x-model="onlineDate" required class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent">
+                            @include('product-requests.partials.date-picker', [
+                                'name' => 'online_launch_date', 'model' => 'onlineDate', 'placeholder' => 'Pick a date',
+                            ])
                             <p x-show="onlineDate && onlineDate < todayIso" x-cloak class="text-sm text-amber-700 mt-2">
                                 This date is in the past.
                             </p>
