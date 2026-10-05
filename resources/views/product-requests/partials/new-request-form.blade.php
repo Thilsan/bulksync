@@ -1,9 +1,13 @@
 {{--
-    "New Product Creation Request" modal.
+    "New Product Creation Request" panel, filling the page area.
     Expects the parent Alpine scope to expose `newRequestOpen`.
 --}}
 <div x-show="newRequestOpen" x-cloak @keydown.escape.window="newRequestOpen = false"
-     class="fixed inset-0 z-50 flex">
+     {{-- Covers the page area only: the sidebar and top bar stay in view. --}}
+     x-data="{ top: 0, measure() { const bar = document.querySelector('header.topbar'); this.top = bar ? bar.getBoundingClientRect().bottom : 0; } }"
+     x-effect="if (newRequestOpen) measure()" @resize.window="measure()"
+     :style="`top: ${top}px`"
+     class="fixed inset-x-0 bottom-0 lg:left-64 z-30 flex">
 
     <div class="absolute inset-0 bg-gray-900/50" @click="newRequestOpen = false"
          x-show="newRequestOpen"
