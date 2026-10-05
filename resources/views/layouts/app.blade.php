@@ -959,7 +959,7 @@
                         },
                      }"
                      x-init="load(); setInterval(() => load(), 20000)"
-                     class="live-ticker hidden h-9 min-w-0 max-w-3xl flex-1 items-center overflow-hidden rounded-lg border border-white/15 md:flex">
+                     class="live-ticker hidden h-9 min-w-0 max-w-3xl flex-1 items-center overflow-hidden rounded-lg border border-white/15 bg-black/15 md:flex">
                     <a href="{{ route('super-admin.activity') }}"
                        class="flex h-full shrink-0 items-center gap-2 border-r border-white/15 bg-white/10 px-3 text-[11px] font-semibold uppercase tracking-wider text-white hover:bg-white/15"
                        title="Open the full Activity Log">
