@@ -21,6 +21,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
@@ -130,14 +131,14 @@ class ProductRequestTest extends TestCase
         return ProductRequest::latest('id')->first();
     }
 
-    // ── The list reads in sheet order ────────────────────────────────────────
+    // ── The list reads newest first ──────────────────────────────────────────
 
     /**
-     * Newest sheet row first, so the most recently added work is on page 1.
-     * Requests raised by hand have no sheet number and follow the numbered ones
-     * rather than being dropped or scattered through them.
+     * The request created most recently is on top, whether it came from the
+     * sheet or was raised by hand. A hand-raised one has no sheet number but
+     * must not sink below older numbered rows.
      */
-    public function test_the_list_is_ordered_by_sheet_request_no(): void
+    public function test_the_list_shows_the_newest_request_first(): void
     {
         Notification::fake();
         Queue::fake();
@@ -145,19 +146,19 @@ class ProductRequestTest extends TestCase
         $user  = $this->brandManager();
         $store = $this->plainSite();
 
-        // Created deliberately out of order, so passing cannot be an accident of
-        // insertion order or of the old newest-first sort.
+        // Sheet numbers deliberately disagree with creation order, so passing
+        // cannot be an accident of the old sheet-number sort.
+        $this->travelTo(now()->subHours(3));
+        $oldest = $this->submitFor($user, $store);
+        $oldest->update(['sheet_request_no' => 100, 'brand' => 'AUBADE']);
+
+        $this->travelTo(now()->addHour());
         $middle = $this->submitFor($user, $store);
-        $middle->update(['sheet_request_no' => 76, 'brand' => 'ALBERTO']);
+        $middle->update(['sheet_request_no' => 12, 'brand' => 'AORA ATHLETICS']);
 
-        $manual = $this->submitFor($user, $store);
-        $manual->update(['brand' => 'RAISED BY HAND']);   // no sheet number
-
-        $first = $this->submitFor($user, $store);
-        $first->update(['sheet_request_no' => 12, 'brand' => 'AORA ATHLETICS']);
-
-        $last = $this->submitFor($user, $store);
-        $last->update(['sheet_request_no' => 100, 'brand' => 'AUBADE']);
+        $this->travelBack();
+        $newest = $this->submitFor($user, $store);
+        $newest->update(['brand' => 'RAISED BY HAND']);   // no sheet number
 
         $order = $this->actingAs($user)
             ->get(route('product-requests.list'))
@@ -166,7 +167,7 @@ class ProductRequestTest extends TestCase
             ->pluck('brand')
             ->all();
 
-        $this->assertSame(['AUBADE', 'ALBERTO', 'AORA ATHLETICS', 'RAISED BY HAND'], $order);
+        $this->assertSame(['RAISED BY HAND', 'AORA ATHLETICS', 'AUBADE'], $order);
     }
 
     /** Two websites off one sheet row stay together rather than splitting up. */
@@ -2029,6 +2030,61 @@ class ProductRequestTest extends TestCase
 
         // The stage reads honestly for a request that isn't using AI.
         $this->assertSame('Content from Brand Team', $request->stageLabel(ProductRequest::AI_CONTENT));
+    }
+
+    /**
+     * Only the first column of a SKU CSV becomes SKUs, so the file as uploaded
+     * is kept and offered for download, at submission and when SKUs are added.
+     */
+    public function test_the_uploaded_sku_csv_is_kept_and_downloadable(): void
+    {
+        Notification::fake();
+        Queue::fake();
+
+        $user  = $this->brandManager();
+        $store = $this->plainSite();
+        $user->stores()->sync([$store->id]);
+
+        $original = "SKU,Colour,Size\nCSV-1,Black,M\nCSV-2,Red,L\n";
+
+        $this->actingAs($user)->post(route('product-requests.store'), [
+            'store_id'                  => $store->id,
+            'request_type'              => 'new_brand',
+            'brand'                     => 'Samsonite',
+            'category'                  => 'Luggage',
+            'sku_csv'                   => UploadedFile::fake()->createWithContent('brand-skus.csv', $original),
+            'online_launch_date'        => now()->addDays(18)->format('Y-m-d H:i'),
+            'image_source'              => ProductRequest::IMG_PHOTOSHOOT,
+            'use_ai_content'            => 1,
+            'priority'                  => 'high',
+        ])->assertRedirect();
+
+        $request = ProductRequest::first();
+
+        try {
+            $this->assertSame(['CSV-1', 'CSV-2'], $request->skus()->orderBy('id')->pluck('sku')->all());
+
+            $file = $request->skuFiles()->sole();
+            $this->assertSame('brand-skus.csv', $file->original_name);
+
+            $this->actingAs($user)->get(route('product-requests.show', $request))
+                ->assertOk()
+                ->assertSee('Original upload: brand-skus.csv');
+
+            $download = $this->actingAs($user)
+                ->get(route('product-requests.attachments.download', [$request, $file]))
+                ->assertOk();
+            $this->assertSame($original, file_get_contents($download->baseResponse->getFile()->getPathname()));
+
+            // A later "add SKUs" upload is kept alongside, not in place of, the first.
+            $this->actingAs($user)->post(route('product-requests.skus.add', $request), [
+                'sku_csv' => UploadedFile::fake()->createWithContent('more.csv', "SKU\nCSV-3\n"),
+            ])->assertRedirect();
+
+            $this->assertSame(['more.csv', 'brand-skus.csv'], $request->skuFiles()->pluck('original_name')->all());
+        } finally {
+            File::deleteDirectory(storage_path("app/product-requests/{$request->id}"));
+        }
     }
 
     public function test_an_upload_php_rejected_is_reported_not_silently_dropped(): void

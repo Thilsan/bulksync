@@ -194,12 +194,12 @@ class ProductRequestController extends Controller implements HasMiddleware
             });
         }
 
-        // Newest sheet row first, so the rows the team added most recently are the
-        // ones on page 1. Requests raised by hand have no sheet number and follow
-        // the numbered ones. The id tiebreak keeps the two or three requests one
-        // sheet row makes (BS / PG / SN) next to each other, in the order created.
+        // Newest first, so a request lands on top of page 1 the moment it's
+        // created, whether raised by hand or pulled from the sheet. The sheet
+        // number then id tiebreaks keep the two or three requests one sheet row
+        // makes (BS / PG / SN) next to each other, in the order created.
         $requests = $query
-            ->orderByRaw('sheet_request_no IS NULL')
+            ->orderByDesc('created_at')
             ->orderByDesc('sheet_request_no')
             ->orderBy('id')
             ->paginate(20)
@@ -645,6 +645,10 @@ class ProductRequestController extends Controller implements HasMiddleware
         // Reference images are attached from the request page, not at submission.
         $this->storeAttachments($request, $productRequest, $user, 'content_sheet', ProductRequestAttachment::KIND_CONTENT);
 
+        // Keep the SKU CSV as uploaded. Only its first column becomes SKUs, so
+        // the original is the only record of what the brand team actually sent.
+        $this->storeAttachments($request, $productRequest, $user, 'sku_csv', ProductRequestAttachment::KIND_SKU_FILE);
+
         $this->workflow->log(
             request:     $productRequest,
             action:      'created',
@@ -693,7 +697,7 @@ class ProductRequestController extends Controller implements HasMiddleware
         $this->authorizeView($productRequest, $user);
 
         $productRequest->load([
-            'user', 'store', 'attachments.user', 'aiContentSession', 'assignments.user', 'assignments.assignedBy', 'currentAssignments.user',
+            'user', 'store', 'attachments.user', 'skuFiles.user', 'aiContentSession', 'assignments.user', 'assignments.assignedBy', 'currentAssignments.user',
         ]);
 
         $skus       = $productRequest->skus()->orderBy('id')->paginate(50, ['*'], 'skus');
@@ -901,6 +905,8 @@ class ProductRequestController extends Controller implements HasMiddleware
         $added = count($merged) - $productRequest->skus()->count();
 
         $this->mapping->syncSkus($productRequest, $merged);
+
+        $this->storeAttachments($request, $productRequest, $user, 'sku_csv', ProductRequestAttachment::KIND_SKU_FILE);
 
         $this->workflow->log(
             request:     $productRequest,

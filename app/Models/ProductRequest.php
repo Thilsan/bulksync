@@ -811,6 +811,12 @@ class ProductRequest extends Model
         return $this->attachments()->where('kind', ProductRequestAttachment::KIND_CONTENT);
     }
 
+    /** The SKU CSVs as uploaded, at submission and from later "add SKUs". */
+    public function skuFiles(): HasMany
+    {
+        return $this->attachments()->where('kind', ProductRequestAttachment::KIND_SKU_FILE)->latest('id');
+    }
+
     /**
      * Common reasons work stalls, offered as one-click picks so the reason is
      * consistent enough to report on. Free text is always allowed as well.

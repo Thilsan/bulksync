@@ -803,6 +803,16 @@
                                 {{ $label }}
                             </a>
                         @endforeach
+                        @foreach($request->skuFiles as $skuFile)
+                            <a href="{{ route('product-requests.attachments.download', [$request, $skuFile]) }}"
+                               title="The CSV exactly as {{ $skuFile->user?->name ?? 'the requester' }} uploaded it on {{ $skuFile->created_at->format('d M Y') }}"
+                               class="inline-flex items-center gap-1.5 border border-brand-200 bg-brand-50 text-brand-700 text-xs font-medium px-3 py-1.5 rounded-lg hover:bg-brand-100 transition-colors max-w-xs">
+                                <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                                </svg>
+                                <span class="truncate">Original upload: {{ $skuFile->original_name }}</span>
+                            </a>
+                        @endforeach
                     </div>
 
                     @if($request->isBlockedOnMapping())
@@ -1295,6 +1305,29 @@
                         @endunless
                     </div>
                     @endunless
+
+                    {{-- The SKU CSV exactly as uploaded; only its first column became SKUs --}}
+                    @if($request->skuFiles->isNotEmpty())
+                    <div class="mb-5 pb-5 border-b border-gray-100">
+                        <h4 class="text-sm font-semibold text-gray-800 mb-1">Uploaded SKU File</h4>
+                        <p class="text-xs text-gray-500 mb-3">The CSV as it was uploaded, before the SKUs were read from it.</p>
+                        @foreach($request->skuFiles as $skuFile)
+                            <div class="flex items-center gap-3 py-2.5 border-b border-gray-50 last:border-0">
+                                <div class="w-8 h-8 rounded-lg bg-green-50 text-green-600 flex items-center justify-center shrink-0">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                                    </svg>
+                                </div>
+                                <div class="flex-1 min-w-0">
+                                    <p class="text-sm text-gray-800 truncate">{{ $skuFile->original_name }}</p>
+                                    <p class="text-xs text-gray-400">{{ $skuFile->humanSize() }} &middot; {{ $skuFile->user?->name ?? 'Unknown' }} &middot; {{ $skuFile->created_at->format('d M Y') }}</p>
+                                </div>
+                                <a href="{{ route('product-requests.attachments.download', [$request, $skuFile]) }}"
+                                   class="text-xs text-brand-600 hover:text-brand-700 font-medium shrink-0">Download</a>
+                            </div>
+                        @endforeach
+                    </div>
+                    @endif
 
                     @unless($request->isClosed())
                     <form method="POST" action="{{ route('product-requests.attachments.store', $request) }}" enctype="multipart/form-data" class="mb-5 pb-5 border-b border-gray-100">

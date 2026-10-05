@@ -15,6 +15,9 @@ class ProductRequestAttachment extends Model
     /** The brand team's written content, when the AI generator isn't being used. */
     public const KIND_CONTENT = 'content';
 
+    /** The SKU CSV exactly as uploaded, kept so the team can check it against the parsed list. */
+    public const KIND_SKU_FILE = 'sku_file';
+
     protected $fillable = [
         'product_request_id',
         'user_id',
