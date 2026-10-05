@@ -104,7 +104,7 @@
                         <label class="block text-sm text-gray-700 mb-1">Is this brand new to the website?</label>
                         <div class="flex rounded-lg bg-gray-100 p-1 gap-1 sm:w-1/2">
                             @foreach(['new_brand' => 'Yes, new brand', 'existing_brand' => 'No, existing'] as $value => $label)
-                                <label class="flex-1 text-center cursor-pointer rounded-md px-3 py-1.5 text-sm text-gray-600 transition-colors hover:text-gray-900 has-[:checked]:bg-white has-[:checked]:text-gray-900 has-[:checked]:font-medium has-[:checked]:shadow-sm">
+                                <label class="relative flex-1 text-center cursor-pointer rounded-md px-3 py-1.5 text-sm text-gray-600 transition-colors hover:text-gray-900 has-[:checked]:bg-white has-[:checked]:text-gray-900 has-[:checked]:font-medium has-[:checked]:shadow-sm">
                                     <input type="radio" name="request_type" value="{{ $value }}" class="sr-only"
                                            {{ old('request_type', 'new_brand') === $value ? 'checked' : '' }}>
                                     {{ $label }}
@@ -134,7 +134,7 @@
                     </div>
 
                     <div x-show="skuInput === 'csv'" x-cloak>
-                        <label x-data="{ fileName: '' }" class="flex flex-col items-center justify-center gap-1 cursor-pointer rounded-lg border-2 border-dashed border-gray-300 px-4 py-6 text-center hover:bg-gray-50 transition-colors">
+                        <label x-data="{ fileName: '' }" class="relative flex flex-col items-center justify-center gap-1 cursor-pointer rounded-lg border-2 border-dashed border-gray-300 px-4 py-6 text-center hover:bg-gray-50 transition-colors">
                             <svg class="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
                             <span class="text-sm font-medium text-gray-700" x-text="fileName || 'Choose a CSV file'"></span>
                             <input type="file" name="sku_csv" accept=".csv,.txt" class="sr-only"
@@ -173,7 +173,7 @@
                         <label class="block text-sm text-gray-700 mb-1">Where are they?</label>
                         <div class="flex rounded-lg bg-gray-100 p-1 gap-1 sm:w-2/3">
                             @foreach(\App\Models\ProductRequest::IMAGE_LOCATIONS as $value => $label)
-                                <label class="flex-1 text-center cursor-pointer rounded-md px-3 py-1.5 text-sm text-gray-600 transition-colors hover:text-gray-900 has-[:checked]:bg-white has-[:checked]:text-gray-900 has-[:checked]:font-medium has-[:checked]:shadow-sm">
+                                <label class="relative flex-1 text-center cursor-pointer rounded-md px-3 py-1.5 text-sm text-gray-600 transition-colors hover:text-gray-900 has-[:checked]:bg-white has-[:checked]:text-gray-900 has-[:checked]:font-medium has-[:checked]:shadow-sm">
                                     <input type="radio" name="images_location" value="{{ $value }}" x-model="imagesAt" class="sr-only">
                                     {{ $label }}
                                 </label>
@@ -216,7 +216,7 @@
                         <h3 class="text-sm font-semibold text-gray-900 mb-3">Priority</h3>
                         <div class="flex rounded-lg bg-gray-100 p-1 gap-1">
                             @foreach(\App\Models\ProductRequest::PRIORITIES as $value => $label)
-                                <label class="flex-1 text-center cursor-pointer rounded-md px-3 py-1.5 text-sm text-gray-600 transition-colors hover:text-gray-900 has-[:checked]:bg-white has-[:checked]:text-gray-900 has-[:checked]:font-medium has-[:checked]:shadow-sm">
+                                <label class="relative flex-1 text-center cursor-pointer rounded-md px-3 py-1.5 text-sm text-gray-600 transition-colors hover:text-gray-900 has-[:checked]:bg-white has-[:checked]:text-gray-900 has-[:checked]:font-medium has-[:checked]:shadow-sm">
                                     <input type="radio" name="priority" value="{{ $value }}" class="sr-only" required
                                            {{ old('priority', 'medium') === $value ? 'checked' : '' }}>
                                     {{ $label }}

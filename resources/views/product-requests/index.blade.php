@@ -44,61 +44,6 @@
     </div>
 
     {{--
-        The pipeline, as the picture it is. This replaced a collapsible panel
-        of ordered lists explaining the same six stages in prose: the stages
-        are a sequence with live counts on them, so showing them is both the
-        explanation and the state of the department — and it is read in a
-        glance rather than expanded and studied.
-    --}}
-    @php
-        $phases = [
-            ['label' => 'Submitted',  'colour' => '#34d399', 'of' => [\App\Models\ProductRequest::SUBMITTED, \App\Models\ProductRequest::WAITING_MAPPING]],
-            ['label' => 'SKUs',       'colour' => '#2dd4bf', 'of' => [\App\Models\ProductRequest::SKU_VERIFIED]],
-            ['label' => 'Photoshoot', 'colour' => '#c084fc', 'of' => [\App\Models\ProductRequest::WAITING_IMAGES, \App\Models\ProductRequest::PHOTOSHOOT_SCHEDULED, \App\Models\ProductRequest::PHOTOSHOOT_COMPLETED, \App\Models\ProductRequest::IMAGE_EDITING]],
-            ['label' => 'Content',    'colour' => '#f59e0b', 'of' => [\App\Models\ProductRequest::AI_CONTENT]],
-            ['label' => 'QA',         'colour' => '#38bdf8', 'of' => [\App\Models\ProductRequest::QA_REVIEW, \App\Models\ProductRequest::READY_FOR_UPLOAD]],
-            ['label' => 'Published',  'colour' => '#10b981', 'of' => [\App\Models\ProductRequest::PUBLISHED, \App\Models\ProductRequest::COMPLETED]],
-        ];
-
-        $phases = array_map(function ($phase) use ($breakdown) {
-            $phase['count'] = collect($phase['of'])->sum(fn ($status) => (int) ($breakdown[$status] ?? 0));
-            return $phase;
-        }, $phases);
-
-        $busiest = max(1, max(array_column($phases, 'count')));
-    @endphp
-
-    <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-        <div class="grid grid-cols-3 gap-2 lg:grid-cols-6 lg:gap-0">
-            @foreach($phases as $i => $phase)
-                <a href="{{ route('product-requests.list', ['status' => $phase['of'][0]]) }}"
-                   class="group relative rounded-lg px-3 py-3 transition-colors hover:bg-gray-50">
-                    {{-- The thread between stages: the work moves left to right. --}}
-                    @if($i > 0)
-                        <span class="absolute -left-px top-[1.15rem] hidden h-px w-full -translate-x-1/2 bg-gradient-to-r from-gray-200 to-gray-100 lg:block"></span>
-                    @endif
-
-                    <span class="relative z-10 flex h-6 w-6 items-center justify-center rounded-full ring-4 ring-white"
-                          style="background-color: {{ $phase['count'] > 0 ? $phase['colour'] : '#e5e7eb' }}">
-                        @if($phase['count'] > 0)
-                            <span class="h-1.5 w-1.5 rounded-full bg-white/90"></span>
-                        @endif
-                    </span>
-
-                    <p class="figure mt-3 text-2xl leading-none text-gray-900">{{ number_format($phase['count']) }}</p>
-                    <p class="mt-1 text-xs font-medium text-gray-500 transition-colors group-hover:text-gray-800">{{ $phase['label'] }}</p>
-
-                    {{-- Weight, not just count: where the department is banked up. --}}
-                    <span class="mt-2 block h-1 rounded-full bg-gray-100">
-                        <span class="block h-1 rounded-full transition-all duration-700"
-                              style="width: {{ round($phase['count'] / $busiest * 100) }}%; background-color: {{ $phase['colour'] }}"></span>
-                    </span>
-                </a>
-            @endforeach
-        </div>
-    </div>
-
-    {{--
         Orientation, kept but cut to the bone. It used to be two five-step
         ordered lists and a paragraph, open by default on an empty dashboard —
         the stages are the pipeline above now, so what is left is the one thing
