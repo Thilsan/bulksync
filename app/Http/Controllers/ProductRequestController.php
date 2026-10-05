@@ -25,6 +25,7 @@ use Illuminate\Container\Attributes\CurrentUser;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
 use Illuminate\Support\Facades\Cache;
@@ -2066,13 +2067,7 @@ class ProductRequestController extends Controller implements HasMiddleware
         $skus = [];
 
         if ($request->hasFile('sku_csv')) {
-            $content = file_get_contents($request->file('sku_csv')->getRealPath());
-            foreach (preg_split('/\r\n|\r|\n/', $content) as $line) {
-                $sku = trim(str_getcsv($line)[0] ?? '');
-                if ($sku && strtolower($sku) !== 'sku') {
-                    $skus[] = $sku;
-                }
-            }
+            $skus = $this->skusFromCsv($request->file('sku_csv')->getRealPath());
         }
 
         if ($request->filled('skus')) {
@@ -2084,5 +2079,62 @@ class ProductRequestController extends Controller implements HasMiddleware
         }
 
         return array_values(array_unique(array_filter($skus)));
+    }
+
+    /** Header names a SKU CSV may use for its SKU column, compared case-insensitively. */
+    private const SKU_CSV_HEADERS = ['sku', 'item sku'];
+
+    /**
+     * Reads the SKUs from the "SKU" or "Item SKU" column, wherever it sits.
+     * A file without either header is refused rather than guessed at: taking
+     * the first column of an arbitrary sheet files barcodes or names as SKUs.
+     *
+     * @throws ValidationException
+     */
+    private function skusFromCsv(string $path): array
+    {
+        $invalid = 'Please upload a valid CSV. Its first row must have a column named "SKU" or "Item SKU".';
+
+        $content = preg_replace('/^\xEF\xBB\xBF/', '', (string) file_get_contents($path));   // Excel's BOM
+        $lines   = array_values(array_filter(
+            preg_split('/\r\n|\r|\n/', $content),
+            fn ($line) => trim($line, " \t,") !== '',
+        ));
+
+        if ($lines === []) {
+            throw ValidationException::withMessages(['sku_csv' => $invalid]);
+        }
+
+        $headers = array_map(
+            fn ($h) => strtolower(preg_replace('/\s+/', ' ', trim((string) $h))),
+            str_getcsv(array_shift($lines)),
+        );
+
+        $column = null;
+        foreach ($headers as $i => $header) {
+            if (in_array($header, self::SKU_CSV_HEADERS, true)) {
+                $column = $i;
+                break;
+            }
+        }
+
+        if ($column === null) {
+            throw ValidationException::withMessages(['sku_csv' => $invalid]);
+        }
+
+        $skus = [];
+        foreach ($lines as $line) {
+            if ($sku = trim(str_getcsv($line)[$column] ?? '')) {
+                $skus[] = $sku;
+            }
+        }
+
+        if ($skus === []) {
+            throw ValidationException::withMessages([
+                'sku_csv' => 'The CSV has a SKU column but no SKUs under it. Please check the file and upload it again.',
+            ]);
+        }
+
+        return $skus;
     }
 }

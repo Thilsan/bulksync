@@ -1182,6 +1182,8 @@
                                 <button type="submit" class="bg-brand-600 hover:bg-brand-700 text-white text-xs font-medium px-4 py-2 rounded-lg transition-colors">Add &amp; Revalidate</button>
                             </div>
                         </div>
+                        <p class="text-xs text-gray-400 mt-1">A CSV needs a column named SKU or Item SKU in its first row.</p>
+                        @error('sku_csv') <p class="text-xs text-red-600 mt-1">{{ $message }}</p> @enderror
                     </form>
 
                     {{-- Mapping is not typed in here. The SKU check reads Shopify and

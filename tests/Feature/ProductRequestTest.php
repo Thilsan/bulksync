@@ -2087,6 +2087,69 @@ class ProductRequestTest extends TestCase
         }
     }
 
+    /** POST a new request with only a SKU CSV as its products. */
+    private function submitCsv(User $user, Store $store, string $csv)
+    {
+        $user->stores()->syncWithoutDetaching([$store->id]);
+
+        return $this->actingAs($user)->post(route('product-requests.store'), [
+            'store_id'           => $store->id,
+            'request_type'       => 'new_brand',
+            'brand'              => 'Samsonite',
+            'category'           => 'Luggage',
+            'sku_csv'            => UploadedFile::fake()->createWithContent('skus.csv', $csv),
+            'online_launch_date' => now()->addDays(18)->format('Y-m-d H:i'),
+            'image_source'       => ProductRequest::IMG_PHOTOSHOOT,
+            'use_ai_content'     => 1,
+            'priority'           => 'high',
+        ]);
+    }
+
+    /**
+     * The SKU column is found by its header, not its position, and "Item SKU"
+     * is accepted too — whatever the case, spacing or Excel BOM.
+     */
+    public function test_skus_are_read_from_the_sku_or_item_sku_column(): void
+    {
+        Notification::fake();
+        Queue::fake();
+
+        $user  = $this->brandManager();
+        $store = $this->plainSite();
+
+        $this->submitCsv($user, $store, "\xEF\xBB\xBFBarcode, Item  SKU ,Name\n6291,IS-1,Bag\n6292,IS-2,Case\n")
+            ->assertSessionHasNoErrors();
+
+        $request = ProductRequest::latest('id')->first();
+
+        try {
+            $this->assertSame(['IS-1', 'IS-2'], $request->skus()->orderBy('id')->pluck('sku')->all());
+        } finally {
+            File::deleteDirectory(storage_path("app/product-requests/{$request->id}"));
+        }
+    }
+
+    /** A CSV without a SKU / Item SKU header is refused, and no request is made. */
+    public function test_a_csv_without_a_sku_column_is_refused(): void
+    {
+        Notification::fake();
+        Queue::fake();
+
+        $user  = $this->brandManager();
+        $store = $this->plainSite();
+
+        $this->submitCsv($user, $store, "Barcode,Name\n6291,Bag\n")
+            ->assertSessionHasErrors(['sku_csv' => 'Please upload a valid CSV. Its first row must have a column named "SKU" or "Item SKU".']);
+
+        // A bare list with no header row is refused too: the first SKU is not a header.
+        $this->submitCsv($user, $store, "AB-1\nAB-2\n")->assertSessionHasErrors('sku_csv');
+
+        $this->submitCsv($user, $store, "SKU,Name\n,Bag\n")
+            ->assertSessionHasErrors(['sku_csv' => 'The CSV has a SKU column but no SKUs under it. Please check the file and upload it again.']);
+
+        $this->assertSame(0, ProductRequest::count());
+    }
+
     public function test_an_upload_php_rejected_is_reported_not_silently_dropped(): void
     {
         Notification::fake();
