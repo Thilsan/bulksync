@@ -20,7 +20,9 @@
                 <input type="hidden" name="search" :value="search">
                 <input type="hidden" name="type" :value="type">
                 <input type="hidden" name="status" :value="statusFilter">
-                <button type="submit" :disabled="itemTotal === 0"
+                {{-- Hand-picked rows override the filters above on the server. --}}
+                <input type="hidden" name="ids" :value="selected.join(',')">
+                <button type="submit" :disabled="fixCount() === 0"
                     class="bg-brand-600 hover:bg-brand-700 text-white px-4 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed">
                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"/>
@@ -28,10 +30,13 @@
                     {{-- Says the cap before the click rather than after it: a
                          button promising 690 that quietly sends 500 is worse
                          than one that reads "500 of 690" from the start. --}}
-                    <span x-show="itemTotal <= maxBatch">
+                    <span x-show="selected.length > 0" x-cloak>
+                        Fix <span x-text="selected.length.toLocaleString()"></span> selected with AI
+                    </span>
+                    <span x-show="selected.length === 0 && itemTotal <= maxBatch">
                         Fix <span x-text="itemTotal.toLocaleString()"></span> with AI
                     </span>
-                    <span x-show="itemTotal > maxBatch" x-cloak>
+                    <span x-show="selected.length === 0 && itemTotal > maxBatch" x-cloak>
                         Fix <span x-text="maxBatch.toLocaleString()"></span> of <span x-text="itemTotal.toLocaleString()"></span> with AI
                     </span>
                 </button>
@@ -284,17 +289,30 @@
             </div>
 
             <div class="flex-1 max-w-xs">
-                <input type="text" x-model.debounce.400ms="search" @input="loadItems(1)"
+                <input type="text" x-model.debounce.400ms="search" @input="clearSelection(); loadItems(1)"
                     placeholder="Search SKU, title or handle…"
                     class="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
             </div>
-            <p class="text-xs text-gray-400 ml-auto"><span x-text="itemTotal.toLocaleString()"></span> results</p>
+            <p class="text-xs text-gray-400 ml-auto">
+                <template x-if="selected.length > 0">
+                    <span class="mr-3 text-brand-600 font-medium">
+                        <span x-text="selected.length.toLocaleString()"></span> selected
+                        <button type="button" @click="clearSelection()" class="underline ml-1">Clear</button>
+                    </span>
+                </template>
+                <span x-text="itemTotal.toLocaleString()"></span> results
+            </p>
         </div>
 
         <div class="overflow-x-auto">
             <table class="w-full text-sm">
                 <thead class="bg-gray-50 border-b border-gray-100">
                     <tr>
+                        <th class="px-4 py-3">
+                            <input type="checkbox" class="rounded border-gray-300" title="Select all fixable rows on this page"
+                                   :checked="pageAllSelected()" :disabled="selectableOnPage().length === 0"
+                                   @change="togglePage($event.target.checked)">
+                        </th>
                         <th class="text-left px-6 py-3 font-medium text-gray-600">#</th>
                         <th class="text-center px-6 py-3 font-medium text-gray-600">Score</th>
                         <th class="text-left px-6 py-3 font-medium text-gray-600">SKU</th>
@@ -307,7 +325,14 @@
                 </thead>
                 <tbody class="divide-y divide-gray-100">
                     <template x-for="(item, i) in items" :key="item.product_id">
-                        <tr class="hover:bg-gray-50 transition-colors align-top">
+                        <tr class="hover:bg-gray-50 transition-colors align-top"
+                            :class="isSelected(item) ? 'bg-brand-50/40' : ''">
+                            <td class="px-4 py-3">
+                                {{-- Collections cannot go through Fix, so no box. --}}
+                                <input type="checkbox" class="rounded border-gray-300"
+                                       x-show="item.resource_type !== 'collection'"
+                                       :checked="isSelected(item)" @change="toggle(item)">
+                            </td>
                             <td class="px-6 py-3 text-gray-400 text-xs" x-text="(currentPage - 1) * 100 + i + 1"></td>
                             <td class="px-6 py-3 text-center">
                                 <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold"
@@ -386,7 +411,7 @@
                         </tr>
                     </template>
                     <tr x-show="items.length === 0 && status === 'completed'">
-                        <td colspan="8" class="px-6 py-8 text-center text-gray-400 text-sm">No results found.</td>
+                        <td colspan="9" class="px-6 py-8 text-center text-gray-400 text-sm">No results found.</td>
                     </tr>
                 </tbody>
             </table>
@@ -436,6 +461,7 @@ function seoAuditPage(sessionId, initialStatus) {
         currentPage:   1,
         lastPage:      1,
         pollTimer:     null,
+        selected:      [],
 
         init() {
             if (this.status === 'completed') {
@@ -470,12 +496,52 @@ function seoAuditPage(sessionId, initialStatus) {
             this.mergeCandidates = data.candidates;
         },
 
+        /** Rows ticked by hand. Kept across pages, dropped when the view changes. */
+        isSelected(item) { return this.selected.includes(item.product_id); },
+
+        clearSelection() { this.selected = []; },
+
+        /** What the button will send: the ticked rows, else the capped view. */
+        fixCount() {
+            return this.selected.length > 0 ? this.selected.length : this.itemTotal;
+        },
+
+        toggle(item) {
+            if (this.isSelected(item)) {
+                this.selected = this.selected.filter(id => id !== item.product_id);
+            } else if (this.selected.length >= this.maxBatch) {
+                alert(`You can fix at most ${this.maxBatch.toLocaleString()} products at a time.`);
+                this.loadItems(this.currentPage);
+            } else {
+                this.selected = [...this.selected, item.product_id];
+            }
+        },
+
+        selectableOnPage() {
+            return this.items.filter(i => i.resource_type !== 'collection');
+        },
+
+        pageAllSelected() {
+            const rows = this.selectableOnPage();
+
+            return rows.length > 0 && rows.every(i => this.isSelected(i));
+        },
+
+        togglePage(on) {
+            const ids  = this.selectableOnPage().map(i => i.product_id);
+            const rest = this.selected.filter(id => !ids.includes(id));
+
+            this.selected = on ? [...rest, ...ids].slice(0, this.maxBatch) : rest;
+        },
+
         setType(t) {
+            this.clearSelection();
             this.type = t;
             this.loadItems(1);
         },
 
         setStatus(s) {
+            this.clearSelection();
             this.statusFilter = s;
             this.loadItems(1);
         },
@@ -519,6 +585,7 @@ function seoAuditPage(sessionId, initialStatus) {
         },
 
         setFilter(f) {
+            this.clearSelection();
             this.filter = f;
             this.loadItems(1);
         },
@@ -529,12 +596,12 @@ function seoAuditPage(sessionId, initialStatus) {
          * it is about to change 217 live product pages.
          */
         confirmFix(event) {
-            const sending = Math.min(this.itemTotal, this.maxBatch);
+            const sending = Math.min(this.fixCount(), this.maxBatch);
             const cost    = (sending * {{ \App\Http\Controllers\SeoAuditController::COST_PER_PRODUCT_USD }}).toFixed(2);
 
             let message = `Generate SEO content for ${sending.toLocaleString()} product(s)?\n\n`;
 
-            if (this.itemTotal > this.maxBatch) {
+            if (this.selected.length === 0 && this.itemTotal > this.maxBatch) {
                 message += `That is the ${sending.toLocaleString()} worst-scoring of `
                          + `${this.itemTotal.toLocaleString()} — run Fix again afterwards `
                          + `for the remaining ${(this.itemTotal - sending).toLocaleString()}.\n\n`;

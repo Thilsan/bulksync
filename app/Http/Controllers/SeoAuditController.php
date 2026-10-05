@@ -350,6 +350,23 @@ class SeoAuditController extends Controller
         $candidates = $this->filtered($seoAuditSession, $request)
             ->where('resource_type', SeoAuditItem::TYPE_PRODUCT);
 
+        // Rows ticked by hand replace the filter: the person has said exactly
+        // which products they mean, so the view's filters must not quietly drop
+        // any of them. Still scoped to this session and still subject to the
+        // cap, because ids come from the browser.
+        $selected = collect(explode(',', (string) $request->input('ids')))
+            ->map(fn ($id) => trim($id))
+            ->filter()
+            ->unique()
+            ->values();
+
+        if ($selected->isNotEmpty()) {
+            $candidates = $seoAuditSession->items()
+                ->where('resource_type', SeoAuditItem::TYPE_PRODUCT)
+                ->whereIn('product_id', $selected->all())
+                ->orderBy('score')->orderBy('product_title');
+        }
+
         $available = (clone $candidates)->count();
 
         // Capped rather than refused. The view is ordered worst-score-first, so
