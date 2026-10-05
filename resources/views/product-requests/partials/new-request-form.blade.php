@@ -6,7 +6,7 @@
      {{-- Covers the page area only: the sidebar and top bar stay in view. --}}
      x-data="{ top: 0, measure() { const bar = document.querySelector('header.topbar'); this.top = bar ? bar.getBoundingClientRect().bottom : 0; } }"
      x-init="measure()" x-effect="if (newRequestOpen) measure()" @resize.window="measure()"
-     :style="`top: ${top}px`"
+     :style="{ top: top + 'px' }"
      {{-- No opacity here: a fading parent stops the browser drawing the blur
           until the fade ends. This only holds the panel open while its
           children animate out. --}}
