@@ -97,6 +97,19 @@
     <style>
         :root { --slide-duration: 7s; }
 
+        /*
+            The one accent colour. Buttons, pills, focus, spinner and the
+            glows all read these, so trying a different colour is this block
+            and nothing else.
+        */
+        :root {
+            --accent:      #ff8a6b;   /* coral */
+            --accent-hov:  #f97a58;
+            --accent-edge: #e8694a;
+            --accent-soft: #ffb59f;
+            --accent-rgb:  255,138,107;
+            --on-accent:   #111111;
+        }
         body { font-family: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif; background: #ffffff; }
         .font-display { font-family: "Newsreader", ui-serif, Georgia, serif; }
 
@@ -105,7 +118,7 @@
             position: relative;
             background:
                 radial-gradient(1000px 520px at 12% -10%, rgba(255,255,255,.12), transparent 60%),
-                radial-gradient(760px 520px at 100% 108%, rgba(251,212,76,.55), transparent 62%),
+                radial-gradient(760px 520px at 100% 108%, rgba(var(--accent-rgb),.55), transparent 62%),
                 linear-gradient(150deg, #1f6f8b 0%, #1a5f80 38%, #2b4c85 72%, #2a3f73 100%);
         }
         /* The weave, and the thread down the edge where the form begins. */
@@ -116,7 +129,7 @@
         }
         .showcase::after {
             content: ''; position: absolute; inset: 0 0 0 auto; width: 2px; pointer-events: none;
-            background: linear-gradient(180deg, transparent, rgba(251,212,76,.9) 22%, rgba(251,212,76,.35) 70%, transparent);
+            background: linear-gradient(180deg, transparent, rgba(var(--accent-rgb),.9) 22%, rgba(var(--accent-rgb),.35) 70%, transparent);
         }
         /* ---------- Slider ---------- */
         .slide {
@@ -453,7 +466,7 @@
                 </label>
 
                 <button type="submit"
-                        class="w-full rounded-xl bg-[#fbd44c] py-3 text-sm font-semibold text-black shadow-lg shadow-[#fbd44c]/30 transition hover:bg-[#f5c72a] focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2">
+                        class="w-full rounded-xl bg-[var(--accent)] py-3 text-sm font-semibold text-[color:var(--on-accent)] shadow-lg transition hover:bg-[var(--accent-hov)] focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2">
                     Sign in
                 </button>
             </form>

@@ -6,7 +6,7 @@
         (function () {
             var t = null;
             try { t = localStorage.getItem('theme'); } catch (e) {}
-            if (!t) t = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+            if (!t) t = 'light';
             document.documentElement.classList.toggle('dark', t === 'dark');
             window.toggleTheme = function () {
                 var d = document.documentElement.classList.toggle('dark');
@@ -197,6 +197,20 @@
         [x-cloak] { display: none !important; }
 
         /*
+            The one accent colour. Buttons, pills, focus, spinner and the
+            glows all read these, so trying a different colour is this block
+            and nothing else.
+        */
+        :root {
+            --accent:      #ff8a6b;   /* coral */
+            --accent-hov:  #f97a58;
+            --accent-edge: #e8694a;
+            --accent-soft: #ffb59f;
+            --accent-rgb:  255,138,107;
+            --on-accent:   #111111;
+        }
+
+        /*
             Sidebar ground. Deeper than the sign-in showcase and lit from two
             directions — a cool wash at the brand mark, a warm one low down —
             so the panel has somewhere to stand rather than reading as flat
@@ -206,13 +220,13 @@
         .app-sidebar {
             background:
                 radial-gradient(520px 260px at 20% -10%, rgba(255,255,255,.14), transparent 70%),
-                radial-gradient(420px 320px at 0% 108%, rgba(201,164,91,.16), transparent 72%),
+                radial-gradient(420px 320px at 0% 108%, rgba(var(--accent-rgb),.16), transparent 72%),
                 linear-gradient(172deg, #1f6f8b 0%, #1a6480 46%, #2b4c85 100%);
         }
         /* One thread of champagne down the edge. */
         .app-sidebar::after {
             content: ''; position: absolute; inset: 0 0 0 auto; width: 1px; pointer-events: none;
-            background: linear-gradient(180deg, transparent, rgba(221,192,134,.6) 16%, rgba(221,192,134,.2) 64%, transparent);
+            background: linear-gradient(180deg, transparent, rgba(var(--accent-rgb),.6) 16%, rgba(var(--accent-rgb),.2) 64%, transparent);
         }
 
         .topbar {
@@ -221,7 +235,7 @@
         }
         .topbar::after {
             content: ''; position: absolute; inset: auto 0 0 0; height: 1px; pointer-events: none;
-            background: linear-gradient(90deg, #e8bd25, rgba(232,189,37,.4) 40%, transparent);
+            background: linear-gradient(90deg, var(--accent-edge), rgba(var(--accent-rgb),.4) 40%, transparent);
         }
 
         /* A full-height scrollbar would cut the panel in half, so keep it hairline. */
@@ -325,7 +339,7 @@
         main button, main a[class*="rounded-lg"] { transition: transform .12s ease, background-color .2s, color .2s, border-color .2s, box-shadow .2s; }
 
         /* Focus that is visible without being loud, everywhere. */
-        :focus-visible { outline: 2px solid #e8bd25; outline-offset: 2px; border-radius: 6px; }
+        :focus-visible { outline: 2px solid var(--accent-edge); outline-offset: 2px; border-radius: 6px; }
 
         /*
             ── Premium defaults every page inherits ─────────────────────────
@@ -339,29 +353,29 @@
             background-image: linear-gradient(180deg, rgba(255,255,255,.16), rgba(255,255,255,0) 60%);
         }
         main .bg-brand-600:hover {
-            box-shadow: 0 10px 24px -10px rgba(251,212,76,.8);
+            box-shadow: 0 10px 24px -10px rgba(var(--accent-rgb),.8);
         }
 
         /* Brand fills are yellow with black text — buttons, pills, tabs,
            avatars. Anything that was solid teal reads the same way. */
         :is(main, header) :is(.bg-brand-600, .bg-brand-500) {
-            background-color: #fbd44c !important;
+            background-color: var(--accent) !important;
             background-image: none !important;
-            color: #111111 !important;
+            color: var(--on-accent) !important;
         }
-        :is(main, header) :is(button, a, input[type="submit"]):is(.bg-brand-600, .bg-brand-500) { border-color: #e8bd25; }
+        :is(main, header) :is(button, a, input[type="submit"]):is(.bg-brand-600, .bg-brand-500) { border-color: var(--accent-edge); }
         :is(main, header) :is(button, a, input[type="submit"]):is(.bg-brand-600, .bg-brand-500):hover:not(:disabled) {
-            background-color: #f5c72a !important;
+            background-color: var(--accent-hov) !important;
         }
         :is(main, header) :is(.bg-brand-600, .bg-brand-500) :is(svg, span) { color: inherit; }
 
         /* Outline buttons and chips: yellow edge, black text, faint yellow wash. */
         main :is(button, a).border-brand-600 {
-            border-color: #e8bd25 !important;
-            color: #111111 !important;
-            background-color: rgba(251,212,76,.14) !important;
+            border-color: var(--accent-edge) !important;
+            color: var(--on-accent) !important;
+            background-color: rgba(var(--accent-rgb),.14) !important;
         }
-        main :is(button, a).border-brand-600:hover:not(:disabled) { background-color: rgba(251,212,76,.38) !important; }
+        main :is(button, a).border-brand-600:hover:not(:disabled) { background-color: rgba(var(--accent-rgb),.38) !important; }
 
         /* Light brand tints take the sidebar's teal-mist. */
         main [class~="bg-brand-50"], main [class*="bg-brand-50/"] { background-color: #e3f1f6 !important; }
@@ -370,8 +384,8 @@
 
         /* Focus: yellow ring and edge on fields. */
         main [class*="ring-brand-"]:focus,
-        main [class*="ring-brand-"]:focus-within { --tw-ring-color: rgba(251,212,76,.6) !important; }
-        main [class*="focus:border-brand-"]:focus { border-color: #e8bd25 !important; }
+        main [class*="ring-brand-"]:focus-within { --tw-ring-color: rgba(var(--accent-rgb),.6) !important; }
+        main [class*="focus:border-brand-"]:focus { border-color: var(--accent-edge) !important; }
 
         /* Tinted pills get a hairline of their own colour, so a status reads as
            a token rather than a coloured rectangle. */
@@ -431,7 +445,7 @@
         */
         .spinner {
             border-radius: 9999px;
-            background: conic-gradient(from 0deg, transparent 0turn, #fde58f .5turn, #fbd44c 1turn);
+            background: conic-gradient(from 0deg, transparent 0turn, var(--accent-soft) .5turn, var(--accent) 1turn);
             -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 3px));
                     mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 3px));
             animation: spin 900ms linear infinite;
@@ -516,7 +530,7 @@
         html.dark .skeleton { background: linear-gradient(100deg, #1b2938 30%, #243649 50%, #1b2938 70%) 0 0 / 220% 100%; }
 
         /* Yellow buttons keep black text; the glow is softer on dark */
-        html.dark main .bg-brand-600:hover { box-shadow: 0 10px 24px -12px rgba(251,212,76,.45); }
+        html.dark main .bg-brand-600:hover { box-shadow: 0 10px 24px -12px rgba(var(--accent-rgb),.45); }
 
         /* Switcher */
         .theme-toggle .i-sun { display: none; }
@@ -970,7 +984,7 @@
                     </div>
                 </div>
                 @endif
-                {{-- Light / dark switch. Remembered per browser; follows the OS until first used. --}}
+                {{-- Light / dark switch. Remembered per browser; light until chosen otherwise. --}}
                 <button type="button" onclick="toggleTheme()"
                         class="theme-toggle relative flex h-9 w-9 items-center justify-center rounded-lg border border-white/15 bg-white text-parch-600 shadow-sm transition-transform hover:-translate-y-px hover:text-parch-900"
                         aria-label="Toggle dark mode" title="Light / dark">
