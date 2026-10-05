@@ -1,6 +1,19 @@
 <!DOCTYPE html>
 <html lang="en" class="h-full">
 <head>
+    <script>
+        /* Applied before first paint so a dark reader never sees a white flash. */
+        (function () {
+            var t = null;
+            try { t = localStorage.getItem('theme'); } catch (e) {}
+            if (!t) t = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+            document.documentElement.classList.toggle('dark', t === 'dark');
+            window.toggleTheme = function () {
+                var d = document.documentElement.classList.toggle('dark');
+                try { localStorage.setItem('theme', d ? 'dark' : 'light'); } catch (e) {}
+            };
+        })();
+    </script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ csrf_token() }}">
@@ -204,7 +217,7 @@
 
         .topbar {
             background:
-                linear-gradient(90deg, #f4d974 0%, #a9ae6c 24%, #5f8c7a 44%, #2f5f86 68%, #2b5280 100%);
+                linear-gradient(90deg, #5f8c7a 0%, #a9ae6c 24%, #5f8c7a 44%, #5f8c7a 68%, #5f8c7a 100%);
         }
         .topbar::after {
             content: ''; position: absolute; inset: auto 0 0 0; height: 1px; pointer-events: none;
@@ -431,6 +444,84 @@
             border-radius: .5rem;
         }
         @keyframes skeleton { to { background-position: -220% 0 } }
+
+
+        /*
+            ── Dark mode ───────────────────────────────────────────────────
+            The views are written against Tailwind's light palette, so dark is
+            a remap of those same classes under html.dark rather than a
+            dark: variant on every element. Surface, ink and line each get one
+            value; status tints become translucent washes of their own hue.
+        */
+        html.dark { color-scheme: dark; }
+        html.dark body { background: #0e1620; color: #dbe4ec; }
+
+        html.dark .bg-white { background-color: #16212d; }
+        html.dark .bg-white\/85, html.dark .bg-white\/70 { background-color: rgba(22,33,45,.85); }
+        html.dark .bg-gray-50, html.dark .bg-gray-100 { background-color: #1b2938; }
+        html.dark .bg-gray-200 { background-color: #263648; }
+        html.dark .bg-parch-50, html.dark .bg-parch-100 { background-color: #1b2938; }
+        html.dark .hover\:bg-gray-50:hover, html.dark .hover\:bg-gray-100:hover { background-color: #223345; }
+        html.dark .hover\:bg-white:hover { background-color: #1d2c3b; }
+
+        html.dark .text-gray-900, html.dark .text-gray-800, html.dark .text-gray-700,
+        html.dark .text-parch-900, html.dark .text-parch-800, html.dark .text-parch-700 { color: #e8eef4; }
+        html.dark .text-gray-600, html.dark .text-gray-500, html.dark .text-parch-600, html.dark .text-parch-500 { color: #a8b8c7; }
+        html.dark .text-gray-400, html.dark .text-gray-300, html.dark .text-parch-400 { color: #7c8ea1; }
+        html.dark .hover\:text-gray-700:hover, html.dark .hover\:text-gray-800:hover, html.dark .hover\:text-gray-900:hover,
+        html.dark .hover\:text-parch-900:hover { color: #ffffff; }
+
+        html.dark .border-gray-50, html.dark .border-gray-100, html.dark .border-gray-200,
+        html.dark .border-gray-300, html.dark .border-parch-200, html.dark .border-parch-300 { border-color: #2a3b4d; }
+        html.dark .divide-gray-50 > :not([hidden]) ~ :not([hidden]),
+        html.dark .divide-gray-100 > :not([hidden]) ~ :not([hidden]) { border-color: #263649; }
+        html.dark .ring-gray-200, html.dark .ring-gray-300 { --tw-ring-color: #2a3b4d; }
+
+        html.dark main .rounded-xl.bg-white, html.dark main .rounded-2xl.bg-white {
+            border-color: rgba(255,255,255,.07);
+            box-shadow: 0 1px 2px rgba(0,0,0,.35), 0 12px 28px -22px rgba(0,0,0,.8);
+        }
+
+        /* Fields */
+        html.dark main input:not([type="checkbox"]):not([type="radio"]),
+        html.dark main select, html.dark main textarea {
+            background-color: #0f1a25; color: #e8eef4; border-color: #2a3b4d;
+            box-shadow: inset 0 1px 2px rgba(0,0,0,.4);
+        }
+        html.dark ::placeholder { color: #6b7d90; }
+        html.dark main thead th { color: #9fb0c0; }
+        html.dark main tbody tr:hover { background-color: rgba(255,255,255,.03); }
+
+        /* Status tints: a wash of the hue, readable text in the light end of it */
+        html.dark :is(.bg-red-50, .bg-red-100)       { background-color: rgba(239,68,68,.14); }
+        html.dark :is(.bg-amber-50, .bg-amber-100, .bg-yellow-50, .bg-yellow-100) { background-color: rgba(245,158,11,.14); }
+        html.dark :is(.bg-green-50, .bg-green-100, .bg-emerald-50, .bg-emerald-100) { background-color: rgba(34,197,94,.14); }
+        html.dark :is(.bg-blue-50, .bg-blue-100, .bg-sky-50, .bg-sky-100) { background-color: rgba(59,130,246,.15); }
+        html.dark :is(.bg-violet-50, .bg-violet-100) { background-color: rgba(139,92,246,.16); }
+        html.dark :is(.text-red-600, .text-red-700, .text-red-800)       { color: #fca5a5; }
+        html.dark :is(.text-amber-600, .text-amber-700, .text-amber-800, .text-yellow-700, .text-yellow-800) { color: #fcd34d; }
+        html.dark :is(.text-green-600, .text-green-700, .text-green-800, .text-emerald-600, .text-emerald-700, .text-emerald-800) { color: #86efac; }
+        html.dark :is(.text-blue-600, .text-blue-700, .text-blue-800, .text-sky-700) { color: #93c5fd; }
+        html.dark :is(.text-violet-700, .text-violet-800) { color: #c4b5fd; }
+        html.dark :is(.border-red-100, .border-red-200, .border-amber-100, .border-amber-200,
+                      .border-green-100, .border-green-200, .border-emerald-100, .border-emerald-200,
+                      .border-blue-100, .border-blue-200) { border-color: rgba(255,255,255,.12); }
+
+        /* Brand: teal text lifts, pale tints sink to deep teal */
+        html.dark :is(.text-brand-600, .text-brand-700, .text-brand-800) { color: #7cc4dc; }
+        html.dark main [class~="bg-brand-50"], html.dark main [class*="bg-brand-50/"] { background-color: #12303d !important; }
+        html.dark main [class~="bg-brand-100"] { background-color: #17414f !important; }
+        html.dark main [class*="hover:bg-brand-50"]:hover { background-color: #17414f !important; }
+        html.dark :is(.border-brand-200, .border-brand-300) { border-color: #24596b; }
+        html.dark .skeleton { background: linear-gradient(100deg, #1b2938 30%, #243649 50%, #1b2938 70%) 0 0 / 220% 100%; }
+
+        /* Yellow buttons keep black text; the glow is softer on dark */
+        html.dark main .bg-brand-600:hover { box-shadow: 0 10px 24px -12px rgba(251,212,76,.45); }
+
+        /* Switcher */
+        .theme-toggle .i-sun { display: none; }
+        html.dark .theme-toggle .i-sun { display: block; }
+        html.dark .theme-toggle .i-moon { display: none; }
 
         @media (prefers-reduced-motion: reduce) {
             .spinner, .skeleton { animation: none }
@@ -879,6 +970,18 @@
                     </div>
                 </div>
                 @endif
+                {{-- Light / dark switch. Remembered per browser; follows the OS until first used. --}}
+                <button type="button" onclick="toggleTheme()"
+                        class="theme-toggle relative flex h-9 w-9 items-center justify-center rounded-lg border border-white/15 bg-white text-parch-600 shadow-sm transition-transform hover:-translate-y-px hover:text-parch-900"
+                        aria-label="Toggle dark mode" title="Light / dark">
+                    <svg class="i-moon" style="width:1.125rem;height:1.125rem" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.8">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z"/>
+                    </svg>
+                    <svg class="i-sun" style="width:1.125rem;height:1.125rem" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.8">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v1.5M12 19.5V21M4.2 4.2l1.1 1.1M18.7 18.7l1.1 1.1M3 12h1.5M19.5 12H21M4.2 19.8l1.1-1.1M18.7 5.3l1.1-1.1M16 12a4 4 0 11-8 0 4 4 0 018 0z"/>
+                    </svg>
+                </button>
+
                 {{-- Notification bell --}}
                 @if(auth()->user()->hasFeature('product_request'))
                 {{--
