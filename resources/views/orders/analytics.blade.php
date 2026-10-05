@@ -260,6 +260,4 @@
     @endforelse
 </div>
 
-@include('orders.integrating')
-
 </div>{{-- /busy --}}
