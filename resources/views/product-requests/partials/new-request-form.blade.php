@@ -109,21 +109,39 @@
                         <section class="bg-white/90 rounded-xl border border-white shadow-[0_8px_30px_-12px_rgba(15,23,42,.18)] p-4">
                             <h3 class="text-sm font-semibold text-gray-900 mb-3">Products</h3>
 
-                            <label x-data="{ fileName: '', over: false }"
-                                   @dragover.prevent="over = true" @dragleave.prevent="over = false"
-                                   @drop.prevent="over = false; $refs.skuCsv.files = $event.dataTransfer.files; fileName = $refs.skuCsv.files[0]?.name || ''"
+                            @include('product-requests.partials.sku-csv-check')
+                            {{-- Checked as soon as it is picked, so a wrong file is caught
+                               now rather than after the whole form is filled in. --}}
+                            <div x-data="{
+                                    fileName: '',
+                                    over: false,
+                                    error: @js($errors->first('sku_csv') ?: null),
+                                    async pick(files) {
+                                        const file = files[0];
+                                        this.error = await window.checkSkuCsv(file);
+                                        if (this.error) {
+                                            this.$refs.skuCsv.value = '';
+                                            this.fileName = '';
+                                        } else {
+                                            this.fileName = file?.name || '';
+                                        }
+                                    }
+                                 }">
+                            <label @dragover.prevent="over = true" @dragleave.prevent="over = false"
+                                   @drop.prevent="over = false; $refs.skuCsv.files = $event.dataTransfer.files; pick($refs.skuCsv.files)"
                                    class="relative flex flex-col items-center justify-center gap-1.5 cursor-pointer rounded-lg border-2 border-dashed px-4 py-8 text-center transition-colors"
-                                   :class="over ? 'border-brand-500 bg-brand-50' : (fileName ? 'border-brand-300 bg-brand-50/50' : 'border-gray-300 hover:bg-gray-50')">
-                                <svg class="w-7 h-7" :class="fileName ? 'text-brand-600' : 'text-gray-400'" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                   :class="over ? 'border-brand-500 bg-brand-50' : (error ? 'border-red-300 bg-red-50/50' : (fileName ? 'border-brand-300 bg-brand-50/50' : 'border-gray-300 hover:bg-gray-50'))">
+                                <svg class="w-7 h-7" :class="error ? 'text-red-400' : (fileName ? 'text-brand-600' : 'text-gray-400')" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path x-show="!fileName" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
                                     <path x-show="fileName" x-cloak stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
                                 </svg>
                                 <span class="text-sm font-medium text-gray-800" x-text="fileName || 'Upload SKU file'"></span>
                                 <span class="text-xs text-gray-400" x-text="fileName ? 'Click to change' : 'CSV with a SKU or Item SKU column · drag and drop or click'"></span>
                                 <input type="file" name="sku_csv" accept=".csv,.txt" x-ref="skuCsv" required class="sr-only"
-                                       @change="fileName = $el.files[0]?.name || ''">
+                                       @change="pick($el.files)">
                             </label>
-                            @error('sku_csv') <p class="mt-2 text-xs text-red-600">{{ $message }}</p> @enderror
+                            <p x-show="error" x-cloak x-text="error" class="mt-2 text-xs text-red-600"></p>
+                            </div>
                         </section>
 
                         {{-- Images --}}

@@ -719,7 +719,7 @@
                 <div x-show="tab === 'skus'" x-cloak class="px-5 py-5">
                     @unless($closed)
                     <form method="POST" action="{{ route('product-requests.skus.add', $request) }}" enctype="multipart/form-data"
-                          x-data="{ open: {{ $errors->has('sku_csv') || $errors->has('skus') ? 'true' : 'false' }} }" class="mb-4">
+                          x-data="{ open: {{ $errors->has('sku_csv') || $errors->has('skus') ? 'true' : 'false' }}, csvError: @js($errors->first('sku_csv') ?: null) }" class="mb-4">
                         @csrf
                         <button type="button" x-show="!open" @click="open = true" class="{{ $small }} border border-gray-300 text-gray-700 hover:bg-gray-50">+ Add SKUs</button>
                         <div x-show="open" x-cloak class="rounded-lg border border-gray-200 p-3 space-y-2">
@@ -727,14 +727,16 @@
                                       class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-brand-500 resize-y"></textarea>
                             <div class="flex flex-wrap items-center gap-2">
                                 <input type="file" name="sku_csv" accept=".csv,.txt"
+                                       @change="csvError = await window.checkSkuCsv($el.files[0]); if (csvError) $el.value = ''"
                                        class="flex-1 text-xs text-gray-600 file:mr-2 file:py-1.5 file:px-2.5 file:rounded-lg file:border-0 file:text-xs file:font-medium file:bg-gray-100 file:text-gray-700 hover:file:bg-gray-200 cursor-pointer">
                                 <button type="submit" class="{{ $small }} bg-brand-600 hover:bg-brand-700 text-white">Add</button>
                                 <button type="button" @click="open = false" class="{{ $small }} text-gray-500 hover:text-gray-700">Cancel</button>
                             </div>
                             <p class="text-xs text-gray-400">CSV needs a "SKU" or "Item SKU" column.</p>
-                            @error('sku_csv') <p class="text-xs text-red-600">{{ $message }}</p> @enderror
+                            <p x-show="csvError" x-cloak x-text="csvError" class="text-xs text-red-600"></p>
                         </div>
                     </form>
+                    @include('product-requests.partials.sku-csv-check')
                     @endunless
 
                     @if($skus->isEmpty())
