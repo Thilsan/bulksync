@@ -16,100 +16,79 @@
 @section('content')
 <div class="space-y-6">
 
-    {{-- Header and filters ──────────────────────────────────────────────── --}}
-    <div class="bg-white rounded-xl border border-gray-200 p-6">
-        <div class="flex flex-wrap items-start justify-between gap-4">
-            <div>
-                <h2 class="font-semibold text-gray-800 text-lg">What sells, and what doesn't</h2>
-                <p class="text-sm text-gray-500 mt-1">
-                    Units sold per product over the last {{ $filters['days'] }} days, from each website's Shopify orders.
-                    Cancelled and test orders are left out; refunds are not taken off.
-                    @if($isAll)
-                        Across websites the ranking is by units, because the stores sell in different currencies.
-                    @endif
-                </p>
-                <p class="text-xs text-gray-400 mt-1">
-                    Updated nightly{{ $summary['syncedAt'] ? ' · last read ' . $summary['syncedAt']->diffForHumans() : '' }}.
-                </p>
-            </div>
-            <div class="flex items-center gap-3">
-                <a href="{{ route('product-performance.download', request()->except('page')) }}"
-                   class="inline-flex items-center px-3 py-1.5 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 hover:bg-gray-50">
-                    Download CSV
-                </a>
-                @if(auth()->user()->is_super_admin)
-                    <form method="POST" action="{{ route('product-performance.refresh') }}">
-                        @csrf
-                        <button class="inline-flex items-center px-3 py-1.5 rounded-lg bg-brand-600 text-white text-sm font-medium hover:bg-brand-700">
-                            Sync now
-                        </button>
-                    </form>
-                @endif
-            </div>
-        </div>
-
-        <form method="GET" class="mt-5 flex flex-wrap items-end gap-3">
+    {{-- Filters ─────────────────────────────────────────────────────────── --}}
+    @php $field = 'h-9 rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:bg-white'; @endphp
+    <div class="bg-white rounded-xl border border-gray-200 px-4 py-3">
+        <form method="GET" class="flex flex-wrap items-center gap-2">
             <input type="hidden" name="tab" value="{{ $filters['tab'] }}">
-            <label class="text-xs text-gray-500">
-                <span class="block mb-1">Website</span>
-                <select name="store" onchange="this.form.submit()" class="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-800">
-                    <option value="all" @selected($isAll)>All websites</option>
-                    @foreach($choices as $choice)
-                        <option value="{{ $choice->id }}" @selected((string) $choice->id === $filters['store'])>{{ $choice->name }}</option>
-                    @endforeach
-                </select>
-            </label>
-            <label class="text-xs text-gray-500">
-                <span class="block mb-1">Period</span>
-                <select name="days" onchange="this.form.submit()" class="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-800">
-                    @foreach($ranges as $range)
-                        <option value="{{ $range }}" @selected($range === $filters['days'])>Last {{ $range }} days</option>
-                    @endforeach
-                </select>
-            </label>
-            <label class="text-xs text-gray-500">
-                <span class="block mb-1">Brand</span>
-                <select name="brand" onchange="this.form.submit()" class="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-800 max-w-[14rem]">
-                    <option value="">All brands</option>
-                    @foreach($brands as $brand)
-                        <option value="{{ $brand }}" @selected($brand === $filters['brand'])>{{ $brand }}</option>
-                    @endforeach
-                </select>
-            </label>
+
+            <select name="store" onchange="this.form.submit()" aria-label="Website" class="{{ $field }}">
+                <option value="all" @selected($isAll)>All websites</option>
+                @foreach($choices as $choice)
+                    <option value="{{ $choice->id }}" @selected((string) $choice->id === $filters['store'])>{{ $choice->name }}</option>
+                @endforeach
+            </select>
+            <select name="days" onchange="this.form.submit()" aria-label="Period" class="{{ $field }}">
+                @foreach($ranges as $range)
+                    <option value="{{ $range }}" @selected($range === $filters['days'])>Last {{ $range }} days</option>
+                @endforeach
+            </select>
+            <select name="brand" onchange="this.form.submit()" aria-label="Brand" class="{{ $field }} max-w-[12rem]">
+                <option value="">All brands</option>
+                @foreach($brands as $brand)
+                    <option value="{{ $brand }}" @selected($brand === $filters['brand'])>{{ $brand }}</option>
+                @endforeach
+            </select>
             @if($filters['tab'] === 'low')
-                <label class="text-xs text-gray-500">
-                    <span class="block mb-1">Sold at most</span>
-                    <input type="number" name="max" min="1" max="50" value="{{ $filters['max'] }}"
-                           class="w-24 rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-800">
+                <label class="flex items-center gap-1.5 text-xs text-gray-500">
+                    ≤
+                    <input type="number" name="max" min="1" max="50" value="{{ $filters['max'] }}" aria-label="Sold at most"
+                           onchange="this.form.submit()" class="{{ $field }} w-16">
+                    units
                 </label>
             @endif
-            <label class="text-xs text-gray-500 flex-1 min-w-[12rem] max-w-xs">
-                <span class="block mb-1">Search</span>
-                <input type="text" name="q" value="{{ $filters['search'] }}" placeholder="Product name or SKU…"
-                       class="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
-            </label>
-            <button class="px-3 py-1.5 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 hover:bg-gray-50">Apply</button>
-        </form>
-
-        {{-- Why a number might be missing, said up front rather than left to look like "no sales". --}}
-        @if($summary['never']->isNotEmpty())
-            <div class="mt-4 bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
-                Not read yet: {{ $summary['never']->pluck('name')->join(', ') }}. The first sync runs tonight
-                and reads a year of orders, so these websites are left out until then.
+            <div class="relative flex-1 min-w-[10rem] max-w-xs">
+                <svg class="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35M17 11a6 6 0 11-12 0 6 6 0 0112 0z"/></svg>
+                <input type="search" name="q" value="{{ $filters['search'] }}" placeholder="Search product or SKU" aria-label="Search"
+                       class="{{ $field }} w-full pl-8">
             </div>
+
+            <div class="ml-auto flex items-center gap-2">
+                @if($summary['syncedAt'])
+                    <span class="hidden md:inline text-xs text-gray-400 mr-1">Updated {{ $summary['syncedAt']->diffForHumans() }}</span>
+                @endif
+                <a href="{{ route('product-performance.download', request()->except('page')) }}" title="Download CSV"
+                   class="h-9 inline-flex items-center gap-1.5 px-3 rounded-lg border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50">
+                    <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                    CSV
+                </a>
+                @if(auth()->user()->is_super_admin)
+                    <button form="pp-sync" class="h-9 inline-flex items-center px-3 rounded-lg bg-brand-600 text-white text-sm font-medium hover:bg-brand-700">Sync now</button>
+                @endif
+            </div>
+        </form>
+        @if(auth()->user()->is_super_admin)
+            <form id="pp-sync" method="POST" action="{{ route('product-performance.refresh') }}" class="hidden">@csrf</form>
+        @endif
+
+        {{-- Why a number might be missing, kept to one line each; the detail sits in the tooltip. --}}
+        @if($summary['never']->isNotEmpty())
+            <p class="mt-3 text-xs text-amber-700 flex items-center gap-1.5" title="{{ $summary['never']->pluck('name')->join(', ') }}">
+                <span class="h-1.5 w-1.5 rounded-full bg-amber-500"></span>
+                {{ $summary['never']->count() }} {{ \Illuminate\Support\Str::plural('website', $summary['never']->count()) }} waiting for first sync
+            </p>
         @endif
         @foreach($summary['failing'] as $failing)
-            <div class="mt-4 bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-800">
-                <strong>{{ $failing->name }}</strong> did not update last time:
-                {{ \Illuminate\Support\Str::limit($failing->sales_sync_error, 300) }}
-            </div>
+            <p class="mt-2 text-xs text-red-700 flex items-center gap-1.5" title="{{ $failing->sales_sync_error }}">
+                <span class="h-1.5 w-1.5 rounded-full bg-red-500"></span>
+                {{ $failing->name }}: sync failed — {{ \Illuminate\Support\Str::limit($failing->sales_sync_error, 90) }}
+            </p>
         @endforeach
         @foreach($summary['partial'] as $partial)
-            <div class="mt-4 bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
-                <strong>{{ $partial->name }}</strong> only has sales from {{ $partial->sales_covered_from->format('j M Y') }},
-                so this range is only partly covered there. Shopify gives 60 days of orders unless the app has the
-                <code>read_all_orders</code> permission.
-            </div>
+            <p class="mt-2 text-xs text-amber-700 flex items-center gap-1.5" title="Shopify gives 60 days of orders unless the app has read_all_orders.">
+                <span class="h-1.5 w-1.5 rounded-full bg-amber-500"></span>
+                {{ $partial->name }}: data from {{ $partial->sales_covered_from->format('j M Y') }} only
+            </p>
         @endforeach
     </div>
 
@@ -144,7 +123,7 @@
 
     {{-- The list ─────────────────────────────────────────────────────────── --}}
     <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        <div class="px-6 pt-4 border-b border-gray-100">
+        <div class="px-6 pt-4 border-b border-gray-100 flex items-end justify-between gap-4">
             <nav class="flex gap-6 -mb-px">
                 @foreach($tabs as $key => [$label, $hint])
                     <a href="{{ $link(['tab' => $key]) }}" title="{{ $hint }}"
@@ -153,13 +132,7 @@
                     </a>
                 @endforeach
             </nav>
-        </div>
-        <div class="px-6 py-3 bg-gray-50 border-b border-gray-100 text-xs text-gray-500">
-            {{ $tabs[$filters['tab']][1] }}
-            @if($filters['tab'] !== 'best')
-                Products added to the site during the range are left out, since they had no fair chance to sell.
-            @endif
-            · {{ number_format($rows->total()) }} products
+            <span class="pb-3 text-xs text-gray-400 tabular-nums">{{ number_format($rows->total()) }} products</span>
         </div>
 
         @if($rows->isEmpty())
