@@ -204,12 +204,12 @@
 
         .topbar {
             background:
-                radial-gradient(520px 200px at 4% -60%, rgba(255,255,255,.14), transparent 70%),
-                linear-gradient(104deg, #1f6f8b 0%, #1a6480 56%, #2b4c85 100%);
+                radial-gradient(520px 200px at 4% -60%, rgba(255,255,255,.7), transparent 70%),
+                linear-gradient(104deg, #e3f1f6 0%, #d3e7ef 56%, #c3dce8 100%);
         }
         .topbar::after {
             content: ''; position: absolute; inset: auto 0 0 0; height: 1px; pointer-events: none;
-            background: linear-gradient(90deg, rgba(221,192,134,.75), rgba(243,239,231,.2) 52%, transparent);
+            background: linear-gradient(90deg, rgba(201,164,91,.8), rgba(31,111,139,.25) 52%, transparent);
         }
 
         /* A full-height scrollbar would cut the panel in half, so keep it hairline. */
@@ -791,10 +791,10 @@
 
         {{-- Top bar --}}
         <header class="topbar relative z-20 flex shrink-0 items-center justify-between gap-3 px-4 py-2.5 transition-shadow sm:px-8"
-                :class="scrolled ? 'shadow-[0_10px_26px_-18px_rgba(63,23,32,.9)]' : ''">
+                :class="scrolled ? 'shadow-[0_10px_26px_-18px_rgba(18,58,74,.7)]' : ''">
             <div class="flex min-w-0 items-center gap-3">
                 <button type="button" @click="nav = true"
-                        class="-ml-1 grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-white/25 text-white/80 transition-colors hover:bg-white/15 hover:text-white lg:hidden"
+                        class="-ml-1 grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-brand-300 text-brand-700 transition-colors hover:bg-white hover:text-brand-900 lg:hidden"
                         aria-label="Open menu">
                     <svg class="h-4.5 w-4.5" style="width:1.125rem;height:1.125rem" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16"/>
@@ -807,7 +807,7 @@
                 @if($allStores->isNotEmpty())
                 <div x-data="{ open: false }" class="relative">
                     <button @click="open = !open" :aria-expanded="open"
-                        class="flex h-9 max-w-[13rem] items-center gap-2 rounded-lg border border-white/15 bg-white px-3 text-sm shadow-sm transition-transform hover:-translate-y-px">
+                        class="flex h-9 max-w-[13rem] items-center gap-2 rounded-lg border border-brand-200 bg-white px-3 text-sm shadow-sm transition-transform hover:-translate-y-px">
                         <span class="h-2 w-2 shrink-0 rounded-full {{ $activeStore ? 'pulse-dot bg-emerald-500 text-emerald-500' : 'bg-gray-300' }}"></span>
                         <span class="truncate font-medium text-parch-800">{{ $activeStore?->name ?? 'No store selected' }}</span>
                         <svg class="h-3 w-3 shrink-0 text-gray-400 transition-transform" :class="open && 'rotate-180'"
@@ -893,7 +893,7 @@
                              setInterval(() => poll(), 30000)"
                      class="relative">
                     <button @click="bell = !bell" :aria-expanded="bell"
-                            class="relative flex h-9 w-9 items-center justify-center rounded-lg border border-white/15 bg-white text-parch-600 shadow-sm transition-transform hover:-translate-y-px hover:text-parch-900"
+                            class="relative flex h-9 w-9 items-center justify-center rounded-lg border border-brand-200 bg-white text-parch-600 shadow-sm transition-transform hover:-translate-y-px hover:text-parch-900"
                             :class="ring && 'ring-2 ring-red-400 border-red-300 text-red-600'"
                             aria-label="Notifications">
                         <svg class="w-4.5 h-4.5" style="width:1.125rem;height:1.125rem" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1010,7 +1010,7 @@
                 {{-- User menu --}}
                 <div x-data="{ user: false }" class="relative">
                     <button @click="user = !user" :aria-expanded="user"
-                            class="flex h-9 items-center gap-2 rounded-lg border border-white/15 bg-white py-1 pl-1 pr-2 shadow-sm transition-transform hover:-translate-y-px"
+                            class="flex h-9 items-center gap-2 rounded-lg border border-brand-200 bg-white py-1 pl-1 pr-2 shadow-sm transition-transform hover:-translate-y-px"
                             aria-label="Account menu">
                         <span class="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-brand-600 text-xs font-semibold text-white">
                             {{ strtoupper(substr(auth()->user()->name, 0, 2)) }}
