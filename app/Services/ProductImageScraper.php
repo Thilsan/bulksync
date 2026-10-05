@@ -6,6 +6,7 @@ use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Sleep;
 
 /**
  * Finds a product on a public website by the barcode printed on it, and pulls
@@ -40,6 +41,9 @@ class ProductImageScraper
 
     /** The longest wait between barcodes this will honour before giving up on a site. */
     private const MAX_CRAWL_DELAY = 20.0;
+
+    /** The longest a rate limit's "come back in" is waited out before it counts as a refusal. */
+    private const MAX_RETRY_AFTER = 60;
 
     /** How much of a page is worth sifting for the product's own gallery. */
     private const MAX_PAGE_IMAGES = 400;
@@ -305,11 +309,37 @@ class ProductImageScraper
         // already in the address — "?q=1234" goes out as a bare /search.
         $response = $this->client()->get($url, $query);
 
+        // A 429 that says when to come back is a rate limit, not a ban: Dan
+        // John's Shopify search answers one request in a few with "retry
+        // after 60". Waiting as asked and trying once more keeps the barcode;
+        // a second refusal is a site that has stopped answering this server.
+        // Once per barcode: a lookup is several requests, and waiting out
+        // every one of them against a site that has stopped would be minutes
+        // a barcode.
+        if ($response->status() === 429 && $this->blockedWith === null
+            && ($wait = $this->retryAfter($response)) !== null) {
+            Sleep::for($wait)->seconds();
+
+            $response = $this->client()->get($url, $query);
+        }
+
         if ($this->isBlockPage($response)) {
             $this->blockedWith = $response->status();
         }
 
         return $response;
+    }
+
+    /** Seconds a 429 asks to be left alone for, where that is a wait worth making. */
+    private function retryAfter(Response $response): ?int
+    {
+        $header = trim($response->header('Retry-After'));
+
+        if ($header === '' || !ctype_digit($header)) return null;
+
+        $seconds = (int) $header;
+
+        return $seconds <= self::MAX_RETRY_AFTER ? $seconds : null;
     }
 
     /**

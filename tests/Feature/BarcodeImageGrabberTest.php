@@ -14,6 +14,7 @@ use Mockery;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Sleep;
 use Tests\TestCase;
 
 /**
@@ -792,6 +793,48 @@ class BarcodeImageGrabberTest extends TestCase
         $session->update(['blocked_count' => 0]);
 
         $this->assertSame(['label' => 'Completed', 'colour' => 'green'], $session->statusBadge());
+    }
+
+    /**
+     * Dan John's Shopify search answers "429, retry after 60" now and then.
+     * That is a pause asked for, and the barcode is there once it is given.
+     */
+    public function test_a_rate_limit_is_waited_out_once_before_it_counts_as_a_block(): void
+    {
+        Sleep::fake();
+
+        $asked = 0;
+
+        Http::fake([
+            '*shop.test/search/suggest.json*' => function () use (&$asked) {
+                return ++$asked === 1
+                    ? Http::response('local_rate_limited', 429, ['Retry-After' => '60'])
+                    : Http::response(['resources' => ['results' => ['products' => [
+                        ['url' => '/products/jeans', 'title' => 'Jeans'],
+                    ]]]]);
+            },
+            '*' => Http::response('', 404),
+        ]);
+
+        $result = app(ProductImageScraper::class)->forBarcode('https://shop.test', '1001');
+
+        Sleep::assertSlept(fn ($duration) => (int) $duration->totalSeconds === 60, 1);
+        $this->assertNull($result['blocked']);
+        $this->assertStringEndsWith('/products/jeans', (string) $result['url']);
+    }
+
+    public function test_a_rate_limit_that_persists_is_reported_as_a_block(): void
+    {
+        Sleep::fake();
+
+        Http::fake(['*' => Http::response('local_rate_limited', 429, ['Retry-After' => '60'])]);
+
+        $result = app(ProductImageScraper::class)->forBarcode('https://shop.test', '1001');
+
+        $this->assertSame(429, $result['blocked']);
+
+        // Waited out once, not once for every request the lookup makes.
+        Sleep::assertSleptTimes(1);
     }
 
     public function test_a_finished_run_with_no_pictures_does_not_read_as_a_green_completed(): void
