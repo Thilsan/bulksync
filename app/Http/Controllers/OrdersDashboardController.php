@@ -292,7 +292,8 @@ class OrdersDashboardController extends Controller
 
         if ($selling->isEmpty()) {
             return ['currency' => 'QAR', 'revenue' => 0.0, 'orders' => 0, 'aov' => 0.0,
-                    'selling' => 0, 'connected' => 0, 'other_currencies' => 0];
+                    'selling' => 0, 'connected' => 0, 'other_currencies' => 0,
+                    'brands' => [], 'divisions' => []];
         }
 
         $currency = $selling->groupBy('currency')
@@ -313,7 +314,50 @@ class OrdersDashboardController extends Controller
             'selling'          => $selling->where('orders', '>', 0)->count(),
             'connected'        => $selling->count(),
             'other_currencies' => $selling->count() - $counted->count(),
+
+            // Pooled across every website, which is the only place these
+            // questions have an answer: Cole Haan sells through its own site
+            // and through Blue Salon, and neither card knows about the other.
+            'brands'    => $this->pool($selling, 'by_vendor'),
+            'divisions' => $this->pool($selling, 'by_product_type'),
         ];
+    }
+
+    /** How many brands and divisions a card has room to show. */
+    private const ANALYTICS_TOP_GROUPS = 10;
+
+    /**
+     * One breakdown, added up across every reporting website.
+     *
+     * Orders only — no revenue. These pool across stores that bill in
+     * different currencies, and the headline tiles already drop the ones that
+     * disagree for exactly that reason. An order is an order wherever it was
+     * placed, so the count survives the mix where a sum of money would not.
+     *
+     * @param  \Illuminate\Support\Collection<int, array>  $rows  reporting stores
+     */
+    private function pool($rows, string $key): array
+    {
+        $totals = [];
+
+        foreach ($rows as $row) {
+            foreach ($row[$key] ?? [] as $group) {
+                $label = (string) ($group['label'] ?? '');
+
+                if ($label === '') {
+                    continue;
+                }
+
+                $totals[$label] = ($totals[$label] ?? 0) + (int) ($group['orders'] ?? 0);
+            }
+        }
+
+        arsort($totals);
+
+        return collect(array_slice($totals, 0, self::ANALYTICS_TOP_GROUPS, true))
+            ->map(fn (int $orders, string $label) => ['label' => $label, 'orders' => $orders])
+            ->values()
+            ->all();
     }
 
     /**

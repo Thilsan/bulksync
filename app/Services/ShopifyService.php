@@ -1828,6 +1828,15 @@ class ShopifyService
     private const ANALYTICS_TOP_PRODUCTS = 20;
 
     /**
+     * How many brands and divisions travel back per store.
+     *
+     * Deeper than any card shows, because the dashboard pools these across
+     * every website before taking its top few — trimming to the display size
+     * here would lose a brand that is seventh everywhere and second overall.
+     */
+    private const ANALYTICS_MAX_GROUPS = 100;
+
+    /**
      * Revenue, order count, sales channel and product breakdowns for this
      * store, for one date range — read straight from Shopify's own orders
      * rather than the pre-aggregated ecommerce-server endpoint the Orders tab
@@ -1860,6 +1869,8 @@ class ShopifyService
         $currency = null;
         $products = [];
         $channels = [];
+        $vendors  = [];
+        $types    = [];
         $cursor   = null;
         $capped   = false;
 
@@ -1903,9 +1914,28 @@ class ShopifyService
                 $channels[$channel]['orders']  += 1;
                 $channels[$channel]['revenue'] += $orderRevenue;
 
+                // Brands and divisions are counted once per order however
+                // many of its lines carry them — "three orders had Luca Barra
+                // in them" is the question, and tallying line items answers a
+                // different one that reads the same. Revenue is still summed
+                // per line, because that half genuinely is per item.
+                $orderVendors = [];
+                $orderTypes   = [];
+
                 foreach ($node['lineItems']['edges'] ?? [] as $lineEdge) {
                     $line  = $lineEdge['node'] ?? [];
                     $title = (string) ($line['title'] ?? '');
+                    $money = (float) ($line['discountedTotalSet']['shopMoney']['amount'] ?? 0);
+
+                    // vendor sits on the line item, so it survives the product
+                    // being deleted. productType does not exist on LineItem in
+                    // this API version and has to come through the product,
+                    // which is null once that product is gone.
+                    $vendor = trim((string) ($line['vendor'] ?? '')) ?: 'Not recorded';
+                    $type   = trim((string) ($line['product']['productType'] ?? '')) ?: 'Not recorded';
+
+                    $orderVendors[$vendor] = ($orderVendors[$vendor] ?? 0.0) + $money;
+                    $orderTypes[$type]     = ($orderTypes[$type] ?? 0.0) + $money;
 
                     if ($title === '') {
                         continue;
@@ -1914,7 +1944,21 @@ class ShopifyService
                     $products[$title]['quantity'] ??= 0;
                     $products[$title]['revenue']  ??= 0.0;
                     $products[$title]['quantity'] += (int) ($line['quantity'] ?? 0);
-                    $products[$title]['revenue']  += (float) ($line['discountedTotalSet']['shopMoney']['amount'] ?? 0);
+                    $products[$title]['revenue']  += $money;
+                }
+
+                foreach ($orderVendors as $vendor => $money) {
+                    $vendors[$vendor]['orders']  ??= 0;
+                    $vendors[$vendor]['revenue'] ??= 0.0;
+                    $vendors[$vendor]['orders']  += 1;
+                    $vendors[$vendor]['revenue'] += $money;
+                }
+
+                foreach ($orderTypes as $type => $money) {
+                    $types[$type]['orders']  ??= 0;
+                    $types[$type]['revenue'] ??= 0.0;
+                    $types[$type]['orders']  += 1;
+                    $types[$type]['revenue'] += $money;
                 }
             }
 
@@ -1950,13 +1994,36 @@ class ShopifyService
             ->all();
 
         return [
-            'orders'       => $orders,
-            'revenue'      => $revenue,
-            'currency'     => $currency ?? 'USD',
-            'top_products' => $topProducts,
-            'by_channel'   => $byChannel,
-            'capped'       => $capped,
+            'orders'          => $orders,
+            'revenue'         => $revenue,
+            'currency'        => $currency ?? 'USD',
+            'top_products'    => $topProducts,
+            'by_channel'      => $byChannel,
+            'by_vendor'       => $this->rankGroups($vendors),
+            'by_product_type' => $this->rankGroups($types),
+            'capped'          => $capped,
         ];
+    }
+
+    /**
+     * Brands or divisions as a ranked list, busiest first.
+     *
+     * Sorted by orders rather than revenue: that is the question these answer,
+     * and ranking by money would put one jewellery sale above thirty of
+     * something cheap. "Not recorded" sorts with everything else rather than
+     * being pinned last — it is a real quantity of real orders, and a store
+     * where it ranks first has a catalogue problem worth seeing.
+     *
+     * @param  array<string, array{orders: int, revenue: float}>  $groups
+     */
+    private function rankGroups(array $groups): array
+    {
+        return collect($groups)
+            ->map(fn ($totals, $label) => ['label' => $label, ...$totals])
+            ->sortByDesc('orders')
+            ->take(self::ANALYTICS_MAX_GROUPS)
+            ->values()
+            ->all();
     }
 
     private function orderAnalyticsQuery(): string
@@ -1967,7 +2034,7 @@ class ShopifyService
             . 'totalPriceSet{shopMoney{amount currencyCode}}'
             . 'channelInformation{channelDefinition{channelName}}'
             . 'app{name}'
-            . 'lineItems(first:250){edges{node{title quantity discountedTotalSet{shopMoney{amount}}}}}'
+            . 'lineItems(first:250){edges{node{title quantity discountedTotalSet{shopMoney{amount}} vendor product{productType}}}}'
             . '}}'
             . 'pageInfo{hasNextPage}'
             . '}}';
