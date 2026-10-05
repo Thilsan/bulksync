@@ -9,7 +9,7 @@
     @forelse($stores as $store)
     {{-- Active is per person, so it is the viewer's own choice being shown here. --}}
     @php $isActive = $store->id === $activeStoreId; @endphp
-    <div class="bg-white rounded-xl border border-gray-200 overflow-hidden"
+    <div class="bg-white rounded-xl border border-gray-200"
          x-data="{ editing: false }">
 
         {{-- View mode --}}
