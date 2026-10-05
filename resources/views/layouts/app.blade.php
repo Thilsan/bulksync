@@ -350,10 +350,10 @@
         }
         main :is(button, a).border-brand-600:hover:not(:disabled) { background-color: rgba(251,212,76,.38) !important; }
 
-        /* Light brand tints become pale yellow. */
-        main [class~="bg-brand-50"], main [class*="bg-brand-50/"] { background-color: #fff9e0 !important; }
-        main [class~="bg-brand-100"] { background-color: #fdf0b4 !important; }
-        main [class*="hover:bg-brand-50"]:hover { background-color: #fff3c4 !important; }
+        /* Light brand tints take the sidebar's teal-mist. */
+        main [class~="bg-brand-50"], main [class*="bg-brand-50/"] { background-color: #e3f1f6 !important; }
+        main [class~="bg-brand-100"] { background-color: #c3dce8 !important; }
+        main [class*="hover:bg-brand-50"]:hover { background-color: #d3e7ef !important; }
 
         /* Focus: yellow ring and edge on fields. */
         main [class*="ring-brand-"]:focus,

@@ -97,16 +97,16 @@
     <style>
         :root { --slide-duration: 7s; }
 
-        body { font-family: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif; background: #faf8f4; }
+        body { font-family: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif; background: #ffffff; }
         .font-display { font-family: "Newsreader", ui-serif, Georgia, serif; }
 
         /* ---------- Showcase panel background ---------- */
         .showcase {
             position: relative;
             background:
-                radial-gradient(1000px 520px at 12% -10%, rgba(220,212,196,.16), transparent 60%),
-                radial-gradient(760px 480px at 92% 105%, rgba(31,111,139,.34), transparent 62%),
-                linear-gradient(160deg, #332e29 0%, #2b2723 45%, #191715 100%);
+                radial-gradient(1000px 520px at 12% -10%, rgba(255,255,255,.12), transparent 60%),
+                radial-gradient(760px 520px at 100% 108%, rgba(251,212,76,.55), transparent 62%),
+                linear-gradient(150deg, #1f6f8b 0%, #1a5f80 38%, #2b4c85 72%, #2a3f73 100%);
         }
         /* The weave, and the thread down the edge where the form begins. */
         .showcase::before {
@@ -116,7 +116,7 @@
         }
         .showcase::after {
             content: ''; position: absolute; inset: 0 0 0 auto; width: 2px; pointer-events: none;
-            background: linear-gradient(180deg, transparent, rgba(31,111,139,.85) 22%, rgba(31,111,139,.35) 70%, transparent);
+            background: linear-gradient(180deg, transparent, rgba(251,212,76,.9) 22%, rgba(251,212,76,.35) 70%, transparent);
         }
         /* ---------- Slider ---------- */
         .slide {
@@ -175,7 +175,7 @@
         }
     </style>
 </head>
-<body class="h-full bg-parch-50 text-parch-900">
+<body class="h-full bg-white text-parch-900">
 
 <div class="min-h-full lg:grid lg:grid-cols-[1.05fr_minmax(0,480px)] xl:grid-cols-[1.2fr_minmax(0,520px)]">
 
