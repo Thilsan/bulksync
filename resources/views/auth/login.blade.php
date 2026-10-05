@@ -103,11 +103,11 @@
             and nothing else.
         */
         :root {
-            --accent:      #ff8a6b;   /* coral */
-            --accent-hov:  #f97a58;
-            --accent-edge: #e8694a;
-            --accent-soft: #ffb59f;
-            --accent-rgb:  255,138,107;
+            --accent:      #f59e0b;   /* amber */
+            --accent-hov:  #e08e08;
+            --accent-edge: #c97f06;
+            --accent-soft: #fcd34d;
+            --accent-rgb:  245,158,11;
             --on-accent:   #111111;
         }
         body { font-family: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif; background: #ffffff; }
