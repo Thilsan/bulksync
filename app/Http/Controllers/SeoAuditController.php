@@ -163,7 +163,7 @@ class SeoAuditController extends Controller
                 ->whereRaw("LOWER(TRIM({$column})) = ?", [$group->normalised])
                 ->orderBy('product_title')
                 ->limit(self::MAX_CLUSTER_MEMBERS + 1)
-                ->get(['resource_type', 'product_id', 'product_title', 'handle', 'sku', $column]);
+                ->get(['resource_type', 'status', 'product_id', 'product_title', 'handle', 'sku', $column]);
 
             return [
                 'value'   => $members->first()->{$column},
@@ -175,6 +175,9 @@ class SeoAuditController extends Controller
                     'title' => $item->product_title,
                     'sku'   => $item->sku,
                     'path'  => $item->path(),
+                    // So a cluster can show which of its pages are published.
+                    'status'  => $item->status,
+                    'is_live' => $item->isLive(),
                 ])->all(),
             ];
         })->all();

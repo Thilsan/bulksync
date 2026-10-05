@@ -201,6 +201,11 @@
                                 <span class="inline-flex px-1.5 rounded bg-gray-100 text-gray-500"
                                       x-text="page.type === 'collection' ? 'collection' : (page.sku || 'product')"></span>
                                 <span x-text="page.title"></span>
+                                <span class="inline-flex px-1.5 rounded-full capitalize"
+                                      x-show="page.type !== 'collection'"
+                                      :class="page.is_live ? 'bg-green-50 text-green-700'
+                                            : (page.status === 'archived' ? 'bg-gray-100 text-gray-500' : 'bg-amber-50 text-amber-700')"
+                                      x-text="page.is_live ? 'Live' : page.status"></span>
                             </div>
                         </template>
                         <span class="text-xs text-gray-400" x-show="cluster.pages > cluster.shown.length"
@@ -347,9 +352,12 @@
                                 <template x-if="item.resource_type !== 'collection'">
                                     <span>
                                         <span x-text="item.sku || '—'"></span>
-                                        <span class="font-sans block mt-0.5 text-xs" x-show="!item.is_live"
-                                              :class="item.status === 'archived' ? 'text-gray-400' : 'text-amber-600'"
-                                              x-text="item.status"></span>
+                                        {{-- Shown on every row, live ones included, so
+                                             published and draft can be told apart at a glance. --}}
+                                        <span class="font-sans inline-flex mt-1 px-2 py-0.5 rounded-full text-xs capitalize"
+                                              :class="item.is_live ? 'bg-green-50 text-green-700'
+                                                    : (item.status === 'archived' ? 'bg-gray-100 text-gray-500' : 'bg-amber-50 text-amber-700')"
+                                              x-text="item.is_live ? 'Live' : item.status"></span>
                                     </span>
                                 </template>
                             </td>
