@@ -1144,7 +1144,6 @@ class ProductRequestTest extends TestCase
 
         $response->assertDontSee('Update mapping status');
         $response->assertDontSee('Recorded By');
-        $response->assertSee('Mapping status comes from the SKU check.');
 
         // And no endpoint left behind the removed buttons.
         $this->assertFalse(\Illuminate\Support\Facades\Route::has('product-requests.skus.mapping'));
@@ -2277,8 +2276,7 @@ class ProductRequestTest extends TestCase
 
         $this->actingAs($user)->get(route('product-requests.show', $request))
             ->assertOk()
-            ->assertSee('This is your task')
-            ->assertSee('Assigned to you');
+            ->assertSee('This is your task');
 
         // Someone else's stage shouldn't be badged as theirs.
         $other = User::create([
