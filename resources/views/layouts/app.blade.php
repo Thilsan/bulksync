@@ -204,12 +204,13 @@
 
         .topbar {
             background:
-                radial-gradient(520px 200px at 4% -60%, rgba(255,255,255,.7), transparent 70%),
-                linear-gradient(104deg, #e3f1f6 0%, #d3e7ef 56%, #c3dce8 100%);
+                radial-gradient(520px 200px at 4% -60%, rgba(255,255,255,.14), transparent 70%),
+                radial-gradient(460px 180px at 100% 130%, rgba(251,212,76,.38), transparent 70%),
+                linear-gradient(104deg, #1f6f8b 0%, #1a6480 52%, #2b4c85 100%);
         }
         .topbar::after {
             content: ''; position: absolute; inset: auto 0 0 0; height: 1px; pointer-events: none;
-            background: linear-gradient(90deg, rgba(201,164,91,.8), rgba(31,111,139,.25) 52%, transparent);
+            background: linear-gradient(90deg, #fbd44c, rgba(251,212,76,.35) 52%, transparent);
         }
 
         /* A full-height scrollbar would cut the panel in half, so keep it hairline. */
@@ -791,10 +792,10 @@
 
         {{-- Top bar --}}
         <header class="topbar relative z-20 flex shrink-0 items-center justify-between gap-3 px-4 py-2.5 transition-shadow sm:px-8"
-                :class="scrolled ? 'shadow-[0_10px_26px_-18px_rgba(18,58,74,.7)]' : ''">
+                :class="scrolled ? 'shadow-[0_10px_26px_-18px_rgba(18,58,74,.9)]' : ''">
             <div class="flex min-w-0 items-center gap-3">
                 <button type="button" @click="nav = true"
-                        class="-ml-1 grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-brand-300 text-brand-700 transition-colors hover:bg-white hover:text-brand-900 lg:hidden"
+                        class="-ml-1 grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-white/25 text-white/80 transition-colors hover:bg-white/15 hover:text-white lg:hidden"
                         aria-label="Open menu">
                     <svg class="h-4.5 w-4.5" style="width:1.125rem;height:1.125rem" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16"/>
