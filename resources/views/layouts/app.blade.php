@@ -192,14 +192,14 @@
         */
         .app-sidebar {
             background:
-                radial-gradient(620px 280px at 50% -14%, rgba(255,255,255,.7), transparent 70%),
-                radial-gradient(420px 320px at 0% 108%, rgba(201,164,91,.14), transparent 72%),
-                linear-gradient(172deg, #e3f1f6 0%, #d3e7ef 46%, #c3dce8 100%);
+                radial-gradient(520px 260px at 20% -10%, rgba(255,255,255,.14), transparent 70%),
+                radial-gradient(420px 320px at 0% 108%, rgba(201,164,91,.16), transparent 72%),
+                linear-gradient(172deg, #1f6f8b 0%, #1a6480 46%, #2b4c85 100%);
         }
-        /* One line of oxblood down the edge — the only colour on the cloth. */
+        /* One thread of champagne down the edge. */
         .app-sidebar::after {
             content: ''; position: absolute; inset: 0 0 0 auto; width: 1px; pointer-events: none;
-            background: linear-gradient(180deg, transparent, rgba(31,111,139,.55) 16%, rgba(31,111,139,.22) 64%, transparent);
+            background: linear-gradient(180deg, transparent, rgba(221,192,134,.6) 16%, rgba(221,192,134,.2) 64%, transparent);
         }
 
         .topbar {
@@ -213,11 +213,11 @@
         }
 
         /* A full-height scrollbar would cut the panel in half, so keep it hairline. */
-        .nav-scroll { scrollbar-width: thin; scrollbar-color: rgba(31,111,139,.30) transparent; }
+        .nav-scroll { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.30) transparent; }
         .nav-scroll::-webkit-scrollbar { width: 6px; }
         .nav-scroll::-webkit-scrollbar-track { background: transparent; }
-        .nav-scroll::-webkit-scrollbar-thumb { background: rgba(31,111,139,.30); border-radius: 999px; }
-        .nav-scroll::-webkit-scrollbar-thumb:hover { background: rgba(31,111,139,.45); }
+        .nav-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,.30); border-radius: 999px; }
+        .nav-scroll::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,.45); }
 
         .live-dot { animation: live 2.4s ease-in-out infinite; }
         @keyframes live { 0%,100% { opacity: 1 } 50% { opacity: .35 } }
@@ -586,11 +586,11 @@
             glance, and the current section names itself in colour.
         */
         $accents = [
-            'brand'  => ['on' => 'text-brand-600',  'off' => 'text-parch-400', 'rail' => 'bg-brand-600',  'label' => 'text-parch-500'],
-            'gold'   => ['on' => 'text-amber-700',  'off' => 'text-parch-400', 'rail' => 'bg-amber-600',  'label' => 'text-parch-500'],
-            'violet' => ['on' => 'text-violet-700', 'off' => 'text-parch-400', 'rail' => 'bg-violet-600', 'label' => 'text-parch-500'],
-            'sky'    => ['on' => 'text-sky-700',    'off' => 'text-parch-400', 'rail' => 'bg-sky-600',    'label' => 'text-parch-500'],
-            'rose'   => ['on' => 'text-rose-700',   'off' => 'text-parch-400', 'rail' => 'bg-rose-600',   'label' => 'text-parch-500'],
+            'brand'  => ['on' => 'text-white',  'off' => 'text-white/55', 'rail' => 'bg-amber-300',  'label' => 'text-white/50'],
+            'gold'   => ['on' => 'text-white',  'off' => 'text-white/55', 'rail' => 'bg-amber-300',  'label' => 'text-white/50'],
+            'violet' => ['on' => 'text-white', 'off' => 'text-white/55', 'rail' => 'bg-amber-300', 'label' => 'text-white/50'],
+            'sky'    => ['on' => 'text-white',    'off' => 'text-white/55', 'rail' => 'bg-amber-300',    'label' => 'text-white/50'],
+            'rose'   => ['on' => 'text-white',   'off' => 'text-white/55', 'rail' => 'bg-amber-300',   'label' => 'text-white/50'],
         ];
 
         $navGroups = collect($navGroups)
@@ -643,9 +643,9 @@
         {{-- Brand --}}
         <div class="relative flex flex-col gap-3 px-4 pb-4 pt-5">
             <div class="flex items-start justify-between gap-2">
-                <img src="{{ asset('aih_logo-1.png') }}" alt="Abuissa Holding" class="h-9 w-auto">
+                <span class="rounded-lg bg-white px-2 py-1 shadow-sm"><img src="{{ asset('aih_logo-1.png') }}" alt="Abuissa Holding" class="h-7 w-auto"></span>
                 <button type="button" @click="nav = false"
-                        class="-mr-1 grid h-8 w-8 shrink-0 place-items-center rounded-lg text-parch-500 transition hover:bg-white/70 hover:text-parch-900 lg:hidden"
+                        class="-mr-1 grid h-8 w-8 shrink-0 place-items-center rounded-lg text-white/60 transition hover:bg-white/10 hover:text-white lg:hidden"
                         aria-label="Close menu">
                     <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
@@ -653,12 +653,12 @@
                 </button>
             </div>
             <div>
-                <p class="font-display text-[15px] leading-tight text-parch-900">Ai Ecommerce Studio</p>
-                <p class="mt-0.5 text-[10px] uppercase tracking-[.14em] text-parch-500">Abuissa Holding</p>
+                <p class="font-display text-[15px] leading-tight text-white">Ai Ecommerce Studio</p>
+                <p class="mt-0.5 text-[10px] uppercase tracking-[.14em] text-white/60">Abuissa Holding</p>
             </div>
         </div>
 
-        <div class="relative mx-4 h-px bg-gradient-to-r from-transparent via-parch-300 to-transparent"></div>
+        <div class="relative mx-4 h-px bg-gradient-to-r from-transparent via-white/25 to-transparent"></div>
 
         {{-- Navigation --}}
         <nav class="nav-scroll relative flex-1 overflow-y-auto px-3 py-4">
@@ -667,7 +667,7 @@
                 @if($group['label'])
                     <p class="{{ $gi === 0 ? '' : 'mt-5' }} mb-1.5 flex items-center gap-2 px-3 text-[10px] font-semibold uppercase tracking-[.14em] {{ $tone['label'] }}">
                         {{ $group['label'] }}
-                        <span class="h-px flex-1 bg-gradient-to-r from-parch-300 to-transparent"></span>
+                        <span class="h-px flex-1 bg-gradient-to-r from-white/25 to-transparent"></span>
                     </p>
                 @endif
 
@@ -683,14 +683,14 @@
                                  It starts open whenever you are anywhere inside its section. --}}
                             <div x-data="{ open: {{ $item['on'] ? 'true' : 'false' }} }">
                                 <div class="relative flex items-stretch rounded-lg transition-colors
-                                            {{ $item['on'] ? 'bg-white shadow-sm ring-1 ring-parch-200' : 'hover:bg-white/70' }}">
+                                            {{ $item['on'] ? 'bg-white/15 shadow-sm ring-1 ring-white/20' : 'hover:bg-white/10' }}">
                                     @if($item['on'])
                                         <span class="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full {{ $tone['rail'] }}"></span>
                                     @endif
                                     <a href="{{ $item['url'] }}" @click="open = true"
                                        @if($item['on']) aria-current="page" @endif
                                        class="flex min-w-0 flex-1 items-center gap-2.5 px-3 py-2 text-[13px] font-medium
-                                              {{ $item['on'] ? 'text-parch-900' : 'text-parch-600 hover:text-parch-900' }}">
+                                              {{ $item['on'] ? 'text-white' : 'text-white/80 hover:text-white' }}">
                                         <svg class="h-4 w-4 shrink-0 {{ $item['on'] ? $tone['on'] : $tone['off'] }}"
                                              fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.85">
                                             @foreach($ico[$item['icon']] as $d)
@@ -707,7 +707,7 @@
                                         </span>
                                     @endif
                                     <button type="button" @click.stop="open = !open"
-                                            class="flex shrink-0 items-center px-2 {{ $item['on'] ? 'text-brand-500' : 'text-parch-400 hover:text-parch-700' }}"
+                                            class="flex shrink-0 items-center px-2 {{ $item['on'] ? 'text-white' : 'text-white/50 hover:text-white' }}"
                                             :aria-expanded="open" aria-label="Toggle {{ $item['label'] }} menu">
                                         <svg :class="open ? 'rotate-180' : ''" class="h-3.5 w-3.5 transition-transform"
                                              fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5">
@@ -720,16 +720,16 @@
                                      x-transition:enter="transition ease-out duration-150"
                                      x-transition:enter-start="opacity-0 -translate-y-1"
                                      x-transition:enter-end="opacity-100 translate-y-0"
-                                     class="ml-[1.4rem] mt-0.5 space-y-0.5 border-l border-parch-300 pl-3">
+                                     class="ml-[1.4rem] mt-0.5 space-y-0.5 border-l border-white/15 pl-3">
                                     @foreach($kids as $kid)
                                         @php $kidBadge = (int) ($kid['badge'] ?? 0); @endphp
                                         <a href="{{ $kid['url'] }}"
                                            @if($kid['on']) aria-current="page" @endif
                                            class="flex items-center gap-2 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors
-                                                  {{ $kid['on'] ? 'bg-white text-parch-900 shadow-sm' : 'text-parch-500 hover:bg-white/70 hover:text-parch-900' }}">
+                                                  {{ $kid['on'] ? 'bg-white/15 text-white shadow-sm' : 'text-white/60 hover:bg-white/10 hover:text-white' }}">
                                             <span class="flex-1 truncate">{{ $kid['label'] }}</span>
                                             @if($kidBadge > 0)
-                                                <span class="shrink-0 text-[10px] font-semibold tabular-nums text-brand-600">
+                                                <span class="shrink-0 text-[10px] font-semibold tabular-nums text-amber-200">
                                                     {{ $kidBadge > 99 ? '99+' : $kidBadge }}
                                                 </span>
                                             @endif
@@ -742,8 +742,8 @@
                                @if($item['on']) aria-current="page" @endif
                                class="relative flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium transition-colors
                                       {{ $item['on']
-                                          ? 'bg-white text-parch-900 shadow-sm ring-1 ring-parch-200'
-                                          : 'text-parch-600 hover:bg-white/70 hover:text-parch-900' }}">
+                                          ? 'bg-white/15 text-white shadow-sm ring-1 ring-parch-200'
+                                          : 'text-white/80 hover:bg-white/10 hover:text-white' }}">
                                 @if($item['on'])
                                     {{-- Accent rail: marks the current page without relying on tint alone --}}
                                     <span class="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full {{ $tone['rail'] }}"></span>
@@ -763,7 +763,7 @@
         </nav>
 
         {{-- Clock --}}
-        <div class="relative border-t border-parch-300 px-4 py-3"
+        <div class="relative border-t border-white/15 px-4 py-3"
              x-data="{
                  tz: '{{ config('app.timezone') }}',
                  time: '',
@@ -776,11 +776,11 @@
              }"
              x-init="tick(); setInterval(() => tick(), 1000)">
             <div class="flex items-baseline justify-between gap-2">
-                <p class="flex items-center gap-2 text-base font-semibold tabular-nums text-parch-900">
+                <p class="flex items-center gap-2 text-base font-semibold tabular-nums text-white">
                     <span class="live-dot h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400"></span>
                     <span x-text="time">{{ now()->format('H:i') }}</span>
                 </p>
-                <p class="truncate text-[11px] text-parch-500" x-text="date">{{ now()->format('D, d M Y') }}</p>
+                <p class="truncate text-[11px] text-white/60" x-text="date">{{ now()->format('D, d M Y') }}</p>
             </div>
         </div>
 
