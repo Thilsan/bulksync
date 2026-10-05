@@ -345,25 +345,54 @@
                                                     <div class="grid gap-2 sm:grid-cols-2" x-show="categories().length > 0">
                                                         <div>
                                                             <label class="mb-1 block text-[11px] font-medium uppercase tracking-wide text-gray-400">Category</label>
-                                                            <select x-model="item.tag_category" @change="onCategoryChange(item)"
-                                                                class="w-full rounded-md border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-700 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-brand-400">
-                                                                <option value="">Choose a category…</option>
-                                                                <template x-for="category in categories()" :key="category">
-                                                                    <option :value="category" x-text="category"></option>
-                                                                </template>
-                                                            </select>
+                                                            <div x-data="searchSelect(() => categories(), () => item.tag_category, (v) => { item.tag_category = v; onCategoryChange(item) }, 'Search categories…', () => false)"
+                                                                 @click.outside="close()" class="relative">
+                                                                <input type="text" autocomplete="off" :disabled="isDisabled()"
+                                                                    :placeholder="placeholder()"
+                                                                    :value="open ? query : getValue()"
+                                                                    @focus="openList()" @click="openList()"
+                                                                    @input="query = $event.target.value; hi = 0; open = true"
+                                                                    @keydown.arrow-down.prevent="move(1)" @keydown.arrow-up.prevent="move(-1)"
+                                                                    @keydown.enter.prevent="pick(filtered()[hi])" @keydown.escape="close()"
+                                                                    class="w-full rounded-md border border-gray-200 bg-white px-3 py-1.5 pr-8 text-sm text-gray-700 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-brand-400 disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-400">
+                                                                <button type="button" x-show="getValue() && !isDisabled()" @click="pick('')" title="Clear"
+                                                                    class="absolute right-2 top-1/2 -translate-y-1/2 text-gray-300 hover:text-gray-500">&times;</button>
+                                                                <ul x-show="open" x-cloak x-transition.opacity
+                                                                    class="absolute z-20 mt-1 max-h-56 w-full overflow-auto rounded-md border border-gray-200 bg-white py-1 text-sm shadow-lg">
+                                                                    <template x-for="(option, i) in filtered()" :key="option">
+                                                                        <li @mousedown.prevent="pick(option)" @mouseenter="hi = i" x-text="option"
+                                                                            :class="[i === hi ? 'bg-brand-50 text-brand-700' : 'text-gray-700', option === getValue() ? 'font-semibold' : '']"
+                                                                            class="cursor-pointer px-3 py-1.5"></li>
+                                                                    </template>
+                                                                    <li x-show="filtered().length === 0" class="px-3 py-1.5 text-gray-400">No match</li>
+                                                                </ul>
+                                                            </div>
                                                         </div>
 
                                                         <div>
                                                             <label class="mb-1 block text-[11px] font-medium uppercase tracking-wide text-gray-400">Type</label>
-                                                            <select x-model="item.tag_type" @change="onTypeChange(item)"
-                                                                :disabled="!item.tag_category"
-                                                                class="w-full rounded-md border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-700 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-brand-400 disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-400">
-                                                                <option value="" x-text="item.tag_category ? 'Choose a type…' : 'Pick a category first'"></option>
-                                                                <template x-for="type in typesFor(item.tag_category)" :key="type">
-                                                                    <option :value="type" x-text="type"></option>
-                                                                </template>
-                                                            </select>
+                                                            <div x-data="searchSelect(() => typesFor(item.tag_category), () => item.tag_type, (v) => { item.tag_type = v; onTypeChange(item) }, () => item.tag_category ? 'Search types…' : 'Pick a category first', () => !item.tag_category)"
+                                                                 @click.outside="close()" class="relative">
+                                                                <input type="text" autocomplete="off" :disabled="isDisabled()"
+                                                                    :placeholder="placeholder()"
+                                                                    :value="open ? query : getValue()"
+                                                                    @focus="openList()" @click="openList()"
+                                                                    @input="query = $event.target.value; hi = 0; open = true"
+                                                                    @keydown.arrow-down.prevent="move(1)" @keydown.arrow-up.prevent="move(-1)"
+                                                                    @keydown.enter.prevent="pick(filtered()[hi])" @keydown.escape="close()"
+                                                                    class="w-full rounded-md border border-gray-200 bg-white px-3 py-1.5 pr-8 text-sm text-gray-700 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-brand-400 disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-400">
+                                                                <button type="button" x-show="getValue() && !isDisabled()" @click="pick('')" title="Clear"
+                                                                    class="absolute right-2 top-1/2 -translate-y-1/2 text-gray-300 hover:text-gray-500">&times;</button>
+                                                                <ul x-show="open" x-cloak x-transition.opacity
+                                                                    class="absolute z-20 mt-1 max-h-56 w-full overflow-auto rounded-md border border-gray-200 bg-white py-1 text-sm shadow-lg">
+                                                                    <template x-for="(option, i) in filtered()" :key="option">
+                                                                        <li @mousedown.prevent="pick(option)" @mouseenter="hi = i" x-text="option"
+                                                                            :class="[i === hi ? 'bg-brand-50 text-brand-700' : 'text-gray-700', option === getValue() ? 'font-semibold' : '']"
+                                                                            class="cursor-pointer px-3 py-1.5"></li>
+                                                                    </template>
+                                                                    <li x-show="filtered().length === 0" class="px-3 py-1.5 text-gray-400">No match</li>
+                                                                </ul>
+                                                            </div>
                                                         </div>
                                                     </div>
 
@@ -423,6 +452,44 @@
 </div>
 
 <script>
+function searchSelect(getOptions, getValue, setValue, placeholder, isDisabled) {
+    return {
+        open: false,
+        query: '',
+        hi: 0,
+        getValue,
+        isDisabled,
+        placeholder() {
+            return typeof placeholder === 'function' ? placeholder() : placeholder;
+        },
+        filtered() {
+            const q = this.query.trim().toLowerCase();
+            const options = getOptions();
+            return q ? options.filter(o => o.toLowerCase().includes(q)) : options;
+        },
+        openList() {
+            if (this.isDisabled()) return;
+            this.query = '';
+            this.hi = Math.max(0, getOptions().indexOf(getValue()));
+            this.open = true;
+        },
+        close() {
+            this.open = false;
+        },
+        move(step) {
+            const n = this.filtered().length;
+            if (!n) return;
+            this.open = true;
+            this.hi = (this.hi + step + n) % n;
+        },
+        pick(option) {
+            if (option === undefined) return;
+            setValue(option);
+            this.close();
+        },
+    };
+}
+
 function aiContentShow(sessionId, initialStatus, tagTaxonomy) {
     return {
         sessionId,
