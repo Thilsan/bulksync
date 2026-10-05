@@ -204,13 +204,11 @@
 
         .topbar {
             background:
-                radial-gradient(520px 200px at 4% -60%, rgba(255,255,255,.14), transparent 70%),
-                radial-gradient(460px 180px at 100% 130%, rgba(251,212,76,.38), transparent 70%),
-                linear-gradient(104deg, #1f6f8b 0%, #1a6480 52%, #2b4c85 100%);
+                linear-gradient(90deg, #f4d974 0%, #a9ae6c 24%, #5f8c7a 44%, #2f5f86 68%, #2b5280 100%);
         }
         .topbar::after {
             content: ''; position: absolute; inset: auto 0 0 0; height: 1px; pointer-events: none;
-            background: linear-gradient(90deg, #fbd44c, rgba(251,212,76,.35) 52%, transparent);
+            background: linear-gradient(90deg, #e8bd25, rgba(232,189,37,.4) 40%, transparent);
         }
 
         /* A full-height scrollbar would cut the panel in half, so keep it hairline. */
@@ -314,7 +312,7 @@
         main button, main a[class*="rounded-lg"] { transition: transform .12s ease, background-color .2s, color .2s, border-color .2s, box-shadow .2s; }
 
         /* Focus that is visible without being loud, everywhere. */
-        :focus-visible { outline: 2px solid #1f6f8b; outline-offset: 2px; border-radius: 6px; }
+        :focus-visible { outline: 2px solid #e8bd25; outline-offset: 2px; border-radius: 6px; }
 
         /*
             ── Premium defaults every page inherits ─────────────────────────
@@ -331,19 +329,36 @@
             box-shadow: 0 10px 24px -10px rgba(251,212,76,.8);
         }
 
-        /* Buttons: yellow with black text. Avatars and other round brand
-           fills are left alone — only controls that are actually pressed. */
-        main :is(button, a, input[type="submit"]):is(.bg-brand-600, .bg-brand-500):not(.rounded-full),
-        header :is(button, a):is(.bg-brand-600, .bg-brand-500):not(.rounded-full) {
+        /* Brand fills are yellow with black text — buttons, pills, tabs,
+           avatars. Anything that was solid teal reads the same way. */
+        :is(main, header) :is(.bg-brand-600, .bg-brand-500) {
             background-color: #fbd44c !important;
             background-image: none !important;
             color: #111111 !important;
-            border-color: #e8bd25;
         }
-        main :is(button, a, input[type="submit"]):is(.bg-brand-600, .bg-brand-500):not(.rounded-full):hover:not(:disabled) {
+        :is(main, header) :is(button, a, input[type="submit"]):is(.bg-brand-600, .bg-brand-500) { border-color: #e8bd25; }
+        :is(main, header) :is(button, a, input[type="submit"]):is(.bg-brand-600, .bg-brand-500):hover:not(:disabled) {
             background-color: #f5c72a !important;
         }
-        main :is(button, a):is(.bg-brand-600, .bg-brand-500):not(.rounded-full) :is(svg, span) { color: inherit; }
+        :is(main, header) :is(.bg-brand-600, .bg-brand-500) :is(svg, span) { color: inherit; }
+
+        /* Outline buttons and chips: yellow edge, black text, faint yellow wash. */
+        main :is(button, a).border-brand-600 {
+            border-color: #e8bd25 !important;
+            color: #111111 !important;
+            background-color: rgba(251,212,76,.14) !important;
+        }
+        main :is(button, a).border-brand-600:hover:not(:disabled) { background-color: rgba(251,212,76,.38) !important; }
+
+        /* Light brand tints become pale yellow. */
+        main [class~="bg-brand-50"], main [class*="bg-brand-50/"] { background-color: #fff9e0 !important; }
+        main [class~="bg-brand-100"] { background-color: #fdf0b4 !important; }
+        main [class*="hover:bg-brand-50"]:hover { background-color: #fff3c4 !important; }
+
+        /* Focus: yellow ring and edge on fields. */
+        main [class*="ring-brand-"]:focus,
+        main [class*="ring-brand-"]:focus-within { --tw-ring-color: rgba(251,212,76,.6) !important; }
+        main [class*="focus:border-brand-"]:focus { border-color: #e8bd25 !important; }
 
         /* Tinted pills get a hairline of their own colour, so a status reads as
            a token rather than a coloured rectangle. */
@@ -378,9 +393,8 @@
             border-radius: 1.15rem;
             padding: 1.6rem 1.75rem 1.75rem;
             background:
-                radial-gradient(520px 220px at 6% -30%, rgba(214,198,174,.20), transparent 70%),
-                linear-gradient(112deg, #2b2723 0%, #221f1b 52%, #191715 100%);
-            box-shadow: 0 18px 40px -28px rgba(25,23,21,.95);
+                linear-gradient(90deg, #333331 0%, #2e4a63 36%, #2d5a85 56%, #6f8f78 74%, #a9ae6c 88%, #ecce5c 100%);
+            box-shadow: 0 18px 40px -28px rgba(25,40,60,.85);
         }
         .page-hero::before {
             content: ''; position: absolute; inset: 0; pointer-events: none;
@@ -389,7 +403,7 @@
         }
         .page-hero::after {
             content: ''; position: absolute; inset: 0 0 auto 0; height: 2px; pointer-events: none;
-            background: linear-gradient(90deg, #c9a45b, #1f6f8b 38%, rgba(43,76,133,.45) 70%, transparent);
+            background: linear-gradient(90deg, rgba(255,255,255,.18), transparent 60%);
         }
 
         /* Softer corners across the working area: closer to the hero's radius,
@@ -404,7 +418,7 @@
         */
         .spinner {
             border-radius: 9999px;
-            background: conic-gradient(from 0deg, transparent 0turn, #8fc8dc .5turn, #1f6f8b 1turn);
+            background: conic-gradient(from 0deg, transparent 0turn, #fde58f .5turn, #fbd44c 1turn);
             -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 3px));
                     mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 3px));
             animation: spin 900ms linear infinite;
