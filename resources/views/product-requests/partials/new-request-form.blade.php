@@ -173,9 +173,6 @@
                             </label>
                             <input type="datetime-local" name="online_launch_date" x-model="onlineDate" required
                                    class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent">
-                            <p class="text-xs text-gray-400 mt-1">
-                                When these products should be live on the website. Every team's deadline works back from here.
-                            </p>
                             <p x-show="onlineDate && onlineDate < todayIso" x-cloak class="text-xs text-amber-600 mt-1">
                                 That is in the past — please confirm it is intentional.
                             </p>
@@ -361,17 +358,6 @@
                     <textarea name="notes" rows="3" placeholder="Add any special instructions, campaign details, product details, marketing notes, etc."
                               class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent resize-y">{{ old('notes') }}</textarea>
                 </section>
-
-                {{-- Sets expectations before they hit submit. --}}
-                <div class="rounded-lg bg-gray-50 border border-gray-200 px-4 py-3">
-                    <p class="text-xs font-semibold text-gray-700 mb-1.5">What happens after you submit</p>
-                    <ol class="text-xs text-gray-500 space-y-1 list-decimal list-inside">
-                        <li>Your SKUs are checked automatically and you get a request ID (e.g. PCR-2026-00045).</li>
-                        <li>If any SKU is not mapped yet, the request waits with the brand manager and continues on its own once they finish — you do not resubmit.</li>
-                        <li>The E-Commerce team picks it up, and photoshoot, content and QA follow.</li>
-                        <li>You are notified at every stage change, and can follow progress on the request page at any time.</li>
-                    </ol>
-                </div>
 
             </div>
 
