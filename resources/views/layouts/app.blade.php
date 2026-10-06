@@ -1346,9 +1346,15 @@
                     </nav>
                 @endif
 
-                <h1 class="font-display text-[1.9rem] leading-none tracking-[-.015em] text-white sm:text-[2.35rem]">
-                    @yield('page-title', 'Dashboard')
-                </h1>
+                {{-- A page can put a few facts on the band's right, beside its title. --}}
+                <div class="flex flex-wrap items-end justify-between gap-x-8 gap-y-4">
+                    <h1 class="font-display text-[1.9rem] leading-none tracking-[-.015em] text-white sm:text-[2.35rem]">
+                        @yield('page-title', 'Dashboard')
+                    </h1>
+                    @hasSection('page-hero-aside')
+                        @yield('page-hero-aside')
+                    @endif
+                </div>
             </header>
 
             @yield('content')

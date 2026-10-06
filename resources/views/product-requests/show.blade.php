@@ -3,6 +3,30 @@
 @section('title', $request->reference)
 @section('page-title', 'Product Creation')
 
+{{-- The few facts everyone looks for, on the dark band beside its title --}}
+@section('page-hero-aside')
+    @php
+        $heroFacts = array_filter([
+            ['Website',         $request->store?->name ?? '—',                        'M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9'],
+            ['Website go-live', $request->launchLabel('d M Y') ?? '—',                'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z'],
+            ['Showroom launch', $request->store_launch_date?->format('d M Y') ?? '—', 'M3 21h18M5 21V7l7-4 7 4v14M9 21v-6h6v6'],
+            ['Requested by',    $request->requesterName(),                            'M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z'],
+            $request->published_at ? ['Published', $request->published_at->format('d M Y'), 'M5 13l4 4L19 7'] : null,
+        ]);
+    @endphp
+    <div class="flex flex-wrap gap-2">
+        @foreach($heroFacts as [$label, $value, $icon])
+            <div class="flex items-center gap-2.5 rounded-xl bg-white/10 ring-1 ring-white/15 backdrop-blur-sm px-3 py-2 min-w-0">
+                <svg class="w-4 h-4 text-white/60 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="{{ $icon }}"/></svg>
+                <div class="min-w-0 leading-tight">
+                    <p class="text-[10px] uppercase tracking-wider text-white/55">{{ $label }}</p>
+                    <p class="text-sm font-medium text-white truncate max-w-[11rem]">{{ $value }}</p>
+                </div>
+            </div>
+        @endforeach
+    </div>
+@endsection
+
 @section('content')
 @php
     // Not allowedTransitions(): the two photoshoot stages stay permitted, because
@@ -172,30 +196,6 @@
         </div>
         </div>
         @endunless
-    </div>
-
-    {{-- The few facts everyone looks for, once --}}
-    @php
-        $facts = array_filter([
-            ['Website',         $request->store?->name ?? '—',                    'M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9'],
-            ['Website go-live', $request->launchLabel('d M Y') ?? '—',            'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z'],
-            ['Showroom launch', $request->store_launch_date?->format('d M Y') ?? '—', 'M3 21h18M5 21V7l7-4 7 4v14M9 21v-6h6v6'],
-            ['Requested by',    $request->requesterName(),                        'M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z'],
-            $request->published_at ? ['Published', $request->published_at->format('d M Y'), 'M5 13l4 4L19 7'] : null,
-        ]);
-    @endphp
-    <div class="{{ $card }} grid grid-cols-2 md:grid-cols-{{ count($facts) }} divide-x divide-gray-100">
-        @foreach($facts as [$label, $value, $icon])
-            <div class="px-5 py-3.5 flex items-center gap-3 min-w-0">
-                <span class="w-9 h-9 rounded-xl bg-gray-50 text-gray-500 flex items-center justify-center shrink-0">
-                    <svg class="w-4.5 h-4.5" style="width:1.1rem;height:1.1rem" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="{{ $icon }}"/></svg>
-                </span>
-                <div class="min-w-0">
-                    <p class="text-xs text-gray-500">{{ $label }}</p>
-                    <p class="text-sm font-medium text-gray-900 truncate">{{ $value }}</p>
-                </div>
-            </div>
-        @endforeach
     </div>
 
     <div class="grid grid-cols-1 lg:grid-cols-3 2xl:grid-cols-4 gap-5 items-start">
