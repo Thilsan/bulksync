@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\PhotoEditSession;
 use App\Models\User;
+use App\Support\OrdersSummary;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
@@ -451,6 +452,30 @@ class OrdersDashboardTest extends TestCase
         foreach (['Where orders sit', 'In flight', '>Lost<'] as $gone) {
             $this->assertStringNotContainsString($gone, $html, "\"{$gone}\" should have been renamed.");
         }
+    }
+
+    /** The Cancelled tile says why: each status folded into it, busiest first. */
+    public function test_cancelled_tile_lists_its_reasons(): void
+    {
+        $byStatus = [
+            ['status' => 'FullFilled', 'status_id' => 10, 'orders' => 1200, 'revenue' => 0],
+            ['status' => 'Failed', 'status_id' => 17, 'orders' => 4, 'revenue' => 0],
+            ['status' => 'Cancelled', 'status_id' => 6, 'orders' => 15, 'revenue' => 0],
+            ['status' => 'Returned', 'status_id' => 8, 'orders' => 0, 'revenue' => 0],
+        ];
+
+        $this->assertSame([
+            ['status' => 'Cancelled', 'orders' => 15],
+            ['status' => 'Failed', 'orders' => 4],
+        ], OrdersSummary::breakdown($byStatus, 'cancelled'));
+
+        $payload = $this->payload();
+        $payload['data']['by_status'] = $byStatus;
+        Http::fake(['orders.test/*' => Http::response($payload)]);
+
+        $this->actingAs($this->admin)
+            ->get(route('orders.dashboard'))->assertOk()
+            ->assertSeeInOrder(['Cancelled', '19', 'Cancelled', '15', 'Failed', '4']);
     }
 
     /**

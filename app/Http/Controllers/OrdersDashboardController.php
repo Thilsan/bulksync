@@ -600,6 +600,7 @@ class OrdersDashboardController extends Controller
 
             'outcomes'       => OrdersSummary::outcomes($byStatus),
             'outcome_counts' => OrdersSummary::outcomeCounts($byStatus),
+            'cancel_reasons' => OrdersSummary::breakdown($byStatus, 'cancelled'),
             'statuses'       => $byStatus,
             'payments' => OrdersSummary::payments($data['by_payment_method'] ?? []),
             'types'    => $data['by_order_type'] ?? [],

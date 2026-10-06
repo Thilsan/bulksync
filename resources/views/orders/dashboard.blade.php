@@ -273,6 +273,19 @@
                     @else
                         <p class="text-xs text-gray-400 mt-2">{{ $tile['note'] }}</p>
                     @endif
+
+                    @if($tile['label'] === 'Cancelled' && $summary['cancel_reasons'])
+                        {{-- Why they are in this tile: cancelled, failed and
+                             returned are one number above but not one cause. --}}
+                        <ul class="mt-3 pt-3 border-t border-gray-100 space-y-1">
+                            @foreach($summary['cancel_reasons'] as $reason)
+                                <li class="flex items-center justify-between gap-2 text-xs">
+                                    <span class="text-gray-600 truncate">{{ $reason['status'] }}</span>
+                                    <span class="text-gray-800 font-medium tabular-nums">{{ $num($reason['orders']) }}</span>
+                                </li>
+                            @endforeach
+                        </ul>
+                    @endif
                 </div>
             @endforeach
         </div>

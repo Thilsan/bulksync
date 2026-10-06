@@ -137,6 +137,32 @@ class OrdersSummary
         return $counts;
     }
 
+    /**
+     * The raw statuses inside one outcome, busiest first.
+     *
+     * For the Cancelled tile this is the reason an order is there — cancelled,
+     * failed or returned — which is as much as the endpoint knows: it reports
+     * counts per status, not a reason typed against each order.
+     *
+     * @return list<array{status:string,orders:int}>
+     */
+    public static function breakdown(array $byStatus, string $outcome): array
+    {
+        $rows = [];
+
+        foreach (self::group($byStatus)[$outcome]['statuses'] ?? [] as $row) {
+            $orders = (int) ($row['orders'] ?? 0);
+
+            if ($orders > 0) {
+                $rows[] = ['status' => (string) ($row['status'] ?? 'Unknown'), 'orders' => $orders];
+            }
+        }
+
+        usort($rows, fn ($a, $b) => $b['orders'] <=> $a['orders']);
+
+        return $rows;
+    }
+
     /** Statuses rolled into completed / processing / cancelled, minus the empty buckets. */
     public static function outcomes(array $byStatus): array
     {
