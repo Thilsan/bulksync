@@ -359,7 +359,7 @@ class ProductRequestTest extends TestCase
         $this->assertTrue($pim->imagesInPim());
         $this->assertNull($pim->images_url);
         $this->assertFalse($pim->awaitingImageLocation());
-        $this->assertSame('Already in the PIM', $pim->imageLocationLabel());
+        $this->assertSame('Already in the Brand PIM', $pim->imageLocationLabel());
 
         // A photoshoot has nothing to point at, so it is never asked.
         $this->actingAs($user)->post(route('product-requests.store'),

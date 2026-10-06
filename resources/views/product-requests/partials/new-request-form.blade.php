@@ -44,7 +44,7 @@
          x-transition:leave="transition ease-in duration-200" x-transition:leave-start="opacity-100 translate-y-0" x-transition:leave-end="opacity-0 translate-y-3">
 
         <div class="px-4 sm:px-6 py-4 bg-white/60 border-b border-white/60 shrink-0">
-            <div class="max-w-6xl mx-auto flex items-center justify-between">
+            <div class="max-w-4xl mx-auto flex items-center justify-between">
                 <h2 class="text-base font-semibold text-gray-900">New Product Creation Request</h2>
                 <button type="button" @click="newRequestOpen = false" aria-label="Close" title="Close"
                         class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-red-50 text-red-600 ring-1 ring-red-100 transition-colors hover:bg-red-600 hover:text-white hover:ring-red-600 focus:outline-none focus:ring-2 focus:ring-red-400">
@@ -88,9 +88,9 @@
             @csrf
 
             <div class="flex-1 min-h-0 overflow-y-auto px-4 py-6 sm:px-6">
-                <div class="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-5 items-start">
+                <div class="max-w-4xl mx-auto">
 
-                    <div class="lg:col-span-2 space-y-4">
+                    <div class="space-y-4">
                         {{-- Request: name + notes, the "title and description" of it --}}
                         <section class="bg-white/90 rounded-xl border border-white shadow-[0_8px_30px_-12px_rgba(15,23,42,.18)] p-4 space-y-4">
                             <div>
@@ -105,9 +105,109 @@
                             </div>
                         </section>
 
+                        {{-- The basics, as small boxes side by side --}}
+                        <section class="bg-white/90 rounded-xl border border-white shadow-[0_8px_30px_-12px_rgba(15,23,42,.18)] p-4">
+                            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                                <div class="rounded-lg border border-gray-200 bg-white p-3">
+                                    <label class="block text-xs font-medium text-gray-500 mb-1.5">Website</label>
+                                    @if($stores->isEmpty())
+                                        <p class="text-xs text-red-600">You don't have access to any website yet. Ask an admin for store access.</p>
+                                    @else
+                                        @include('product-requests.partials.pretty-select', [
+                                            'name' => 'store_id', 'model' => 'storeId', 'placeholder' => 'Select a website',
+                                            'options' => $stores->pluck('name', 'id'),
+                                        ])
+                                    @endif
+                                </div>
+
+                                <div class="rounded-lg border border-gray-200 bg-white p-3">
+                                    <label class="block text-xs font-medium text-gray-500 mb-1.5">Brand</label>
+                                    <input type="text" name="brand" value="{{ old('brand') }}" required placeholder="e.g. Mosafer" aria-label="Brand name" class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent">
+                                </div>
+
+                                <div class="rounded-lg border border-gray-200 bg-white p-3">
+                                    <label class="block text-xs font-medium text-gray-500 mb-1.5">Category</label>
+                                    @include('product-requests.partials.pretty-select', [
+                                        'name' => 'category', 'model' => 'category', 'placeholder' => 'Select a category',
+                                        'options' => array_combine(\App\Models\ProductRequest::CATEGORIES, \App\Models\ProductRequest::CATEGORIES),
+                                    ])
+                                </div>
+
+                                <div class="rounded-lg border border-gray-200 bg-white p-3">
+                                    <label class="block text-xs font-medium text-gray-500 mb-1.5">Go-live date</label>
+                                    @include('product-requests.partials.date-picker', [
+                                        'name' => 'online_launch_date', 'model' => 'onlineDate', 'placeholder' => 'Pick a date',
+                                    ])
+                                    <p x-show="onlineDate && onlineDate < todayIso" x-cloak class="text-xs text-amber-700 mt-1.5">This date is in the past.</p>
+                                </div>
+
+                                <div class="rounded-lg border border-gray-200 bg-white p-3">
+                                    <label class="block text-xs font-medium text-gray-500 mb-1.5">Priority</label>
+                                    <div class="flex rounded-lg bg-gray-100 p-1 gap-1">
+                                        @foreach(\App\Models\ProductRequest::PRIORITIES as $value => $label)
+                                            <label class="relative flex-1 text-center cursor-pointer rounded-md px-2 py-1 text-sm text-gray-600 transition-colors hover:text-gray-900 has-[:checked]:bg-white has-[:checked]:text-gray-900 has-[:checked]:font-medium has-[:checked]:shadow-sm">
+                                                <input type="radio" name="priority" value="{{ $value }}" class="sr-only" required
+                                                       {{ old('priority', 'medium') === $value ? 'checked' : '' }}>
+                                                {{ $label }}
+                                            </label>
+                                        @endforeach
+                                    </div>
+                                </div>
+
+                                <div class="rounded-lg border border-gray-200 bg-white p-3">
+                                    <label class="block text-xs font-medium text-gray-500 mb-1.5">New to the website?</label>
+                                    <div class="flex rounded-lg bg-gray-100 p-1 gap-1">
+                                        @foreach(['new_brand' => 'Yes', 'existing_brand' => 'No'] as $value => $label)
+                                            <label class="relative flex-1 text-center cursor-pointer rounded-md px-2 py-1 text-sm text-gray-600 transition-colors hover:text-gray-900 has-[:checked]:bg-white has-[:checked]:text-gray-900 has-[:checked]:font-medium has-[:checked]:shadow-sm">
+                                                <input type="radio" name="request_type" value="{{ $value }}" class="sr-only"
+                                                       {{ old('request_type', 'new_brand') === $value ? 'checked' : '' }}>
+                                                {{ $label }}
+                                            </label>
+                                        @endforeach
+                                    </div>
+                                </div>
+                            </div>
+
+                            {{-- Team: who the category hands this to, shown once a category is picked --}}
+                            <div class="mt-3 rounded-lg border border-gray-200 bg-white p-3" x-data="{
+                                    allRoles: {{ Illuminate\Support\Js::from(collect(\App\Models\ProductRequest::assignableRoles())->map(fn ($label, $key) => ['key' => $key, 'label' => $label])->values()) }},
+                                    // Only the roles this request will actually use: no shoot
+                                    // means no coordinator, and no Cegid means no mapping.
+                                    get activeRoles() {
+                                        return this.allRoles.filter(r =>
+                                            (r.key !== 'photographer_id' || needsPhotoshoot) &&
+                                            (r.key !== 'supply_chain_id' || usesMapping)
+                                        );
+                                    },
+                                    // The category owner runs the request; the shoot and the
+                                    // brand-side task are the two that can be someone else's.
+                                    personFor(key) {
+                                        if (key === 'photographer_id')  return photoshootCoordinator;
+                                        if (key === 'brand_manager_id') return categoryBrandManager;
+                                        return categoryOwner;
+                                    },
+                                 }">
+                                <label class="block text-xs font-medium text-gray-500 mb-1.5">Team</label>
+                                <template x-if="!category">
+                                    <p class="text-sm text-gray-400">Pick a category to see the team.</p>
+                                </template>
+                                <template x-if="category">
+                                    <div class="flex flex-wrap gap-x-6 gap-y-1.5">
+                                        <template x-for="r in activeRoles" :key="r.key">
+                                            <p class="text-sm">
+                                                <span class="text-gray-500" x-text="r.label + ':'"></span>
+                                                <span :class="personFor(r.key) ? 'text-gray-900 font-medium' : 'text-amber-700'"
+                                                      x-text="personFor(r.key) || 'Not set yet'"></span>
+                                            </p>
+                                        </template>
+                                    </div>
+                                </template>
+                            </div>
+                        </section>
+
                         {{-- Products --}}
                         <section class="bg-white/90 rounded-xl border border-white shadow-[0_8px_30px_-12px_rgba(15,23,42,.18)] p-4">
-                            <h3 class="text-sm font-semibold text-gray-900 mb-3">Products</h3>
+                            <h3 class="text-sm font-semibold text-gray-900 mb-3">Product list</h3>
 
                             @include('product-requests.partials.sku-csv-check')
                             {{-- Checked as soon as it is picked, so a wrong file is caught
@@ -196,122 +296,6 @@
                                     <span class="text-sm text-gray-800">Brand team will send them</span>
                                 </label>
                             </div>
-
-                            <div x-show="useAi === '0'" x-cloak class="mt-4 pt-4 border-t border-gray-100">
-                                <label class="block text-sm text-gray-700 mb-1">Content sheet <span class="text-gray-400">(optional)</span></label>
-                                <input type="file" name="content_sheet" accept=".csv,.xlsx,.xls"
-                                       class="w-full text-sm text-gray-600 file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border file:border-gray-300 file:bg-white file:text-sm file:font-medium file:text-gray-700 hover:file:bg-gray-50 cursor-pointer">
-                                <p class="text-xs text-gray-400 mt-1">Excel or CSV, up to {{ \App\Models\ProductRequestAttachment::maxUploadLabel() }}</p>
-                            </div>
-                        </section>
-
-                    </div>
-
-                    <div class="space-y-4">
-                        <section class="bg-white/90 rounded-xl border border-white shadow-[0_8px_30px_-12px_rgba(15,23,42,.18)] p-4">
-                            <div>
-                                <h3 class="text-sm font-semibold text-gray-900 mb-3">Website</h3>
-                                @if($stores->isEmpty())
-                                    <p class="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
-                                        You don't have access to any website yet. Ask an admin to grant store access before raising a request.
-                                    </p>
-                                @else
-                                    @include('product-requests.partials.pretty-select', [
-                                        'name' => 'store_id', 'model' => 'storeId', 'placeholder' => 'Select a website',
-                                        'options' => $stores->pluck('name', 'id'),
-                                    ])
-                                @endif
-                            </div>
-                        </section>
-
-                        <section class="bg-white/90 rounded-xl border border-white shadow-[0_8px_30px_-12px_rgba(15,23,42,.18)] p-4 space-y-4">
-                            <h3 class="text-sm font-semibold text-gray-900">Brand</h3>
-                            <div>
-                                <input type="text" name="brand" value="{{ old('brand') }}" required placeholder="e.g. Mosafer" aria-label="Brand name" class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent">
-                            </div>
-                            <div>
-                                <label class="block text-sm text-gray-700 mb-1">Category</label>
-                                @include('product-requests.partials.pretty-select', [
-                                    'name' => 'category', 'model' => 'category', 'placeholder' => 'Select a category',
-                                    'options' => array_combine(\App\Models\ProductRequest::CATEGORIES, \App\Models\ProductRequest::CATEGORIES),
-                                ])
-                            </div>
-                            <div>
-                                <label class="block text-sm text-gray-700 mb-1">New to the website?</label>
-                                <div class="flex rounded-lg bg-gray-100 p-1 gap-1">
-                                    @foreach(['new_brand' => 'Yes', 'existing_brand' => 'No'] as $value => $label)
-                                        <label class="relative flex-1 text-center cursor-pointer rounded-md px-3 py-1.5 text-sm text-gray-600 transition-colors hover:text-gray-900 has-[:checked]:bg-white has-[:checked]:text-gray-900 has-[:checked]:font-medium has-[:checked]:shadow-sm">
-                                            <input type="radio" name="request_type" value="{{ $value }}" class="sr-only"
-                                                   {{ old('request_type', 'new_brand') === $value ? 'checked' : '' }}>
-                                            {{ $label }}
-                                        </label>
-                                    @endforeach
-                                </div>
-                            </div>
-                        </section>
-
-                        {{-- Go-live --}}
-                        <section class="bg-white/90 rounded-xl border border-white shadow-[0_8px_30px_-12px_rgba(15,23,42,.18)] p-4">
-                            <h3 class="text-sm font-semibold text-gray-900 mb-3">Go-live date</h3>
-                            @include('product-requests.partials.date-picker', [
-                                'name' => 'online_launch_date', 'model' => 'onlineDate', 'placeholder' => 'Pick a date',
-                            ])
-                            <p x-show="onlineDate && onlineDate < todayIso" x-cloak class="text-sm text-amber-700 mt-2">
-                                This date is in the past.
-                            </p>
-                        </section>
-
-                        <section class="bg-white/90 rounded-xl border border-white shadow-[0_8px_30px_-12px_rgba(15,23,42,.18)] p-4">
-                            <h3 class="text-sm font-semibold text-gray-900 mb-3">Priority</h3>
-                            <div class="flex rounded-lg bg-gray-100 p-1 gap-1">
-                                @foreach(\App\Models\ProductRequest::PRIORITIES as $value => $label)
-                                    <label class="relative flex-1 text-center cursor-pointer rounded-md px-3 py-1.5 text-sm text-gray-600 transition-colors hover:text-gray-900 has-[:checked]:bg-white has-[:checked]:text-gray-900 has-[:checked]:font-medium has-[:checked]:shadow-sm">
-                                        <input type="radio" name="priority" value="{{ $value }}" class="sr-only" required
-                                               {{ old('priority', 'medium') === $value ? 'checked' : '' }}>
-                                        {{ $label }}
-                                    </label>
-                                @endforeach
-                            </div>
-                        </section>
-
-                        {{-- Team --}}
-                        <section class="bg-white/90 rounded-xl border border-white shadow-[0_8px_30px_-12px_rgba(15,23,42,.18)] p-4" x-data="{
-                                allRoles: {{ Illuminate\Support\Js::from(collect(\App\Models\ProductRequest::assignableRoles())->map(fn ($label, $key) => ['key' => $key, 'label' => $label])->values()) }},
-                                // Only the roles this request will actually use: no shoot
-                                // means no coordinator, and no Cegid means no mapping.
-                                get activeRoles() {
-                                    return this.allRoles.filter(r =>
-                                        (r.key !== 'photographer_id' || needsPhotoshoot) &&
-                                        (r.key !== 'supply_chain_id' || usesMapping)
-                                    );
-                                },
-                                // The category owner runs the request; the shoot and the
-                                // brand-side task are the two that can be someone else's.
-                                personFor(key) {
-                                    if (key === 'photographer_id')  return photoshootCoordinator;
-                                    if (key === 'brand_manager_id') return categoryBrandManager;
-                                    return categoryOwner;
-                                },
-                             }">
-
-                            <h3 class="text-sm font-semibold text-gray-900 mb-3">Team</h3>
-
-                            <template x-if="!category">
-                                <p class="text-sm text-gray-400">Pick a category to see the team.</p>
-                            </template>
-
-                            <template x-if="category">
-                                <div class="divide-y divide-gray-100 -my-2">
-                                    <template x-for="r in activeRoles" :key="r.key">
-                                        <div class="flex items-center justify-between gap-4 py-2">
-                                            <p class="text-sm text-gray-500" x-text="r.label"></p>
-                                            <p class="text-sm text-right"
-                                               :class="personFor(r.key) ? 'text-gray-900 font-medium' : 'text-amber-700'"
-                                               x-text="personFor(r.key) || 'Not set yet'"></p>
-                                        </div>
-                                    </template>
-                                </div>
-                            </template>
                         </section>
 
                     </div>
@@ -320,7 +304,7 @@
             </div>
 
             <div class="px-4 sm:px-6 py-3.5 bg-white/60 border-t border-white/60 shrink-0">
-                <div class="max-w-6xl mx-auto flex justify-end gap-3">
+                <div class="max-w-4xl mx-auto flex justify-end gap-3">
                     <button type="button" @click="newRequestOpen = false"
                             class="border border-gray-300 bg-white text-gray-700 text-sm font-medium px-4 py-2 rounded-lg hover:bg-gray-50 transition-colors">
                         Cancel

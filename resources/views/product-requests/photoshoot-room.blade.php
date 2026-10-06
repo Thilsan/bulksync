@@ -241,7 +241,7 @@
                         <tr>
                             <td colspan="7" class="px-3 py-10 text-center text-sm text-gray-400">
                                 Nothing to shoot{{ $filter ? ' with that status' : ' yet' }}. Requests appear here as soon as
-                                someone chooses “We are photographing the products”.
+                                someone chooses “Photoshoot from Ecommerce”.
                             </td>
                         </tr>
                     @endforelse

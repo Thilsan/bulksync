@@ -257,7 +257,7 @@ class ProductRequest extends Model
             'hint'   => 'Used as they are — no photoshoot and no editing stage.',
         ],
         self::IMG_PHOTOSHOOT => [
-            'label'  => 'We are photographing the products',
+            'label'  => 'Photoshoot from Ecommerce',
             'hint'   => 'Waits for samples, then the photoshoot and editing stages apply.',
         ],
         self::IMG_BRAND_WEBSITE => [
@@ -413,7 +413,7 @@ class ProductRequest extends Model
 
     public const IMAGE_LOCATIONS = [
         self::IMAGES_AT_URL => 'A link to the folder',
-        self::IMAGES_AT_PIM => 'Already in the PIM',
+        self::IMAGES_AT_PIM => 'Already in the Brand PIM',
     ];
 
     /** Only supplier images need a location recorded — the rest we produce. */
@@ -430,7 +430,7 @@ class ProductRequest extends Model
         }
 
         return $this->images_location === self::IMAGES_AT_PIM
-            ? 'Already in the PIM'
+            ? 'Already in the Brand PIM'
             : ($this->images_url ?: 'Link not recorded');
     }
 

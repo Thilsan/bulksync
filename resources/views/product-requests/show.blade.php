@@ -650,7 +650,7 @@
                                 <template x-if="!editing">
                                     <p class="text-sm text-gray-900 break-all">
                                         @if($request->imagesInPim())
-                                            Already in the PIM
+                                            Already in the Brand PIM
                                         @elseif($request->images_url)
                                             <a href="{{ $request->images_url }}" target="_blank" rel="noopener" class="text-brand-600 hover:text-brand-700 underline">{{ $request->images_url }}</a>
                                         @else
@@ -926,7 +926,7 @@
                             <dt class="text-xs text-gray-500">Supplier images</dt>
                             <dd class="truncate">
                                 @if($request->imagesInPim())
-                                    In the PIM
+                                    In the Brand PIM
                                 @else
                                     <a href="{{ $request->images_url }}" target="_blank" rel="noopener" class="text-brand-600 hover:text-brand-700 underline">{{ $request->images_url }}</a>
                                 @endif
