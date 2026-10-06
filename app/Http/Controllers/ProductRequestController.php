@@ -165,35 +165,50 @@ class ProductRequestController extends Controller implements HasMiddleware
         // resolves whichever one the current stage belongs to, per row.
         // store is loaded too: the list shows which website each request is for,
         // which is the only thing separating two rows raised from one sheet row.
-        $query = ProductRequest::query()->onMyDesk($user)
+        // Everything but the status: the status tabs show their own counts
+        // under the same search, priority and brand.
+        $filtered = function () use ($request, $user) {
+            $query = ProductRequest::query()->onMyDesk($user);
+
+            if ($request->filled('priority')) {
+                $query->where('priority', $request->string('priority'));
+            }
+
+            if ($request->filled('brand')) {
+                $query->where('brand', $request->string('brand'));
+            }
+
+            if ($request->filled('search')) {
+                $term = '%' . $request->string('search') . '%';
+                $query->where(function ($q) use ($term) {
+                    $q->where('reference', 'like', $term)
+                      ->orWhere('name', 'like', $term)
+                      ->orWhere('brand', 'like', $term)
+                      ->orWhere('category', 'like', $term);
+                });
+            }
+
+            return $query;
+        };
+
+        $byStatus = fn ($query, string $status) => match ($status) {
+            ''            => $query,
+            'pending'     => $query->pending(),
+            'in_progress' => $query->inProgress(),
+            'on_hold'     => $query->onHold(),
+            default       => $query->where('status', $status),
+        };
+
+        $tabCounts = collect(['', 'pending', 'in_progress', ProductRequest::WAITING_MAPPING,
+                ProductRequest::PHOTOSHOOT_SCHEDULED, 'on_hold', ProductRequest::PUBLISHED])
+            ->mapWithKeys(fn ($s) => [$s => $byStatus($filtered(), $s)->count()]);
+
+        // All four owner relations are eager-loaded: the "Waiting On" column
+        // resolves whichever one the current stage belongs to, per row.
+        // store is loaded too: the list shows which website each request is for,
+        // which is the only thing separating two rows raised from one sheet row.
+        $query = $byStatus($filtered(), $request->string('status')->toString())
             ->with(['user', 'store', 'currentAssignments.user']);
-
-        if ($request->filled('status')) {
-            match ($request->string('status')->toString()) {
-                'pending' => $query->pending(),
-                'in_progress' => $query->inProgress(),
-                'on_hold' => $query->onHold(),
-                default => $query->where('status', $request->string('status')),
-            };
-        }
-
-        if ($request->filled('priority')) {
-            $query->where('priority', $request->string('priority'));
-        }
-
-        if ($request->filled('brand')) {
-            $query->where('brand', $request->string('brand'));
-        }
-
-        if ($request->filled('search')) {
-            $term = '%' . $request->string('search') . '%';
-            $query->where(function ($q) use ($term) {
-                $q->where('reference', 'like', $term)
-                  ->orWhere('name', 'like', $term)
-                  ->orWhere('brand', 'like', $term)
-                  ->orWhere('category', 'like', $term);
-            });
-        }
 
         // Newest first, so a request lands on top of page 1 the moment it's
         // created, whether raised by hand or pulled from the sheet. The sheet
@@ -215,7 +230,7 @@ class ProductRequestController extends Controller implements HasMiddleware
         $activeStoreId = Store::getActive($user->id)?->id;
         $teamPool      = User::where('is_active', true)->orderBy('name')->get(['id', 'name', 'pcr_role']);
 
-        return view('product-requests.list', compact('requests', 'brands', 'stores', 'activeStoreId', 'teamPool'));
+        return view('product-requests.list', compact('requests', 'brands', 'stores', 'activeStoreId', 'teamPool', 'tabCounts'));
     }
 
     /**

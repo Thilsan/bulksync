@@ -134,17 +134,41 @@
         $palette = ['bg-sky-100 text-sky-700', 'bg-violet-100 text-violet-700', 'bg-amber-100 text-amber-800',
                     'bg-emerald-100 text-emerald-700', 'bg-rose-100 text-rose-700', 'bg-indigo-100 text-indigo-700'];
         $tone = fn (?string $text) => $palette[abs(crc32((string) $text)) % count($palette)];
+
+        // One soft colour per person, so whose requests are whose shows at a
+        // glance. Keyed on their id, so it never changes and two people never
+        // share one until there are more people than colours.
+        $people = [
+            ['row' => 'bg-sky-50/70',     'edge' => 'border-l-sky-400',     'chip' => 'bg-sky-100 text-sky-700'],
+            ['row' => 'bg-violet-50/70',  'edge' => 'border-l-violet-400',  'chip' => 'bg-violet-100 text-violet-700'],
+            ['row' => 'bg-amber-50/70',   'edge' => 'border-l-amber-400',   'chip' => 'bg-amber-100 text-amber-800'],
+            ['row' => 'bg-emerald-50/70', 'edge' => 'border-l-emerald-400', 'chip' => 'bg-emerald-100 text-emerald-700'],
+            ['row' => 'bg-rose-50/70',    'edge' => 'border-l-rose-400',    'chip' => 'bg-rose-100 text-rose-700'],
+            ['row' => 'bg-indigo-50/70',  'edge' => 'border-l-indigo-400',  'chip' => 'bg-indigo-100 text-indigo-700'],
+            ['row' => 'bg-teal-50/70',    'edge' => 'border-l-teal-400',    'chip' => 'bg-teal-100 text-teal-700'],
+            ['row' => 'bg-orange-50/70',  'edge' => 'border-l-orange-400',  'chip' => 'bg-orange-100 text-orange-700'],
+        ];
+        $personTone = fn ($user) => $user ? $people[$user->id % count($people)] : null;
         $initials = fn (?string $text) => strtoupper(mb_substr(preg_replace('/[^A-Za-z0-9]/', '', (string) $text) ?: '?', 0, 2));
     @endphp
     <div class="bg-white rounded-2xl border border-gray-200/80 shadow-sm overflow-hidden">
 
-        {{-- Status as tabs: one click, no dropdown to open --}}
-        <div class="px-3 border-b border-gray-100 flex gap-1 overflow-x-auto">
+        {{-- Status as pills with their counts: one click, no dropdown to open --}}
+        <div class="px-4 pt-4 pb-3 flex gap-2 overflow-x-auto">
             @foreach($statusTabs as $value => $label)
-                @php $active = (string) request('status', '') === (string) $value; @endphp
+                @php
+                    $active = (string) request('status', '') === (string) $value;
+                    $count  = $tabCounts[$value] ?? null;
+                @endphp
                 <a href="{{ route('product-requests.list', array_filter(['status' => $value ?: null] + request()->only(['search', 'priority', 'brand']))) }}"
-                   class="px-3 py-3 text-sm font-medium whitespace-nowrap border-b-2 transition-colors
-                          {{ $active ? 'border-brand-600 text-gray-900' : 'border-transparent text-gray-500 hover:text-gray-800' }}">{{ $label }}</a>
+                   class="inline-flex items-center gap-2 rounded-full px-3.5 py-1.5 text-sm font-medium whitespace-nowrap transition-colors
+                          {{ $active ? 'bg-gray-900 text-white shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200 hover:text-gray-900' }}">
+                    {{ $label }}
+                    @if($count !== null)
+                        <span class="rounded-full px-1.5 min-w-[1.25rem] text-center text-[11px] tabular-nums
+                                     {{ $active ? 'bg-white/20 text-white' : ($count ? 'bg-white text-gray-700' : 'bg-white/60 text-gray-400') }}">{{ number_format($count) }}</span>
+                    @endif
+                </a>
             @endforeach
         </div>
 
@@ -269,7 +293,7 @@
             <table class="w-full text-sm">
                 <thead>
                     <tr class="text-left text-[11px] uppercase tracking-wider text-gray-400 border-b border-gray-100">
-                        <th class="pl-4 pr-2 py-2.5 w-8">
+                        <th class="pl-4 pr-2 py-2.5 w-8 border-l-4 border-l-transparent">
                             <input type="checkbox" x-model="allOnPage" @change="toggleAll()"
                                    title="Select the requests on this page"
                                    class="rounded border-gray-300 text-brand-600 focus:ring-brand-500">
@@ -294,11 +318,12 @@
                         $own  = $item->ownershipFor(auth()->user());
                         $mapped = $item->store?->requires_sku_mapping && $item->total_skus > 0;
                         $pct  = $item->total_skus > 0 ? (int) round(100 * $item->mapped_skus / $item->total_skus) : 0;
+                        $who  = $item->isClosed() ? null : $personTone($g['owner']);
                     @endphp
-                    <tr class="group cursor-pointer hover:bg-gray-50/80 transition-colors"
+                    <tr class="group cursor-pointer transition hover:brightness-[0.97] {{ $who['row'] ?? 'hover:bg-gray-50' }}"
                         :class="picked.includes('{{ $item->id }}') && 'bg-brand-50/60'"
                         @click="if (!$event.target.closest('input, button, a, form')) window.location = '{{ $url }}'">
-                        <td class="pl-4 pr-2 py-3.5">
+                        <td class="pl-3 pr-2 py-3.5 border-l-4 {{ $who['edge'] ?? 'border-l-transparent' }}">
                             <input type="checkbox" data-request-id="{{ $item->id }}" value="{{ $item->id }}" x-model="picked"
                                    class="rounded border-gray-300 text-brand-600 focus:ring-brand-500">
                         </td>
@@ -365,7 +390,7 @@
                                 <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-amber-50 text-amber-800 border border-amber-200" title="{{ $g['role'] }}">Your team</span>
                             @elseif($g['owner'])
                                 <span class="inline-flex items-center gap-2" title="{{ $g['role'] }}">
-                                    <span class="w-7 h-7 rounded-full text-[11px] font-semibold flex items-center justify-center {{ $tone($g['owner']->name) }}">{{ $initials($g['owner']->name) }}</span>
+                                    <span class="w-7 h-7 rounded-full text-[11px] font-semibold flex items-center justify-center {{ $who['chip'] ?? $tone($g['owner']->name) }}">{{ $initials($g['owner']->name) }}</span>
                                     <span class="text-gray-700">{{ $g['owner']->name }}</span>
                                 </span>
                             @else
