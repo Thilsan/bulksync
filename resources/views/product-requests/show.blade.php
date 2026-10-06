@@ -596,36 +596,68 @@
                     @endif
 
                     @php
-                        $stats = $usesMapping
+                        // A ring for the one number people ask for — how much is ready —
+                        // and a tile per count, each with its own colour and a hint.
+                        $total = (int) $request->total_skus;
+                        $ready = $usesMapping ? (int) $request->mapped_skus : $inShopify;
+                        $pct   = $total > 0 ? (int) round(100 * $ready / $total) : 0;
+                        $ringTone = $pct >= 100 ? 'text-green-500' : ($pct > 0 ? 'text-amber-500' : 'text-gray-300');
+                        $C = 2 * M_PI * 42;
+
+                        $icons = [
+                            'box'   => 'M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4',
+                            'check' => 'M5 13l4 4L19 7',
+                            'clock' => 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z',
+                            'x'     => 'M6 18L18 6M6 6l12 12',
+                            'cloud' => 'M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z',
+                        ];
+                        $tiles = $usesMapping
                             ? [
-                                ['Total',       $request->total_skus,      'text-gray-900'],
-                                ['Mapped',      $request->mapped_skus,     'text-green-700'],
-                                ['Pending',     $request->pending_skus,    'text-amber-600'],
-                                ['Not mapped',  $request->not_mapped_skus, 'text-red-600'],
+                                ['Total',      $total,                     'box',   'bg-gray-50 border-gray-100',       'bg-white text-gray-500',     'text-gray-900',  'SKUs on this request'],
+                                ['Mapped',     $request->mapped_skus,     'check', 'bg-green-50 border-green-100',     'bg-green-100 text-green-600', 'text-green-700', 'Ready on Shopify'],
+                                ['Pending',    $request->pending_skus,    'clock', 'bg-amber-50 border-amber-100',     'bg-amber-100 text-amber-600', 'text-amber-700', 'Waiting for Cegid'],
+                                ['Not mapped', $request->not_mapped_skus, 'x',     'bg-red-50 border-red-100',         'bg-red-100 text-red-500',     'text-red-600',   'Need attention'],
                             ]
                             : [
-                                ['Total',            $request->total_skus,              'text-gray-900'],
-                                ['In Shopify',       $inShopify,                        'text-green-700'],
-                                ['Not in Shopify',   $request->total_skus - $inShopify, 'text-gray-500'],
+                                ['Total',          $total,              'box',   'bg-gray-50 border-gray-100',   'bg-white text-gray-500',     'text-gray-900',  'SKUs on this request'],
+                                ['On Shopify',     $inShopify,          'cloud', 'bg-green-50 border-green-100', 'bg-green-100 text-green-600', 'text-green-700', 'Found on the website'],
+                                ['Not on Shopify', $total - $inShopify, 'clock', 'bg-amber-50 border-amber-100', 'bg-amber-100 text-amber-600', 'text-amber-700', 'Not created yet'],
                             ];
                     @endphp
-                    <div class="grid {{ $usesMapping ? 'grid-cols-4' : 'grid-cols-3' }} divide-x divide-gray-100 rounded-lg border border-gray-100 bg-gray-50/50">
-                        @foreach($stats as [$label, $value, $tone])
-                            <div class="px-3 py-2.5">
-                                <p class="text-[11px] text-gray-500">{{ $label }}</p>
-                                <p class="text-xl font-semibold tabular-nums {{ $tone }}">{{ number_format($value) }}</p>
+
+                    <div class="flex flex-col sm:flex-row items-center gap-5">
+                        {{-- The ring --}}
+                        <div class="relative w-28 h-28 shrink-0">
+                            <svg class="w-28 h-28 -rotate-90" viewBox="0 0 100 100">
+                                <circle cx="50" cy="50" r="42" fill="none" stroke-width="9" class="stroke-gray-100" stroke="currentColor"/>
+                                <circle cx="50" cy="50" r="42" fill="none" stroke-width="9" stroke-linecap="round" stroke="currentColor"
+                                        class="{{ $ringTone }} transition-all duration-700"
+                                        stroke-dasharray="{{ $C }}" stroke-dashoffset="{{ $C * (1 - $pct / 100) }}"/>
+                            </svg>
+                            <div class="absolute inset-0 flex flex-col items-center justify-center">
+                                <span class="text-2xl font-bold text-gray-900 tabular-nums">{{ $pct }}%</span>
+                                <span class="text-[11px] text-gray-500">{{ $usesMapping ? 'mapped' : 'on Shopify' }}</span>
                             </div>
-                        @endforeach
+                        </div>
+
+                        {{-- The counts --}}
+                        <div class="flex-1 w-full grid grid-cols-2 {{ count($tiles) === 4 ? 'xl:grid-cols-4' : 'xl:grid-cols-3' }} gap-3">
+                            @foreach($tiles as [$label, $value, $icon, $bg, $iconTone, $numTone, $hint])
+                                <div class="rounded-2xl border px-4 py-3 {{ $bg }}">
+                                    <div class="flex items-center justify-between">
+                                        <span class="text-xs font-medium text-gray-600">{{ $label }}</span>
+                                        <span class="w-7 h-7 rounded-lg flex items-center justify-center {{ $iconTone }}">
+                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="{{ $icons[$icon] }}"/></svg>
+                                        </span>
+                                    </div>
+                                    <p class="mt-1 text-2xl font-bold tabular-nums {{ $value > 0 || $label === 'Total' ? $numTone : 'text-gray-300' }}">{{ number_format($value) }}</p>
+                                    <p class="text-[11px] text-gray-500">{{ $hint }}</p>
+                                </div>
+                            @endforeach
+                        </div>
                     </div>
 
                     @if($usesMapping && $request->total_skus > 0)
-                        <div class="flex items-center gap-3">
-                            <div class="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                                <div class="h-full rounded-full {{ $request->hasSkuBalance() ? 'bg-amber-500' : 'bg-green-500' }}" style="width: {{ $request->skuCompletionPercent() }}%"></div>
-                            </div>
-                            <span class="text-xs font-medium tabular-nums {{ $request->hasSkuBalance() ? 'text-amber-700' : 'text-green-700' }}">{{ $request->skuCompletionPercent() }}% mapped</span>
-                        </div>
-
                         @if($request->hasSkuBalance())
                             <div class="flex flex-wrap items-center gap-2">
                                 <form method="POST" action="{{ route('product-requests.chase-mapping', $request) }}">
@@ -943,130 +975,193 @@
                     </form>
                 </div>
 
-                {{-- Tab: SKUs --}}
-                <div x-show="tab === 'skus'" x-cloak class="px-5 py-5">
-                    @unless($closed)
-                    <form method="POST" action="{{ route('product-requests.skus.add', $request) }}" enctype="multipart/form-data"
-                          x-data="{ open: {{ $errors->has('sku_csv') || $errors->has('skus') ? 'true' : 'false' }}, csvError: @js($errors->first('sku_csv') ?: null) }" class="mb-4">
-                        @csrf
-                        <button type="button" x-show="!open" @click="open = true" class="{{ $small }} border border-gray-300 text-gray-700 hover:bg-gray-50">+ Add SKUs</button>
-                        <div x-show="open" x-cloak class="rounded-lg border border-gray-200 p-3 space-y-2">
-                            <textarea name="skus" rows="2" placeholder="Type SKUs, one per line"
-                                      class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-brand-500 resize-y"></textarea>
-                            <div class="flex flex-wrap items-center gap-2">
-                                <input type="file" name="sku_csv" accept=".csv,.txt"
-                                       @change="csvError = await window.checkSkuCsv($el.files[0]); if (csvError) $el.value = ''"
-                                       class="flex-1 text-xs text-gray-600 file:mr-2 file:py-1.5 file:px-2.5 file:rounded-lg file:border-0 file:text-xs file:font-medium file:bg-gray-100 file:text-gray-700 hover:file:bg-gray-200 cursor-pointer">
-                                <button type="submit" class="{{ $small }} bg-brand-600 hover:bg-brand-700 text-white">Add</button>
-                                <button type="button" @click="open = false" class="{{ $small }} text-gray-500 hover:text-gray-700">Cancel</button>
+                {{-- Tab: SKUs — search, quick filters, and a row per SKU that opens to its colours & sizes --}}
+                @php
+                    $pageSkus = collect($skus->items());
+                    $skuChips = array_filter([
+                        'all'        => ['All', $pageSkus->count()],
+                        'mapped'     => $usesMapping ? ['Mapped', $pageSkus->where('mapping_status', \App\Models\ProductRequest::MAP_MAPPED)->count()] : null,
+                        'pending'    => $usesMapping ? ['Pending', $pageSkus->where('mapping_status', \App\Models\ProductRequest::MAP_PENDING)->count()] : null,
+                        'not_mapped' => $usesMapping ? ['Not mapped', $pageSkus->where('mapping_status', \App\Models\ProductRequest::MAP_NOT_MAPPED)->count()] : null,
+                        'published'  => ['Published', $pageSkus->where('in_shopify', true)->where('shopify_published', true)->count()],
+                        'draft'      => ['Draft', $pageSkus->where('in_shopify', true)->where('shopify_published', '!==', true)->count()],
+                        'missing'    => ['Not on Shopify', $pageSkus->where('in_shopify', false)->count()],
+                    ]);
+                @endphp
+                <div x-show="tab === 'skus'" x-cloak
+                     x-data="{
+                        adding: {{ $errors->has('sku_csv') || $errors->has('skus') ? 'true' : 'false' }},
+                        csvError: @js($errors->first('sku_csv') ?: null),
+                        q: '', filter: 'all', copied: null,
+                        rows: @js($pageSkus->map(fn ($k) => [$k->sku, $k->shopify_product_title, $k->mapping_status, (bool) $k->in_shopify, (bool) ($k->in_shopify && $k->shopify_published)])->values()),
+                        get anyVisible() { return this.rows.some(r => this.visible(...r)); },
+                        open: null, shownFor: null,
+                        breakdown: null, breakdownLoading: false, breakdownError: null,
+                        visible(sku, title, status, live, pub) {
+                            const q = this.q.trim().toLowerCase();
+                            if (q && !sku.toLowerCase().includes(q) && !(title || '').toLowerCase().includes(q)) return false;
+                            switch (this.filter) {
+                                case 'mapped': case 'pending': case 'not_mapped': return status === this.filter;
+                                case 'published': return live && pub;
+                                case 'draft':     return live && !pub;
+                                case 'missing':   return !live;
+                                default:          return true;
+                            }
+                        },
+                        copy(sku) { navigator.clipboard?.writeText(sku); this.copied = sku; setTimeout(() => this.copied = null, 1200); },
+                        toggle(sku) {
+                            if (this.open === sku) { this.open = null; return; }
+                            this.open = sku; this.shownFor = sku;
+                            this.load(sku);
+                        },
+                        async load(sku) {
+                            this.breakdown = null; this.breakdownError = null; this.breakdownLoading = true;
+                            try {
+                                const res  = await fetch('{{ route('product-requests.variants', $request) }}?sku=' + encodeURIComponent(sku), { headers: { Accept: 'application/json' } });
+                                const data = await res.json();
+                                if (this.open !== sku) return;   // closed or moved on meanwhile
+                                if (res.ok) this.breakdown = data;
+                                else this.breakdownError = data.error || data.message || 'Could not read the variants for this SKU.';
+                            } catch (e) {
+                                if (this.open === sku) this.breakdownError = 'Could not reach Shopify for this SKU.';
+                            }
+                            if (this.open === sku) this.breakdownLoading = false;
+                        },
+                     }">
+
+                    {{-- Toolbar --}}
+                    <div class="px-6 pt-5 pb-3 space-y-3">
+                        <div class="flex flex-wrap items-center gap-2">
+                            <div class="relative flex-1 min-w-[14rem]">
+                                <svg class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.35-4.35M17 11a6 6 0 11-12 0 6 6 0 0112 0z"/></svg>
+                                <input type="text" x-model="q" placeholder="Search SKU or product"
+                                       class="w-full rounded-xl border border-gray-200 bg-gray-50/60 py-2 pl-9 pr-3 text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500">
                             </div>
-                            <p class="text-xs text-gray-400">CSV needs a "SKU" or "Item SKU" column.</p>
-                            <p x-show="csvError" x-cloak x-text="csvError" class="text-xs text-red-600"></p>
+                            @unless($closed)
+                                <button type="button" @click="adding = !adding" class="{{ $btnAlt }}">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
+                                    Add SKUs
+                                </button>
+                            @endunless
                         </div>
-                    </form>
-                    @include('product-requests.partials.sku-csv-check')
-                    @endunless
+
+                        <div class="flex flex-wrap gap-1.5">
+                            @foreach($skuChips as $key => [$label, $count])
+                                <button type="button" @click="filter = '{{ $key }}'"
+                                        :class="filter === '{{ $key }}' ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'"
+                                        class="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors">
+                                    {{ $label }}
+                                    <span class="tabular-nums opacity-70">{{ $count }}</span>
+                                </button>
+                            @endforeach
+                            @if($skus->hasPages())
+                                <span class="self-center text-[11px] text-gray-400 ml-1">· this page</span>
+                            @endif
+                        </div>
+
+                        @unless($closed)
+                        <form method="POST" action="{{ route('product-requests.skus.add', $request) }}" enctype="multipart/form-data"
+                              x-show="adding" x-cloak x-transition class="rounded-2xl border border-gray-200 bg-gray-50/60 p-4 space-y-3">
+                            @csrf
+                            <div class="grid gap-3 md:grid-cols-2">
+                                <div>
+                                    <label class="block text-xs font-medium text-gray-600 mb-1">Type SKUs</label>
+                                    <textarea name="skus" rows="3" placeholder="One per line"
+                                              class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-brand-500 resize-y"></textarea>
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-medium text-gray-600 mb-1">…or upload a CSV</label>
+                                    <input type="file" name="sku_csv" accept=".csv,.txt"
+                                           @change="csvError = await window.checkSkuCsv($el.files[0]); if (csvError) $el.value = ''"
+                                           class="w-full rounded-lg border border-dashed border-gray-300 bg-white p-3 text-xs text-gray-600 file:mr-2 file:py-1.5 file:px-2.5 file:rounded-lg file:border-0 file:text-xs file:font-medium file:bg-gray-100 file:text-gray-700 hover:file:bg-gray-200 cursor-pointer">
+                                    <p class="text-[11px] text-gray-400 mt-1">Needs a "SKU" or "Item SKU" column.</p>
+                                    <p x-show="csvError" x-cloak x-text="csvError" class="text-xs text-red-600 mt-1"></p>
+                                </div>
+                            </div>
+                            <div class="flex justify-end gap-2">
+                                <button type="button" @click="adding = false" class="{{ $small }} text-gray-500 hover:text-gray-700">Cancel</button>
+                                <button type="submit" class="{{ $small }} bg-brand-600 hover:bg-brand-700 text-white">Add &amp; check</button>
+                            </div>
+                        </form>
+                        @include('product-requests.partials.sku-csv-check')
+                        @endunless
+                    </div>
 
                     @if($skus->isEmpty())
-                        <p class="py-10 text-sm text-gray-400 text-center">No SKUs yet.</p>
+                        <div class="px-6 pb-10 pt-4 text-center">
+                            <p class="text-sm text-gray-400">No SKUs yet.</p>
+                        </div>
                     @else
-                    {{-- A SKU on Shopify opens to its colours and sizes — the same panel the SKU Checker shows. --}}
-                    <div class="overflow-x-auto -mx-6"
-                         x-data="{
-                            open: null, shownFor: null,
-                            breakdown: null, breakdownLoading: false, breakdownError: null,
-                            toggle(sku) {
-                                if (this.open === sku) { this.open = null; return; }
-                                this.open = sku; this.shownFor = sku;
-                                this.load(sku);
-                            },
-                            async load(sku) {
-                                this.breakdown = null; this.breakdownError = null; this.breakdownLoading = true;
-                                try {
-                                    const res  = await fetch('{{ route('product-requests.variants', $request) }}?sku=' + encodeURIComponent(sku), { headers: { Accept: 'application/json' } });
-                                    const data = await res.json();
-                                    if (this.open !== sku) return;   // closed or moved on meanwhile
-                                    if (res.ok) this.breakdown = data;
-                                    else this.breakdownError = data.error || data.message || 'Could not read the variants for this SKU.';
-                                } catch (e) {
-                                    if (this.open === sku) this.breakdownError = 'Could not reach Shopify for this SKU.';
-                                }
-                                if (this.open === sku) this.breakdownLoading = false;
-                            },
-                         }">
-                        <table class="w-full text-sm">
-                            <thead>
-                                <tr class="text-left text-[11px] uppercase tracking-wider text-gray-400 bg-gray-50/70 border-y border-gray-100">
-                                    <th class="py-2.5 pl-6 pr-3 font-medium">SKU</th>
-                                    @if($usesMapping)
-                                    <th class="py-2.5 pr-3 font-medium">Status</th>
-                                    @endif
-                                    <th class="py-2.5 pr-3 font-medium">Product</th>
-                                    <th class="py-2.5 pr-3 font-medium text-right">In Shopify</th>
-                                    <th class="py-2.5 pr-6 w-32"></th>
-                                </tr>
-                            </thead>
-                            <tbody class="divide-y divide-gray-100">
-                                @foreach($skus as $sku)
-                                <tr @if($sku->in_shopify)
-                                        role="button" tabindex="0" class="cursor-pointer transition-colors hover:bg-gray-50"
-                                        :class="open === @js($sku->sku) && 'bg-brand-50/60'"
-                                        @click="toggle(@js($sku->sku))" @keydown.enter.prevent="toggle(@js($sku->sku))"
-                                    @else
-                                        class="hover:bg-gray-50/70"
-                                    @endif>
-                                    <td class="py-3 pl-6 pr-3">
-                                        <span class="inline-flex items-center gap-2 font-mono text-xs text-gray-800">
-                                            @if($sku->in_shopify)
-                                                <svg class="w-3.5 h-3.5 text-gray-400 transition-transform" :class="open === @js($sku->sku) && 'rotate-90'"
-                                                     fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
-                                            @else
-                                                <span class="w-3.5"></span>
-                                            @endif
-                                            {{ $sku->sku }}
-                                        </span>
-                                    </td>
-                                    @if($usesMapping)
-                                    <td class="py-3 pr-3">
-                                        <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium border {{ $sku->color() }}">
-                                            <span class="w-1.5 h-1.5 rounded-full {{ $sku->dot() }}"></span>
-                                            {{ $sku->label() }}
-                                        </span>
-                                    </td>
-                                    @endif
-                                    <td class="py-3 pr-3 text-xs text-gray-600 max-w-xs truncate">{{ $sku->shopify_product_title ?: '—' }}</td>
-                                    <td class="py-3 pr-3 text-right" title="Last checked {{ $sku->last_checked_at?->format('d M, h:i A') ?? 'never' }}">
-                                        @if($sku->in_shopify)
-                                            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium {{ $sku->shopify_published ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-100 text-gray-500' }}">{{ $sku->shopify_published ? 'Published' : 'Draft' }}</span>
+                    {{-- The rows --}}
+                    <div class="px-6 pb-5 space-y-2">
+                        @foreach($skus as $sku)
+                            @php
+                                $live = (bool) $sku->in_shopify;
+                                $pub  = $live && $sku->shopify_published;
+                            @endphp
+                            <div x-show="visible(@js($sku->sku), @js($sku->shopify_product_title), @js($sku->mapping_status), {{ $live ? 'true' : 'false' }}, {{ $pub ? 'true' : 'false' }})"
+                                 class="rounded-2xl border transition-colors"
+                                 :class="open === @js($sku->sku) ? 'border-brand-300 shadow-sm' : 'border-gray-200 hover:border-gray-300'">
+                                <div class="flex items-center gap-3 px-4 py-3 {{ $live ? 'cursor-pointer' : '' }}"
+                                     @if($live) role="button" tabindex="0" @click="toggle(@js($sku->sku))" @keydown.enter.prevent="toggle(@js($sku->sku))" @endif>
+                                    <span class="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 {{ $live ? ($pub ? 'bg-emerald-50 text-emerald-600' : 'bg-gray-100 text-gray-500') : 'bg-amber-50 text-amber-500' }}">
+                                        <svg class="w-4.5 h-4.5" style="width:1.1rem;height:1.1rem" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="{{ $live ? 'M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4' : 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z' }}"/></svg>
+                                    </span>
+
+                                    <div class="min-w-0 flex-1">
+                                        <p class="text-sm font-medium text-gray-900 truncate">{{ $sku->shopify_product_title ?: 'Not on Shopify yet' }}</p>
+                                        <p class="mt-0.5 flex items-center gap-1.5 text-xs text-gray-500">
+                                            <span class="font-mono">{{ $sku->sku }}</span>
+                                            <button type="button" @click.stop="copy(@js($sku->sku))" title="Copy SKU"
+                                                    class="text-gray-300 hover:text-gray-600">
+                                                <svg x-show="copied !== @js($sku->sku)" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+                                                <svg x-show="copied === @js($sku->sku)" x-cloak class="w-3.5 h-3.5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+                                            </button>
+                                        </p>
+                                    </div>
+
+                                    <div class="hidden sm:flex items-center gap-1.5 shrink-0" title="Last checked {{ $sku->last_checked_at?->format('d M, h:i A') ?? 'never' }}">
+                                        @if($usesMapping)
+                                            <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border {{ $sku->color() }}">
+                                                <span class="w-1.5 h-1.5 rounded-full {{ $sku->dot() }}"></span>
+                                                {{ $sku->label() }}
+                                            </span>
+                                        @endif
+                                        @if($live)
+                                            <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium {{ $pub ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-100 text-gray-500' }}">{{ $pub ? 'Published' : 'Draft' }}</span>
                                         @else
-                                            <span class="text-gray-300">—</span>
+                                            <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-amber-50 text-amber-700">Not on Shopify</span>
                                         @endif
-                                    </td>
-                                    <td class="py-3 pr-6 text-right">
-                                        @if($sku->in_shopify)
-                                            <span class="text-xs font-medium text-brand-600 whitespace-nowrap"
-                                                  x-text="open === @js($sku->sku) ? 'Hide' : 'Colours & sizes'">Colours &amp; sizes</span>
-                                        @endif
-                                    </td>
-                                </tr>
-                                @if($sku->in_shopify)
-                                <tr x-show="open === @js($sku->sku)" x-cloak>
-                                    <td colspan="{{ $usesMapping ? 5 : 4 }}" class="bg-gray-50/70 border-t border-brand-100 px-6 pb-5 pl-12">
+                                    </div>
+
+                                    @if($live)
+                                        <span class="shrink-0 inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors"
+                                              :class="open === @js($sku->sku) ? 'bg-brand-600 text-white' : 'bg-gray-50 text-brand-700 group-hover:bg-gray-100'">
+                                            <span x-text="open === @js($sku->sku) ? 'Hide' : 'Colours & sizes'">Colours &amp; sizes</span>
+                                            <svg class="w-3.5 h-3.5 transition-transform" :class="open === @js($sku->sku) && 'rotate-180'" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>
+                                        </span>
+                                    @endif
+                                </div>
+
+                                @if($live)
+                                    <div x-show="open === @js($sku->sku)" x-cloak x-transition.opacity
+                                         class="border-t border-gray-100 bg-gray-50/70 px-4 pb-4 rounded-b-2xl">
                                         <template x-if="shownFor === @js($sku->sku)">
                                             <div>
                                                 @include('partials.variant-breakdown')
                                             </div>
                                         </template>
-                                    </td>
-                                </tr>
+                                    </div>
                                 @endif
-                                @endforeach
-                            </tbody>
-                        </table>
+                            </div>
+                        @endforeach
+
+                        <p x-show="!anyVisible" x-cloak
+                           class="py-8 text-center text-sm text-gray-400">No SKUs match.</p>
                     </div>
 
                     @if($skus->hasPages())
-                        <div class="mt-4">{{ $skus->links() }}</div>
+                        <div class="px-6 pb-5">{{ $skus->links() }}</div>
                     @endif
                     @endif
                 </div>
