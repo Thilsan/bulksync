@@ -40,7 +40,7 @@ class ShopifyOrderAnalyticsTest extends TestCase
     /**
      * @param  list<array{id: int, total: string, channel?: string, line_items: list<array{title: string, quantity: int, revenue: string}>}>  $orders
      */
-    private function ordersPage(array $orders, bool $hasNextPage = false): Response
+    private function ordersPage(array $orders, bool $hasNextPage = false, ?array $scopes = null): Response
     {
         $edges = array_map(function ($o) {
             // Shaped as API 2024-01 actually answers — the version this app
@@ -80,14 +80,18 @@ class ShopifyOrderAnalyticsTest extends TestCase
             ];
         }, $orders);
 
-        return new Response(200, [], json_encode([
-            'data' => [
-                'orders' => [
-                    'edges'    => $edges,
-                    'pageInfo' => ['hasNextPage' => $hasNextPage],
-                ],
+        $data = [
+            'orders' => [
+                'edges'    => $edges,
+                'pageInfo' => ['hasNextPage' => $hasNextPage],
             ],
-        ]));
+        ];
+
+        if ($scopes !== null) {
+            $data['appInstallation'] = ['accessScopes' => array_map(fn ($h) => ['handle' => $h], $scopes)];
+        }
+
+        return new Response(200, [], json_encode(['data' => $data]));
     }
 
     public function test_sums_revenue_and_orders_from_a_single_page(): void
@@ -308,5 +312,38 @@ class ShopifyOrderAnalyticsTest extends TestCase
         // productType does not exist on LineItem in 2024-01; it is only
         // reachable through the product.
         $this->assertStringContainsString('product{productType}', $body);
+    }
+
+    public function test_flags_a_range_older_than_the_token_can_see(): void
+    {
+        Carbon::setTestNow('2026-10-06 10:00:00');
+
+        $service = $this->service([$this->ordersPage([], scopes: ['read_orders'])]);
+
+        $result = $service->getOrderAnalytics(Carbon::parse('2026-01-01'), Carbon::parse('2026-10-06'));
+
+        $this->assertSame('2026-08-07', $result['history_from']);
+    }
+
+    public function test_does_not_flag_a_token_with_read_all_orders(): void
+    {
+        Carbon::setTestNow('2026-10-06 10:00:00');
+
+        $service = $this->service([$this->ordersPage([], scopes: ['read_orders', 'read_all_orders'])]);
+
+        $result = $service->getOrderAnalytics(Carbon::parse('2026-01-01'), Carbon::parse('2026-10-06'));
+
+        $this->assertNull($result['history_from']);
+    }
+
+    public function test_does_not_flag_a_range_inside_the_last_sixty_days(): void
+    {
+        Carbon::setTestNow('2026-10-06 10:00:00');
+
+        $service = $this->service([$this->ordersPage([], scopes: ['read_orders'])]);
+
+        $result = $service->getOrderAnalytics(Carbon::parse('2026-10-01'), Carbon::parse('2026-10-06'));
+
+        $this->assertNull($result['history_from']);
     }
 }
