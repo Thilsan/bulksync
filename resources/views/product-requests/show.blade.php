@@ -428,57 +428,91 @@
                     </div>
                 @endif
 
-                {{-- Progress: the four parts of the job, each filling as it goes --}}
-                @php $currentStep = $request->displayStageIndex(); @endphp
-                <div class="px-6 pt-5 pb-4 grid gap-3" style="grid-template-columns: repeat({{ count($request->phaseProgress()) }}, minmax(0, 1fr));">
-                    @foreach($request->phaseProgress() as $phase)
-                        @php
-                            $count = count($phase['stages']);
-                            $fill  = $closed && $phase['state'] !== 'upcoming' ? 100 : match ($phase['state']) {
-                                'done'    => 100,
-                                'current' => (int) round(100 * max(0.5, $currentStep - $phase['start'] + 0.5) / $count),
-                                default   => 0,
-                            };
-                            // Moved past the copy is not the same as having it.
-                            $gap  = $phase['key'] === 'content' && $phase['state'] === 'done' && ($needsCopy + $notOnSheet + $unchecked) > 0;
-                            $done = $phase['state'] === 'done' || ($closed && $phase['state'] !== 'upcoming');
-                        @endphp
-                        <div class="min-w-0" title="{{ collect($phase['stages'])->map(fn ($st) => $request->stageLabel($st))->implode(' → ') }}">
-                            <div class="h-2 rounded-full bg-gray-100 overflow-hidden">
-                                <div class="h-full rounded-full transition-all {{ $gap ? 'bg-amber-400' : ($done ? 'bg-green-500' : 'bg-brand-600') }}" style="width: {{ $fill }}%"></div>
-                            </div>
-                            <div class="mt-2 flex items-center gap-1.5 min-w-0">
-                                @if($gap)
-                                    <span class="w-4 h-4 rounded-full bg-amber-100 text-amber-600 text-[10px] font-bold flex items-center justify-center shrink-0">!</span>
-                                @elseif($done)
-                                    <span class="w-4 h-4 rounded-full bg-green-500 text-white flex items-center justify-center shrink-0">
-                                        <svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="4" d="M5 13l4 4L19 7"/></svg>
-                                    </span>
-                                @elseif($phase['state'] === 'current')
-                                    <span class="w-4 h-4 rounded-full bg-brand-600 ring-4 ring-brand-100 shrink-0"></span>
-                                @else
-                                    <span class="w-4 h-4 rounded-full border-2 border-gray-200 shrink-0"></span>
-                                @endif
-                                <span class="text-sm truncate {{ $phase['state'] === 'current' ? 'text-gray-900 font-semibold' : ($done ? 'text-gray-700' : 'text-gray-400') }}">{{ $phase['label'] }}</span>
-                            </div>
-                            @if($gap)
-                                <p class="text-xs text-amber-700 mt-0.5 pl-5.5 truncate" style="padding-left:1.375rem">No descriptions yet</p>
-                            @elseif($phase['state'] === 'current' && !$closed)
-                                <p class="text-xs text-brand-700 mt-0.5 truncate" style="padding-left:1.375rem">{{ $request->statusLabel() }}</p>
+                {{-- Progress: a ring for the whole job and a tile per part of it,
+                     in the same look as the Products card --}}
+                @php
+                    $phases      = $request->phaseProgress();
+                    $currentStep = $request->displayStageIndex();
+                    $overall     = $closed && $request->status !== \App\Models\ProductRequest::CANCELLED ? 100 : $request->progressPercent();
+                    $C           = 2 * M_PI * 42;
+                    $phaseIcons  = [
+                        'intake'     => 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4',
+                        'content'    => 'M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z',
+                        'photoshoot' => 'M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9zM15 13a3 3 0 11-6 0 3 3 0 016 0z',
+                        'launch'     => 'M13 10V3L4 14h7v7l9-11h-7z',
+                    ];
+                    $firstUpcoming = collect($phases)->firstWhere('state', 'upcoming')['key'] ?? null;
+                @endphp
+                <div class="px-6 pt-5 flex items-center justify-between gap-3">
+                    <div>
+                        <h3 class="text-sm font-semibold text-gray-900">Progress</h3>
+                        <p class="text-xs text-gray-400">
+                            @if($closed) {{ $request->statusLabel() }}
+                            @elseif($currentStep >= 0) Step {{ $currentStep + 1 }} of {{ count($request->displayStages()) }} · {{ $request->statusLabel() }}
                             @endif
+                        </p>
+                    </div>
+                </div>
+
+                <div class="px-6 pt-4 pb-5 flex flex-col sm:flex-row items-center gap-5">
+                    {{-- The ring --}}
+                    <div class="relative w-28 h-28 shrink-0">
+                        <svg class="w-28 h-28 -rotate-90" viewBox="0 0 100 100">
+                            <circle cx="50" cy="50" r="42" fill="none" stroke-width="9" class="text-gray-100" stroke="currentColor"/>
+                            <circle cx="50" cy="50" r="42" fill="none" stroke-width="9" stroke-linecap="round" stroke="currentColor"
+                                    class="{{ $overall >= 100 ? 'text-green-500' : 'text-sky-500' }} transition-all duration-700"
+                                    stroke-dasharray="{{ $C }}" stroke-dashoffset="{{ $C * (1 - $overall / 100) }}"/>
+                        </svg>
+                        <div class="absolute inset-0 flex flex-col items-center justify-center">
+                            <span class="text-2xl font-bold text-gray-900 tabular-nums">{{ $overall }}%</span>
+                            <span class="text-[11px] text-gray-500">{{ $overall >= 100 ? 'done' : 'complete' }}</span>
                         </div>
-                    @endforeach
+                    </div>
+
+                    {{-- A tile per part --}}
+                    <div class="flex-1 w-full grid grid-cols-2 {{ count($phases) > 3 ? '2xl:grid-cols-4' : 'xl:grid-cols-3' }} gap-3">
+                        @foreach($phases as $phase)
+                            @php
+                                $done = $phase['state'] === 'done' || ($closed && $phase['state'] !== 'upcoming');
+                                $here = !$closed && $phase['state'] === 'current';
+                                // Moved past the copy is not the same as having it.
+                                $gap  = $phase['key'] === 'content' && $done && ($needsCopy + $notOnSheet + $unchecked) > 0;
+                                [$bg, $iconTone, $titleTone, $stateText, $stateTone] = match (true) {
+                                    $gap  => ['bg-amber-50 border-amber-100', 'bg-amber-100 text-amber-600', 'text-gray-800', 'No descriptions yet', 'text-amber-700'],
+                                    $done => ['bg-green-50 border-green-100', 'bg-green-100 text-green-600', 'text-gray-800', 'Done', 'text-green-700'],
+                                    $here => ['bg-sky-50 border-sky-200 ring-2 ring-sky-100', 'bg-sky-100 text-sky-600', 'text-gray-900', $request->statusLabel(), 'text-sky-700'],
+                                    default => ['bg-gray-50 border-gray-100', 'bg-white text-gray-400', 'text-gray-500', $phase['key'] === $firstUpcoming ? 'Up next' : 'Later', 'text-gray-400'],
+                                };
+                            @endphp
+                            <div class="rounded-2xl border px-4 py-3 {{ $bg }}" title="{{ collect($phase['stages'])->map(fn ($st) => $request->stageLabel($st))->implode(' → ') }}">
+                                <div class="flex items-center justify-between gap-2">
+                                    <span class="text-xs font-medium leading-tight {{ $titleTone }}">{{ $phase['label'] }}</span>
+                                    <span class="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 {{ $iconTone }}">
+                                        @if($done && !$gap)
+                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg>
+                                        @else
+                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="{{ $gap ? 'M12 9v2m0 4h.01M5 19h14a2 2 0 001.84-2.75L13.74 4a2 2 0 00-3.48 0l-7.1 12.25A2 2 0 004.99 19z' : ($phaseIcons[$phase['key']] ?? $phaseIcons['launch']) }}"/></svg>
+                                        @endif
+                                    </span>
+                                </div>
+                                <p class="mt-2 text-sm font-semibold leading-snug {{ $stateTone }}">
+                                    @if($here)<span class="inline-block w-2 h-2 rounded-full bg-sky-500 animate-pulse mr-1 align-middle"></span>@endif{{ $stateText }}
+                                </p>
+                                <p class="text-[11px] text-gray-500">{{ count($phase['stages']) }} {{ \Illuminate\Support\Str::plural('step', count($phase['stages'])) }}</p>
+                            </div>
+                        @endforeach
+                    </div>
                 </div>
 
                 {{-- What is happening, who has it, what moves it on --}}
-                <div class="px-5 py-4 border-t border-gray-100 flex flex-wrap items-center justify-between gap-4">
+                <div class="px-6 py-4 border-t border-gray-100 bg-gray-50/60 flex flex-wrap items-center justify-between gap-4">
                     <div class="min-w-0 flex-1">
                         @unless($closed)
                             <p class="text-[11px] font-medium uppercase tracking-wide {{ $ownership === 'mine' ? 'text-brand-700' : 'text-gray-400' }}">{{ $onHold ? 'Right now' : $heading }}</p>
                         @endunless
                         <p class="text-lg font-semibold text-gray-900 mt-0.5" title="{{ $guide['what'] }}">{{ $now }}</p>
                         @if($upNext)
-                            <div class="mt-2 inline-flex items-start gap-2 rounded-lg bg-gray-50 border border-gray-100 px-3 py-2 text-sm">
+                            <div class="mt-2 inline-flex items-start gap-2 rounded-xl bg-white border border-gray-200 px-3 py-2 text-sm">
                                 <svg class="w-4 h-4 mt-0.5 text-brand-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6"/></svg>
                                 <span><span class="font-medium text-gray-900">Next up: {{ $upNext[0] }}</span>@if($upNext[1])<span class="text-gray-600"> — {{ $upNext[1] }}</span>@endif</span>
                             </div>
