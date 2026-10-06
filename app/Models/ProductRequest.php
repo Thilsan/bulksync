@@ -885,6 +885,19 @@ class ProductRequest extends Model
             };
         }
 
+        // Where the images come from was answered on the form; asking again
+        // here read as if nobody had.
+        if ($stage === self::SKU_VERIFIED && $this->image_source) {
+            $checked = $this->requiresMapping() ? 'Every SKU is mapped' : 'The SKUs are checked';
+            $next    = ($n = $this->suggestedNextStatus()) ? $this->stageLabel($n) : 'the next stage';
+
+            $guide['what'] = match ($this->image_source) {
+                self::IMG_PHOTOSHOOT    => "{$checked} and the products are going to the photoshoot. Move the request on to {$next}.",
+                self::IMG_BRAND_WEBSITE => "{$checked} and the images come from the brand website. Move the request on to {$next}.",
+                default                 => "{$checked} and the supplier has sent the images. Move the request on to {$next}.",
+            };
+        }
+
         if ($stage === self::WAITING_MAPPING && $this->total_skus > 0) {
             $outstanding = $this->pending_skus + $this->not_mapped_skus;
             $guide['what'] = "{$outstanding} of {$this->total_skus} SKUs still need mapping. " . $guide['what'];

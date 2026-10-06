@@ -197,12 +197,15 @@
                 </div>
             @endif
 
-            {{-- Only once the request has moved on without the pictures. While it
-                 sits in the photoshoot stage the next-step card already says so. --}}
-            @if($request->isWaitingOnPhotoshoot() && !in_array($request->status, [
-                    \App\Models\ProductRequest::WAITING_IMAGES,
-                    \App\Models\ProductRequest::PHOTOSHOOT_SCHEDULED,
-                ], true))
+            {{-- Only once the request has gone past the photoshoot without the
+                 pictures. Before that, and while it sits in the photoshoot stage,
+                 the next-step card says what is happening. --}}
+            @php
+                $pipeline   = \App\Models\ProductRequest::PIPELINE;
+                $pastShoots = array_search($request->status, $pipeline, true)
+                    > array_search(\App\Models\ProductRequest::IMAGE_EDITING, $pipeline, true);
+            @endphp
+            @if($request->isWaitingOnPhotoshoot() && $pastShoots)
                 <div class="rounded-xl bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-900 flex flex-wrap items-center justify-between gap-2">
                     <span>
                         <span class="font-medium">Waiting on the photoshoot</span>

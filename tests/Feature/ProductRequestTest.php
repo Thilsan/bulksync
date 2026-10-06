@@ -2374,6 +2374,17 @@ class ProductRequestTest extends TestCase
         $this->assertSame('E-Commerce Team', $request->guideFor(ProductRequest::PUBLISHED)['role']);
     }
 
+    /** The image source was picked on the form, so SKU Verified does not ask for it again. */
+    public function test_sku_verified_guidance_follows_the_image_source_picked_on_the_form(): void
+    {
+        $shoot    = new ProductRequest(['status' => ProductRequest::SKU_VERIFIED, 'image_source' => ProductRequest::IMG_PHOTOSHOOT]);
+        $supplier = new ProductRequest(['status' => ProductRequest::SKU_VERIFIED, 'image_source' => ProductRequest::IMG_SUPPLIER]);
+
+        $this->assertStringContainsString('going to the photoshoot', $shoot->currentGuide()['what']);
+        $this->assertStringContainsString('supplier has sent the images', $supplier->currentGuide()['what']);
+        $this->assertStringNotContainsString('Confirm where the images are coming from', $shoot->currentGuide()['what']);
+    }
+
     public function test_the_content_stage_guidance_changes_when_the_brand_team_supplies_copy(): void
     {
         $ai     = new ProductRequest(['status' => ProductRequest::AI_CONTENT, 'use_ai_content' => true]);
