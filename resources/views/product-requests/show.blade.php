@@ -995,8 +995,9 @@
                         q: '', filter: 'all', copied: null,
                         rows: @js($pageSkus->map(fn ($k) => [$k->sku, $k->shopify_product_title, $k->mapping_status, (bool) $k->in_shopify, (bool) ($k->in_shopify && $k->shopify_published)])->values()),
                         get anyVisible() { return this.rows.some(r => this.visible(...r)); },
-                        open: null, shownFor: null,
-                        breakdown: null, breakdownLoading: false, breakdownError: null,
+                        // Clicking pins a SKU open in its row; hovering peeks at it in a
+                        // popup. Either way each SKU is read from Shopify once and kept.
+                        open: null, peek: null, peekTimer: null, cache: {},
                         visible(sku, title, status, live, pub) {
                             const q = this.q.trim().toLowerCase();
                             if (q && !sku.toLowerCase().includes(q) && !(title || '').toLowerCase().includes(q)) return false;
@@ -1009,23 +1010,36 @@
                             }
                         },
                         copy(sku) { navigator.clipboard?.writeText(sku); this.copied = sku; setTimeout(() => this.copied = null, 1200); },
-                        toggle(sku) {
-                            if (this.open === sku) { this.open = null; return; }
-                            this.open = sku; this.shownFor = sku;
-                            this.load(sku);
-                        },
-                        async load(sku) {
-                            this.breakdown = null; this.breakdownError = null; this.breakdownLoading = true;
+                        async fetchOnce(sku) {
+                            if (this.cache[sku]) return;
+                            this.cache[sku] = { data: null, error: null, loading: true };
                             try {
                                 const res  = await fetch('{{ route('product-requests.variants', $request) }}?sku=' + encodeURIComponent(sku), { headers: { Accept: 'application/json' } });
-                                const data = await res.json();
-                                if (this.open !== sku) return;   // closed or moved on meanwhile
-                                if (res.ok) this.breakdown = data;
-                                else this.breakdownError = data.error || data.message || 'Could not read the variants for this SKU.';
+                                const body = await res.json();
+                                this.cache[sku] = res.ok
+                                    ? { data: body, error: null, loading: false }
+                                    : { data: null, error: body.error || body.message || 'Could not read the variants for this SKU.', loading: false };
                             } catch (e) {
-                                if (this.open === sku) this.breakdownError = 'Could not reach Shopify for this SKU.';
+                                // Not kept: a dropped connection is worth trying again.
+                                delete this.cache[sku];
+                                this.cache[sku] = { data: null, error: 'Could not reach Shopify for this SKU.', loading: false };
+                                setTimeout(() => delete this.cache[sku], 5000);
                             }
-                            if (this.open === sku) this.breakdownLoading = false;
+                        },
+                        toggle(sku) {
+                            this.peek = null;
+                            this.open = this.open === sku ? null : sku;
+                            if (this.open) this.fetchOnce(sku);
+                        },
+                        // A short pause before peeking, so sweeping the mouse down the
+                        // list does not flash a popup on every row it crosses.
+                        hoverIn(sku) {
+                            clearTimeout(this.peekTimer);
+                            this.peekTimer = setTimeout(() => { this.peek = sku; this.fetchOnce(sku); }, 350);
+                        },
+                        hoverOut() {
+                            clearTimeout(this.peekTimer);
+                            this.peekTimer = setTimeout(() => { this.peek = null; }, 200);
                         },
                      }">
 
@@ -1100,7 +1114,9 @@
                                 $pub  = $live && $sku->shopify_published;
                             @endphp
                             <div x-show="visible(@js($sku->sku), @js($sku->shopify_product_title), @js($sku->mapping_status), {{ $live ? 'true' : 'false' }}, {{ $pub ? 'true' : 'false' }})"
-                                 class="rounded-2xl border transition-colors"
+                                 @if($live) @mouseenter="hoverIn(@js($sku->sku))" @mouseleave="hoverOut()" @endif
+                                 :class="peek === @js($sku->sku) && 'z-20'"
+                                 class="relative rounded-2xl border transition-colors"
                                  :class="open === @js($sku->sku) ? 'border-brand-300 shadow-sm' : 'border-gray-200 hover:border-gray-300'">
                                 <div class="flex items-center gap-3 px-4 py-3 {{ $live ? 'cursor-pointer' : '' }}"
                                      @if($live) role="button" tabindex="0" @click="toggle(@js($sku->sku))" @keydown.enter.prevent="toggle(@js($sku->sku))" @endif>
@@ -1144,11 +1160,28 @@
                                 </div>
 
                                 @if($live)
+                                    {{-- The panel reads this SKU's cache entry under the names the shared partial expects. --}}
+                                    @php $scope = "{ get breakdown() { return cache[" . \Illuminate\Support\Js::from($sku->sku) . "]?.data }, get breakdownLoading() { return cache[" . \Illuminate\Support\Js::from($sku->sku) . "]?.loading ?? true }, get breakdownError() { return cache[" . \Illuminate\Support\Js::from($sku->sku) . "]?.error } }"; @endphp
+
+                                    {{-- Pinned: opened by a click, inside the row --}}
                                     <div x-show="open === @js($sku->sku)" x-cloak x-transition.opacity
                                          class="border-t border-gray-100 bg-gray-50/70 px-4 pb-4 rounded-b-2xl">
-                                        <template x-if="shownFor === @js($sku->sku)">
-                                            <div>
+                                        <template x-if="open === @js($sku->sku)">
+                                            <div x-data="{!! $scope !!}">
                                                 @include('partials.variant-breakdown')
+                                            </div>
+                                        </template>
+                                    </div>
+
+                                    {{-- Peek: on hover, floating over the rows below --}}
+                                    <div x-show="peek === @js($sku->sku) && open !== @js($sku->sku)" x-cloak
+                                         x-transition:enter="transition ease-out duration-150" x-transition:enter-start="opacity-0 translate-y-1" x-transition:enter-end="opacity-100 translate-y-0"
+                                         x-transition:leave="transition ease-in duration-100" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"
+                                         class="absolute left-3 right-3 top-full mt-1.5 rounded-2xl border border-gray-200 bg-white shadow-2xl px-4 pb-4 max-h-[26rem] overflow-y-auto">
+                                        <template x-if="peek === @js($sku->sku)">
+                                            <div x-data="{!! $scope !!}">
+                                                @include('partials.variant-breakdown')
+                                                <p class="mt-3 text-[11px] text-gray-400">Click the row to keep this open.</p>
                                             </div>
                                         </template>
                                     </div>
