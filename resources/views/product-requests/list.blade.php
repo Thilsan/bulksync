@@ -171,13 +171,75 @@
                 @endforeach
             </select>
 
-            <select name="brand" @change="$el.form.submit()"
-                    class="max-w-[13rem] rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm transition focus:outline-none focus:ring-2 focus:ring-brand-500 {{ request('brand') ? 'text-gray-900 font-medium' : 'text-gray-500' }}">
-                <option value="">Any brand</option>
-                @foreach($brands as $brand)
-                    <option value="{{ $brand }}" @selected(request('brand') === $brand)>{{ $brand }}</option>
-                @endforeach
-            </select>
+            {{-- Brand: a searchable picker. Hundreds of brands do not fit a plain dropdown. --}}
+            <div class="relative w-60"
+                 x-data="{
+                    brands: {{ Illuminate\Support\Js::from($brands->values()) }},
+                    value: {{ Illuminate\Support\Js::from((string) request('brand', '')) }},
+                    open: false,
+                    q: '',
+                    active: 0,
+                    get matches() {
+                        const q = this.q.trim().toLowerCase();
+                        const list = q ? this.brands.filter(b => b.toLowerCase().includes(q)) : this.brands;
+                        return list.slice(0, 200);
+                    },
+                    show() { this.open = true; this.q = ''; this.active = 0; this.$nextTick(() => this.$refs.q.focus()); },
+                    pick(b) {
+                        this.value = b; this.open = false;
+                        this.$nextTick(() => this.$refs.input.form.submit());
+                    },
+                    move(by) {
+                        const n = this.matches.length;
+                        if (!n) return;
+                        this.active = (this.active + by + n) % n;
+                        this.$nextTick(() => this.$refs.list.querySelector('[data-active]')?.scrollIntoView({ block: 'nearest' }));
+                    },
+                 }"
+                 @click.outside="open = false" @keydown.escape="open = false">
+                <input type="hidden" name="brand" x-ref="input" :value="value">
+
+                <button type="button" @click="open ? open = false : show()"
+                        class="w-full flex items-center justify-between gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-left transition focus:outline-none focus:ring-2 focus:ring-brand-500">
+                    <span class="truncate" :class="value ? 'text-gray-900 font-medium' : 'text-gray-500'" x-text="value || 'Any brand'">{{ request('brand') ?: 'Any brand' }}</span>
+                    <svg class="w-4 h-4 text-gray-400 shrink-0 transition-transform" :class="open && 'rotate-180'" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                </button>
+
+                <div x-show="open" x-cloak x-transition.origin.top
+                     class="absolute right-0 z-40 mt-1.5 w-72 rounded-xl border border-gray-200 bg-white shadow-xl overflow-hidden">
+                    <div class="p-2 border-b border-gray-100">
+                        <div class="relative">
+                            <svg class="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.35-4.35M17 11a6 6 0 11-12 0 6 6 0 0112 0z"/></svg>
+                            <input type="text" x-ref="q" x-model="q" @input="active = 0" placeholder="Search brands…"
+                                   @keydown.arrow-down.prevent="move(1)" @keydown.arrow-up.prevent="move(-1)"
+                                   @keydown.enter.prevent="matches[active] !== undefined && pick(matches[active])"
+                                   class="w-full rounded-lg border border-gray-200 bg-gray-50 py-1.5 pl-8 pr-2 text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500">
+                        </div>
+                    </div>
+
+                    <ul x-ref="list" class="max-h-72 overflow-y-auto py-1 text-sm">
+                        <li x-show="!q">
+                            <button type="button" @click="pick('')"
+                                    class="w-full flex items-center justify-between px-3 py-2 text-left text-gray-500 hover:bg-gray-50">
+                                Any brand
+                                <svg x-show="!value" class="w-4 h-4 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+                            </button>
+                        </li>
+                        <template x-for="(b, i) in matches" :key="b">
+                            <li>
+                                <button type="button" @click="pick(b)" @mouseenter="active = i"
+                                        :data-active="i === active ? '' : null"
+                                        class="w-full flex items-center justify-between gap-2 px-3 py-2 text-left"
+                                        :class="i === active ? 'bg-gray-100 text-gray-900' : 'text-gray-700'">
+                                    <span class="truncate" x-text="b"></span>
+                                    <svg x-show="b === value" class="w-4 h-4 text-brand-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+                                </button>
+                            </li>
+                        </template>
+                        <li x-show="!matches.length" class="px-3 py-6 text-center text-gray-400">No brand matches “<span x-text="q"></span>”.</li>
+                    </ul>
+                </div>
+            </div>
 
             <button type="submit" class="sr-only">Search</button>
 

@@ -117,7 +117,79 @@
 
                                 <div class="rounded-lg border border-gray-200 bg-white p-3">
                                     <label class="block text-xs font-medium text-gray-500 mb-1.5">Brand</label>
-                                    <input type="text" name="brand" x-model.debounce.400ms="brand" required placeholder="e.g. Mosafer" aria-label="Brand name" class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent">
+                                    @php
+                                        // Every brand already on a request, spelled once — picking one
+                                        // keeps "Armani" and "ARMANI" from becoming two brands.
+                                        $brandOptions = \App\Models\ProductRequest::query()
+                                            ->whereNotNull('brand')->where('brand', '!=', '')
+                                            ->distinct()->orderBy('brand')->pluck('brand')
+                                            ->unique(fn ($b) => mb_strtolower(trim($b)))->values();
+                                    @endphp
+                                    {{-- Type to search the brands we have; a new one is added by typing it. --}}
+                                    <div class="relative"
+                                         x-data="{
+                                            options: {{ Illuminate\Support\Js::from($brandOptions) }},
+                                            open: false,
+                                            active: 0,
+                                            get typed() { return (brand || '').trim(); },
+                                            get matches() {
+                                                const q = this.typed.toLowerCase();
+                                                return (q ? this.options.filter(b => b.toLowerCase().includes(q)) : this.options).slice(0, 100);
+                                            },
+                                            get isNew() {
+                                                const q = this.typed.toLowerCase();
+                                                return q !== '' && !this.options.some(b => b.toLowerCase() === q);
+                                            },
+                                            get count() { return this.matches.length + (this.isNew ? 1 : 0); },
+                                            pick(b) { brand = b; this.open = false; },
+                                            choose() {
+                                                if (this.active < this.matches.length) this.pick(this.matches[this.active]);
+                                                else if (this.isNew) this.pick(this.typed);
+                                            },
+                                            move(by) {
+                                                if (!this.count) return;
+                                                this.open = true;
+                                                this.active = (this.active + by + this.count) % this.count;
+                                                this.$nextTick(() => this.$refs.list?.querySelector('[data-active]')?.scrollIntoView({ block: 'nearest' }));
+                                            },
+                                         }"
+                                         @click.outside="open = false">
+                                        <input type="text" name="brand" x-model="brand" required autocomplete="off"
+                                               placeholder="Search or add a brand" aria-label="Brand name"
+                                               @focus="open = true" @input="open = true; active = 0"
+                                               @keydown.arrow-down.prevent="move(1)" @keydown.arrow-up.prevent="move(-1)"
+                                               @keydown.enter="if (open && count) { $event.preventDefault(); choose(); }"
+                                               @keydown.escape="open = false" @keydown.tab="open = false"
+                                               class="w-full rounded-lg border border-gray-300 bg-white pl-3 pr-9 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent">
+                                        <svg class="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.35-4.35M17 11a6 6 0 11-12 0 6 6 0 0112 0z"/></svg>
+
+                                        <div x-show="open && count" x-cloak x-transition.origin.top
+                                             class="absolute left-0 z-40 mt-1.5 min-w-full w-max max-w-sm rounded-xl border border-gray-200 bg-white shadow-xl overflow-hidden">
+                                            <ul x-ref="list" class="max-h-64 overflow-y-auto py-1 text-sm">
+                                                <template x-for="(b, i) in matches" :key="b">
+                                                    <li>
+                                                        <button type="button" @mousedown.prevent="pick(b)" @mouseenter="active = i"
+                                                                :data-active="i === active ? '' : null"
+                                                                class="w-full flex items-center justify-between gap-2 px-3 py-2 text-left"
+                                                                :class="i === active ? 'bg-gray-100 text-gray-900' : 'text-gray-700'">
+                                                            <span class="truncate" x-text="b"></span>
+                                                            <svg x-show="b.toLowerCase() === typed.toLowerCase()" class="w-4 h-4 text-brand-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+                                                        </button>
+                                                    </li>
+                                                </template>
+                                                <li x-show="isNew" class="border-t border-gray-100">
+                                                    <button type="button" @mousedown.prevent="pick(typed)" @mouseenter="active = matches.length"
+                                                            :data-active="active === matches.length ? '' : null"
+                                                            class="w-full flex items-center gap-2 px-3 py-2.5 text-left text-brand-700 font-medium"
+                                                            :class="active === matches.length && 'bg-gray-100'">
+                                                        <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
+                                                        <span class="truncate">Add “<span x-text="typed"></span>” as a new brand</span>
+                                                    </button>
+                                                </li>
+                                            </ul>
+                                        </div>
+                                        <p x-show="isNew && !open" x-cloak class="mt-1 text-xs text-brand-700">New brand — it will be added with this request.</p>
+                                    </div>
                                 </div>
 
                                 <div class="rounded-lg border border-gray-200 bg-white p-3">
@@ -202,7 +274,7 @@
                                         return this.team.owner;
                                     },
                                  }"
-                                 x-init="load(); $watch('category', () => load()); $watch('brand', () => load()); $watch('storeId', () => load())">
+                                 x-init="load(); $watch('category', () => load()); $watch('brand', () => { clearTimeout(this._t); this._t = setTimeout(() => load(), 400); }); $watch('storeId', () => load())">
                                 <label class="block text-xs font-medium text-gray-500 mb-1.5">Team</label>
                                 <template x-if="!category">
                                     <p class="text-sm text-gray-400">Pick a category to see the team.</p>
