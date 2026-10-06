@@ -144,7 +144,8 @@
                 <p class="text-sm text-gray-500 mt-0.5">Open a mapped SKU to see its colours and sizes, and which of them already have a photo.</p>
             </div>
             <div class="flex items-center gap-2">
-                <input type="search" x-model.debounce.400ms="search" @input="page = 1; loadRows()"
+                <input type="search" x-model.debounce.400ms="search"
+                       x-init="$watch('search', () => { page = 1; loadRows() })"
                        placeholder="Search SKU…"
                        class="px-3 py-2 border border-gray-300 rounded-lg text-sm w-44 focus:outline-none focus:ring-2 focus:ring-brand-500">
                 <select x-model="filter" @change="page = 1; loadRows()"
@@ -156,13 +157,19 @@
             </div>
         </div>
 
-        <div x-show="rowsLoading" class="px-6 py-8 text-center text-sm text-gray-500">Loading results…</div>
+        {{--
+            Only an empty list gives way to the loading line. A reload over rows
+            already on screen dims them instead, so an open panel is not torn
+            down and rebuilt each time the list is refetched.
+        --}}
+        <div x-show="rowsLoading && rows.length === 0" class="px-6 py-8 text-center text-sm text-gray-500">Loading results…</div>
 
         <template x-if="!rowsLoading && rows.length === 0">
             <p class="px-6 py-8 text-center text-sm text-gray-500">No SKUs match this view.</p>
         </template>
 
-        <div x-show="!rowsLoading && rows.length > 0" class="divide-y divide-gray-100">
+        <div x-show="rows.length > 0" class="divide-y divide-gray-100 transition-opacity"
+             :class="rowsLoading && 'opacity-60'">
             <template x-for="row in rows" :key="row.sku">
                 <div>
                     {{--
@@ -213,6 +220,14 @@
                          x-transition:leave-start="opacity-100"
                          x-transition:leave-end="opacity-0"
                          class="border-t border-brand-100 bg-gray-50/70 px-6 pb-5 pl-14">
+                        {{--
+                            The breakdown is page state, so without this every
+                            row built its own hidden copy of the open SKU.
+                            Keyed on shownFor rather than open, so a closing
+                            panel keeps its content while it fades out.
+                        --}}
+                        <template x-if="shownFor === row.sku">
+                        <div>
                         <template x-if="breakdownLoading">
                             <p class="text-sm text-gray-500 py-3">Reading variants from Shopify…</p>
                         </template>
@@ -319,6 +334,8 @@
                                 </template>
                             </div>
                         </template>
+                        </div>
+                        </template>
                     </div>
                 </div>
             </template>
@@ -348,6 +365,7 @@ function skuCheckPage(sessionId, initialStatus) {
         notAvailable:{{ $skuCheckSession->not_available_count }},
         progress:    {{ $skuCheckSession->progressPercent() }},
         pollTimer:   null,
+        polling:     false,
 
         // What the tiles display, walked up to the real figures above.
         shown: {
@@ -359,6 +377,7 @@ function skuCheckPage(sessionId, initialStatus) {
         // Results table
         rows:        [],
         rowsLoading: false,
+        rowsRequest: 0,
         filter:      'all',
         search:      '',
         page:        1,
@@ -373,9 +392,11 @@ function skuCheckPage(sessionId, initialStatus) {
         exportProgress: {{ $skuCheckSession->variantExportProgressPercent() }},
         exportError:    @json($skuCheckSession->variant_export_error),
         exportTimer:    null,
+        exportPolling:  false,
 
         // The open row's colour/size breakdown
         open:             null,
+        shownFor:         null,
         breakdown:        null,
         breakdownLoading: false,
         breakdownError:   null,
@@ -431,9 +452,19 @@ function skuCheckPage(sessionId, initialStatus) {
         },
 
         async pollVariantExport() {
-            const res  = await fetch(`/sku-checker/${sessionId}/status`);
-            const data = await res.json();
-            const e    = data.variant_export;
+            // A slow response must not stack another request behind it.
+            if (this.exportPolling) return;
+            this.exportPolling = true;
+
+            let e;
+            try {
+                const res  = await fetch(`/sku-checker/${sessionId}/status`);
+                e = (await res.json()).variant_export;
+            } catch (err) {
+                return;
+            } finally {
+                this.exportPolling = false;
+            }
 
             this.exportStatus   = e.status;
             this.exportTotal    = e.total;
@@ -448,6 +479,9 @@ function skuCheckPage(sessionId, initialStatus) {
         },
 
         async loadRows() {
+            // Only the latest request may paint. A search typed quickly, or a
+            // filter changed mid-load, used to let an older response land last.
+            const request = ++this.rowsRequest;
             this.rowsLoading = true;
 
             // The open row survives a reload if it is still in the list. It
@@ -461,6 +495,7 @@ function skuCheckPage(sessionId, initialStatus) {
             try {
                 const res  = await fetch(`/sku-checker/${sessionId}/results?${params}`);
                 const data = await res.json();
+                if (request !== this.rowsRequest) return;
                 this.rows  = data.rows;
                 this.total = data.total;
                 this.pages = data.pages;
@@ -471,11 +506,13 @@ function skuCheckPage(sessionId, initialStatus) {
                     return this.loadRows();
                 }
             } catch (e) {
+                if (request !== this.rowsRequest) return;
                 this.rows = [];
             }
 
             if (wasOpen && !this.rows.some(r => r.sku === wasOpen)) {
                 this.open      = null;
+                this.shownFor  = null;
                 this.breakdown = null;
             }
 
@@ -490,7 +527,8 @@ function skuCheckPage(sessionId, initialStatus) {
                 return;
             }
 
-            this.open = row.sku;
+            this.open     = row.sku;
+            this.shownFor = row.sku;
             this.loadBreakdown(row.sku);
         },
 
@@ -527,8 +565,22 @@ function skuCheckPage(sessionId, initialStatus) {
         },
 
         async poll() {
-            const res  = await fetch(`/sku-checker/${sessionId}/status`);
-            const data = await res.json();
+            // Requests slower than the 3s tick used to pile up, and each one
+            // that saw the check finish reloaded the list, so an open panel
+            // vanished and came back several times over.
+            if (this.polling || this.status === 'completed' || this.status === 'failed') return;
+            this.polling = true;
+
+            let data;
+            try {
+                const res = await fetch(`/sku-checker/${sessionId}/status`);
+                data = await res.json();
+            } catch (e) {
+                return;
+            } finally {
+                this.polling = false;
+            }
+
             this.status       = data.status;
             this.totalSkus    = data.total_skus;
             this.scanned      = data.scanned_skus;
