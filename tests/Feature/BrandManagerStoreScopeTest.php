@@ -267,6 +267,13 @@ class BrandManagerStoreScopeTest extends TestCase
             ->json('brand_manager');
 
         $this->assertSame('Category Person',   $ask($this->samsonite));
+
+        // A second person on the same category is shown too, not hidden behind the first.
+        $this->user('Second Category Person', ['pcr_role' => 'brand_manager', 'pcr_brand_categories' => ['Leather Goods']]);
+        $this->assertSame(['Category Person', 'Second Category Person'], $this->actingAs($asker)
+            ->getJson(route('product-requests.team-preview', ['category' => 'Leather Goods', 'store_id' => $this->samsonite->id]))
+            ->json('brand_managers'));
+        $this->assertSame('Category Person', $ask($this->samsonite));
         $this->assertSame('Blue Salon Person', $ask($this->blueSalon));
         $this->assertSame('Brand Person',      $ask($this->blueSalon, 'pourchet'));
 

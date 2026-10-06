@@ -198,7 +198,7 @@
                                     personFor(key) {
                                         if (!this.team) return '';
                                         if (key === 'photographer_id')  return this.team.coordinator;
-                                        if (key === 'brand_manager_id') return this.team.brand_manager;
+                                        if (key === 'brand_manager_id') return (this.team.brand_managers || []).join(', ');
                                         return this.team.owner;
                                     },
                                  }"

@@ -523,12 +523,19 @@ class ProductRequestController extends Controller implements HasMiddleware
         $brand    = $request->string('brand')->toString() ?: null;
         $storeId  = $request->integer('store_id') ?: null;
 
-        $owner        = User::ownerForCategory($category, $brand, $storeId);
-        $brandManager = User::brandManagerForCategory($category, $brand, $storeId) ?? $owner;
+        $owner = User::ownerForCategory($category, $brand, $storeId);
+
+        // Everyone who covers it: the first holds the task, the rest are copied.
+        // Where nobody does, the owner keeps the role.
+        $brandManagers = User::brandManagersForCategory($category, $brand, $storeId)->pluck('name');
+        if ($brandManagers->isEmpty() && $owner) {
+            $brandManagers = collect([$owner->name]);
+        }
 
         return response()->json([
-            'owner'         => $owner?->name,
-            'brand_manager' => $brandManager?->name,
+            'owner'          => $owner?->name,
+            'brand_manager'  => $brandManagers->first(),
+            'brand_managers' => $brandManagers->values(),
             'coordinator'   => User::photoshootCoordinator()?->name,
         ]);
     }
