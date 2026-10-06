@@ -261,6 +261,14 @@
                                     <span class="text-gray-500">
                                         <span class="figure text-gray-800" x-text="breakdown.gallery_count"></span> in the gallery
                                     </span>
+                                    <template x-if="breakdown.stock !== null">
+                                        <span class="contents">
+                                            <span class="text-gray-400">·</span>
+                                            <span class="text-gray-500">
+                                                <span class="figure text-gray-800" x-text="breakdown.stock"></span> in stock
+                                            </span>
+                                        </span>
+                                    </template>
                                 </div>
 
                                 <template x-for="colour in breakdown.colours" :key="colour.colour">
@@ -279,6 +287,12 @@
                                                 <p class="text-xs text-gray-500">
                                                     <span x-text="colour.with_image_count"></span> of
                                                     <span x-text="colour.variant_count"></span> size(s) have a photo
+                                                    <template x-if="colour.stock !== null">
+                                                        <span>
+                                                            · <span class="figure" :class="colour.stock > 0 ? 'text-gray-800' : 'text-red-500'"
+                                                                    x-text="colour.stock"></span> in stock
+                                                        </span>
+                                                    </template>
                                                 </p>
                                             </div>
 
@@ -301,6 +315,7 @@
                                                         <th class="px-4 py-2 font-semibold">Size</th>
                                                         <th class="px-4 py-2 font-semibold">Variant SKU</th>
                                                         <th class="px-4 py-2 font-semibold">Variant ID</th>
+                                                        <th class="px-4 py-2 text-right font-semibold">Stock</th>
                                                         <th class="px-4 py-2 text-right font-semibold">Photos</th>
                                                     </tr>
                                                 </thead>
@@ -320,6 +335,12 @@
                                                             </td>
                                                             <td class="px-4 py-2 font-mono text-gray-600" x-text="size.sku || '—'"></td>
                                                             <td class="px-4 py-2 font-mono text-gray-400" x-text="size.variant_id"></td>
+                                                            {{-- A dash, not 0, when the store would not report stock. --}}
+                                                            <td class="px-4 py-2 text-right">
+                                                                <span class="figure"
+                                                                      :class="size.stock === null ? 'text-gray-400' : (size.stock > 0 ? 'text-gray-800' : 'text-red-500')"
+                                                                      x-text="size.stock === null ? '—' : size.stock"></span>
+                                                            </td>
                                                             <td class="px-4 py-2 text-right">
                                                                 <span class="figure"
                                                                       :class="size.has_image ? 'text-gray-800' : 'text-red-500'"

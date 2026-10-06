@@ -33,13 +33,14 @@ class ShopifySkuVariantBreakdownTest extends TestCase
         return $service;
     }
 
-    /** @param  list<array{sku: string, colour: string, size: string, image?: string, media?: list<string>}>  $variants */
+    /** @param  list<array{sku: string, colour: string, size: string, image?: string, media?: list<string>, stock?: int}>  $variants */
     private function payload(array $variants, int $galleryCount = 3, string $matchSku = ''): Response
     {
         $edges = array_map(fn ($v) => ['node' => [
             'id'                => 'gid://shopify/ProductVariant/' . crc32($v['sku']),
             'sku'               => $v['sku'],
             'title'             => $v['colour'] . ' / ' . $v['size'],
+            'inventoryQuantity' => $v['stock'] ?? 0,
             'selectedOptions'   => [
                 ['name' => 'Color', 'value' => $v['colour']],
                 ['name' => 'Size',  'value' => $v['size']],
@@ -129,14 +130,55 @@ class ShopifySkuVariantBreakdownTest extends TestCase
         // Shopify refuses a query costing more than 1000 points, and refuses
         // all of it — so a stock field nested under the variant list takes the
         // colours down with it. Per-location availability brought this query to
-        // 1306 and every row came back Lookup Failed until it came out.
+        // 1306 and every row came back Lookup Failed until it came out. Stock
+        // is the variant's own inventoryQuantity, a scalar Shopify does not
+        // charge for, and never the inventoryLevels connection.
         $query = (new ReflectionClass(ShopifyService::class))->getMethod('skuBreakdownQuery');
         $query->setAccessible(true);
 
-        $sent = $query->invoke((new ReflectionClass(ShopifyService::class))->newInstanceWithoutConstructor());
+        $service = (new ReflectionClass(ShopifyService::class))->newInstanceWithoutConstructor();
 
-        $this->assertStringNotContainsString('inventoryLevels', $sent);
-        $this->assertStringNotContainsString('inventoryQuantity', $sent);
+        $this->assertStringNotContainsString('inventoryLevels', $query->invoke($service, true));
+        $this->assertStringNotContainsString('inventoryItem', $query->invoke($service, true));
+        $this->assertStringContainsString('inventoryQuantity', $query->invoke($service, true));
+        $this->assertStringNotContainsString('inventoryQuantity', $query->invoke($service, false));
+    }
+
+    public function test_stock_is_reported_per_size_per_colour_and_for_the_product(): void
+    {
+        $service = $this->service($this->payload([
+            ['sku' => 'RED-M', 'colour' => 'Red',  'size' => 'M', 'stock' => 4],
+            ['sku' => 'RED-L', 'colour' => 'Red',  'size' => 'L', 'stock' => 0],
+            ['sku' => 'BLU-M', 'colour' => 'Blue', 'size' => 'M', 'stock' => 7],
+        ]));
+
+        $breakdown = $service->getSkuVariantBreakdown('RED-M');
+
+        [$red, $blue] = $breakdown['colours'];
+
+        $this->assertSame([4, 0], array_column($red['sizes'], 'stock'));
+        $this->assertSame(4, $red['stock']);
+        $this->assertSame(7, $blue['stock']);
+        $this->assertSame(11, $breakdown['stock']);
+    }
+
+    public function test_a_refused_stock_field_still_returns_the_colours_with_stock_unknown(): void
+    {
+        $refused = new Response(200, [], json_encode(['errors' => [[
+            'message' => 'Access denied for inventoryQuantity field. Required access: `read_inventory` access scope.',
+        ]]]));
+
+        $service = $this->service($refused, $this->payload([
+            ['sku' => 'RED-M', 'colour' => 'Red', 'size' => 'M', 'image' => 'red.jpg'],
+        ]));
+
+        $breakdown = $service->getSkuVariantBreakdown('RED-M', true);
+
+        // Unknown, not zero: 0 would read as "out of stock".
+        $this->assertNull($breakdown['stock']);
+        $this->assertNull($breakdown['colours'][0]['stock']);
+        $this->assertNull($breakdown['colours'][0]['sizes'][0]['stock']);
+        $this->assertSame(1, $breakdown['with_image_count']);
     }
 
     public function test_a_sku_no_variant_carries_comes_back_as_nothing(): void
