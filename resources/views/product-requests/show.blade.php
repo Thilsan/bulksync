@@ -196,11 +196,16 @@
                 </div>
             @endif
 
-            @if($request->isWaitingOnPhotoshoot())
+            {{-- Only once the request has moved on without the pictures. While it
+                 sits in the photoshoot stage the next-step card already says so. --}}
+            @if($request->isWaitingOnPhotoshoot() && !in_array($request->status, [
+                    \App\Models\ProductRequest::WAITING_IMAGES,
+                    \App\Models\ProductRequest::PHOTOSHOOT_SCHEDULED,
+                ], true))
                 <div class="rounded-xl bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-900 flex flex-wrap items-center justify-between gap-2">
                     <span>
                         <span class="font-medium">Waiting on the photoshoot</span>
-                        ({{ strtolower(\App\Models\ProductRequest::SHOOT_STATUSES[$request->photoshoot_status] ?? 'not started') }}).
+                        ({{ strtolower(\App\Models\ProductRequest::SHOOT_STATUSES[$request->photoshoot_status] ?? 'not started') }}{{ $request->photoshoot_scheduled_at ? ', ' . $request->photoshoot_scheduled_at->format('d M, H:i') : '' }}).
                         @if($closed) This was published before the images were delivered. @endif
                     </span>
                     <a href="{{ route('product-requests.photoshoot-room') }}" class="{{ $small }} bg-white border border-amber-300 hover:bg-amber-100">Photoshoot Schedule</a>
@@ -270,6 +275,9 @@
                                     <span class="text-gray-400">&middot; {{ $guide['role'] ?? 'Team' }}</span>
                                 </span>
                                 <span class="inline-flex items-center px-2 py-0.5 rounded-full font-medium {{ $dueTone }}">{{ $dueText }}</span>
+                                @if($request->photoshoot_scheduled_at && $request->isWaitingOnPhotoshoot())
+                                    <span class="inline-flex items-center px-2 py-0.5 rounded-full font-medium bg-blue-50 text-blue-700">Shoot {{ $request->photoshoot_scheduled_at->format('d M, H:i') }}</span>
+                                @endif
                             </div>
                         @endunless
                     </div>

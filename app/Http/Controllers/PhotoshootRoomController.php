@@ -59,10 +59,10 @@ class PhotoshootRoomController extends Controller implements HasMiddleware
         return view('product-requests.photoshoot-room', [
             'month'      => $month,
             'weeks'      => $this->calendar($month, $shoots),
-            'shoots'     => $filter && isset(ProductRequest::SHOOT_STATUSES[$filter])
-                ? $shoots->where('photoshoot_status', $filter)->values()
-                : $shoots,
-            'filter'     => $filter,
+            // Every shoot: the list's status tabs filter on the page, so moving
+            // between Pending, Scheduled and Completed needs no reload.
+            'shoots'     => $shoots,
+            'filter'     => isset(ProductRequest::SHOOT_STATUSES[$filter]) ? $filter : '',
             'stats'      => $this->stats($shoots),
             'canEdit'    => $this->canEdit($user),
             'coordinator' => User::photoshootCoordinator(),

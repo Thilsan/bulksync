@@ -37,7 +37,9 @@
 <div class="space-y-5"
      x-data="{
         selected: null,
-        view: (() => { try { return localStorage.getItem('photoshootView') || 'calendar'; } catch (e) { return 'calendar'; } })(),
+        // A status tile opens the list on that tab; otherwise the last view used.
+        view: {{ $filter ? "'list'" : "(() => { try { return localStorage.getItem('photoshootView') || 'calendar'; } catch (e) { return 'calendar'; } })()" }},
+        tab: @js($filter ?: 'all'),
         setView(v) { this.view = v; try { localStorage.setItem('photoshootView', v); } catch (e) {} },
         shoots: {{ Illuminate\Support\Js::from($payload) }},
         canEdit: {{ $canEdit ? 'true' : 'false' }},
@@ -193,20 +195,21 @@
 
     {{-- The list --}}
     <div x-show="view === 'list'" x-cloak class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-        <div class="px-5 py-3.5 border-b border-gray-100 flex items-center justify-between gap-3">
-            <h3 class="text-sm font-semibold text-gray-800">
-                Photoshoot Requests
-                <span class="text-gray-400 font-normal">({{ $shoots->count() }})</span>
-                @if($filter)
-                    <span class="ml-1 inline-flex items-center gap-1 text-xs font-medium border rounded-md px-1.5 py-0.5 {{ ProductRequest::SHOOT_COLORS[$filter] }}">
-                        {{ $statuses[$filter] }}
-                    </span>
-                @endif
-            </h3>
-            @if($filter)
-                <a href="{{ route('product-requests.photoshoot-room', ['month' => $month->format('Y-m')]) }}"
-                   class="text-xs font-medium text-gray-500 hover:text-gray-800">Clear filter</a>
-            @endif
+        @php
+            $tabs = ['all' => ['All', $shoots->count()]];
+            foreach ($statuses as $key => $label) {
+                $tabs[$key] = [$label, $shoots->where('photoshoot_status', $key)->count()];
+            }
+        @endphp
+        {{-- Status tabs: switch on the page, no reload --}}
+        <div class="px-3 border-b border-gray-100 flex gap-1 overflow-x-auto">
+            @foreach($tabs as $key => [$label, $count])
+                <button type="button" @click="tab = '{{ $key }}'"
+                        :class="tab === '{{ $key }}' ? 'border-brand-600 text-gray-900' : 'border-transparent text-gray-500 hover:text-gray-700'"
+                        class="px-3 py-3 text-sm font-medium border-b-2 whitespace-nowrap transition-colors">
+                    {{ $label }} <span class="text-gray-400 font-normal">{{ $count }}</span>
+                </button>
+            @endforeach
         </div>
 
         <div class="overflow-x-auto">
@@ -223,8 +226,8 @@
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-gray-100">
-                    @forelse($shoots as $shoot)
-                        <tr class="hover:bg-gray-50/60">
+                    @foreach($shoots as $shoot)
+                        <tr x-show="tab === 'all' || tab === @js($shoot->photoshoot_status)" class="hover:bg-gray-50/60">
                             <td class="px-3 py-3">
                                 <a href="{{ route('product-requests.show', $shoot) }}" class="font-mono text-xs text-brand-700 hover:underline">{{ $shoot->reference }}</a>
                                 <p class="text-xs text-gray-500 truncate max-w-[220px]">{{ $shoot->displayName() }}</p>
@@ -248,14 +251,15 @@
                                 </button>
                             </td>
                         </tr>
-                    @empty
-                        <tr>
+                    @endforeach
+                    @foreach($tabs as $key => [$label, $count])
+                        @continue($count > 0)
+                        <tr x-show="tab === '{{ $key }}'" x-cloak>
                             <td colspan="7" class="px-3 py-10 text-center text-sm text-gray-400">
-                                Nothing to shoot{{ $filter ? ' with that status' : ' yet' }}. Requests appear here as soon as
-                                someone chooses “Photoshoot from Ecommerce”.
+                                {{ $key === 'all' ? 'No photoshoots yet. Requests appear here once someone chooses “Photoshoot from Ecommerce”.' : 'No ' . strtolower($label) . ' shoots.' }}
                             </td>
                         </tr>
-                    @endforelse
+                    @endforeach
                 </tbody>
             </table>
         </div>
