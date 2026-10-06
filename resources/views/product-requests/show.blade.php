@@ -45,7 +45,7 @@
     $unchecked = $request->sheetUncheckedCount();
     $notOnSheet = $request->skusNotOnSheet()->count();
 
-    $card    = 'bg-white rounded-xl border border-gray-200 shadow-sm';
+    $card    = 'bg-white rounded-2xl border border-gray-200/80 shadow-sm';
     $btn     = 'inline-flex items-center justify-center gap-1.5 rounded-lg text-sm font-medium px-3.5 py-2 transition-colors';
     $btnMain = $btn . ' bg-brand-600 hover:bg-brand-700 text-white shadow-sm';
     $btnAlt  = $btn . ' border border-gray-300 bg-white text-gray-700 hover:bg-gray-50';
@@ -54,7 +54,7 @@
 
 <div class="space-y-5"
      x-data="{
-        tab: '{{ request()->has('skus') ? 'skus' : 'details' }}',
+        tab: 'skus',
         editing: false,
         showTransition: false,
         showCancel: false,
@@ -140,6 +140,30 @@
             </div>
         </div>
         @endunless
+    </div>
+
+    {{-- The few facts everyone looks for, once --}}
+    @php
+        $facts = array_filter([
+            ['Website',         $request->store?->name ?? '—',                    'M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9'],
+            ['Website go-live', $request->launchLabel('d M Y') ?? '—',            'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z'],
+            ['Showroom launch', $request->store_launch_date?->format('d M Y') ?? '—', 'M3 21h18M5 21V7l7-4 7 4v14M9 21v-6h6v6'],
+            ['Requested by',    $request->requesterName(),                        'M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z'],
+            $request->published_at ? ['Published', $request->published_at->format('d M Y'), 'M5 13l4 4L19 7'] : null,
+        ]);
+    @endphp
+    <div class="{{ $card }} grid grid-cols-2 md:grid-cols-{{ count($facts) }} divide-x divide-gray-100">
+        @foreach($facts as [$label, $value, $icon])
+            <div class="px-5 py-3.5 flex items-center gap-3 min-w-0">
+                <span class="w-9 h-9 rounded-xl bg-gray-50 text-gray-500 flex items-center justify-center shrink-0">
+                    <svg class="w-4.5 h-4.5" style="width:1.1rem;height:1.1rem" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="{{ $icon }}"/></svg>
+                </span>
+                <div class="min-w-0">
+                    <p class="text-xs text-gray-500">{{ $label }}</p>
+                    <p class="text-sm font-medium text-gray-900 truncate">{{ $value }}</p>
+                </div>
+            </div>
+        @endforeach
     </div>
 
     <div class="grid grid-cols-1 lg:grid-cols-3 2xl:grid-cols-4 gap-5 items-start">
@@ -363,7 +387,7 @@
                 $current = $request->displayStageIndex();
                 $tint    = $onHold && !$closed ? 'border-red-200' : ($ownership === 'mine' ? 'border-brand-200' : 'border-gray-200');
             @endphp
-            <div class="bg-white rounded-xl border shadow-sm overflow-hidden {{ $tint }}">
+            <div class="bg-white rounded-2xl border shadow-sm overflow-hidden {{ $tint }}">
 
                 @if($onHold && !$closed)
                     <div class="px-5 py-2.5 bg-red-50 border-b border-red-100 flex flex-wrap items-center gap-2 text-sm text-red-800">
@@ -372,34 +396,46 @@
                     </div>
                 @endif
 
-                {{-- The steps, as dots on a line --}}
-                <div class="px-5 pt-5 pb-4 overflow-x-auto">
-                    <ol class="flex items-start min-w-max">
-                        @foreach($stages as $i => $stage)
-                            @php
-                                $done = $closed ? $i <= $current : $i < $current;
-                                $here = !$closed && $i === $current;
-                            @endphp
-                            <li class="flex items-start {{ $loop->last ? '' : 'flex-1' }}">
-                                <div class="flex flex-col items-center w-20">
-                                    <span class="relative w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold
-                                        {{ $done ? 'bg-green-500 text-white' : ($here ? 'bg-brand-600 text-white ring-4 ring-brand-100' : 'bg-gray-100 text-gray-400') }}">
-                                        @if($done)
-                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/></svg>
-                                        @else
-                                            {{ $i + 1 }}
-                                        @endif
+                {{-- Progress: the four parts of the job, each filling as it goes --}}
+                @php $currentStep = $request->displayStageIndex(); @endphp
+                <div class="px-6 pt-5 pb-4 grid gap-3" style="grid-template-columns: repeat({{ count($request->phaseProgress()) }}, minmax(0, 1fr));">
+                    @foreach($request->phaseProgress() as $phase)
+                        @php
+                            $count = count($phase['stages']);
+                            $fill  = $closed && $phase['state'] !== 'upcoming' ? 100 : match ($phase['state']) {
+                                'done'    => 100,
+                                'current' => (int) round(100 * max(0.5, $currentStep - $phase['start'] + 0.5) / $count),
+                                default   => 0,
+                            };
+                            // Moved past the copy is not the same as having it.
+                            $gap  = $phase['key'] === 'content' && $phase['state'] === 'done' && ($needsCopy + $notOnSheet + $unchecked) > 0;
+                            $done = $phase['state'] === 'done' || ($closed && $phase['state'] !== 'upcoming');
+                        @endphp
+                        <div class="min-w-0" title="{{ collect($phase['stages'])->map(fn ($st) => $request->stageLabel($st))->implode(' → ') }}">
+                            <div class="h-2 rounded-full bg-gray-100 overflow-hidden">
+                                <div class="h-full rounded-full transition-all {{ $gap ? 'bg-amber-400' : ($done ? 'bg-green-500' : 'bg-brand-600') }}" style="width: {{ $fill }}%"></div>
+                            </div>
+                            <div class="mt-2 flex items-center gap-1.5 min-w-0">
+                                @if($gap)
+                                    <span class="w-4 h-4 rounded-full bg-amber-100 text-amber-600 text-[10px] font-bold flex items-center justify-center shrink-0">!</span>
+                                @elseif($done)
+                                    <span class="w-4 h-4 rounded-full bg-green-500 text-white flex items-center justify-center shrink-0">
+                                        <svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="4" d="M5 13l4 4L19 7"/></svg>
                                     </span>
-                                    <span class="mt-1.5 text-[11px] leading-tight text-center {{ $here ? 'text-gray-900 font-semibold' : ($done ? 'text-gray-600' : 'text-gray-400') }}">
-                                        {{ $stageShort[$stage] ?? $request->stageLabel($stage) }}
-                                    </span>
-                                </div>
-                                @unless($loop->last)
-                                    <span class="flex-1 h-0.5 mt-4 -mx-6 min-w-6 {{ $done ? 'bg-green-400' : 'bg-gray-200' }}"></span>
-                                @endunless
-                            </li>
-                        @endforeach
-                    </ol>
+                                @elseif($phase['state'] === 'current')
+                                    <span class="w-4 h-4 rounded-full bg-brand-600 ring-4 ring-brand-100 shrink-0"></span>
+                                @else
+                                    <span class="w-4 h-4 rounded-full border-2 border-gray-200 shrink-0"></span>
+                                @endif
+                                <span class="text-sm truncate {{ $phase['state'] === 'current' ? 'text-gray-900 font-semibold' : ($done ? 'text-gray-700' : 'text-gray-400') }}">{{ $phase['label'] }}</span>
+                            </div>
+                            @if($gap)
+                                <p class="text-xs text-amber-700 mt-0.5 pl-5.5 truncate" style="padding-left:1.375rem">No descriptions yet</p>
+                            @elseif($phase['state'] === 'current' && !$closed)
+                                <p class="text-xs text-brand-700 mt-0.5 truncate" style="padding-left:1.375rem">{{ $request->statusLabel() }}</p>
+                            @endif
+                        </div>
+                    @endforeach
                 </div>
 
                 {{-- What is happening, who has it, what moves it on --}}
@@ -679,8 +715,8 @@
             <div id="tabs" class="{{ $card }}">
                 <div class="px-3 border-b border-gray-100 flex gap-1 overflow-x-auto">
                     @foreach(array_filter([
-                        'details'     => 'Details',
                         'skus'        => 'SKUs (' . $request->total_skus . ')',
+                        'details'     => 'Details',
                         // Only where SKUs are not resolved through Cegid — elsewhere
                         // an unmatched SKU is the brand manager's to map, not a product to invent.
                         'drafts'      => $usesMapping ? null : 'Shopify Drafts (' . $drafts->count() . ')',
@@ -700,7 +736,7 @@
 
                         @php $input = 'w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500'; @endphp
 
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-x-10 [&>div]:py-3 [&>div]:border-b [&>div]:border-gray-100">
                             @foreach([
                                 ['name', 'Request name', 'text', false],
                                 ['brand', 'Brand', 'text', true],
@@ -1028,40 +1064,37 @@
         {{-- ── Sidebar ────────────────────────────────────────────────────── --}}
         <div class="space-y-5 min-w-0">
 
+            {{-- Images: where they come from and where they are --}}
             <div class="{{ $card }}">
                 <div class="px-5 py-3.5">
-                    <h3 class="text-sm font-semibold text-gray-900">Details</h3>
+                    <h3 class="text-sm font-semibold text-gray-900">Images</h3>
                 </div>
-                <dl class="px-5 pb-4 space-y-3 text-sm">
-                    @foreach(array_filter([
-                        'Website'      => $request->store?->name ?? '—',
-                        'Brand'        => $request->brand,
-                        'Category'     => $request->category,
-                        'Website go-live' => $request->launchLabel('d M Y') ?? '—',
-                        'Showroom'     => $request->store_launch_date?->format('d M Y'),
-                        'Requested by' => $request->requesterName(),
-                        'Sheet'        => $request->sheetLabel(),
-                        'Published'    => $request->published_at?->format('d M Y'),
-                    ]) as $label => $value)
-                        <div>
-                            <dt class="text-xs text-gray-500">{{ $label }}</dt>
-                            <dd class="text-gray-900 truncate">{{ $value }}</dd>
+                <div class="px-5 pb-4 space-y-3 text-sm">
+                    <div class="flex items-center gap-3">
+                        <span class="w-9 h-9 rounded-xl {{ $shoot ? 'bg-violet-50 text-violet-600' : 'bg-sky-50 text-sky-600' }} flex items-center justify-center shrink-0">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="{{ $shoot ? 'M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9zM15 13a3 3 0 11-6 0 3 3 0 016 0z' : 'M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z' }}"/></svg>
+                        </span>
+                        <div class="min-w-0">
+                            <p class="text-gray-900 font-medium">{{ $request->imageSourceLabel() }}</p>
+                            @if($shoot)
+                                <p class="text-xs text-gray-500">
+                                    {{ $request->photoshoot_scheduled_at ? 'Shoot ' . $request->photoshoot_scheduled_at->format('D d M, H:i') : 'Shoot not booked yet' }}
+                                    @if($request->photoshoot_status)
+                                        · <span class="font-medium">{{ $request->shootStatusLabel() }}</span>
+                                    @endif
+                                </p>
+                            @elseif($request->imagesInPim())
+                                <p class="text-xs text-gray-500">In the Brand PIM</p>
+                            @endif
                         </div>
-                    @endforeach
-                    @if($request->needsImageLocation() && ($request->images_url || $request->imagesInPim()))
-                        <div>
-                            <dt class="text-xs text-gray-500">Supplier images</dt>
-                            <dd class="truncate">
-                                @if($request->imagesInPim())
-                                    In the Brand PIM
-                                @else
-                                    <a href="{{ $request->images_url }}" target="_blank" rel="noopener" title="{{ $request->images_url }}"
-                                       class="text-brand-600 hover:text-brand-700 font-medium">Open folder &nearr;</a>
-                                @endif
-                            </dd>
-                        </div>
+                    </div>
+                    @if($request->needsImageLocation() && $request->images_url)
+                        <a href="{{ $request->images_url }}" target="_blank" rel="noopener" title="{{ $request->images_url }}"
+                           class="{{ $btnAlt }} w-full">Open folder &nearr;</a>
+                    @elseif($shoot)
+                        <a href="{{ route('product-requests.photoshoot-room') }}" class="{{ $btnAlt }} w-full">Photoshoot Schedule</a>
                     @endif
-                </dl>
+                </div>
             </div>
 
             {{-- Team: names first, dropdowns only when changing them. --}}
