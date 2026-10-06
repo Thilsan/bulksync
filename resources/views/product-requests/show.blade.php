@@ -317,17 +317,25 @@
                                 default   => 0,
                             };
                             $steps = collect($phase['stages'])->map(fn ($s) => $request->stageLabel($s))->implode(' → ');
+                            // Moved past the content stage is not the same as having
+                            // content: say what is missing rather than tick it off.
+                            $gap = $phase['key'] === 'content' && $phase['state'] === 'done' && $needsCopy > 0;
                         @endphp
                         <div class="flex-1 min-w-0" title="{{ $steps }}">
                             <div class="h-1.5 rounded-full bg-gray-100 overflow-hidden">
-                                <div class="h-full rounded-full {{ $phase['state'] === 'done' ? 'bg-green-500' : 'bg-brand-600' }}" style="width: {{ $fill }}%"></div>
+                                <div class="h-full rounded-full {{ $gap ? 'bg-amber-400' : ($phase['state'] === 'done' ? 'bg-green-500' : 'bg-brand-600') }}" style="width: {{ $fill }}%"></div>
                             </div>
                             <p class="text-xs mt-1.5 truncate {{ $phase['state'] === 'current' ? 'text-gray-900 font-medium' : ($phase['state'] === 'done' ? 'text-gray-600' : 'text-gray-400') }}">
                                 {{ $phase['label'] }}
-                                @if($phase['state'] === 'done')
+                                @if($gap)
+                                    <span class="text-amber-600">!</span>
+                                @elseif($phase['state'] === 'done')
                                     <span class="text-green-600">&check;</span>
                                 @endif
                             </p>
+                            @if($gap)
+                                <p class="text-[11px] text-amber-700 truncate">No descriptions yet</p>
+                            @endif
                             @if($phase['state'] === 'current')
                                 <p class="text-[11px] text-brand-700 truncate">{{ $request->statusLabel() }}</p>
                             @endif
@@ -453,31 +461,6 @@
                         @endif
                     @endif
 
-                    {{-- Copy for the SKUs that have none — regenerating over copy that
-                         is already written is worse than doing nothing. --}}
-                    @if($request->canOfferContentForMissing())
-                        @php
-                            $blank   = $request->needsContentCount();
-                            $handled = $request->contentHandledCount();
-                        @endphp
-                        <div class="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-gray-200 px-3 py-2.5">
-                            <span class="text-sm text-gray-700">{{ number_format($blank) }} of {{ number_format($blank + $handled) }} live SKUs have no description</span>
-                            <div class="flex gap-2">
-                                <form method="POST" action="{{ route('product-requests.ai-content', $request) }}">
-                                    @csrf
-                                    <input type="hidden" name="scope" value="missing_description">
-                                    <input type="hidden" name="answer" value="generate">
-                                    <button type="submit" class="{{ $small }} bg-brand-600 hover:bg-brand-700 text-white">Generate AI content for these {{ number_format($blank) }}</button>
-                                </form>
-                                <form method="POST" action="{{ route('product-requests.ai-content', $request) }}">
-                                    @csrf
-                                    <input type="hidden" name="scope" value="missing_description">
-                                    <input type="hidden" name="answer" value="skip">
-                                    <button type="submit" class="{{ $small }} border border-gray-300 text-gray-700 hover:bg-gray-50">Leave as is</button>
-                                </form>
-                            </div>
-                        </div>
-                    @endif
                 </div>
             </div>
 
