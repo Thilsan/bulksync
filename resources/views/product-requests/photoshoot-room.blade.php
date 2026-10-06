@@ -37,6 +37,8 @@
 <div class="space-y-5"
      x-data="{
         selected: null,
+        view: (() => { try { return localStorage.getItem('photoshootView') || 'calendar'; } catch (e) { return 'calendar'; } })(),
+        setView(v) { this.view = v; try { localStorage.setItem('photoshootView', v); } catch (e) {} },
         shoots: {{ Illuminate\Support\Js::from($payload) }},
         canEdit: {{ $canEdit ? 'true' : 'false' }},
         open(id) { this.selected = this.shoots[id] ?? null; },
@@ -104,8 +106,17 @@
         </div>
     @endif
 
+    {{-- Calendar or list, one at a time --}}
+    <div class="inline-flex rounded-lg bg-gray-100 p-1 gap-1">
+        @foreach(['calendar' => 'Calendar', 'list' => 'List (' . $shoots->count() . ')'] as $key => $label)
+            <button type="button" @click="setView('{{ $key }}')"
+                    :class="view === '{{ $key }}' ? 'bg-white text-gray-900 shadow-sm font-medium' : 'text-gray-600 hover:text-gray-900'"
+                    class="rounded-md px-4 py-1.5 text-sm transition-colors">{{ $label }}</button>
+        @endforeach
+    </div>
+
     {{-- Calendar --}}
-    <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+    <div x-show="view === 'calendar'" class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
         <div class="px-4 py-2.5 border-b border-gray-100 flex items-center justify-between gap-3">
             <div class="flex items-center gap-2">
                 <a href="{{ route('product-requests.photoshoot-room', array_filter(['month' => $month->copy()->subMonth()->format('Y-m'), 'status' => $filter ?: null])) }}"
@@ -181,7 +192,7 @@
     </div>
 
     {{-- The list --}}
-    <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+    <div x-show="view === 'list'" x-cloak class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
         <div class="px-5 py-3.5 border-b border-gray-100 flex items-center justify-between gap-3">
             <h3 class="text-sm font-semibold text-gray-800">
                 Photoshoot Requests
