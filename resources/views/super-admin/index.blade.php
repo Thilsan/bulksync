@@ -386,9 +386,9 @@
                                     'noun'     => 'brands',
                                     'options'  => $managedBrandOptions,
                                     'selected' => $user->pcr_managed_brands ?? [],
-                                    'help'     => 'Overrides Brand Manager / Brand Coordinator for these brands. A brand named '
-                                                . 'here goes to this user instead of the category\'s people, who are not copied '
-                                                . 'on it — naming a brand means it is handled apart from the rest.',
+                                    'help'     => 'Overrides Brand Manager / Brand Coordinator for these brands: a brand named '
+                                                . 'here goes to this user instead of the category\'s people. Someone set up for '
+                                                . 'the category on that website still gets it too, and holds the task.',
                                 ])
                                 </template>
                             @endif

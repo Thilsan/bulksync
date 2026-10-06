@@ -329,17 +329,15 @@ class User extends Authenticatable
 
     public static function brandManagersForCategory(?string $category, ?string $brand = null, ?int $storeId = null): \Illuminate\Support\Collection
     {
-        // Named for this brand specifically: they are the answer, and the
-        // category's people are not copied — the point of naming a brand is that
-        // it is handled apart from the rest.
-        if (($named = self::forBrand('pcr_managed_brands', $brand))->isNotEmpty()) {
-            return $named;
-        }
+        // Named for this brand specifically: the point of naming a brand is that
+        // it is handled apart from the category's usual people.
+        $named = self::forBrand('pcr_managed_brands', $brand);
 
         // Leather Goods on Blue Salon and Leather Goods on Samsonite are two
         // brand sides followed by two people, and a plain category list cannot
-        // say that. Named for this pairing, they are the answer for this website
-        // alone and the category's people are not copied on it.
+        // say that. Someone set up for exactly this category on this website
+        // always matches — a named brand adds to them, it does not push them
+        // out — and they come first, so they hold the task.
         if ($key = self::storeCategoryKey($storeId, $category)) {
             $onThisWebsite = self::query()
                 ->where('is_active', true)
@@ -348,8 +346,12 @@ class User extends Authenticatable
                 ->get();
 
             if ($onThisWebsite->isNotEmpty()) {
-                return $onThisWebsite;
+                return $onThisWebsite->concat($named)->unique('id')->values();
             }
+        }
+
+        if ($named->isNotEmpty()) {
+            return $named;
         }
 
         if (blank($category)) {

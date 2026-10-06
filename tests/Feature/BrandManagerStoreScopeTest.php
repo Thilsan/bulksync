@@ -113,7 +113,8 @@ class BrandManagerStoreScopeTest extends TestCase
         );
     }
 
-    public function test_a_named_brand_still_beats_the_website_pairing(): void
+    /** A matching category + website pairing always shows; a named brand joins it. */
+    public function test_a_website_pairing_always_matches_and_a_named_brand_joins_it(): void
     {
         $onSamsonite = $this->user('Samsonite Leather', [
             'pcr_role'                   => 'brand_manager',
@@ -123,9 +124,16 @@ class BrandManagerStoreScopeTest extends TestCase
             'pcr_role' => 'brand_manager', 'pcr_managed_brands' => ['COLE HAAN'],
         ]);
 
+        // The pairing holds the task, and the brand's person is on it too.
+        $this->assertSame(
+            [$onSamsonite->id, $forBrand->id],
+            User::brandManagersForCategory('Leather Goods', 'Cole Haan', $this->samsonite->id)->pluck('id')->all(),
+        );
+
+        // With no pairing for this website, the named brand still wins.
         $this->assertSame(
             $forBrand->id,
-            User::brandManagerForCategory('Leather Goods', 'Cole Haan', $this->samsonite->id)?->id,
+            User::brandManagerForCategory('Leather Goods', 'Cole Haan', $this->blueSalon->id)?->id,
         );
         $this->assertSame(
             $onSamsonite->id,
@@ -275,7 +283,12 @@ class BrandManagerStoreScopeTest extends TestCase
             ->json('brand_managers'));
         $this->assertSame('Category Person', $ask($this->samsonite));
         $this->assertSame('Blue Salon Person', $ask($this->blueSalon));
-        $this->assertSame('Brand Person',      $ask($this->blueSalon, 'pourchet'));
+        // The pairing matches whatever the brand; the brand's person joins them.
+        $this->assertSame('Blue Salon Person', $ask($this->blueSalon, 'pourchet'));
+        $this->assertSame(['Blue Salon Person', 'Brand Person'], $this->actingAs($asker)
+            ->getJson(route('product-requests.team-preview', ['category' => 'Leather Goods', 'brand' => 'pourchet', 'store_id' => $this->blueSalon->id]))
+            ->json('brand_managers'));
+        $this->assertSame('Brand Person', $ask($this->samsonite, 'pourchet'));
 
         // And it is the person the real request gets.
         $request = $this->request($this->blueSalon, 'Leather Goods', 'OTHER BRAND');
