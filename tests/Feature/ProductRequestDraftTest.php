@@ -346,8 +346,12 @@ class ProductRequestDraftTest extends TestCase
         $this->assertFalse((bool) $request->skus()->where('sku', 'ZIM-9-SOLO')->value('sheet_has_description'));
     }
 
-    /** A SKU with no row on the sheet is reported, not guessed at. */
-    public function test_a_sku_missing_from_the_sheet_is_left_unchecked(): void
+    /**
+     * A SKU with no row on the sheet has been looked for: no copy is coming for
+     * it. Left unset, the request asked to "check the sheet" again for ever and
+     * never offered to generate it.
+     */
+    public function test_a_sku_missing_from_the_sheet_is_recorded_as_having_no_copy(): void
     {
         $user    = $this->user();
         $request = $this->request($this->store(), $user, ['ZIM-1-W-38', 'GHOST-SKU']);
@@ -356,7 +360,11 @@ class ProductRequestDraftTest extends TestCase
         $result = app(ProductRequestDraftBuilder::class)->syncSheetDescriptions($request);
 
         $this->assertSame(['GHOST-SKU'], $result['missing_from_sheet']);
-        $this->assertNull($request->skus()->where('sku', 'GHOST-SKU')->value('sheet_has_description'));
+        $this->assertFalse((bool) $request->skus()->where('sku', 'GHOST-SKU')->value('sheet_has_description'));
+        $this->assertNotNull($request->skus()->where('sku', 'GHOST-SKU')->value('sheet_checked_at'));
+
+        // Still the brand team's to change: a row added later wins on the next check.
+        $this->assertTrue($request->skus()->where('sku', 'ZIM-1-W-38')->value('sheet_has_description'));
     }
 
     /**

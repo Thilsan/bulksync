@@ -1324,7 +1324,8 @@ class ProductRequestController extends Controller implements HasMiddleware
         }
 
         if ($result['checked'] === 0) {
-            return back()->with('warning', 'No row on the sheet matched any SKU on this request.');
+            return back()->with('warning', 'None of these SKUs are on the sheet, so no copy is coming from the brand team. '
+                . 'Generate the content with AI, or skip it.');
         }
 
         $message = "Sheet checked against the \"{$result['column']}\" column: "

@@ -180,11 +180,24 @@ class ProductRequestDraftBuilder
             $copy ? $with++ : $without++;
         }
 
+        // A SKU with no row on the sheet has been looked for and has nothing
+        // there: no copy is coming from the brand team for it. Recording that
+        // is what lets the request offer to generate it — left unset, the
+        // request asks to "check the sheet" again for ever.
+        $missing = array_values(array_diff(array_map([$this, 'normalizeSku'], $skus), $seen));
+
+        if ($missing) {
+            $request->skus()
+                ->whereNull('sheet_has_description')
+                ->whereIn(\Illuminate\Support\Facades\DB::raw('UPPER(TRIM(sku))'), $missing)
+                ->update(['sheet_has_description' => false, 'sheet_checked_at' => now()]);
+        }
+
         return [
             'checked'            => count($seen),
             'with'               => $with,
             'without'            => $without,
-            'missing_from_sheet' => array_values(array_diff(array_map([$this, 'normalizeSku'], $skus), $seen)),
+            'missing_from_sheet' => $missing,
             'column'             => $columns['used']['body_html'],
         ];
     }
