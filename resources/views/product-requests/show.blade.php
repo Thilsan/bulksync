@@ -84,6 +84,7 @@
         showCancel: false,
         showHold: false,
         showHandover: false,
+        showPublish: false,
         validating: {{ in_array($request->validation_status, ['pending', 'running'], true) ? 'true' : 'false' }},
         poll() {
             if (!this.validating) return;
@@ -133,20 +134,12 @@
         @unless($closed)
             @php
                 $canPublish = $request->canTransitionTo(\App\Models\ProductRequest::PUBLISHED);
-                $publishWarn = collect($request->publishGaps())
-                    ->when(!$request->isLiveOnShopify(), fn ($c) => $c->push('not every product shows as live on Shopify yet'))
-                    ->map(fn ($g) => '• ' . $g)->implode("\n");
             @endphp
             @if($canPublish)
-                <form method="POST" action="{{ route('product-requests.transition', $request) }}"
-                      onsubmit="return confirm(@js('Mark ' . $request->reference . ' as Published? This closes the request.' . ($publishWarn ? "\n\nGoing live without:\n" . $publishWarn : '')))">
-                    @csrf
-                    <input type="hidden" name="to_status" value="{{ \App\Models\ProductRequest::PUBLISHED }}">
-                    <button type="submit" class="{{ $btnMain }}">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
-                        Publish
-                    </button>
-                </form>
+                <button type="button" @click="showPublish = true" class="{{ $btnMain }}">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                    Publish
+                </button>
             @else
                 <span class="{{ $btn }} bg-gray-100 text-gray-400 cursor-not-allowed"
                       title="{{ $request->publishBlockedBecause() ?? 'Not available from ' . $request->statusLabel() }}">
@@ -1490,6 +1483,83 @@
                 <div class="px-5 py-4 bg-gray-50 border-t border-gray-100 rounded-b-xl flex gap-2 justify-end">
                     <button type="button" @click="showTransition = false" class="{{ $btnAlt }}">Cancel</button>
                     <button type="submit" class="{{ $btnMain }}">Move</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    {{-- Publish: says plainly what would go live incomplete, before it does --}}
+    @php
+        $notLive = $request->skus()->where(fn ($q) => $q->where('in_shopify', false)
+            ->orWhereNull('shopify_published')->orWhere('shopify_published', false))->count();
+        $noCopy  = $request->skus()->where('in_shopify', true)->where('has_description', false)->count();
+        $publishIssues = array_filter([
+            $request->balanceSkus() > 0 ? ['M8 9l4-4 4 4m0 6l-4 4-4-4', 'amber',
+                number_format($request->balanceSkus()) . ' ' . \Illuminate\Support\Str::plural('product', $request->balanceSkus()) . ' not mapped yet',
+                "They're not ready in Cegid, so they won't go live with this request."] : null,
+            $request->not_mapped_skus > 0 ? ['M6 18L18 6M6 6l12 12', 'red',
+                number_format($request->not_mapped_skus) . ' ' . \Illuminate\Support\Str::plural('product', $request->not_mapped_skus) . " can't be mapped",
+                'These were marked as not mappable and will be left out.'] : null,
+            $noCopy > 0 ? ['M4 6h16M4 12h10M4 18h7', 'amber',
+                number_format($noCopy) . ' ' . \Illuminate\Support\Str::plural('product', $noCopy) . ' without a description',
+                "Customers will see them with no product text. You can add descriptions later."] : null,
+            $notLive > 0 ? ['M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z', 'sky',
+                number_format($notLive) . ' ' . \Illuminate\Support\Str::plural('product', $notLive) . ' not published on Shopify yet',
+                "Customers can't see them until they're published in Shopify."] : null,
+        ]);
+        $issueTone = [
+            'amber' => 'bg-amber-50 text-amber-600',
+            'red'   => 'bg-red-50 text-red-500',
+            'sky'   => 'bg-sky-50 text-sky-600',
+        ];
+    @endphp
+    <div x-show="showPublish" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4" @keydown.escape.window="showPublish = false">
+        <div class="absolute inset-0 bg-gray-900/40 backdrop-blur-[2px]" @click="showPublish = false"
+             x-show="showPublish" x-transition.opacity></div>
+        <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden"
+             x-show="showPublish"
+             x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0 scale-95 translate-y-2" x-transition:enter-end="opacity-100 scale-100 translate-y-0"
+             x-transition:leave="transition ease-in duration-100" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0">
+            <form method="POST" action="{{ route('product-requests.transition', $request) }}">
+                @csrf
+                <input type="hidden" name="to_status" value="{{ \App\Models\ProductRequest::PUBLISHED }}">
+
+                <div class="px-6 pt-6 pb-4 flex items-start gap-4">
+                    <span class="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 {{ $publishIssues ? 'bg-amber-100 text-amber-600' : 'bg-green-100 text-green-600' }}">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="{{ $publishIssues ? 'M12 9v2m0 4h.01M5 19h14a2 2 0 001.84-2.75L13.74 4a2 2 0 00-3.48 0l-7.1 12.25A2 2 0 004.99 19z' : 'M5 13l4 4L19 7' }}"/></svg>
+                    </span>
+                    <div class="min-w-0">
+                        <h3 class="text-lg font-semibold text-gray-900">Publish this request?</h3>
+                        <p class="text-sm text-gray-500 mt-0.5">
+                            {{ $request->displayName() }} will be marked as live and closed.
+                            @if($publishIssues) A few things aren't finished yet: @else Everything is ready. @endif
+                        </p>
+                    </div>
+                </div>
+
+                @if($publishIssues)
+                    <ul class="px-6 space-y-2">
+                        @foreach($publishIssues as [$icon, $tone, $title, $detail])
+                            <li class="flex items-start gap-3 rounded-xl border border-gray-100 bg-gray-50/70 px-3.5 py-3">
+                                <span class="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 {{ $issueTone[$tone] }}">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="{{ $icon }}"/></svg>
+                                </span>
+                                <div class="min-w-0">
+                                    <p class="text-sm font-medium text-gray-900">{{ $title }}</p>
+                                    <p class="text-xs text-gray-500 mt-0.5">{{ $detail }}</p>
+                                </div>
+                            </li>
+                        @endforeach
+                    </ul>
+                    <p class="px-6 mt-3 text-xs text-gray-400">This is noted in the activity log, so nobody has to remember it.</p>
+                @endif
+
+                <div class="mt-5 px-6 py-4 bg-gray-50 border-t border-gray-100 flex justify-end gap-2">
+                    <button type="button" @click="showPublish = false" class="{{ $btnAlt }}">Not yet</button>
+                    <button type="submit" class="{{ $btnMain }}">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                        {{ $publishIssues ? 'Publish anyway' : 'Publish' }}
+                    </button>
                 </div>
             </form>
         </div>

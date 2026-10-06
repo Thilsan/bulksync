@@ -1,49 +1,56 @@
 @php
+    // How much of the work is live, as a ring; the rest as tiles by where it is.
+    $total   = (int) $stats['total'];
+    $live    = (int) $stats['published'];
+    $livePct = $total > 0 ? (int) round(100 * $live / $total) : 0;
+    $C       = 2 * M_PI * 42;
+
     $tiles = [
-        ['key' => 'total',              'label' => 'Total Requests',      'hint' => 'All requests',        'value' => $stats['total'],              'tone' => 'text-brand-600 bg-brand-50',      'filter' => null,                                'icon' => 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z'],
-        ['key' => 'pending',            'label' => 'Pending',             'hint' => 'Awaiting action',     'value' => $stats['pending'],            'tone' => 'text-amber-600 bg-amber-50',      'filter' => 'pending',                                   'icon' => 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z'],
-        ['key' => 'waiting_mapping',    'label' => 'Waiting for Mapping', 'hint' => 'With the brand manager',   'value' => $stats['waiting_mapping'],    'tone' => 'text-orange-600 bg-orange-50',    'filter' => \App\Models\ProductRequest::WAITING_MAPPING, 'icon' => 'M4 4h16M6 4v5a6 6 0 006 6 6 6 0 006-6V4M6 20v-5a6 6 0 016-6 6 6 0 016 6v5M4 20h16'],
-        ['key' => 'in_progress',        'label' => 'In Progress',         'hint' => 'In workflow',         'value' => $stats['in_progress'],        'tone' => 'text-blue-600 bg-blue-50',        'filter' => 'in_progress',                       'icon' => 'M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15'],
-        ['key' => 'waiting_photoshoot', 'label' => 'Waiting for Photoshoot','hint' => 'Photoshoot required','value' => $stats['waiting_photoshoot'],'tone' => 'text-purple-600 bg-purple-50',    'filter' => \App\Models\ProductRequest::PHOTOSHOOT_SCHEDULED, 'icon' => 'M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z M15 13a3 3 0 11-6 0 3 3 0 016 0z'],
-        ['key' => 'qa_review',          'label' => 'QA Review',           'hint' => 'Being checked',       'value' => $stats['qa_review'],          'tone' => 'text-sky-600 bg-sky-50',          'filter' => \App\Models\ProductRequest::QA_REVIEW,       'icon' => 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z'],
-        ['key' => 'on_hold',            'label' => 'On Hold',             'hint' => 'Blocked',             'value' => $stats['on_hold'],            'tone' => 'text-red-600 bg-red-50',          'filter' => 'on_hold',                           'icon' => 'M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z'],
-        ['key' => 'published',          'label' => 'Published',           'hint' => 'Live and closed',     'value' => $stats['published'],          'tone' => 'text-emerald-600 bg-emerald-50',  'filter' => \App\Models\ProductRequest::PUBLISHED,       'icon' => 'M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9'],
+        ['Pending',               $stats['pending'],            'pending',                                         'bg-amber-50 border-amber-100',     'bg-amber-100 text-amber-600',     'text-amber-700',   'Awaiting action',           'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z'],
+        ['Waiting for Mapping',   $stats['waiting_mapping'],    \App\Models\ProductRequest::WAITING_MAPPING,       'bg-orange-50 border-orange-100',   'bg-orange-100 text-orange-600',   'text-orange-700',  'With the brand manager',    'M8 9l4-4 4 4m0 6l-4 4-4-4'],
+        ['In Progress',           $stats['in_progress'],        'in_progress',                                     'bg-sky-50 border-sky-100',         'bg-sky-100 text-sky-600',         'text-sky-700',     'Being worked on',           'M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15'],
+        ['Photoshoot',            $stats['waiting_photoshoot'], \App\Models\ProductRequest::PHOTOSHOOT_SCHEDULED,  'bg-violet-50 border-violet-100',   'bg-violet-100 text-violet-600',   'text-violet-700',  'Waiting for images',        'M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9zM15 13a3 3 0 11-6 0 3 3 0 016 0z'],
+        ['On Hold',               $stats['on_hold'],            'on_hold',                                         'bg-red-50 border-red-100',         'bg-red-100 text-red-500',         'text-red-600',     'Blocked',                   'M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z'],
+        ['Published',             $stats['published'],          \App\Models\ProductRequest::PUBLISHED,             'bg-green-50 border-green-100',     'bg-green-100 text-green-600',     'text-green-700',   'Live and closed',           'M5 13l4 4L19 7'],
     ];
 @endphp
 
-@php
-    // The hairline along a tile's top edge, matched to its icon. Written out
-    // rather than derived: Tailwind's runtime build only sees class names that
-    // appear whole in the markup.
-    $fills = [
-        'text-brand-600 bg-brand-50'     => 'bg-brand-500',
-        'text-amber-600 bg-amber-50'     => 'bg-amber-500',
-        'text-orange-600 bg-orange-50'   => 'bg-orange-500',
-        'text-blue-600 bg-blue-50'       => 'bg-blue-500',
-        'text-purple-600 bg-purple-50'   => 'bg-purple-500',
-        'text-sky-600 bg-sky-50'         => 'bg-sky-500',
-        'text-red-600 bg-red-50'         => 'bg-red-500',
-        'text-emerald-600 bg-emerald-50' => 'bg-emerald-500',
-    ];
-@endphp
-
-<div class="grid grid-cols-2 md:grid-cols-4 gap-3">
-    @foreach($tiles as $tile)
-        <a href="{{ $tile['filter'] ? route('product-requests.list', ['status' => $tile['filter']]) : route('product-requests.list') }}"
-           class="group relative overflow-hidden rounded-xl border border-gray-200 bg-white px-4 py-3.5 shadow-sm transition-all hover:border-brand-300 hover:shadow">
-            <span class="absolute inset-x-0 top-0 h-0.5 opacity-70 {{ $fills[$tile['tone']] ?? 'bg-gray-300' }}"></span>
-            <div class="flex items-start gap-3">
-                <div class="w-9 h-9 rounded-lg flex items-center justify-center shrink-0 {{ $tile['tone'] }}">
-                    <svg class="w-4.5 h-4.5" style="width:1.125rem;height:1.125rem" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="{{ $tile['icon'] }}"/>
-                    </svg>
-                </div>
-                <div class="min-w-0">
-                    <p class="text-xs font-medium text-gray-500 leading-tight">{{ $tile['label'] }}</p>
-                    <p class="figure mt-0.5 text-3xl leading-none text-gray-900">{{ number_format($tile['value']) }}</p>
-                    <p class="text-xs text-gray-400 truncate group-hover:text-brand-600 transition-colors">{{ $tile['hint'] }}</p>
-                </div>
+<div class="bg-white rounded-2xl border border-gray-200/80 shadow-sm p-5 flex flex-col lg:flex-row items-center gap-6">
+    {{-- Total, and how much of it is live --}}
+    <a href="{{ route('product-requests.list') }}" class="flex items-center gap-4 shrink-0 group">
+        <div class="relative w-28 h-28">
+            <svg class="w-28 h-28 -rotate-90" viewBox="0 0 100 100">
+                <circle cx="50" cy="50" r="42" fill="none" stroke-width="9" class="text-gray-100" stroke="currentColor"/>
+                <circle cx="50" cy="50" r="42" fill="none" stroke-width="9" stroke-linecap="round" stroke="currentColor"
+                        class="text-green-500 transition-all duration-700"
+                        stroke-dasharray="{{ $C }}" stroke-dashoffset="{{ $C * (1 - $livePct / 100) }}"/>
+            </svg>
+            <div class="absolute inset-0 flex flex-col items-center justify-center">
+                <span class="text-2xl font-bold text-gray-900 tabular-nums">{{ $livePct }}%</span>
+                <span class="text-[11px] text-gray-500">live</span>
             </div>
-        </a>
-    @endforeach
+        </div>
+        <div>
+            <p class="text-xs font-medium text-gray-500">Total Requests</p>
+            <p class="text-4xl font-bold text-gray-900 tabular-nums leading-tight">{{ number_format($total) }}</p>
+            <p class="text-xs text-gray-400 group-hover:text-brand-600 transition-colors">{{ number_format($live) }} live on the website</p>
+        </div>
+    </a>
+
+    {{-- Where the rest are --}}
+    <div class="flex-1 w-full grid grid-cols-2 md:grid-cols-3 2xl:grid-cols-6 gap-3">
+        @foreach($tiles as [$label, $value, $filter, $bg, $iconTone, $numTone, $hint, $icon])
+            <a href="{{ route('product-requests.list', ['status' => $filter]) }}"
+               class="rounded-2xl border px-4 py-3 transition hover:-translate-y-0.5 hover:shadow-sm {{ $bg }}">
+                <div class="flex items-center justify-between gap-2">
+                    <span class="text-xs font-medium text-gray-600 leading-tight">{{ $label }}</span>
+                    <span class="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 {{ $iconTone }}">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="{{ $icon }}"/></svg>
+                    </span>
+                </div>
+                <p class="mt-1 text-2xl font-bold tabular-nums {{ $value > 0 ? $numTone : 'text-gray-300' }}">{{ number_format($value) }}</p>
+                <p class="text-[11px] text-gray-500 truncate">{{ $hint }}</p>
+            </a>
+        @endforeach
+    </div>
 </div>
