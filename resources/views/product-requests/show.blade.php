@@ -27,7 +27,7 @@
         $onHold                  => ['border-red-300 ring-1 ring-red-100',     'On hold — work is blocked'],
         $ownership === 'mine'    => ['border-brand-300 ring-1 ring-brand-100', 'This is your task'],
         $ownership === 'my_team' => ['border-amber-300 ring-1 ring-amber-100', 'Waiting on your team'],
-        default                  => ['border-gray-200',                 'Next step'],
+        default                  => ['border-gray-200',                 'Right now'],
     };
 
     // Countdown to the online launch — the number that decides how loudly a
@@ -341,6 +341,24 @@
                     default
                         => 'Goes live by itself once the products are published on Shopify.',
                 };
+                // What comes after this, in plain words — the card's job is to
+                // say what is next, not to repeat what just finished.
+                $upcoming  = $closed ? null : $request->suggestedNextStatus();
+                $upNext = $upcoming ? match ($upcoming) {
+                    \App\Models\ProductRequest::WAITING_MAPPING      => ['SKU mapping', 'The brand manager maps the SKUs in Cegid.'],
+                    \App\Models\ProductRequest::SKU_VERIFIED         => ['SKUs verified', 'Every SKU is checked against the website.'],
+                    \App\Models\ProductRequest::AI_CONTENT           => ['Descriptions (AI content)', $request->needsContentCount() > 0
+                        ? 'AI writes the descriptions for the ' . $request->needsContentCount() . ' product(s) that have none.'
+                        : 'AI writes the descriptions for any product that has none.'],
+                    \App\Models\ProductRequest::WAITING_IMAGES       => $shoot
+                        ? ['Photoshoot', 'The products go to the studio and the shoot gets booked.']
+                        : ['Images', 'The product images are collected.'],
+                    \App\Models\ProductRequest::PHOTOSHOOT_SCHEDULED => ['Photoshoot', 'The products are photographed on the booked date.'],
+                    \App\Models\ProductRequest::PHOTOSHOOT_COMPLETED => ['Photos done', 'The finished photos are ready for the website.'],
+                    \App\Models\ProductRequest::PUBLISHED            => ['Live', 'The products go live on the website.'],
+                    default                     => [$request->stageLabel($upcoming), null],
+                } : null;
+
                 $stages  = $request->displayStages();
                 $current = $request->displayStageIndex();
                 $tint    = $onHold && !$closed ? 'border-red-200' : ($ownership === 'mine' ? 'border-brand-200' : 'border-gray-200');
@@ -388,9 +406,15 @@
                 <div class="px-5 py-4 border-t border-gray-100 flex flex-wrap items-center justify-between gap-4">
                     <div class="min-w-0 flex-1">
                         @unless($closed)
-                            <p class="text-[11px] font-medium uppercase tracking-wide {{ $ownership === 'mine' ? 'text-brand-700' : 'text-gray-400' }}">{{ $onHold ? 'Next step' : $heading }}</p>
+                            <p class="text-[11px] font-medium uppercase tracking-wide {{ $ownership === 'mine' ? 'text-brand-700' : 'text-gray-400' }}">{{ $onHold ? 'Right now' : $heading }}</p>
                         @endunless
                         <p class="text-lg font-semibold text-gray-900 mt-0.5" title="{{ $guide['what'] }}">{{ $now }}</p>
+                        @if($upNext)
+                            <div class="mt-2 inline-flex items-start gap-2 rounded-lg bg-gray-50 border border-gray-100 px-3 py-2 text-sm">
+                                <svg class="w-4 h-4 mt-0.5 text-brand-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6"/></svg>
+                                <span><span class="font-medium text-gray-900">Next up: {{ $upNext[0] }}</span>@if($upNext[1])<span class="text-gray-600"> — {{ $upNext[1] }}</span>@endif</span>
+                            </div>
+                        @endif
                         <div class="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5 text-xs text-gray-500">
                             @unless($closed)
                                 <span class="inline-flex items-center gap-1.5">
