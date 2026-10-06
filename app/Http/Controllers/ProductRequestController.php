@@ -1366,6 +1366,7 @@ class ProductRequestController extends Controller implements HasMiddleware
         $needed = $data['needed'] === 'yes';
 
         $this->workflow->decidePhotoshoot($productRequest, $needed, $user);
+        $this->workflow->advancePastVerified($productRequest->refresh(), $user);
 
         return back()->with('success', $needed
             ? 'Added to the Photoshoot Schedule — the shoot is booked from there.'
@@ -1387,6 +1388,7 @@ class ProductRequestController extends Controller implements HasMiddleware
         $ask  = $data['ask'] === 'yes';
 
         $told = $this->workflow->decideImageRequest($productRequest, $ask, $user);
+        $this->workflow->advancePastVerified($productRequest->refresh(), $user);
 
         if (!$ask) {
             return back()->with('success', 'Noted — the images are already in hand.');

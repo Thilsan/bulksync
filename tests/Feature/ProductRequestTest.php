@@ -106,6 +106,14 @@ class ProductRequestTest extends TestCase
         return $request->refresh();
     }
 
+    /** Reached SKU Verified, then moved on by itself to $next. */
+    private function assertPassedVerified(ProductRequest $request, string $next): void
+    {
+        $this->assertSame($next, $request->fresh()->status);
+        $this->assertTrue(ProductRequestActivity::where('product_request_id', $request->id)
+            ->where('to_status', ProductRequest::SKU_VERIFIED)->exists());
+    }
+
     /** Who currently holds a role. */
     private function ownerId(ProductRequest $request, string $role): ?int
     {
@@ -226,7 +234,8 @@ class ProductRequestTest extends TestCase
         $request = $this->submitFor($user, $this->plainSite(), "A-1\nA-2");
 
         $this->assertFalse($request->requiresMapping());
-        $this->assertSame(ProductRequest::SKU_VERIFIED, $request->status);
+        // Verified straight away, then on by itself to the first stage with work.
+        $this->assertPassedVerified($request, ProductRequest::AI_CONTENT);
 
         // The stage is absent from the stepper and can never be moved to.
         $this->assertNotContains(ProductRequest::WAITING_MAPPING, $request->displayStages());
@@ -1574,8 +1583,9 @@ class ProductRequestTest extends TestCase
 
         $request->refresh();
 
-        // No re-submission and nothing typed in — the request advances on its own.
-        $this->assertSame(ProductRequest::SKU_VERIFIED, $request->status);
+        // No re-submission and nothing typed in — the request advances on its
+        // own, through SKU Verified to the first stage with work in it.
+        $this->assertPassedVerified($request, ProductRequest::AI_CONTENT);
         $this->assertSame(2, $request->mapped_skus);
         $this->assertSame(0, $request->pending_skus);
 
@@ -1606,7 +1616,7 @@ class ProductRequestTest extends TestCase
 
         $this->assertSame(60, $request->mapped_skus);
         $this->assertSame(0, $request->pending_skus);
-        $this->assertSame(ProductRequest::SKU_VERIFIED, $request->status);
+        $this->assertPassedVerified($request, ProductRequest::AI_CONTENT);
     }
 
     /**
@@ -1672,8 +1682,11 @@ class ProductRequestTest extends TestCase
         $this->assertTrue($trail->contains(fn ($a) => $a->to_status === ProductRequest::WAITING_MAPPING));
         $this->assertTrue($trail->contains(fn ($a) => $a->to_status === ProductRequest::SKU_VERIFIED));
 
+        // Verified moved it on to the copy by itself; the manual move starts there.
+        $this->assertTrue($trail->contains(fn ($a) => $a->to_status === ProductRequest::AI_CONTENT));
+
         $last = $trail->last();
-        $this->assertSame(ProductRequest::SKU_VERIFIED, $last->from_status);
+        $this->assertSame(ProductRequest::AI_CONTENT, $last->from_status);
         $this->assertSame(ProductRequest::WAITING_IMAGES, $last->to_status);
         $this->assertSame('Booking the studio', $last->remarks);
         $this->assertSame($user->id, $last->user_id);
@@ -2429,6 +2442,76 @@ class ProductRequestTest extends TestCase
         $this->assertSame('E-Commerce Team', $request->guideFor(ProductRequest::PUBLISHED)['role']);
     }
 
+    /** With nothing left before going live, it waits: Published has to mean live. */
+    public function test_verified_never_moves_itself_onto_published(): void
+    {
+        Notification::fake();
+
+        $user    = $this->brandManager();
+        $request = $this->submitFor($user, $this->plainSite(), 'PUB-1');
+        $request->update([
+            'status' => ProductRequest::SKU_VERIFIED, 'use_ai_content' => false,
+            'image_source' => ProductRequest::IMG_SUPPLIER, 'photoshoot_decision' => 'no', 'image_request_decision' => 'no',
+        ]);
+        $request->refresh();
+
+        $this->assertSame(ProductRequest::PUBLISHED, $request->suggestedNextStatus());
+        $this->assertFalse(app(ProductRequestWorkflow::class)->advancePastVerified($request));
+        $this->assertSame(ProductRequest::SKU_VERIFIED, $request->fresh()->status);
+    }
+
+    /** An unanswered photoshoot question holds it; answering moves it on. */
+    public function test_verified_waits_for_the_photoshoot_answer_then_moves_on(): void
+    {
+        Notification::fake();
+
+        $user    = $this->brandManager();
+        $request = $this->submitFor($user, $this->plainSite(), 'ASK-1');
+        $request->update(['status' => ProductRequest::SKU_VERIFIED, 'photoshoot_decision' => null, 'image_source' => null]);
+        $request->refresh();
+
+        $this->assertTrue($request->needsPhotoshootDecision());
+        $this->assertFalse(app(ProductRequestWorkflow::class)->advancePastVerified($request));
+
+        $this->actingAs($user)->post(route('product-requests.photoshoot-decision', $request), ['needed' => 'yes'])
+            ->assertRedirect();
+
+        $this->assertNotSame(ProductRequest::SKU_VERIFIED, $request->fresh()->status);
+    }
+
+    /** Supplier images picked on the form answer "where are the images coming from?". */
+    public function test_supplier_images_from_the_form_are_not_asked_about_again(): void
+    {
+        Notification::fake();
+
+        $user = $this->brandManager();
+        $user->stores()->syncWithoutDetaching([$store = $this->plainSite()]);
+
+        $this->actingAs($user)->post(route('product-requests.store'), [
+            'store_id'           => $store->id,
+            'request_type'       => 'new_brand',
+            'brand'              => 'Mosafer',
+            'category'           => 'Luggage',
+            'skus'               => 'SUP-1',
+            'online_launch_date' => now()->addDays(18)->format('Y-m-d H:i'),
+            'image_source'       => ProductRequest::IMG_SUPPLIER,
+            'images_location'    => ProductRequest::IMAGES_AT_URL,
+            'images_url'         => 'https://example.test/folder',
+            'use_ai_content'     => 1,
+            'priority'           => 'high',
+        ])->assertSessionHasNoErrors();
+
+        $request = ProductRequest::latest('id')->first();
+
+        $this->assertFalse($request->needsImageSourceDecision());
+        $this->actingAs($user)->get(route('product-requests.show', $request))
+            ->assertOk()
+            ->assertDontSee('Where are the images coming from?');
+
+        // Nothing left to answer, so verified moves straight on to the copy.
+        $this->assertSame(ProductRequest::AI_CONTENT, $request->status);
+    }
+
     /** The image source was picked on the form, so SKU Verified does not ask for it again. */
     public function test_sku_verified_guidance_follows_the_image_source_picked_on_the_form(): void
     {
@@ -2480,8 +2563,9 @@ class ProductRequestTest extends TestCase
         $requester = $this->brandManager();
         $request   = $this->submitFor($requester, $this->plainSite(), 'TEAM-1');
 
-        // Sits at SKU Verified, which the E-Commerce team owns, with nobody named.
-        $this->assertSame(ProductRequest::SKU_VERIFIED, $request->status);
+        // Past SKU Verified on its own, at AI Content — the E-Commerce team's
+        // stage — with nobody named.
+        $this->assertSame(ProductRequest::AI_CONTENT, $request->status);
 
         $ecom = User::create([
             'name' => 'Ecom Person', 'email' => 'ecom@example.test', 'password' => 'password',
@@ -2871,6 +2955,7 @@ class ProductRequestTest extends TestCase
         $request->update([
             'image_source' => ProductRequest::IMG_SUPPLIER, 'photoshoot_required' => false,
             'supplier_images_available' => true, 'photoshoot_decision' => 'no',
+            'status' => ProductRequest::SKU_VERIFIED,   // where the suggestion is asked from
         ]);
         $request->refresh();
 

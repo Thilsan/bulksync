@@ -163,6 +163,36 @@ class ProductRequestWorkflow
 
             $this->transition($request, ProductRequest::SKU_VERIFIED, $actor, $remarks, notify: $notify);
         }
+
+        $this->advancePastVerified($request, $actor, $notify);
+    }
+
+    /**
+     * SKU Verified is a checkpoint, not a job: once every SKU is mapped and the
+     * images question is answered, the request goes straight on to the stage
+     * that has work in it, instead of waiting for someone to press a button.
+     *
+     * Never onto a closing stage — reaching Published has to mean the products
+     * are actually live, not that nothing else applied.
+     *
+     * @return bool  true when the request moved
+     */
+    public function advancePastVerified(ProductRequest $request, ?User $actor = null, bool $notify = true): bool
+    {
+        if ($request->status !== ProductRequest::SKU_VERIFIED
+            || !$request->isFullyMapped()
+            || $request->needsPhotoshootDecision()
+            || $request->needsImageSourceDecision()) {
+            return false;
+        }
+
+        $next = $request->suggestedNextStatus();
+
+        if ($next === null || in_array($next, ProductRequest::CLOSED_STATUSES, true) || !$request->canTransitionTo($next)) {
+            return false;
+        }
+
+        return $this->transition($request, $next, $actor, 'Moved on automatically — every SKU is verified.', notify: $notify);
     }
 
     /**

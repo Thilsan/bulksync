@@ -392,6 +392,9 @@ class ProductRequest extends Model
     {
         return $this->photoshoot_decision === 'no'
             && $this->image_request_decision === null
+            // "Supplier has sent the images" on the form is that answer already
+            // — asking again read as if nobody had filled it in.
+            && $this->image_source !== self::IMG_SUPPLIER
             && !$this->isClosed();
     }
 
