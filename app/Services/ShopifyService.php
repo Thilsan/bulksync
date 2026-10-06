@@ -1836,6 +1836,9 @@ class ShopifyService
      */
     private const ANALYTICS_MAX_GROUPS = 100;
 
+    /** How far back a token without read_all_orders can see. */
+    private const ORDER_HISTORY_DAYS = 60;
+
     /**
      * Revenue, order count, sales channel and product breakdowns for this
      * store, for one date range — read straight from Shopify's own orders
@@ -1855,9 +1858,20 @@ class ShopifyService
      * A store with more than ANALYTICS_MAX_PAGES pages of orders in range stops
      * there rather than walking the whole history — `capped` tells the caller
      * the figures are a partial (but honestly labelled) picture.
+     *
+     * A token without `read_all_orders` sees only the last 60 days of orders
+     * — Shopify returns nothing older, with no error, so "This year" quietly
+     * becomes "since early August". The token's scopes come back alongside the
+     * first page, and when they say the range reaches past that window,
+     * `history_from` names the first day actually read so the figures can be
+     * labelled instead of trusted. It stays null when the scopes did not come
+     * back, since an unknown is not the same as a confirmed gap.
      */
     public function getOrderAnalytics(Carbon $from, Carbon $to): array
     {
+        $visibleFrom = Carbon::now()->subDays(self::ORDER_HISTORY_DAYS);
+        $historyFrom = null;
+
         $query = sprintf(
             "created_at:>='%s' AND created_at:<='%s' AND status:any",
             $from->startOfDay()->toIso8601String(),
@@ -1886,6 +1900,14 @@ class ShopifyService
 
             $data = json_decode((string) $response->getBody(), true);
             $this->assertNoGraphQlErrors($data, 'getOrderAnalytics');
+
+            $scopes = $data['data']['appInstallation']['accessScopes'] ?? null;
+
+            if ($page === 0 && \is_array($scopes)
+                && !\in_array('read_all_orders', array_column($scopes, 'handle'), true)
+                && $from->lessThan($visibleFrom)) {
+                $historyFrom = $visibleFrom->toDateString();
+            }
 
             $edges = $data['data']['orders']['edges'] ?? [];
 
@@ -2002,6 +2024,7 @@ class ShopifyService
             'by_vendor'       => $this->rankGroups($vendors),
             'by_product_type' => $this->rankGroups($types),
             'capped'          => $capped,
+            'history_from'    => $historyFrom,
         ];
     }
 
@@ -2037,7 +2060,9 @@ class ShopifyService
             . 'lineItems(first:250){edges{node{title quantity discountedTotalSet{shopMoney{amount}} vendor product{productType}}}}'
             . '}}'
             . 'pageInfo{hasNextPage}'
-            . '}}';
+            . '}'
+            . 'appInstallation{accessScopes{handle}}'
+            . '}';
     }
 
     // ── Product performance (bulk exports) ─────────────────────────────────
