@@ -81,6 +81,21 @@
 
 <div x-show="!busy" class="space-y-5">
 
+{{-- A store whose token lacks read_all_orders gets nothing older than 60 days
+     back from Shopify, and no error says so — the totals below would read as
+     the whole range when they are only its tail. Said once here, because the
+     headline tiles add those stores in too. --}}
+@php $shortHistory = $selling->filter(fn ($row) => !empty($row['history_from'])); @endphp
+@if($shortHistory->isNotEmpty())
+    <div class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
+        <span class="font-semibold">Figures start {{ \Illuminate\Support\Carbon::parse($shortHistory->min('history_from'))->format('d M Y') }}, not {{ $filters['from']->format('d M Y') }}.</span>
+        Shopify only shares the last 60 days of orders unless the app has the
+        <code>read_all_orders</code> permission, which
+        {{ $shortHistory->pluck('store')->join(', ', ' and ') }}
+        {{ $shortHistory->count() === 1 ? 'does' : 'do' }} not have yet.
+    </div>
+@endif
+
 {{-- ── Headline ─────────────────────────────────────────────────────────── --}}
 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
     @php
@@ -209,6 +224,9 @@
                     @if($row['capped'] ?? false)
                         <span class="shrink-0 text-[10px] font-semibold text-amber-700 bg-amber-50 rounded px-1.5 py-0.5"
                               title="This range holds more orders than were read — the figures below are a partial count.">partial</span>
+                    @elseif($row['history_from'] ?? false)
+                        <span class="shrink-0 text-[10px] font-semibold text-amber-700 bg-amber-50 rounded px-1.5 py-0.5"
+                              title="Without the read_all_orders permission Shopify only returns the last 60 days of orders.">from {{ \Illuminate\Support\Carbon::parse($row['history_from'])->format('d M') }}</span>
                     @endif
                 </div>
 
