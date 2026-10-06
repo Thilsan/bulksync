@@ -365,7 +365,7 @@ class ProductRequestMissingCopyTest extends TestCase
         $this->actingAs($this->user)
             ->get(route('product-requests.show', $request))
             ->assertOk()
-            ->assertSee('The sheet has no description for 10 product(s)')
+            ->assertSee('10 product(s) have no description')
             ->assertSee('Generate AI content for 10');
     }
 

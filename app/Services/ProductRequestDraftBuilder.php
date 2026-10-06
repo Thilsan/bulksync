@@ -171,26 +171,31 @@ class ProductRequestDraftBuilder
             $sku  = $this->normalizeSku($row['fields']['sku']);
             $copy = filled(trim(strip_tags((string) ($row['fields']['body_html'] ?? ''))));
 
-            $request->skus()->whereRaw('UPPER(TRIM(sku)) = ?', [$sku])->update([
-                'sheet_has_description' => $copy,
-                'sheet_checked_at'      => now(),
-            ]);
+            // Copy found anywhere counts: a description the uploaded CSV carried
+            // is not undone by a blank cell here.
+            $request->skus()->whereRaw('UPPER(TRIM(sku)) = ?', [$sku])
+                ->when(!$copy, fn ($q) => $q->where(fn ($q) => $q->whereNull('sheet_has_description')->orWhere('sheet_has_description', false)))
+                ->update([
+                    'sheet_has_description' => $copy,
+                    'sheet_checked_at'      => now(),
+                ]);
 
             $seen[] = $sku;
             $copy ? $with++ : $without++;
         }
 
-        // A SKU with no row on the sheet has been looked for and has nothing
-        // there: no copy is coming from the brand team for it. Recording that
-        // is what lets the request offer to generate it — left unset, the
-        // request asks to "check the sheet" again for ever.
+        // A SKU with no row on the sheet was looked for and not found. That is
+        // not "the brand team wrote nothing" — the row may be on another tab, or
+        // the SKU written differently — so whether copy exists stays unknown.
+        // The check time is recorded so the request can say "not on the sheet"
+        // instead of asking to check it again for ever.
         $missing = array_values(array_diff(array_map([$this, 'normalizeSku'], $skus), $seen));
 
         if ($missing) {
             $request->skus()
-                ->whereNull('sheet_has_description')
                 ->whereIn(\Illuminate\Support\Facades\DB::raw('UPPER(TRIM(sku))'), $missing)
-                ->update(['sheet_has_description' => false, 'sheet_checked_at' => now()]);
+                ->whereNull('sheet_has_description')   // an answer the CSV gave stands
+                ->update(['sheet_checked_at' => now()]);
         }
 
         return [

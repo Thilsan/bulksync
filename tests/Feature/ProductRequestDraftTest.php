@@ -347,11 +347,11 @@ class ProductRequestDraftTest extends TestCase
     }
 
     /**
-     * A SKU with no row on the sheet has been looked for: no copy is coming for
-     * it. Left unset, the request asked to "check the sheet" again for ever and
-     * never offered to generate it.
+     * A SKU with no row on the sheet was looked for and not found. That is not
+     * "no copy" — the row may be on another tab — so it stays unknown, but is
+     * marked as checked so the request stops asking to check it again.
      */
-    public function test_a_sku_missing_from_the_sheet_is_recorded_as_having_no_copy(): void
+    public function test_a_sku_missing_from_the_sheet_is_checked_but_not_called_blank(): void
     {
         $user    = $this->user();
         $request = $this->request($this->store(), $user, ['ZIM-1-W-38', 'GHOST-SKU']);
@@ -360,11 +360,22 @@ class ProductRequestDraftTest extends TestCase
         $result = app(ProductRequestDraftBuilder::class)->syncSheetDescriptions($request);
 
         $this->assertSame(['GHOST-SKU'], $result['missing_from_sheet']);
-        $this->assertFalse((bool) $request->skus()->where('sku', 'GHOST-SKU')->value('sheet_has_description'));
+        $this->assertNull($request->skus()->where('sku', 'GHOST-SKU')->value('sheet_has_description'));
         $this->assertNotNull($request->skus()->where('sku', 'GHOST-SKU')->value('sheet_checked_at'));
+    }
 
-        // Still the brand team's to change: a row added later wins on the next check.
-        $this->assertTrue($request->skus()->where('sku', 'ZIM-1-W-38')->value('sheet_has_description'));
+    /** A description the uploaded CSV carried is not undone by a blank cell or a missing row. */
+    public function test_the_sheet_check_never_undoes_copy_the_csv_supplied(): void
+    {
+        $user    = $this->user();
+        $request = $this->request($this->store(), $user, ['ZIM-9-SOLO', 'GHOST-SKU']);
+        $request->skus()->update(['sheet_has_description' => true]);   // as the CSV left them
+        $this->fakeSheet();
+
+        app(ProductRequestDraftBuilder::class)->syncSheetDescriptions($request);
+
+        $this->assertTrue((bool) $request->skus()->where('sku', 'ZIM-9-SOLO')->value('sheet_has_description'));   // blank on the sheet
+        $this->assertTrue((bool) $request->skus()->where('sku', 'GHOST-SKU')->value('sheet_has_description'));    // not on the sheet
     }
 
     /**

@@ -1185,7 +1185,26 @@ class ProductRequest extends Model
      */
     public function sheetUncheckedCount(): int
     {
-        return $this->skus()->where('in_shopify', true)->whereNull('sheet_has_description')->count();
+        return $this->skus()->where('in_shopify', true)->whereNull('sheet_has_description')
+            ->whereNull('sheet_checked_at')->count();
+    }
+
+    /**
+     * Live SKUs the sheet was searched for and did not have.
+     *
+     * Not the same as a blank description: the row may sit on another tab or
+     * carry the SKU differently, so nobody can say copy is not coming until a
+     * person confirms it.
+     */
+    public function skusNotOnSheet(): HasMany
+    {
+        return $this->skus()
+            ->where('in_shopify', true)
+            ->whereNull('sheet_has_description')
+            ->whereNotNull('sheet_checked_at')
+            ->where('has_description', false)
+            ->whereNull('content_started_at')
+            ->whereNull('content_skipped_at');
     }
 
     /** SKUs the sheet does carry copy for — theirs to apply, not ours to write. */

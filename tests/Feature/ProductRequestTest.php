@@ -2175,6 +2175,80 @@ class ProductRequestTest extends TestCase
         }
     }
 
+    /**
+     * The uploaded CSV's Long Description / Description column says which SKUs
+     * already have copy, so only the empty ones are offered for generation.
+     */
+    public function test_the_csv_description_column_decides_which_skus_need_copy(): void
+    {
+        Notification::fake();
+        Queue::fake();
+
+        $user  = $this->brandManager();
+        $store = $this->plainSite();
+
+        // A Long Description that runs over two lines inside quotes, as Excel writes it.
+        $csv = "SKU,Name,Long Description\r\n"
+             . "LD-1,Bag,\"Soft leather.\nTwo pockets, one zip.\"\r\n"
+             . "LD-2,Case,\r\n"
+             . "LD-3,Trolley,<p></p>\r\n";
+
+        $this->submitCsv($user, $store, $csv)->assertSessionHasNoErrors();
+        $request = ProductRequest::latest('id')->first();
+
+        try {
+            $this->assertSame(['LD-1', 'LD-2', 'LD-3'], $request->skus()->orderBy('id')->pluck('sku')->all());
+
+            $copy = $request->skus()->pluck('sheet_has_description', 'sku')->map(fn ($v) => (bool) $v)->all();
+            $this->assertSame(['LD-1' => true, 'LD-2' => false, 'LD-3' => false], $copy);
+
+            // Live with nothing in Shopify: only the two empty ones are offered.
+            $request->skus()->update(['in_shopify' => true, 'has_description' => false]);
+            $this->assertSame(['LD-2', 'LD-3'], $request->skusNeedingContent()->orderBy('id')->pluck('sku')->all());
+        } finally {
+            File::deleteDirectory(storage_path("app/product-requests/{$request->id}"));
+        }
+    }
+
+    /** "Description" works too when there is no Long Description column. */
+    public function test_a_plain_description_column_is_read_too(): void
+    {
+        Notification::fake();
+        Queue::fake();
+
+        $user  = $this->brandManager();
+        $store = $this->plainSite();
+
+        $this->submitCsv($user, $store, "Item SKU,Description\nD-1,Lovely\nD-2,\n")->assertSessionHasNoErrors();
+        $request = ProductRequest::latest('id')->first();
+
+        try {
+            $this->assertTrue((bool) $request->skus()->where('sku', 'D-1')->value('sheet_has_description'));
+            $this->assertFalse((bool) $request->skus()->where('sku', 'D-2')->value('sheet_has_description'));
+        } finally {
+            File::deleteDirectory(storage_path("app/product-requests/{$request->id}"));
+        }
+    }
+
+    /** With no description column the file says nothing; the sheet check still can. */
+    public function test_a_csv_without_a_description_column_leaves_copy_unknown(): void
+    {
+        Notification::fake();
+        Queue::fake();
+
+        $user  = $this->brandManager();
+        $store = $this->plainSite();
+
+        $this->submitCsv($user, $store, "SKU,Name\nN-1,Bag\n")->assertSessionHasNoErrors();
+        $request = ProductRequest::latest('id')->first();
+
+        try {
+            $this->assertNull($request->skus()->where('sku', 'N-1')->value('sheet_has_description'));
+        } finally {
+            File::deleteDirectory(storage_path("app/product-requests/{$request->id}"));
+        }
+    }
+
     /** A CSV without a SKU / Item SKU header is refused, and no request is made. */
     public function test_a_csv_without_a_sku_column_is_refused(): void
     {

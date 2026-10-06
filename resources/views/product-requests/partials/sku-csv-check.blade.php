@@ -11,34 +11,38 @@
 
         if (!/\.(csv|txt)$/i.test(file.name)) return invalid;
 
-        const splitRow = (line) => {
-            const out = [];
-            let cell = '', quoted = false;
-            for (let i = 0; i < line.length; i++) {
-                const c = line[i];
+        // A real CSV read: quoted cells may hold commas and line breaks, which a
+        // Long Description often does.
+        const parse = (text) => {
+            const rows = [];
+            let row = [], cell = '', quoted = false;
+            for (let i = 0; i < text.length; i++) {
+                const c = text[i];
                 if (quoted) {
-                    if (c === '"' && line[i + 1] === '"') { cell += '"'; i++; }
+                    if (c === '"' && text[i + 1] === '"') { cell += '"'; i++; }
                     else if (c === '"') quoted = false;
                     else cell += c;
                 } else if (c === '"') quoted = true;
-                else if (c === ',') { out.push(cell); cell = ''; }
-                else cell += c;
+                else if (c === ',') { row.push(cell); cell = ''; }
+                else if (c === '\n' || c === '\r') {
+                    if (c === '\r' && text[i + 1] === '\n') i++;
+                    row.push(cell); rows.push(row); row = []; cell = '';
+                } else cell += c;
             }
-            out.push(cell);
-            return out;
+            row.push(cell); rows.push(row);
+            return rows.filter(r => r.join('').trim() !== '');
         };
 
-        const text  = (await file.text()).replace(/^﻿/, '');   // Excel's BOM
-        const lines = text.split(/\r\n|\r|\n/).filter(l => l.replace(/[\s,]/g, '') !== '');
+        const rows = parse((await file.text()).replace(/^\uFEFF/, ''));   // Excel's BOM
 
-        if (!lines.length) return invalid;
+        if (!rows.length) return invalid;
 
-        const headers = splitRow(lines.shift()).map(h => h.trim().replace(/\s+/g, ' ').toLowerCase());
+        const headers = rows.shift().map(h => h.trim().replace(/\s+/g, ' ').toLowerCase());
         const column  = headers.findIndex(h => h === 'sku' || h === 'item sku');
 
         if (column === -1) return invalid;
 
-        if (!lines.some(l => (splitRow(l)[column] || '').trim() !== '')) {
+        if (!rows.some(r => (r[column] || '').trim() !== '')) {
             return 'The CSV has a SKU column but no SKUs under it. Please check the file and upload it again.';
         }
 

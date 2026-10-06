@@ -43,6 +43,7 @@
 
     $needsCopy = $request->needsContentCount();
     $unchecked = $request->sheetUncheckedCount();
+    $notOnSheet = $request->skusNotOnSheet()->count();
 
     $card    = 'bg-white rounded-xl border border-gray-200 shadow-sm';
     $btn     = 'inline-flex items-center justify-center gap-1.5 rounded-lg text-sm font-medium px-3.5 py-2 transition-colors';
@@ -214,8 +215,12 @@
 
             @if($needsCopy > 0)
                 <div class="rounded-xl bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-900 flex flex-wrap items-center justify-between gap-2">
-                    <span><span class="font-medium">Awaiting content.</span> The sheet has no description for {{ number_format($needsCopy) }} product(s).</span>
+                    <span><span class="font-medium">Awaiting content.</span> {{ number_format($needsCopy) }} product(s) have no description in the uploaded file or the sheet.</span>
                     <div class="flex gap-2">
+                        <form method="POST" action="{{ route('product-requests.check-sheet-copy', $request) }}">
+                            @csrf
+                            <button type="submit" class="{{ $small }} bg-white border border-amber-300 hover:bg-amber-100">Check again</button>
+                        </form>
                         <form method="POST" action="{{ route('product-requests.ai-content', $request) }}">
                             @csrf
                             <input type="hidden" name="scope" value="missing_description">
@@ -230,7 +235,36 @@
                         </form>
                     </div>
                 </div>
-            @elseif($unchecked > 0)
+            @endif
+
+            {{-- Looked for and not found: whether copy exists is unknown, so the
+                 person decides — look again, or confirm none is coming. --}}
+            @if($notOnSheet > 0)
+                <div class="rounded-xl bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-900 flex flex-wrap items-center justify-between gap-2">
+                    <span><span class="font-medium">Not on the sheet.</span> {{ number_format($notOnSheet) }} product(s) weren't found on the sheet's {{ $request->category }} tab, so it's not known whether the brand team wrote copy.</span>
+                    <div class="flex gap-2">
+                        <form method="POST" action="{{ route('product-requests.check-sheet-copy', $request) }}">
+                            @csrf
+                            <button type="submit" class="{{ $small }} bg-white border border-amber-300 hover:bg-amber-100">Check again</button>
+                        </form>
+                        <form method="POST" action="{{ route('product-requests.ai-content', $request) }}">
+                            @csrf
+                            <input type="hidden" name="scope" value="not_on_sheet">
+                            <input type="hidden" name="answer" value="generate">
+                            <button type="submit" class="{{ $small }} bg-brand-600 hover:bg-brand-700 text-white"
+                                    onclick="return confirm('Generate descriptions for {{ $notOnSheet }} product(s) that are not on the sheet?')">Generate anyway</button>
+                        </form>
+                        <form method="POST" action="{{ route('product-requests.ai-content', $request) }}">
+                            @csrf
+                            <input type="hidden" name="scope" value="not_on_sheet">
+                            <input type="hidden" name="answer" value="skip">
+                            <button type="submit" class="{{ $small }} bg-white border border-amber-300 hover:bg-amber-100">Skip</button>
+                        </form>
+                    </div>
+                </div>
+            @endif
+
+            @if($needsCopy === 0 && $notOnSheet === 0 && $unchecked > 0)
                 {{-- Null is "nobody read the sheet", not "the sheet is blank".
                      Offering to generate on that risks writing over copy the
                      brand team did supply. --}}
@@ -319,7 +353,7 @@
                             $steps = collect($phase['stages'])->map(fn ($s) => $request->stageLabel($s))->implode(' → ');
                             // Moved past the content stage is not the same as having
                             // content: say what is missing rather than tick it off.
-                            $gap = $phase['key'] === 'content' && $phase['state'] === 'done' && $needsCopy > 0;
+                            $gap = $phase['key'] === 'content' && $phase['state'] === 'done' && ($needsCopy + $notOnSheet + $unchecked) > 0;
                         @endphp
                         <div class="flex-1 min-w-0" title="{{ $steps }}">
                             <div class="h-1.5 rounded-full bg-gray-100 overflow-hidden">

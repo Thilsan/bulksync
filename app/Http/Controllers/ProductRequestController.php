@@ -653,6 +653,7 @@ class ProductRequestController extends Controller implements HasMiddleware
         ]);
 
         $this->mapping->syncSkus($productRequest, $skus);
+        $this->applyCsvCopy($productRequest);
 
         // Reference images are attached from the request page, not at submission.
         $this->storeAttachments($request, $productRequest, $user, 'content_sheet', ProductRequestAttachment::KIND_CONTENT);
@@ -918,6 +919,7 @@ class ProductRequestController extends Controller implements HasMiddleware
         $added = count($merged) - $productRequest->skus()->count();
 
         $this->mapping->syncSkus($productRequest, $merged);
+        $this->applyCsvCopy($productRequest);
 
         $this->storeAttachments($request, $productRequest, $user, 'sku_csv', ProductRequestAttachment::KIND_SKU_FILE);
 
@@ -1324,8 +1326,8 @@ class ProductRequestController extends Controller implements HasMiddleware
         }
 
         if ($result['checked'] === 0) {
-            return back()->with('warning', 'None of these SKUs are on the sheet, so no copy is coming from the brand team. '
-                . 'Generate the content with AI, or skip it.');
+            return back()->with('warning', "None of these SKUs were found on the sheet's \"{$productRequest->category}\" tab, "
+                . 'so it is not known whether the brand team wrote copy for them.');
         }
 
         $message = "Sheet checked against the \"{$result['column']}\" column: "
@@ -1680,9 +1682,17 @@ class ProductRequestController extends Controller implements HasMiddleware
         $this->authorizeView($productRequest, $user);
 
         $data  = $request->validate([
-            'scope'  => 'nullable|in:all,missing_description',
+            'scope'  => 'nullable|in:all,missing_description,not_on_sheet',
             'answer' => 'nullable|in:generate,skip',
         ]);
+
+        // SKUs the sheet did not have: answering is the person confirming no
+        // copy is coming for them, which turns them into ordinary blank ones.
+        if (($data['scope'] ?? null) === 'not_on_sheet') {
+            $productRequest->skusNotOnSheet()->update(['sheet_has_description' => false]);
+            $data['scope'] = 'missing_description';
+        }
+
         $onlyBlank = ($data['scope'] ?? 'all') === 'missing_description';
 
         abort_if($productRequest->isClosed(), 403, 'This request is closed.');
@@ -2097,10 +2107,26 @@ class ProductRequestController extends Controller implements HasMiddleware
     /** Header names a SKU CSV may use for its SKU column, compared case-insensitively. */
     private const SKU_CSV_HEADERS = ['sku', 'item sku'];
 
+    /** Its copy column, most specific first. */
+    private const COPY_CSV_HEADERS = ['long description', 'description'];
+
+    /**
+     * SKU => whether the uploaded CSV carries a description for it, or null
+     * when the file has no description column. Set by skusFromCsv(), written
+     * onto the SKUs by applyCsvCopy() once they exist.
+     *
+     * @var array<string, bool>|null
+     */
+    private ?array $csvCopy = null;
+
     /**
      * Reads the SKUs from the "SKU" or "Item SKU" column, wherever it sits.
      * A file without either header is refused rather than guessed at: taking
      * the first column of an arbitrary sheet files barcodes or names as SKUs.
+     *
+     * Read as CSV, not line by line: a Long Description often runs over
+     * several lines inside quotes, and splitting on newlines would cut those
+     * rows in half.
      *
      * @throws ValidationException
      */
@@ -2108,20 +2134,28 @@ class ProductRequestController extends Controller implements HasMiddleware
     {
         $invalid = 'Please upload a valid CSV. Its first row must have a column named "SKU" or "Item SKU".';
 
-        $content = preg_replace('/^\xEF\xBB\xBF/', '', (string) file_get_contents($path));   // Excel's BOM
-        $lines   = array_values(array_filter(
-            preg_split('/\r\n|\r|\n/', $content),
-            fn ($line) => trim($line, " \t,") !== '',
-        ));
+        $handle = fopen($path, 'r');
+        $rows   = [];
 
-        if ($lines === []) {
+        while ($handle && ($row = fgetcsv($handle, null, ',', '"', '')) !== false) {
+            if (trim(implode('', array_map('strval', $row)), " \t") !== '') {
+                $rows[] = $row;
+            }
+        }
+
+        if ($handle) {
+            fclose($handle);
+        }
+
+        if ($rows === []) {
             throw ValidationException::withMessages(['sku_csv' => $invalid]);
         }
 
         $headers = array_map(
             fn ($h) => strtolower(preg_replace('/\s+/', ' ', trim((string) $h))),
-            str_getcsv(array_shift($lines)),
+            array_shift($rows),
         );
+        $headers[0] = preg_replace('/^\xEF\xBB\xBF/', '', $headers[0]);   // Excel's BOM
 
         $column = null;
         foreach ($headers as $i => $header) {
@@ -2135,10 +2169,24 @@ class ProductRequestController extends Controller implements HasMiddleware
             throw ValidationException::withMessages(['sku_csv' => $invalid]);
         }
 
+        $copyColumn = null;
+        foreach (self::COPY_CSV_HEADERS as $name) {
+            if (($at = array_search($name, $headers, true)) !== false) {
+                $copyColumn = $at;
+                break;
+            }
+        }
+
         $skus = [];
-        foreach ($lines as $line) {
-            if ($sku = trim(str_getcsv($line)[$column] ?? '')) {
+        $copy = [];
+        foreach ($rows as $row) {
+            if ($sku = trim((string) ($row[$column] ?? ''))) {
                 $skus[] = $sku;
+
+                if ($copyColumn !== null) {
+                    $has        = filled(trim(strip_tags((string) ($row[$copyColumn] ?? ''))));
+                    $copy[$sku] = ($copy[$sku] ?? false) || $has;   // a repeated SKU counts if any row has copy
+                }
             }
         }
 
@@ -2148,6 +2196,31 @@ class ProductRequestController extends Controller implements HasMiddleware
             ]);
         }
 
+        $this->csvCopy = $copyColumn === null ? null : $copy;
+
         return $skus;
+    }
+
+    /**
+     * Record which SKUs the uploaded CSV already has a description for.
+     *
+     * The same answer the sheet check gives, so a request only offers to write
+     * copy for the SKUs whose Description / Long Description cell was empty.
+     * A file with no such column says nothing, and the sheet check still can.
+     */
+    private function applyCsvCopy(ProductRequest $productRequest): void
+    {
+        if ($this->csvCopy === null) {
+            return;
+        }
+
+        foreach ([true, false] as $has) {
+            $skus = array_keys(array_filter($this->csvCopy, fn ($v) => $v === $has));
+
+            foreach (array_chunk($skus, 500) as $chunk) {
+                $productRequest->skus()->whereIn('sku', $chunk)
+                    ->update(['sheet_has_description' => $has, 'sheet_checked_at' => now()]);
+            }
+        }
     }
 }
