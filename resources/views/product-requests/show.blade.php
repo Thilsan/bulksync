@@ -101,6 +101,37 @@
         </div>
 
         @unless($closed && !$me->is_super_admin)
+        <div class="flex items-center gap-2">
+        {{-- Publishing by hand, for when the products are live and nobody wants
+             to wait for the hourly check. Same rules as before: never while the
+             photoshoot is outstanding, and anything going live incomplete is
+             said out loud first. --}}
+        @unless($closed)
+            @php
+                $canPublish = $request->canTransitionTo(\App\Models\ProductRequest::PUBLISHED);
+                $publishWarn = collect($request->publishGaps())
+                    ->when(!$request->isLiveOnShopify(), fn ($c) => $c->push('not every product shows as live on Shopify yet'))
+                    ->map(fn ($g) => '• ' . $g)->implode("\n");
+            @endphp
+            @if($canPublish)
+                <form method="POST" action="{{ route('product-requests.transition', $request) }}"
+                      onsubmit="return confirm(@js('Mark ' . $request->reference . ' as Published? This closes the request.' . ($publishWarn ? "\n\nGoing live without:\n" . $publishWarn : '')))">
+                    @csrf
+                    <input type="hidden" name="to_status" value="{{ \App\Models\ProductRequest::PUBLISHED }}">
+                    <button type="submit" class="{{ $btnMain }}">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                        Publish
+                    </button>
+                </form>
+            @else
+                <span class="{{ $btn }} bg-gray-100 text-gray-400 cursor-not-allowed"
+                      title="{{ $request->publishBlockedBecause() ?? 'Not available from ' . $request->statusLabel() }}">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                    Publish
+                </span>
+            @endif
+        @endunless
+
         {{-- Everything rarely needed lives behind one button. Stages move on
              their own, so there is no "next" button — only a correction tool
              for super admins. --}}
@@ -138,6 +169,7 @@
                     </form>
                 @endif
             </div>
+        </div>
         </div>
         @endunless
     </div>
