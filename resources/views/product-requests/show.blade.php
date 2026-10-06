@@ -728,151 +728,185 @@
                     @endforeach
                 </div>
 
-                {{-- Tab: details --}}
-                <div x-show="tab === 'details'" class="px-5 py-5">
+                {{-- Tab: details — three small groups of tiles; Edit turns the tiles into fields --}}
+                <div x-show="tab === 'details'" class="px-6 py-5">
                     <form method="POST" action="{{ route('product-requests.update', $request) }}">
                         @csrf
                         @method('PUT')
 
-                        @php $input = 'w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500'; @endphp
+                        @php
+                            $input = 'w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500';
+                            $tile  = 'rounded-xl bg-gray-50/80 border border-gray-100 px-4 py-3 min-w-0';
+                            $tileL = 'block text-xs text-gray-500 mb-1';
+                            $tileV = 'text-sm font-medium text-gray-900 break-words';
+                            $group = 'text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2.5 flex items-center gap-2';
+                        @endphp
 
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-x-10 [&>div]:py-3 [&>div]:border-b [&>div]:border-gray-100">
-                            @foreach([
-                                ['name', 'Request name', 'text', false],
-                                ['brand', 'Brand', 'text', true],
-                            ] as [$field, $label, $type, $required])
-                                <div>
-                                    <label class="block text-xs text-gray-500 mb-1">{{ $label }}</label>
-                                    <template x-if="!editing">
-                                        <p class="text-sm text-gray-900">{{ $request->{$field} ?: '—' }}</p>
-                                    </template>
-                                    <input x-show="editing" x-cloak type="{{ $type }}" name="{{ $field }}"
-                                           value="{{ old($field, $request->{$field}) }}" {{ $required ? 'required' : '' }} class="{{ $input }}">
-                                </div>
-                            @endforeach
-
-                            <div>
-                                <label class="block text-xs text-gray-500 mb-1">Category</label>
-                                <template x-if="!editing">
-                                    <p class="text-sm text-gray-900">{{ $request->category ?: '—' }}</p>
-                                </template>
-                                <select x-show="editing" x-cloak name="category" required class="{{ $input }}">
-                                    @foreach($request->categoryOptions() as $category)
-                                        <option value="{{ $category }}" {{ old('category', $request->category) === $category ? 'selected' : '' }}>{{ $category }}</option>
-                                    @endforeach
-                                </select>
-                            </div>
-
-                            <div>
-                                <label class="block text-xs text-gray-500 mb-1">Priority</label>
-                                <template x-if="!editing">
-                                    <p class="text-sm text-gray-900">{{ $request->priorityLabel() }}</p>
-                                </template>
-                                <select x-show="editing" x-cloak name="priority" class="{{ $input }}">
-                                    @foreach(\App\Models\ProductRequest::PRIORITIES as $value => $label)
-                                        <option value="{{ $value }}" @selected($request->priority === $value)>{{ $label }}</option>
-                                    @endforeach
-                                </select>
-                            </div>
-
-                            <div>
-                                <label class="block text-xs text-gray-500 mb-1">Website Go-Live Date</label>
-                                <template x-if="!editing">
-                                    <p class="text-sm text-gray-900">{{ $request->launchLabel() ?? '—' }}</p>
-                                </template>
-                                <input x-show="editing" x-cloak type="datetime-local" name="online_launch_date" required
-                                       value="{{ old('online_launch_date', $request->online_launch_date?->format('Y-m-d\TH:i')) }}" class="{{ $input }}">
-                            </div>
-
-                            <div>
-                                <label class="block text-xs text-gray-500 mb-1">Expected showroom launch</label>
-                                <template x-if="!editing">
-                                    <p class="text-sm text-gray-900">{{ $request->store_launch_date?->format('d M Y') ?? '—' }}</p>
-                                </template>
-                                <input x-show="editing" x-cloak type="date" name="store_launch_date"
-                                       value="{{ old('store_launch_date', $request->store_launch_date?->format('Y-m-d')) }}" class="{{ $input }}">
-                            </div>
-
-                            <div>
-                                <label class="block text-xs text-gray-500 mb-1">Images</label>
-                                <template x-if="!editing">
-                                    <p class="text-sm text-gray-900">{{ $request->imageSourceLabel() }}</p>
-                                </template>
-                                <select x-show="editing" x-cloak name="image_source" class="{{ $input }}">
-                                    @foreach($request->imageSourceOptions() as $value => $meta)
-                                        <option value="{{ $value }}" @selected($request->image_source === $value)>{{ $meta['label'] }}</option>
-                                    @endforeach
-                                </select>
-                            </div>
-
-                            {{-- Where the supplier images actually are. --}}
-                            <div @class(['hidden' => !$request->needsImageLocation()])>
-                                <label class="block text-xs text-gray-500 mb-1">Images location</label>
-                                <template x-if="!editing">
-                                    <p class="text-sm text-gray-900 break-all">
-                                        @if($request->imagesInPim())
-                                            Already in the Brand PIM
-                                        @elseif($request->images_url)
-                                            <a href="{{ $request->images_url }}" target="_blank" rel="noopener" title="{{ $request->images_url }}"
-                                               class="inline-flex items-center gap-1 text-brand-600 hover:text-brand-700 font-medium">Open folder &nearr;</a>
-                                        @else
-                                            <span class="text-amber-600">Not added yet</span>
-                                        @endif
-                                    </p>
-                                </template>
-                                <div x-show="editing" x-cloak class="space-y-2">
-                                    <select name="images_location" class="{{ $input }}">
-                                        <option value="">Not recorded</option>
-                                        @foreach(\App\Models\ProductRequest::IMAGE_LOCATIONS as $value => $label)
-                                            <option value="{{ $value }}" @selected($request->images_location === $value)>{{ $label }}</option>
-                                        @endforeach
-                                    </select>
-                                    <input type="url" name="images_url" maxlength="2048" value="{{ old('images_url', $request->images_url) }}"
-                                           placeholder="https://… link to the folder" class="{{ $input }}">
-                                </div>
-                            </div>
-
-                            <div @class(['hidden' => !$request->needsPhotoshoot() && !$request->photoshoot_scheduled_at])>
-                                <label class="block text-xs text-gray-500 mb-1">Photoshoot</label>
-                                <template x-if="!editing">
-                                    <p class="text-sm text-gray-900">
-                                        {{ $request->photoshoot_scheduled_at?->format('d M Y, H:i') ?? '—' }}
-                                        @if($request->photoshoot_status)
-                                            <a href="{{ route('product-requests.photoshoot-room') }}"
-                                               class="ml-1 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border {{ $request->shootStatusColor() }}">{{ $request->shootStatusLabel() }}</a>
-                                        @endif
-                                    </p>
-                                </template>
-                                <input x-show="editing" x-cloak type="datetime-local" name="photoshoot_scheduled_at"
-                                       value="{{ old('photoshoot_scheduled_at', $request->photoshoot_scheduled_at?->format('Y-m-d\TH:i')) }}" class="{{ $input }}">
-                            </div>
-
-                            <div>
-                                <label class="block text-xs text-gray-500 mb-1">Descriptions</label>
-                                <template x-if="!editing">
-                                    <p class="text-sm text-gray-900">{{ $request->use_ai_content ? 'Written with AI' : 'From brand team' }}</p>
-                                </template>
-                                <select x-show="editing" x-cloak name="use_ai_content" class="{{ $input }}">
-                                    <option value="1" @selected($request->use_ai_content)>Written with AI</option>
-                                    <option value="0" @selected(!$request->use_ai_content)>From brand team</option>
-                                </select>
-                            </div>
-
-                            <div class="md:col-span-2">
-                                <label class="block text-xs text-gray-500 mb-1">Notes</label>
-                                <template x-if="!editing">
-                                    <p class="text-sm text-gray-900 whitespace-pre-line">{{ $request->notes ?: '—' }}</p>
-                                </template>
-                                <textarea x-show="editing" x-cloak name="notes" rows="3" class="{{ $input }} resize-y">{{ old('notes', $request->notes) }}</textarea>
-                            </div>
+                        <div class="flex items-center justify-between mb-4">
+                            <p class="text-sm text-gray-500" x-show="!editing">Everything about this request.</p>
+                            <p class="text-sm font-medium text-brand-700" x-show="editing" x-cloak>Editing — change what you need, then Save.</p>
+                            @unless($closed)
+                                <button type="button" x-show="!editing" @click="editing = true" class="{{ $small }} border border-gray-300 bg-white text-gray-700 hover:bg-gray-50">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+                                    Edit
+                                </button>
+                            @endunless
                         </div>
 
-                        <div class="flex gap-2 mt-5 pt-4 border-t border-gray-100">
-                            @unless($closed)
-                                <button type="button" x-show="!editing" @click="editing = true" class="{{ $small }} border border-gray-300 text-gray-700 hover:bg-gray-50">Edit</button>
-                            @endunless
-                            <button type="submit" x-show="editing" x-cloak class="{{ $btnMain }}">Save</button>
-                            <button type="button" x-show="editing" x-cloak @click="editing = false" class="{{ $btnAlt }}">Cancel</button>
+                        <div class="space-y-6">
+                            {{-- Product --}}
+                            <section>
+                                <h4 class="{{ $group }}">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+                                    Product
+                                </h4>
+                                <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+                                    @foreach([['name', 'Request name', false], ['brand', 'Brand', true]] as [$field, $label, $required])
+                                        <div class="{{ $tile }}">
+                                            <label class="{{ $tileL }}">{{ $label }}</label>
+                                            <template x-if="!editing"><p class="{{ $tileV }}">{{ $request->{$field} ?: '—' }}</p></template>
+                                            <input x-show="editing" x-cloak type="text" name="{{ $field }}" value="{{ old($field, $request->{$field}) }}" {{ $required ? 'required' : '' }} class="{{ $input }}">
+                                        </div>
+                                    @endforeach
+
+                                    <div class="{{ $tile }}">
+                                        <label class="{{ $tileL }}">Category</label>
+                                        <template x-if="!editing"><p class="{{ $tileV }}">{{ $request->category ?: '—' }}</p></template>
+                                        <select x-show="editing" x-cloak name="category" required class="{{ $input }}">
+                                            @foreach($request->categoryOptions() as $category)
+                                                <option value="{{ $category }}" {{ old('category', $request->category) === $category ? 'selected' : '' }}>{{ $category }}</option>
+                                            @endforeach
+                                        </select>
+                                    </div>
+
+                                    <div class="{{ $tile }}">
+                                        <label class="{{ $tileL }}">Priority</label>
+                                        <template x-if="!editing">
+                                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border {{ $request->priorityColor() }}">{{ $request->priorityLabel() }}</span>
+                                        </template>
+                                        <select x-show="editing" x-cloak name="priority" class="{{ $input }}">
+                                            @foreach(\App\Models\ProductRequest::PRIORITIES as $value => $label)
+                                                <option value="{{ $value }}" @selected($request->priority === $value)>{{ $label }}</option>
+                                            @endforeach
+                                        </select>
+                                    </div>
+                                </div>
+                            </section>
+
+                            {{-- Dates --}}
+                            <section>
+                                <h4 class="{{ $group }}">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                                    Dates
+                                </h4>
+                                <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+                                    <div class="{{ $tile }}">
+                                        <label class="{{ $tileL }}">Website Go-Live Date</label>
+                                        <template x-if="!editing"><p class="{{ $tileV }}">{{ $request->launchLabel() ?? '—' }}</p></template>
+                                        <input x-show="editing" x-cloak type="datetime-local" name="online_launch_date" required
+                                               value="{{ old('online_launch_date', $request->online_launch_date?->format('Y-m-d\TH:i')) }}" class="{{ $input }}">
+                                    </div>
+
+                                    <div class="{{ $tile }}">
+                                        <label class="{{ $tileL }}">Expected showroom launch</label>
+                                        <template x-if="!editing"><p class="{{ $tileV }}">{{ $request->store_launch_date?->format('d M Y') ?? '—' }}</p></template>
+                                        <input x-show="editing" x-cloak type="date" name="store_launch_date"
+                                               value="{{ old('store_launch_date', $request->store_launch_date?->format('Y-m-d')) }}" class="{{ $input }}">
+                                    </div>
+
+                                    <div @class([$tile, 'hidden' => !$request->needsPhotoshoot() && !$request->photoshoot_scheduled_at])>
+                                        <label class="{{ $tileL }}">Photoshoot</label>
+                                        <template x-if="!editing">
+                                            <p class="{{ $tileV }} flex items-center gap-1.5">
+                                                {{ $request->photoshoot_scheduled_at?->format('d M Y, H:i') ?? 'Not booked' }}
+                                                @if($request->photoshoot_status)
+                                                    <a href="{{ route('product-requests.photoshoot-room') }}"
+                                                       class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium border {{ $request->shootStatusColor() }}">{{ $request->shootStatusLabel() }}</a>
+                                                @endif
+                                            </p>
+                                        </template>
+                                        <input x-show="editing" x-cloak type="datetime-local" name="photoshoot_scheduled_at"
+                                               value="{{ old('photoshoot_scheduled_at', $request->photoshoot_scheduled_at?->format('Y-m-d\TH:i')) }}" class="{{ $input }}">
+                                    </div>
+                                </div>
+                            </section>
+
+                            {{-- Images & descriptions --}}
+                            <section>
+                                <h4 class="{{ $group }}">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                                    Images &amp; descriptions
+                                </h4>
+                                <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+                                    <div class="{{ $tile }}">
+                                        <label class="{{ $tileL }}">Images</label>
+                                        <template x-if="!editing"><p class="{{ $tileV }}">{{ $request->imageSourceLabel() }}</p></template>
+                                        <select x-show="editing" x-cloak name="image_source" class="{{ $input }}">
+                                            @foreach($request->imageSourceOptions() as $value => $meta)
+                                                <option value="{{ $value }}" @selected($request->image_source === $value)>{{ $meta['label'] }}</option>
+                                            @endforeach
+                                        </select>
+                                    </div>
+
+                                    {{-- Where the supplier images actually are. --}}
+                                    <div @class([$tile, 'hidden' => !$request->needsImageLocation()])>
+                                        <label class="{{ $tileL }}">Images location</label>
+                                        <template x-if="!editing">
+                                            <p class="{{ $tileV }}">
+                                                @if($request->imagesInPim())
+                                                    Already in the Brand PIM
+                                                @elseif($request->images_url)
+                                                    <a href="{{ $request->images_url }}" target="_blank" rel="noopener" title="{{ $request->images_url }}"
+                                                       class="inline-flex items-center gap-1 text-brand-600 hover:text-brand-700">Open folder &nearr;</a>
+                                                @else
+                                                    <span class="text-amber-600">Not added yet</span>
+                                                @endif
+                                            </p>
+                                        </template>
+                                        <div x-show="editing" x-cloak class="space-y-2">
+                                            <select name="images_location" class="{{ $input }}">
+                                                <option value="">Not recorded</option>
+                                                @foreach(\App\Models\ProductRequest::IMAGE_LOCATIONS as $value => $label)
+                                                    <option value="{{ $value }}" @selected($request->images_location === $value)>{{ $label }}</option>
+                                                @endforeach
+                                            </select>
+                                            <input type="url" name="images_url" maxlength="2048" value="{{ old('images_url', $request->images_url) }}"
+                                                   placeholder="https://… link to the folder" class="{{ $input }}">
+                                        </div>
+                                    </div>
+
+                                    <div class="{{ $tile }}">
+                                        <label class="{{ $tileL }}">Descriptions</label>
+                                        <template x-if="!editing">
+                                            <p class="{{ $tileV }} flex items-center gap-1.5">
+                                                <span class="w-2 h-2 rounded-full {{ $request->use_ai_content ? 'bg-violet-500' : 'bg-sky-500' }}"></span>
+                                                {{ $request->use_ai_content ? 'Written with AI' : 'From brand team' }}
+                                            </p>
+                                        </template>
+                                        <select x-show="editing" x-cloak name="use_ai_content" class="{{ $input }}">
+                                            <option value="1" @selected($request->use_ai_content)>Written with AI</option>
+                                            <option value="0" @selected(!$request->use_ai_content)>From brand team</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </section>
+
+                            {{-- Notes --}}
+                            <section>
+                                <h4 class="{{ $group }}">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z"/></svg>
+                                    Notes
+                                </h4>
+                                <template x-if="!editing">
+                                    <p class="rounded-xl border border-dashed border-gray-200 px-4 py-3 text-sm whitespace-pre-line {{ $request->notes ? 'text-gray-800' : 'text-gray-400' }}">{{ $request->notes ?: 'No notes.' }}</p>
+                                </template>
+                                <textarea x-show="editing" x-cloak name="notes" rows="3" placeholder="Anything the team should know" class="{{ $input }} resize-y">{{ old('notes', $request->notes) }}</textarea>
+                            </section>
+                        </div>
+
+                        <div x-show="editing" x-cloak class="flex justify-end gap-2 mt-6 pt-4 border-t border-gray-100">
+                            <button type="button" @click="editing = false" class="{{ $btnAlt }}">Cancel</button>
+                            <button type="submit" class="{{ $btnMain }}">Save changes</button>
                         </div>
                     </form>
                 </div>
