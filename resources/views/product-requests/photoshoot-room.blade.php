@@ -106,7 +106,7 @@
 
     {{-- Calendar --}}
     <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-        <div class="px-5 py-3.5 border-b border-gray-100 flex items-center justify-between gap-3">
+        <div class="px-4 py-2.5 border-b border-gray-100 flex items-center justify-between gap-3">
             <div class="flex items-center gap-2">
                 <a href="{{ route('product-requests.photoshoot-room', array_filter(['month' => $month->copy()->subMonth()->format('Y-m'), 'status' => $filter ?: null])) }}"
                    class="w-8 h-8 rounded-lg border border-gray-300 flex items-center justify-center text-gray-500 hover:bg-gray-50" aria-label="Previous month">
@@ -140,17 +140,17 @@
 
         <div class="grid grid-cols-7 border-b border-gray-100 bg-gray-50/60">
             @foreach(['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as $dayName)
-                <div class="px-2 py-2 text-[11px] font-semibold uppercase tracking-wide text-gray-400 text-center">{{ $dayName }}</div>
+                <div class="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400 text-center">{{ $dayName }}</div>
             @endforeach
         </div>
 
         <div class="grid grid-cols-7">
             @foreach($weeks as $week)
                 @foreach($week as $day)
-                    <div class="min-h-[104px] border-b border-r border-gray-100 px-1.5 py-1.5
+                    <div class="min-h-[56px] border-b border-r border-gray-100 px-1 py-1
                                 {{ $day['inMonth'] ? '' : 'bg-gray-50/50' }}
                                 {{ $day['date']->isToday() ? 'bg-brand-50/40' : '' }}">
-                        <p class="text-xs mb-1 px-0.5 flex items-center justify-between">
+                        <p class="text-[11px] mb-0.5 px-0.5 flex items-center justify-between">
                             <span class="{{ $day['inMonth'] ? 'text-gray-600' : 'text-gray-300' }}
                                          {{ $day['date']->isToday() ? 'font-bold text-brand-700' : '' }}">
                                 {{ $day['date']->format('j') }}
