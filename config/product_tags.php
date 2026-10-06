@@ -891,10 +891,7 @@ return [
                     'Mens Fashion',
                     'Our Exclusives',
                     'scat: Sportswear',
-                    'Sports Tops & T-Shirts',
                     'Sportswear',
-                    'Sweatpants',
-                    'Tank Top',
                 ],
 
                 'Caps & Hats' => [
