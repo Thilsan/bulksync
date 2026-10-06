@@ -1149,9 +1149,8 @@
                             @endphp
                             <div x-show="visible(@js($sku->sku), @js($sku->shopify_product_title), @js($sku->mapping_status), {{ $live ? 'true' : 'false' }}, {{ $pub ? 'true' : 'false' }})"
                                  @if($live) @mouseenter="hoverIn(@js($sku->sku))" @mouseleave="hoverOut()" @endif
-                                 :class="peek === @js($sku->sku) && 'z-20'"
                                  class="relative rounded-2xl border transition-colors"
-                                 :class="open === @js($sku->sku) ? 'border-brand-300 shadow-sm' : 'border-gray-200 hover:border-gray-300'">
+                                 :class="open === @js($sku->sku) || (peek === @js($sku->sku) && !open) ? 'border-brand-300 shadow-sm' : 'border-gray-200 hover:border-gray-300'">
                                 <div class="flex items-center gap-3 px-4 py-3 {{ $live ? 'cursor-pointer' : '' }}"
                                      @if($live) role="button" tabindex="0" @click="toggle(@js($sku->sku))" @keydown.enter.prevent="toggle(@js($sku->sku))" @endif>
                                     <span class="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 {{ $live ? ($pub ? 'bg-emerald-50 text-emerald-600' : 'bg-gray-100 text-gray-500') : 'bg-amber-50 text-amber-500' }}">
@@ -1188,7 +1187,7 @@
                                         <span class="shrink-0 inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors"
                                               :class="open === @js($sku->sku) ? 'bg-brand-600 text-white' : 'bg-gray-50 text-brand-700 group-hover:bg-gray-100'">
                                             <span x-text="open === @js($sku->sku) ? 'Hide' : 'Colours & sizes'">Colours &amp; sizes</span>
-                                            <svg class="w-3.5 h-3.5 transition-transform" :class="open === @js($sku->sku) && 'rotate-180'" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>
+                                            <svg class="w-3.5 h-3.5 transition-transform" :class="(open === @js($sku->sku) || (peek === @js($sku->sku) && !open)) && 'rotate-180'" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>
                                         </span>
                                     @endif
                                 </div>
@@ -1197,25 +1196,14 @@
                                     {{-- The panel reads this SKU's cache entry under the names the shared partial expects. --}}
                                     @php $scope = "{ get breakdown() { return cache[" . \Illuminate\Support\Js::from($sku->sku) . "]?.data }, get breakdownLoading() { return cache[" . \Illuminate\Support\Js::from($sku->sku) . "]?.loading ?? true }, get breakdownError() { return cache[" . \Illuminate\Support\Js::from($sku->sku) . "]?.error } }"; @endphp
 
-                                    {{-- Pinned: opened by a click, inside the row --}}
-                                    <div x-show="open === @js($sku->sku)" x-cloak x-transition.opacity
-                                         class="border-t border-gray-100 bg-gray-50/70 px-4 pb-4 rounded-b-2xl">
-                                        <template x-if="open === @js($sku->sku)">
-                                            <div x-data="{!! $scope !!}">
-                                                @include('partials.variant-breakdown')
-                                            </div>
-                                        </template>
-                                    </div>
-
-                                    {{-- Peek: on hover, floating over the rows below --}}
-                                    <div x-show="peek === @js($sku->sku) && open !== @js($sku->sku)" x-cloak
-                                         x-transition:enter="transition ease-out duration-150" x-transition:enter-start="opacity-0 translate-y-1" x-transition:enter-end="opacity-100 translate-y-0"
+                                    {{-- Opened by a click (stays) or by hovering (closes when you move away), inside the row either way --}}
+                                    <div x-show="open === @js($sku->sku) || (peek === @js($sku->sku) && !open)" x-cloak
+                                         x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0 -translate-y-1" x-transition:enter-end="opacity-100 translate-y-0"
                                          x-transition:leave="transition ease-in duration-100" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"
-                                         class="absolute left-3 right-3 top-full mt-1.5 rounded-2xl border border-gray-200 bg-white shadow-2xl px-4 pb-4 max-h-[26rem] overflow-y-auto">
-                                        <template x-if="peek === @js($sku->sku)">
+                                         class="border-t border-gray-100 bg-gray-50/70 px-4 pb-4 rounded-b-2xl">
+                                        <template x-if="open === @js($sku->sku) || peek === @js($sku->sku)">
                                             <div x-data="{!! $scope !!}">
                                                 @include('partials.variant-breakdown')
-                                                <p class="mt-3 text-[11px] text-gray-400">Click the row to keep this open.</p>
                                             </div>
                                         </template>
                                     </div>
