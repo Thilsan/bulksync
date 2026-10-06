@@ -72,6 +72,7 @@
                       }
                   },
                   onlineDate: '{{ old('online_launch_date') }}',
+                  showroomDate: '{{ old('store_launch_date') }}',
                   todayIso: '{{ now()->format('Y-m-d\TH:i') }}',
                   {{-- Js::from, not a quoted string — "Men's Fashion" would break out of it. --}}
                   category: {{ Illuminate\Support\Js::from(old('category', '')) }},
@@ -134,11 +135,19 @@
                                 </div>
 
                                 <div class="rounded-lg border border-gray-200 bg-white p-3">
-                                    <label class="block text-xs font-medium text-gray-500 mb-1.5">Go-live date</label>
+                                    <label class="block text-xs font-medium text-gray-500 mb-1.5">Website Go-Live Date</label>
                                     @include('product-requests.partials.date-picker', [
                                         'name' => 'online_launch_date', 'model' => 'onlineDate', 'placeholder' => 'Pick a date',
                                     ])
                                     <p x-show="onlineDate && onlineDate < todayIso" x-cloak class="text-xs text-amber-700 mt-1.5">This date is in the past.</p>
+                                </div>
+
+                                <div class="rounded-lg border border-gray-200 bg-white p-3">
+                                    <label class="block text-xs font-medium text-gray-500 mb-1.5">Expected showroom launch <span class="font-normal text-gray-400">(optional)</span></label>
+                                    @include('product-requests.partials.date-picker', [
+                                        'name' => 'store_launch_date', 'model' => 'showroomDate', 'placeholder' => 'Pick a date',
+                                        'dateOnly' => true, 'required' => false,
+                                    ])
                                 </div>
 
                                 <div class="rounded-lg border border-gray-200 bg-white p-3">

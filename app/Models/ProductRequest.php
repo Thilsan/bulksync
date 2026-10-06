@@ -680,7 +680,7 @@ class ProductRequest extends Model
             'sheet_request_date'        => 'date',
             'photoshoot_decided_at'     => 'datetime',
             'image_requested_at'        => 'datetime',
-            'store_launch_date'         => 'date',    // legacy: no longer collected
+            'store_launch_date'         => 'date',    // expected showroom launch; a day, not a slot
             'online_launch_date'        => 'datetime',
             // A booking, so it carries a time — "Tuesday" is not a slot.
             'photoshoot_scheduled_at'   => 'datetime',

@@ -2,7 +2,13 @@
     A styled date + time picker — the browser's own calendar can't be styled.
     Expects: $name (form field), $model (parent Alpine property holding
     "YYYY-MM-DDTHH:MM", the datetime-local format), $placeholder.
+    Optional: $dateOnly (hide the time, for a day rather than a slot),
+    $required (default true).
 --}}
+@php
+    $dateOnly = $dateOnly ?? false;
+    $required = $required ?? true;
+@endphp
 <div class="relative"
      x-data="{
          open: false,
@@ -51,14 +57,14 @@
              const d = this.parse();
              if (!d) return '';
              return d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })
-                 + ' · ' + this.pad(d.getHours()) + ':' + this.pad(d.getMinutes());
+                 + ({{ $dateOnly ? 'true' : 'false' }} ? '' : ' · ' + this.pad(d.getHours()) + ':' + this.pad(d.getMinutes()));
          },
      }"
      @click.outside="open = false"
      @keydown.escape="if (open) { open = false; $event.stopPropagation(); }">
 
     {{-- Carries the value and the browser's "required" check. --}}
-    <input type="text" name="{{ $name }}" :value="{{ $model }}" required tabindex="-1" aria-hidden="true"
+    <input type="text" name="{{ $name }}" :value="{{ $model }}" {{ $required ? 'required' : '' }} tabindex="-1" aria-hidden="true"
            class="absolute inset-x-0 bottom-0 h-px opacity-0 pointer-events-none">
 
     <button type="button" x-ref="btn" @click="open = !open; if (open) resetView()"
@@ -106,6 +112,7 @@
         </div>
 
         {{-- Time --}}
+        @unless($dateOnly)
         <div class="mt-3 pt-3 border-t border-gray-100 flex items-center justify-between" :class="!parse() && 'opacity-40 pointer-events-none'">
             <span class="text-sm text-gray-500">Time</span>
             <div class="flex items-center gap-1.5">
@@ -126,6 +133,7 @@
                 @endforeach
             </div>
         </div>
+        @endunless
 
         <div class="mt-3 flex items-center justify-between">
             <button type="button" @click="today()" class="text-sm font-medium text-brand-600 hover:text-brand-700">Today</button>

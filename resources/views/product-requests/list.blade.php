@@ -198,7 +198,7 @@
                         </th>
                         <th class="px-4 py-3 font-medium">Request</th>
                         <th class="px-4 py-3 font-medium text-right">Products</th>
-                        <th class="px-4 py-3 font-medium">Go-live</th>
+                        <th class="px-4 py-3 font-medium">Website Go-Live</th>
                         <th class="px-4 py-3 font-medium">Status</th>
                         <th class="px-4 py-3 font-medium">Priority</th>
                         <th class="px-4 py-3 font-medium">With</th>

@@ -624,12 +624,21 @@
                             </div>
 
                             <div>
-                                <label class="block text-xs text-gray-500 mb-1">Launch date</label>
+                                <label class="block text-xs text-gray-500 mb-1">Website Go-Live Date</label>
                                 <template x-if="!editing">
                                     <p class="text-sm text-gray-900">{{ $request->launchLabel() ?? '—' }}</p>
                                 </template>
                                 <input x-show="editing" x-cloak type="datetime-local" name="online_launch_date" required
                                        value="{{ old('online_launch_date', $request->online_launch_date?->format('Y-m-d\TH:i')) }}" class="{{ $input }}">
+                            </div>
+
+                            <div>
+                                <label class="block text-xs text-gray-500 mb-1">Expected showroom launch</label>
+                                <template x-if="!editing">
+                                    <p class="text-sm text-gray-900">{{ $request->store_launch_date?->format('d M Y') ?? '—' }}</p>
+                                </template>
+                                <input x-show="editing" x-cloak type="date" name="store_launch_date"
+                                       value="{{ old('store_launch_date', $request->store_launch_date?->format('Y-m-d')) }}" class="{{ $input }}">
                             </div>
 
                             <div>
@@ -911,7 +920,8 @@
                         'Website'      => $request->store?->name ?? '—',
                         'Brand'        => $request->brand,
                         'Category'     => $request->category,
-                        'Launch'       => $request->launchLabel('d M Y') ?? '—',
+                        'Website go-live' => $request->launchLabel('d M Y') ?? '—',
+                        'Showroom'     => $request->store_launch_date?->format('d M Y'),
                         'Requested by' => $request->requesterName(),
                         'Sheet'        => $request->sheetLabel(),
                         'Published'    => $request->published_at?->format('d M Y'),

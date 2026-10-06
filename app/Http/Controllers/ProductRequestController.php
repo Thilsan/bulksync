@@ -550,6 +550,7 @@ class ProductRequestController extends Controller implements HasMiddleware
             'skus'                      => 'nullable|string',
             'sku_csv'                   => 'nullable|file|mimes:csv,txt|max:20480',
             'online_launch_date'        => 'required|date',
+            'store_launch_date'         => 'nullable|date',
             'image_source'              => 'required|in:' . implode(',', array_keys(ProductRequest::selectableImageSources())),
             // Only asked for when the supplier sent them; a photoshoot produces
             // its own images and has nowhere to point at yet.
@@ -619,6 +620,7 @@ class ProductRequestController extends Controller implements HasMiddleware
             'status'                    => ProductRequest::SUBMITTED,
             'priority'                  => $data['priority'],
             'online_launch_date'        => $data['online_launch_date'],
+            'store_launch_date'         => $data['store_launch_date'] ?? null,
             'image_source'              => $data['image_source'],
             'images_location'           => $data['image_source'] === ProductRequest::IMG_SUPPLIER ? ($data['images_location'] ?? null) : null,
             'images_url'                => ($data['images_location'] ?? null) === ProductRequest::IMAGES_AT_URL ? ($data['images_url'] ?? null) : null,
@@ -767,6 +769,7 @@ class ProductRequestController extends Controller implements HasMiddleware
             // so editing anything else on an older request doesn't force a change.
             'category'                  => ['required', Rule::in($productRequest->categoryOptions())],
             'online_launch_date'        => 'required|date',
+            'store_launch_date'         => 'nullable|date',
             'image_source'              => 'required|in:' . implode(',', array_keys(ProductRequest::IMAGE_SOURCES)),
             'images_location'           => 'nullable|in:' . implode(',', array_keys(ProductRequest::IMAGE_LOCATIONS)),
             'images_url'                => 'nullable|required_if:images_location,' . ProductRequest::IMAGES_AT_URL . '|url|max:2048',

@@ -2086,6 +2086,53 @@ class ProductRequestTest extends TestCase
         }
     }
 
+    /** The expected showroom launch is optional, a day not a slot, and editable. */
+    public function test_the_expected_showroom_launch_date_is_saved_and_editable(): void
+    {
+        Notification::fake();
+        Queue::fake();
+
+        $user  = $this->brandManager();
+        $store = $this->plainSite();
+        $user->stores()->sync([$store->id]);
+
+        $payload = [
+            'store_id'           => $store->id,
+            'request_type'       => 'new_brand',
+            'brand'              => 'Samsonite',
+            'category'           => 'Luggage',
+            'skus'               => 'SR-1',
+            'online_launch_date' => now()->addDays(18)->format('Y-m-d H:i'),
+            'image_source'       => ProductRequest::IMG_PHOTOSHOOT,
+            'use_ai_content'     => 1,
+            'priority'           => 'high',
+        ];
+
+        // Left blank, as most will be.
+        $this->actingAs($user)->post(route('product-requests.store'), $payload)->assertSessionHasNoErrors();
+        $this->assertNull(ProductRequest::latest('id')->first()->store_launch_date);
+
+        // The picker sends a time with it; only the day is kept.
+        $this->actingAs($user)->post(route('product-requests.store'), $payload + ['store_launch_date' => '2026-11-20T10:00'])
+            ->assertSessionHasNoErrors();
+        $request = ProductRequest::latest('id')->first();
+        $this->assertSame('2026-11-20', $request->store_launch_date->format('Y-m-d'));
+
+        $this->actingAs($user)->get(route('product-requests.show', $request))->assertOk()->assertSee('20 Nov 2026');
+
+        $this->actingAs($user)->put(route('product-requests.update', $request), [
+            'brand'              => 'Samsonite',
+            'category'           => 'Luggage',
+            'online_launch_date' => now()->addDays(18)->format('Y-m-d\TH:i'),
+            'store_launch_date'  => '',
+            'image_source'       => ProductRequest::IMG_PHOTOSHOOT,
+            'use_ai_content'     => 1,
+            'priority'           => 'high',
+        ])->assertSessionHasNoErrors();
+
+        $this->assertNull($request->fresh()->store_launch_date);
+    }
+
     /** POST a new request with only a SKU CSV as its products. */
     private function submitCsv(User $user, Store $store, string $csv)
     {
