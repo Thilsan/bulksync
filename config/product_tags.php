@@ -767,7 +767,6 @@ return [
                     'Shirt Dress',
                     'Shirts',
                     'Shirts & T-Shirts',
-                    'Top',
                 ],
 
                 'T-Shirts' => [
@@ -795,7 +794,6 @@ return [
                 'Sweaters & Cardigans' => [
                     'All Clothing',
                     'Cardigan',
-                    'Coats & Jackets',
                     'Knitwear',
                     'knitwear',
                     'Men sweater',
@@ -810,13 +808,11 @@ return [
                     'Sweaters and Jackets',
                     'Sweatknit',
                     'Sweatshirts and Jackets',
-                    'Top',
                 ],
 
                 'Sweatshirts & Hoodies' => [
                     'Adult Sweatshirt',
                     'All Clothing',
-                    'Coats & Jackets',
                     'Hoodies',
                     'Hoodies & Sweatshirt',
                     'Hoody',
@@ -838,7 +834,6 @@ return [
                 ],
 
                 'Pullovers' => [
-                    'Coats & Jackets',
                     'Pullover',
                     'pullover',
                 ],
@@ -863,25 +858,35 @@ return [
 
                 'Trousers' => [
                     'All Clothing',
-                    'Bermuda',
                     'Bottom',
                     'Clothing',
-                    'Men Shorts',
                     'Men Trousers',
                     'Mens Fashion',
                     'Our Exclusives',
                     'Pant',
                     'Pants',
-                    'scat: Shorts',
                     'scat: Trousers',
                     'scat: Trousers & shorts',
-                    'Short',
-                    'Shorts',
                     'Sweatpants',
                     'Trouser',
                     'Trousers',
                     'Trousers & Shorts',
                     'trousers for men',
+                ],
+
+                'Shorts' => [
+                    'All Clothing',
+                    'Bermuda',
+                    'Clothing',
+                    'Men Shorts',
+                    'Mens Fashion',
+                    'Our Exclusives',
+                    'Scat: New In Men Clothing',
+                    'scat: Shorts',
+                    'scat: Trousers & shorts',
+                    'Short',
+                    'Shorts',
+                    'Trousers & Shorts',
                 ],
 
                 'Jeans' => [
@@ -975,7 +980,6 @@ return [
                     'All Shoes',
                     'All ShoesOur Exclusives',
                     'Footwear',
-                    'Leather Goods',
                     'Men All Shoes Shoes',
                     'Men Sneaker',
                     'Mens Fashion',
@@ -1021,7 +1025,6 @@ return [
 
                 'Suits' => [
                     'All Clothing',
-                    'Blazers',
                     "Men's Suit",
                     'Mens Fashion',
                     'Our Exclusives',
@@ -1032,9 +1035,6 @@ return [
                 'Blazers' => [
                     'All Clothing',
                     'Blazer',
-                    'Coats & Jackets',
-                    'Jackets',
-                    'Men Jackets',
                     "Men's Blazer",
                     'Mens Fashion',
                     'Our Exclusives',
@@ -1193,7 +1193,6 @@ return [
                     'Slide Sandals',
                     'Slides & Sandals',
                     'Traditional Footwear',
-                    'Traditional Wear',
                 ],
 
                 'Slides & Sandals' => [
@@ -1230,7 +1229,6 @@ return [
                     'All Accessories',
                     'Gloves',
                     'MF Accessories',
-                    'Sets',
                 ],
 
                 'Key Holders' => [
