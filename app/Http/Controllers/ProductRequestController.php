@@ -655,6 +655,14 @@ class ProductRequestController extends Controller implements HasMiddleware
         $this->mapping->syncSkus($productRequest, $skus);
         $this->applyCsvCopy($productRequest);
 
+        // The form no longer asks who writes the copy: the CSV answers it. Every
+        // SKU described there means the brand team supplied it all, and the AI
+        // step would only be work nobody needs. A file with no description
+        // column, or with gaps, keeps the AI step for whatever is missing.
+        if ($this->csvCopy !== null && $this->csvCopy !== [] && !in_array(false, $this->csvCopy, true)) {
+            $productRequest->update(['use_ai_content' => false]);
+        }
+
         // Reference images are attached from the request page, not at submission.
         $this->storeAttachments($request, $productRequest, $user, 'content_sheet', ProductRequestAttachment::KIND_CONTENT);
 
@@ -2179,14 +2187,22 @@ class ProductRequestController extends Controller implements HasMiddleware
 
         $skus = [];
         $copy = [];
+        $last = null;
         foreach ($rows as $row) {
-            if ($sku = trim((string) ($row[$column] ?? ''))) {
+            $sku = trim((string) ($row[$column] ?? ''));
+            $has = $copyColumn !== null && filled(trim(strip_tags((string) ($row[$copyColumn] ?? ''))));
+
+            if ($sku !== '') {
                 $skus[] = $sku;
+                $last   = $sku;
 
                 if ($copyColumn !== null) {
-                    $has        = filled(trim(strip_tags((string) ($row[$copyColumn] ?? ''))));
                     $copy[$sku] = ($copy[$sku] ?? false) || $has;   // a repeated SKU counts if any row has copy
                 }
+            } elseif ($has && $last !== null) {
+                // Excel writes a long description's later paragraphs as rows of
+                // their own with no SKU; they belong to the product above.
+                $copy[$last] = true;
             }
         }
 

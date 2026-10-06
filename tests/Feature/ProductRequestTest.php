@@ -2210,6 +2210,61 @@ class ProductRequestTest extends TestCase
         }
     }
 
+    /**
+     * The brand team's export: a long description's later paragraphs land on
+     * rows of their own with no SKU. Every product described means no AI step.
+     */
+    public function test_a_fully_described_export_skips_the_ai_step(): void
+    {
+        Notification::fake();
+        Queue::fake();
+
+        $user  = $this->brandManager();
+        $store = $this->plainSite();
+
+        $csv = "Date,Item Status,Brand Name,Item SKU,Product Name,Long Description,Barcode/EAN\n"
+             . "31/08/2026,Available,ELIE SAAB,ESB-1,L'Homme 100ml,\"A bold, leathery fragrance.\",7.64E+12\n"
+             . ",,,,,,\n"
+             . ",,,,,\"Fragrance Family: Woody, Spicy\",\n"
+             . ",,,,,Key Notes:,\n"
+             // Nothing in its own row: the copy is only on the rows below it.
+             . "31/08/2026,Available,VERSACE,VSS-2,Dylan 50ml,,8.01E+12\n"
+             . ",,,,,\"At its heart, orange blossom and tonka.\",\n"
+             . "31/08/2026,Available,VERSACE,VSS-3,Eros Set,Eros pour femme gift case.,8.01E+12\n";
+
+        $this->submitCsv($user, $store, $csv)->assertSessionHasNoErrors();
+        $request = ProductRequest::latest('id')->first();
+
+        try {
+            $this->assertSame(['ESB-1', 'VSS-2', 'VSS-3'], $request->skus()->orderBy('id')->pluck('sku')->all());
+            $this->assertSame(3, $request->skus()->where('sheet_has_description', true)->count());
+
+            $this->assertFalse((bool) $request->use_ai_content);
+            $this->assertFalse($request->stageApplies(ProductRequest::AI_CONTENT));
+        } finally {
+            File::deleteDirectory(storage_path("app/product-requests/{$request->id}"));
+        }
+    }
+
+    /** A gap anywhere keeps the AI step, for the missing ones. */
+    public function test_a_partly_described_export_keeps_the_ai_step(): void
+    {
+        Notification::fake();
+        Queue::fake();
+
+        $user  = $this->brandManager();
+        $store = $this->plainSite();
+
+        $this->submitCsv($user, $store, "SKU,Long Description\nG-1,Written\nG-2,\n")->assertSessionHasNoErrors();
+        $request = ProductRequest::latest('id')->first();
+
+        try {
+            $this->assertTrue((bool) $request->use_ai_content);
+        } finally {
+            File::deleteDirectory(storage_path("app/product-requests/{$request->id}"));
+        }
+    }
+
     /** "Description" works too when there is no Long Description column. */
     public function test_a_plain_description_column_is_read_too(): void
     {
