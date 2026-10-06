@@ -245,4 +245,34 @@ class BrandManagerStoreScopeTest extends TestCase
             ProductRequest::visibleTo($nobody)->pluck('id')->contains($request->id),
         );
     }
+
+    /**
+     * The new-request form's Team box names whoever staffing will actually pick.
+     * It used to read the plain category list only, so a website pairing or a
+     * named brand showed the category's usual person instead.
+     */
+    public function test_the_form_preview_names_the_same_brand_manager_staffing_picks(): void
+    {
+        $this->user('Category Person', ['pcr_role' => 'brand_manager', 'pcr_brand_categories' => ['Leather Goods']]);
+        $this->user('Blue Salon Person', [
+            'pcr_role'                   => 'brand_manager',
+            'pcr_brand_store_categories' => [$this->key($this->blueSalon, 'Leather Goods')],
+        ]);
+        $this->user('Brand Person', ['pcr_role' => 'brand_manager', 'pcr_managed_brands' => ['POURCHET']]);
+
+        $asker = $this->user('Asker');
+        $ask   = fn (Store $store, string $brand = '') => $this->actingAs($asker)
+            ->getJson(route('product-requests.team-preview', ['category' => 'Leather Goods', 'brand' => $brand, 'store_id' => $store->id]))
+            ->assertOk()
+            ->json('brand_manager');
+
+        $this->assertSame('Category Person',   $ask($this->samsonite));
+        $this->assertSame('Blue Salon Person', $ask($this->blueSalon));
+        $this->assertSame('Brand Person',      $ask($this->blueSalon, 'pourchet'));
+
+        // And it is the person the real request gets.
+        $request = $this->request($this->blueSalon, 'Leather Goods', 'OTHER BRAND');
+        app(ProductRequestWorkflow::class)->staffFromCategory($request, notify: false);
+        $this->assertSame('Blue Salon Person', $request->fresh()->ownerFor('brand_manager_id')?->name);
+    }
 }

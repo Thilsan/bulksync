@@ -273,6 +273,7 @@ Route::middleware('auth')->group(function () {
         Route::post('/sync-sheet',              [ProductRequestController::class, 'syncSheet'])->name('sync-sheet');
 
         Route::get('/my-tasks',                [ProductRequestController::class, 'myTasks'])->name('my-tasks');
+        Route::get('/team-preview',            [ProductRequestController::class, 'teamPreview'])->name('team-preview');
 
         Route::get('/queue/{queue}',           [ProductRequestController::class, 'queue'])->name('queue')
             ->whereIn('queue', ['photoshoot', 'content']);

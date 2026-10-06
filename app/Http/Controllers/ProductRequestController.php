@@ -155,7 +155,7 @@ class ProductRequestController extends Controller implements HasMiddleware
 
         return view('product-requests.index', compact(
             'stats', 'breakdown', 'recent', 'deadlines', 'topBrands', 'activity', 'stores', 'activeStoreId'
-        ) + $this->categoryStaffing());
+        ));
     }
 
     /** Full, filterable request list — the "View Requests" screen. */
@@ -215,7 +215,7 @@ class ProductRequestController extends Controller implements HasMiddleware
         $activeStoreId = Store::getActive($user->id)?->id;
         $teamPool      = User::where('is_active', true)->orderBy('name')->get(['id', 'name', 'pcr_role']);
 
-        return view('product-requests.list', compact('requests', 'brands', 'stores', 'activeStoreId', 'teamPool') + $this->categoryStaffing());
+        return view('product-requests.list', compact('requests', 'brands', 'stores', 'activeStoreId', 'teamPool'));
     }
 
     /**
@@ -511,24 +511,26 @@ class ProductRequestController extends Controller implements HasMiddleware
     }
 
     /**
-     * Who a request will land on, for the new-request form.
+     * Who a request will land on, for the new-request form's Team box.
      *
-     * The requester picks a category, not a person — so the form has to be able
-     * to show them who that means before they submit.
-     *
-     * @return array{categoryOwnerNames: array<string, string>, categoryBrandManagerNames: array<string, string>, photoshootCoordinator: ?string}
+     * Asks the same questions staffing asks on submit — brand first, then the
+     * website, then the plain category — so the preview cannot name someone the
+     * request will not actually go to.
      */
-    private function categoryStaffing(): array
+    public function teamPreview(Request $request): JsonResponse
     {
-        return [
-            'categoryOwnerNames'        => collect(User::categoryOwners())->map->name->all(),
-            // First brand manager per category — the one who takes the role.
-            'categoryBrandManagerNames' => collect(User::categoryBrandManagers())
-                ->map(fn ($people) => $people->first()?->name)
-                ->filter()
-                ->all(),
-            'photoshootCoordinator'     => User::photoshootCoordinator()?->name,
-        ];
+        $category = $request->string('category')->toString() ?: null;
+        $brand    = $request->string('brand')->toString() ?: null;
+        $storeId  = $request->integer('store_id') ?: null;
+
+        $owner        = User::ownerForCategory($category, $brand, $storeId);
+        $brandManager = User::brandManagerForCategory($category, $brand, $storeId) ?? $owner;
+
+        return response()->json([
+            'owner'         => $owner?->name,
+            'brand_manager' => $brandManager?->name,
+            'coordinator'   => User::photoshootCoordinator()?->name,
+        ]);
     }
 
     // ── Create ───────────────────────────────────────────────────────────────

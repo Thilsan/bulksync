@@ -75,12 +75,7 @@
                   todayIso: '{{ now()->format('Y-m-d\TH:i') }}',
                   {{-- Js::from, not a quoted string — "Men's Fashion" would break out of it. --}}
                   category: {{ Illuminate\Support\Js::from(old('category', '')) }},
-                  categoryOwners: {{ Illuminate\Support\Js::from($categoryOwnerNames ?? []) }},
-                  categoryBrandManagers: {{ Illuminate\Support\Js::from($categoryBrandManagerNames ?? []) }},
-                  photoshootCoordinator: {{ Illuminate\Support\Js::from($photoshootCoordinator ?? null) }},
-                  get categoryOwner() { return this.categoryOwners[this.category] || ''; },
-                  // No brand manager set for the category: the owner keeps the role.
-                  get categoryBrandManager() { return this.categoryBrandManagers[this.category] || this.categoryOwner; },
+                  brand: {{ Illuminate\Support\Js::from(old('brand', '')) }},
                   storeId: '{{ old('store_id', $stores->contains('id', $activeStoreId) ? $activeStoreId : $stores->first()?->id) }}',
                   mappingSites: {{ Illuminate\Support\Js::from($stores->where('requires_sku_mapping', true)->pluck('id')->map(fn ($id) => (string) $id)->values()) }},
                   get usesMapping() { return this.mappingSites.includes(String(this.storeId)) },
@@ -122,7 +117,7 @@
 
                                 <div class="rounded-lg border border-gray-200 bg-white p-3">
                                     <label class="block text-xs font-medium text-gray-500 mb-1.5">Brand</label>
-                                    <input type="text" name="brand" value="{{ old('brand') }}" required placeholder="e.g. Mosafer" aria-label="Brand name" class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent">
+                                    <input type="text" name="brand" x-model.debounce.400ms="brand" required placeholder="e.g. Mosafer" aria-label="Brand name" class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent">
                                 </div>
 
                                 <div class="rounded-lg border border-gray-200 bg-white p-3">
@@ -188,12 +183,26 @@
                                     },
                                     // The category owner runs the request; the shoot and the
                                     // brand-side task are the two that can be someone else's.
-                                    personFor(key) {
-                                        if (key === 'photographer_id')  return photoshootCoordinator;
-                                        if (key === 'brand_manager_id') return categoryBrandManager;
-                                        return categoryOwner;
+                                    // Asked of the server, which runs the same lookup as the
+                                    // real assignment: a brand or a website can be handed to
+                                    // someone other than the category's usual people.
+                                    team: null,
+                                    load() {
+                                        if (!category) { this.team = null; return; }
+                                        const q = new URLSearchParams({ category, brand: brand || '', store_id: storeId || '' });
+                                        fetch('{{ route('product-requests.team-preview') }}?' + q, { headers: { Accept: 'application/json' } })
+                                            .then(r => r.json())
+                                            .then(t => { this.team = t; })
+                                            .catch(() => {});
                                     },
-                                 }">
+                                    personFor(key) {
+                                        if (!this.team) return '';
+                                        if (key === 'photographer_id')  return this.team.coordinator;
+                                        if (key === 'brand_manager_id') return this.team.brand_manager;
+                                        return this.team.owner;
+                                    },
+                                 }"
+                                 x-init="load(); $watch('category', () => load()); $watch('brand', () => load()); $watch('storeId', () => load())">
                                 <label class="block text-xs font-medium text-gray-500 mb-1.5">Team</label>
                                 <template x-if="!category">
                                     <p class="text-sm text-gray-400">Pick a category to see the team.</p>
