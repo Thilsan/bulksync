@@ -292,6 +292,7 @@ Route::middleware('auth')->group(function () {
         Route::delete('/{productRequest}',                 [ProductRequestController::class, 'destroy'])->name('destroy');
         Route::get('/{productRequest}/activities',         [ProductRequestController::class, 'activities'])->name('activities');
         Route::get('/{productRequest}/skus/download',      [ProductRequestController::class, 'downloadSkus'])->name('skus.download');
+        Route::get('/{productRequest}/variants',           [ProductRequestController::class, 'variants'])->name('variants');
 
         Route::post('/{productRequest}/revalidate',        [ProductRequestController::class, 'revalidate'])->name('revalidate');
         Route::post('/{productRequest}/skus',              [ProductRequestController::class, 'addSkus'])->name('skus.add');

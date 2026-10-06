@@ -2484,6 +2484,28 @@ class ProductRequestTest extends TestCase
         $this->assertSame(ProductRequest::PUBLISHED, $request->fresh()->status);
     }
 
+    /** A request's SKU opens to the same colour/size breakdown the SKU Checker shows. */
+    public function test_a_requests_sku_shows_its_variants_from_its_own_website(): void
+    {
+        Notification::fake();
+
+        $user    = $this->brandManager();
+        $request = $this->submitFor($user, $this->plainSite(), "VAR-1");
+
+        $shopify = \Mockery::mock(\App\Services\ShopifyService::class);
+        $shopify->shouldReceive('getSkuVariantBreakdown')->with('VAR-1', true)
+            ->andReturn(['product_title' => 'Trolley', 'product_id' => '42', 'colours' => []]);
+        $this->app->bind(\App\Services\ShopifyService::class, fn () => $shopify);
+
+        $this->actingAs($user)->getJson(route('product-requests.variants', [$request, 'sku' => 'VAR-1']))
+            ->assertOk()
+            ->assertJson(['product_title' => 'Trolley', 'product_id' => '42']);
+
+        // Only this request's SKUs: it is not a way to look up anything in the store.
+        $this->actingAs($user)->getJson(route('product-requests.variants', [$request, 'sku' => 'SOMEONE-ELSES']))
+            ->assertNotFound();
+    }
+
     /** With nothing left before going live, it waits: Published has to mean live. */
     public function test_verified_never_moves_itself_onto_published(): void
     {

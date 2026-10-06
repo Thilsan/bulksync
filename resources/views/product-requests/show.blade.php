@@ -970,39 +970,96 @@
                     @if($skus->isEmpty())
                         <p class="py-10 text-sm text-gray-400 text-center">No SKUs yet.</p>
                     @else
-                    <div class="overflow-x-auto -mx-5">
+                    {{-- A SKU on Shopify opens to its colours and sizes — the same panel the SKU Checker shows. --}}
+                    <div class="overflow-x-auto -mx-6"
+                         x-data="{
+                            open: null, shownFor: null,
+                            breakdown: null, breakdownLoading: false, breakdownError: null,
+                            toggle(sku) {
+                                if (this.open === sku) { this.open = null; return; }
+                                this.open = sku; this.shownFor = sku;
+                                this.load(sku);
+                            },
+                            async load(sku) {
+                                this.breakdown = null; this.breakdownError = null; this.breakdownLoading = true;
+                                try {
+                                    const res  = await fetch('{{ route('product-requests.variants', $request) }}?sku=' + encodeURIComponent(sku), { headers: { Accept: 'application/json' } });
+                                    const data = await res.json();
+                                    if (this.open !== sku) return;   // closed or moved on meanwhile
+                                    if (res.ok) this.breakdown = data;
+                                    else this.breakdownError = data.error || data.message || 'Could not read the variants for this SKU.';
+                                } catch (e) {
+                                    if (this.open === sku) this.breakdownError = 'Could not reach Shopify for this SKU.';
+                                }
+                                if (this.open === sku) this.breakdownLoading = false;
+                            },
+                         }">
                         <table class="w-full text-sm">
                             <thead>
-                                <tr class="text-left text-xs text-gray-500 bg-gray-50 border-y border-gray-100">
-                                    <th class="py-2 px-5 font-medium">SKU</th>
+                                <tr class="text-left text-[11px] uppercase tracking-wider text-gray-400 bg-gray-50/70 border-y border-gray-100">
+                                    <th class="py-2.5 pl-6 pr-3 font-medium">SKU</th>
                                     @if($usesMapping)
-                                    <th class="py-2 pr-3 font-medium">Status</th>
+                                    <th class="py-2.5 pr-3 font-medium">Status</th>
                                     @endif
-                                    <th class="py-2 pr-3 font-medium">Product</th>
-                                    <th class="py-2 pr-5 font-medium text-right">In Shopify</th>
+                                    <th class="py-2.5 pr-3 font-medium">Product</th>
+                                    <th class="py-2.5 pr-3 font-medium text-right">In Shopify</th>
+                                    <th class="py-2.5 pr-6 w-32"></th>
                                 </tr>
                             </thead>
-                            <tbody class="divide-y divide-gray-50">
+                            <tbody class="divide-y divide-gray-100">
                                 @foreach($skus as $sku)
-                                <tr class="hover:bg-gray-50/70">
-                                    <td class="py-2.5 px-5 font-mono text-xs text-gray-800">{{ $sku->sku }}</td>
+                                <tr @if($sku->in_shopify)
+                                        role="button" tabindex="0" class="cursor-pointer transition-colors hover:bg-gray-50"
+                                        :class="open === @js($sku->sku) && 'bg-brand-50/60'"
+                                        @click="toggle(@js($sku->sku))" @keydown.enter.prevent="toggle(@js($sku->sku))"
+                                    @else
+                                        class="hover:bg-gray-50/70"
+                                    @endif>
+                                    <td class="py-3 pl-6 pr-3">
+                                        <span class="inline-flex items-center gap-2 font-mono text-xs text-gray-800">
+                                            @if($sku->in_shopify)
+                                                <svg class="w-3.5 h-3.5 text-gray-400 transition-transform" :class="open === @js($sku->sku) && 'rotate-90'"
+                                                     fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                                            @else
+                                                <span class="w-3.5"></span>
+                                            @endif
+                                            {{ $sku->sku }}
+                                        </span>
+                                    </td>
                                     @if($usesMapping)
-                                    <td class="py-2.5 pr-3">
+                                    <td class="py-3 pr-3">
                                         <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium border {{ $sku->color() }}">
                                             <span class="w-1.5 h-1.5 rounded-full {{ $sku->dot() }}"></span>
                                             {{ $sku->label() }}
                                         </span>
                                     </td>
                                     @endif
-                                    <td class="py-2.5 pr-3 text-xs text-gray-600 max-w-xs truncate">{{ $sku->shopify_product_title ?: '—' }}</td>
-                                    <td class="py-2.5 pr-5 text-right" title="Last checked {{ $sku->last_checked_at?->format('d M, h:i A') ?? 'never' }}">
+                                    <td class="py-3 pr-3 text-xs text-gray-600 max-w-xs truncate">{{ $sku->shopify_product_title ?: '—' }}</td>
+                                    <td class="py-3 pr-3 text-right" title="Last checked {{ $sku->last_checked_at?->format('d M, h:i A') ?? 'never' }}">
                                         @if($sku->in_shopify)
-                                            <span class="text-green-600">&check;</span>
+                                            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium {{ $sku->shopify_published ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-100 text-gray-500' }}">{{ $sku->shopify_published ? 'Published' : 'Draft' }}</span>
                                         @else
                                             <span class="text-gray-300">—</span>
                                         @endif
                                     </td>
+                                    <td class="py-3 pr-6 text-right">
+                                        @if($sku->in_shopify)
+                                            <span class="text-xs font-medium text-brand-600 whitespace-nowrap"
+                                                  x-text="open === @js($sku->sku) ? 'Hide' : 'Colours & sizes'">Colours &amp; sizes</span>
+                                        @endif
+                                    </td>
                                 </tr>
+                                @if($sku->in_shopify)
+                                <tr x-show="open === @js($sku->sku)" x-cloak>
+                                    <td colspan="{{ $usesMapping ? 5 : 4 }}" class="bg-gray-50/70 border-t border-brand-100 px-6 pb-5 pl-12">
+                                        <template x-if="shownFor === @js($sku->sku)">
+                                            <div>
+                                                @include('partials.variant-breakdown')
+                                            </div>
+                                        </template>
+                                    </td>
+                                </tr>
+                                @endif
                                 @endforeach
                             </tbody>
                         </table>

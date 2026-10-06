@@ -943,6 +943,38 @@ class ProductRequestController extends Controller implements HasMiddleware
         return back()->with('success', "{$added} SKU(s) added. Validation restarted.");
     }
 
+    /**
+     * One SKU's colours and sizes from Shopify, for the request's SKUs tab —
+     * the same breakdown the SKU Checker opens, read from the request's own
+     * website, and only for SKUs that are on this request.
+     */
+    public function variants(ProductRequest $productRequest, Request $request, #[CurrentUser] User $user): JsonResponse
+    {
+        $this->authorizeView($productRequest, $user);
+
+        $sku = trim((string) $request->query('sku', ''));
+
+        abort_if($sku === '' || !$productRequest->skus()->where('sku', $sku)->exists(), 404, 'That SKU is not on this request.');
+
+        $store = $productRequest->store ?? Store::getActive($productRequest->user_id);
+
+        if (!$store) {
+            return response()->json(['error' => 'This request has no website to read from.'], 422);
+        }
+
+        try {
+            $breakdown = app(\App\Services\ShopifyService::class, ['store' => $store])->getSkuVariantBreakdown($sku, true);
+        } catch (\Throwable $e) {
+            Log::warning("Variant breakdown failed for {$sku} on {$store->name}: " . $e->getMessage());
+
+            return response()->json(['error' => "Couldn't read this SKU from {$store->name} on Shopify right now. Try again in a moment."], 502);
+        }
+
+        return $breakdown === null
+            ? response()->json(['error' => "No variant on {$store->name} carries the SKU {$sku}."], 404)
+            : response()->json($breakdown);
+    }
+
     /** Streamed so no export file ever lands on disk. */
     public function downloadSkus(ProductRequest $productRequest, Request $request, #[CurrentUser] User $user): StreamedResponse
     {
