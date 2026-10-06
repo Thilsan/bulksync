@@ -164,35 +164,92 @@ class ProductRequestWorkflow
             $this->transition($request, ProductRequest::SKU_VERIFIED, $actor, $remarks, notify: $notify);
         }
 
-        $this->advancePastVerified($request, $actor, $notify);
+        $this->autoAdvance($request, $actor, $notify);
     }
 
     /**
-     * SKU Verified is a checkpoint, not a job: once every SKU is mapped and the
-     * images question is answered, the request goes straight on to the stage
-     * that has work in it, instead of waiting for someone to press a button.
+     * Move the request on for as long as the stage it is in has nothing left
+     * to do. Nobody presses "next": each stage finishes on what actually
+     * happened — the SKUs mapped, the copy written, the shoot done, the
+     * products live.
      *
-     * Never onto a closing stage — reaching Published has to mean the products
-     * are actually live, not that nothing else applied.
+     * Called after anything that can finish a stage: the SKU check (hourly and
+     * on demand), a photoshoot update, the copy being pushed or skipped, and the
+     * images questions being answered.
      *
-     * @return bool  true when the request moved
+     * @return int  how many stages it moved
      */
+    public function autoAdvance(ProductRequest $request, ?User $actor = null, bool $notify = true): int
+    {
+        $moved = 0;
+
+        // A stage can finish the moment it is entered (copy already supplied,
+        // say), so keep going — bounded, in case two rules ever disagree.
+        while ($moved < 8 && !$request->isClosed()) {
+            if ($this->syncStageWithShoot($request, $actor)) {
+                $moved++;
+                continue;
+            }
+
+            $reason = $this->stageFinished($request);
+            $next   = $reason !== null ? $request->suggestedNextStatus() : null;
+
+            if ($next === null || !$request->canTransitionTo($next)) {
+                break;
+            }
+
+            // Published is the end and has to mean live: the only closing move
+            // made on its own, and only on what Shopify says.
+            if (in_array($next, ProductRequest::CLOSED_STATUSES, true)) {
+                if ($next !== ProductRequest::PUBLISHED || !$request->isLiveOnShopify()) {
+                    break;
+                }
+                $reason = 'every product is live on Shopify';
+            }
+
+            if (!$this->transition($request, $next, $actor, "Moved on automatically — {$reason}.", notify: $notify)) {
+                break;
+            }
+
+            $moved++;
+        }
+
+        return $moved;
+    }
+
+    /** Kept for callers that only care about leaving SKU Verified. */
     public function advancePastVerified(ProductRequest $request, ?User $actor = null, bool $notify = true): bool
     {
-        if ($request->status !== ProductRequest::SKU_VERIFIED
-            || !$request->isFullyMapped()
-            || $request->needsPhotoshootDecision()
-            || $request->needsImageSourceDecision()) {
-            return false;
-        }
+        return $request->status === ProductRequest::SKU_VERIFIED && $this->autoAdvance($request, $actor, $notify) > 0;
+    }
 
-        $next = $request->suggestedNextStatus();
+    /**
+     * Why the current stage is done, or null while it still has work in it.
+     * Stages a person has to confirm (images arriving with no shoot) return
+     * null here and are moved by that person's button.
+     */
+    private function stageFinished(ProductRequest $request): ?string
+    {
+        return match ($request->status) {
+            ProductRequest::SKU_VERIFIED => $request->isFullyMapped()
+                && !$request->needsPhotoshootDecision()
+                && !$request->needsImageSourceDecision()
+                    ? 'every SKU is verified' : null,
 
-        if ($next === null || in_array($next, ProductRequest::CLOSED_STATUSES, true) || !$request->canTransitionTo($next)) {
-            return false;
-        }
+            ProductRequest::AI_CONTENT => $request->contentIsSettled()
+                ? 'every product has its copy' : null,
 
-        return $this->transition($request, $next, $actor, 'Moved on automatically — every SKU is verified.', notify: $notify);
+            // No shoot: someone says the images are in. With a shoot, the
+            // Photoshoot Schedule drives this band instead.
+            ProductRequest::WAITING_IMAGES => !$request->needsPhotoshoot()
+                && $request->activities()->where('action', 'images_received')->exists()
+                    ? 'the images are in' : null,
+
+            ProductRequest::PHOTOSHOOT_COMPLETED,
+            ProductRequest::IMAGE_EDITING => 'the images are done',
+
+            default => null,
+        };
     }
 
     /**

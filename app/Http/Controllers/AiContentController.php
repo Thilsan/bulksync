@@ -315,6 +315,11 @@ class AiContentController extends Controller
 
         if ($pushed > 0) {
             $aiContentSession->update(['status' => 'done']);
+
+            // The copy is live, which is what the request's content stage was
+            // waiting for — move it on without anyone pressing a button.
+            \App\Models\ProductRequest::where('ai_content_session_id', $aiContentSession->id)->get()
+                ->each(fn ($r) => app(\App\Services\ProductRequestWorkflow::class)->autoAdvance($r, auth()->user()));
         }
 
         $message = "{$pushed} product(s) updated in Shopify.";

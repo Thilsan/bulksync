@@ -1338,6 +1338,8 @@ class ProductRequestController extends Controller implements HasMiddleware
                 . 'so it is not known whether the brand team wrote copy for them.');
         }
 
+        $this->workflow->autoAdvance($productRequest->refresh(), $user);
+
         $message = "Sheet checked against the \"{$result['column']}\" column: "
             . "{$result['with']} SKU(s) have copy, {$result['without']} do not.";
 
@@ -1366,11 +1368,36 @@ class ProductRequestController extends Controller implements HasMiddleware
         $needed = $data['needed'] === 'yes';
 
         $this->workflow->decidePhotoshoot($productRequest, $needed, $user);
-        $this->workflow->advancePastVerified($productRequest->refresh(), $user);
+        $this->workflow->autoAdvance($productRequest->refresh(), $user);
 
         return back()->with('success', $needed
             ? 'Added to the Photoshoot Schedule — the shoot is booked from there.'
             : 'Noted — no photoshoot. Say where the images are coming from below.');
+    }
+
+    /**
+     * The images arrived (no photoshoot on this request). The one stage nothing
+     * else can see finish, so a person says so and the request moves itself on.
+     */
+    public function imagesReceived(ProductRequest $productRequest, #[CurrentUser] User $user): RedirectResponse
+    {
+        $this->authorizeView($productRequest, $user);
+
+        abort_unless($productRequest->status === ProductRequest::WAITING_IMAGES && !$productRequest->needsPhotoshoot(), 422,
+            'This request is not waiting for images.');
+
+        $this->workflow->log(
+            request:     $productRequest,
+            action:      'images_received',
+            description: 'Images received',
+            actor:       $user,
+        );
+
+        $moved = $this->workflow->autoAdvance($productRequest->refresh(), $user);
+
+        return back()->with('success', $moved
+            ? "Images received — the request moved on to {$productRequest->fresh()->statusLabel()}."
+            : 'Images received. The request moves on by itself once the products are live on Shopify.');
     }
 
     /**
@@ -1388,7 +1415,7 @@ class ProductRequestController extends Controller implements HasMiddleware
         $ask  = $data['ask'] === 'yes';
 
         $told = $this->workflow->decideImageRequest($productRequest, $ask, $user);
-        $this->workflow->advancePastVerified($productRequest->refresh(), $user);
+        $this->workflow->autoAdvance($productRequest->refresh(), $user);
 
         if (!$ask) {
             return back()->with('success', 'Noted — the images are already in hand.');
@@ -1733,6 +1760,8 @@ class ProductRequestController extends Controller implements HasMiddleware
                 description: "AI content skipped for {$blank} SKU(s) with no description",
                 actor:       $user,
             );
+
+            $this->workflow->autoAdvance($productRequest->refresh(), $user);
 
             return back()->with('success', "Left as it is. {$blank} SKU(s) stay without a description, and publishing will say so.");
         }

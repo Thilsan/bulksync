@@ -79,63 +79,65 @@
     <div class="flex flex-wrap items-start justify-between gap-3">
         <div class="flex items-start gap-3 min-w-0">
             <a href="{{ route('product-requests.list') }}" title="All requests"
-               class="mt-1 w-8 h-8 rounded-lg border border-gray-200 bg-white text-gray-500 hover:text-gray-800 hover:bg-gray-50 flex items-center justify-center shrink-0">
+               class="mt-1 w-9 h-9 rounded-full border border-gray-200 bg-white text-gray-500 hover:text-gray-800 hover:bg-gray-50 flex items-center justify-center shrink-0">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
             </a>
             <div class="min-w-0">
-                <div class="flex flex-wrap items-center gap-2">
-                    <h2 class="font-display text-2xl leading-tight text-gray-900 truncate">{{ $request->displayName() }}</h2>
-                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border {{ $request->statusColor() }}">{{ $request->statusLabel() }}</span>
+                <h2 class="font-display text-2xl leading-tight text-gray-900 truncate">{{ $request->displayName() }}</h2>
+                <div class="flex flex-wrap items-center gap-1.5 mt-1.5">
+                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border {{ $request->statusColor() }}">{{ $request->statusLabel() }}</span>
+                    @unless($closed)
+                        <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium {{ $dueTone }}">
+                            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                            {{ $dueText }}
+                        </span>
+                    @endunless
                     @if($request->priority === 'high')
-                        <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border {{ $request->priorityColor() }}">{{ $request->priorityLabel() }}</span>
+                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border {{ $request->priorityColor() }}">{{ $request->priorityLabel() }} priority</span>
                     @endif
+                    <span class="text-xs text-gray-400 ml-1">{{ $request->reference }} &middot; {{ $request->store?->name ?? '—' }}</span>
                 </div>
-                <p class="text-sm text-gray-500 mt-0.5">
-                    {{ $request->reference }} &middot; {{ $request->store?->name ?? '—' }} &middot; {{ $request->created_at->format('d M Y') }}
-                </p>
             </div>
         </div>
 
         @unless($closed && !$me->is_super_admin)
-        <div class="flex items-center gap-2">
-            {{-- Rarely used actions live behind one button. --}}
-            <div class="relative" x-data="{ open: false }" @click.outside="open = false">
-                <button type="button" @click="open = !open" class="{{ $btnAlt }}">
-                    More
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
-                </button>
-                <div x-show="open" x-cloak x-transition.origin.top.right
-                     class="absolute right-0 mt-1.5 w-52 bg-white rounded-xl border border-gray-200 shadow-lg py-1.5 z-30 text-sm">
-                    @unless($closed)
-                        <button type="button" @click="open = false; tab = 'details'; editing = true" class="w-full text-left px-3.5 py-2 text-gray-700 hover:bg-gray-50">Edit details</button>
-                        @unless($onHold)
-                            <button type="button" @click="open = false; showHold = true" class="w-full text-left px-3.5 py-2 text-gray-700 hover:bg-gray-50">Report a blocker</button>
-                        @endunless
-                        @if($guide['field'])
-                            <button type="button" @click="open = false; showHandover = true" class="w-full text-left px-3.5 py-2 text-gray-700 hover:bg-gray-50">Hand over</button>
-                        @endif
-                        <div class="my-1 border-t border-gray-100"></div>
-                        <button type="button" @click="open = false; showCancel = true" class="w-full text-left px-3.5 py-2 text-red-600 hover:bg-red-50">Cancel request</button>
+        {{-- Everything rarely needed lives behind one button. Stages move on
+             their own, so there is no "next" button — only a correction tool
+             for super admins. --}}
+        <div class="relative" x-data="{ open: false }" @click.outside="open = false">
+            <button type="button" @click="open = !open" class="{{ $btnAlt }}">
+                More
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+            </button>
+            <div x-show="open" x-cloak x-transition.origin.top.right
+                 class="absolute right-0 mt-1.5 w-56 bg-white rounded-xl border border-gray-200 shadow-lg py-1.5 z-30 text-sm">
+                @unless($closed)
+                    <button type="button" @click="open = false; tab = 'details'; editing = true; $nextTick(() => document.getElementById('tabs').scrollIntoView({ behavior: 'smooth' }))" class="w-full text-left px-3.5 py-2 text-gray-700 hover:bg-gray-50">Edit details</button>
+                    @unless($onHold)
+                        <button type="button" @click="open = false; showHold = true" class="w-full text-left px-3.5 py-2 text-gray-700 hover:bg-gray-50">Report a blocker</button>
                     @endunless
-                    {{-- Cancelling keeps the record; deleting is for requests that
-                         should never have existed, so it is a super admin's call. --}}
-                    @if($me->is_super_admin)
-                        <form method="POST" action="{{ route('product-requests.destroy', $request) }}"
-                              onsubmit="return confirm('Delete {{ addslashes($request->reference) }} permanently?\n\nIts {{ $request->total_skus }} SKU(s), activity trail, assignments and attachments go with it. Cancel the request instead if you want to keep the record.')">
-                            @csrf
-                            @method('DELETE')
-                            <button type="submit" class="w-full text-left px-3.5 py-2 text-red-600 hover:bg-red-50">Delete permanently</button>
-                        </form>
+                    @if($guide['field'])
+                        <button type="button" @click="open = false; showHandover = true" class="w-full text-left px-3.5 py-2 text-gray-700 hover:bg-gray-50">Hand over</button>
                     @endif
-                </div>
+                    @if($me->is_super_admin && !empty($transitions))
+                        <button type="button" @click="open = false; showTransition = true" class="w-full text-left px-3.5 py-2 text-gray-700 hover:bg-gray-50">
+                            Change stage <span class="text-xs text-gray-400">· correction</span>
+                        </button>
+                    @endif
+                    <div class="my-1 border-t border-gray-100"></div>
+                    <button type="button" @click="open = false; showCancel = true" class="w-full text-left px-3.5 py-2 text-red-600 hover:bg-red-50">Cancel request</button>
+                @endunless
+                {{-- Cancelling keeps the record; deleting is for requests that
+                     should never have existed, so it is a super admin's call. --}}
+                @if($me->is_super_admin)
+                    <form method="POST" action="{{ route('product-requests.destroy', $request) }}"
+                          onsubmit="return confirm('Delete {{ addslashes($request->reference) }} permanently?\n\nIts {{ $request->total_skus }} SKU(s), activity trail, assignments and attachments go with it. Cancel the request instead if you want to keep the record.')">
+                        @csrf
+                        @method('DELETE')
+                        <button type="submit" class="w-full text-left px-3.5 py-2 text-red-600 hover:bg-red-50">Delete permanently</button>
+                    </form>
+                @endif
             </div>
-
-            @if(!$closed && !empty($transitions))
-                <button type="button" @click="showTransition = true" class="{{ $btnMain }}">
-                    Move stage
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7"/></svg>
-                </button>
-            @endif
         </div>
         @endunless
     </div>
@@ -143,18 +145,29 @@
     <div class="grid grid-cols-1 lg:grid-cols-3 2xl:grid-cols-4 gap-5 items-start">
 
         {{-- ── Main column ────────────────────────────────────────────────── --}}
-        <div class="lg:col-span-2 2xl:col-span-3 space-y-5 min-w-0">
+        <div class="lg:col-span-2 2xl:col-span-3 space-y-4 min-w-0">
 
-            {{-- Things that need an answer. One line each, only when relevant. --}}
+            @php
+                // One look for every "please answer" card: an icon, a line, buttons.
+                $ask      = 'rounded-xl border px-4 py-3 flex flex-wrap items-center gap-3';
+                $askIcon  = 'w-8 h-8 rounded-full flex items-center justify-center shrink-0';
+                $askText  = 'flex-1 min-w-[12rem] text-sm';
+                $qIcon    = 'M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z';
+                $warnIcon = 'M12 9v2m0 4h.01M5 19h14a2 2 0 001.84-2.75L13.74 4a2 2 0 00-3.48 0l-7.1 12.25A2 2 0 004.99 19z';
+                $docIcon  = 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z';
+            @endphp
+
             @if($request->status === \App\Models\ProductRequest::CANCELLED && $request->cancel_reason)
-                <div class="rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-800">
-                    <span class="font-medium">Cancelled:</span> {{ $request->cancel_reason }}
+                <div class="{{ $ask }} bg-red-50 border-red-200 text-red-800">
+                    <span class="{{ $askIcon }} bg-red-100 text-red-600"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></span>
+                    <p class="{{ $askText }}"><span class="font-medium">Cancelled:</span> {{ $request->cancel_reason }}</p>
                 </div>
             @endif
 
             @if($request->awaitingImageLocation())
-                <div class="rounded-xl bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-900 flex flex-wrap items-center justify-between gap-2">
-                    <span>Where are the supplier images? No folder link yet.</span>
+                <div class="{{ $ask }} bg-amber-50 border-amber-200 text-amber-900">
+                    <span class="{{ $askIcon }} bg-amber-100 text-amber-600"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="{{ $warnIcon }}"/></svg></span>
+                    <p class="{{ $askText }}">Add the link to the supplier's images.</p>
                     <button type="button" @click="tab = 'details'; editing = true" class="{{ $small }} bg-white border border-amber-300 hover:bg-amber-100">Add link</button>
                 </div>
             @endif
@@ -162,108 +175,104 @@
             {{-- Asked once, plainly. Until it is answered the request is neither
                  bound for the studio nor excused from it. --}}
             @if($request->needsPhotoshootDecision())
-                <div class="rounded-xl bg-blue-50 border border-blue-200 px-4 py-3 text-sm text-blue-900 flex flex-wrap items-center justify-between gap-2">
-                    <span class="font-medium">Does this need a photoshoot?</span>
-                    <div class="flex gap-2">
-                        <form method="POST" action="{{ route('product-requests.photoshoot-decision', $request) }}">
-                            @csrf
-                            <input type="hidden" name="needed" value="yes">
-                            <button type="submit" class="{{ $small }} bg-brand-600 hover:bg-brand-700 text-white">Yes — we need photos</button>
-                        </form>
-                        <form method="POST" action="{{ route('product-requests.photoshoot-decision', $request) }}">
-                            @csrf
-                            <input type="hidden" name="needed" value="no">
-                            <button type="submit" class="{{ $small }} bg-white border border-blue-300 hover:bg-blue-100">No</button>
-                        </form>
-                    </div>
+                <div class="{{ $ask }} bg-blue-50 border-blue-200 text-blue-900">
+                    <span class="{{ $askIcon }} bg-blue-100 text-blue-600"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="{{ $qIcon }}"/></svg></span>
+                    <p class="{{ $askText }} font-medium">Does this need a photoshoot?</p>
+                    <form method="POST" action="{{ route('product-requests.photoshoot-decision', $request) }}">
+                        @csrf
+                        <input type="hidden" name="needed" value="yes">
+                        <button type="submit" class="{{ $small }} bg-brand-600 hover:bg-brand-700 text-white">Yes — we need photos</button>
+                    </form>
+                    <form method="POST" action="{{ route('product-requests.photoshoot-decision', $request) }}">
+                        @csrf
+                        <input type="hidden" name="needed" value="no">
+                        <button type="submit" class="{{ $small }} bg-white border border-blue-300 hover:bg-blue-100">No</button>
+                    </form>
                 </div>
             @endif
 
             @if($request->needsImageSourceDecision())
-                <div class="rounded-xl bg-blue-50 border border-blue-200 px-4 py-3 text-sm text-blue-900 flex flex-wrap items-center justify-between gap-2">
-                    <span class="font-medium">Where are the images coming from?</span>
-                    <div class="flex gap-2">
-                        <form method="POST" action="{{ route('product-requests.image-request-decision', $request) }}">
-                            @csrf
-                            <input type="hidden" name="ask" value="yes">
-                            <button type="submit" class="{{ $small }} bg-brand-600 hover:bg-brand-700 text-white">Request images from the brand manager</button>
-                        </form>
-                        <form method="POST" action="{{ route('product-requests.image-request-decision', $request) }}">
-                            @csrf
-                            <input type="hidden" name="ask" value="no">
-                            <button type="submit" class="{{ $small }} bg-white border border-blue-300 hover:bg-blue-100">We already have them</button>
-                        </form>
-                    </div>
+                <div class="{{ $ask }} bg-blue-50 border-blue-200 text-blue-900">
+                    <span class="{{ $askIcon }} bg-blue-100 text-blue-600"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="{{ $qIcon }}"/></svg></span>
+                    <p class="{{ $askText }} font-medium">Where are the images coming from?</p>
+                    <form method="POST" action="{{ route('product-requests.image-request-decision', $request) }}">
+                        @csrf
+                        <input type="hidden" name="ask" value="yes">
+                        <button type="submit" class="{{ $small }} bg-brand-600 hover:bg-brand-700 text-white">Ask the brand manager</button>
+                    </form>
+                    <form method="POST" action="{{ route('product-requests.image-request-decision', $request) }}">
+                        @csrf
+                        <input type="hidden" name="ask" value="no">
+                        <button type="submit" class="{{ $small }} bg-white border border-blue-300 hover:bg-blue-100">We already have them</button>
+                    </form>
                 </div>
             @endif
 
             {{-- Only once the request has gone past the photoshoot without the
-                 pictures. Before that, and while it sits in the photoshoot stage,
-                 the next-step card says what is happening. --}}
+                 pictures. Before that the status card says what is happening. --}}
             @php
                 $pipeline   = \App\Models\ProductRequest::PIPELINE;
                 $pastShoots = array_search($request->status, $pipeline, true)
                     > array_search(\App\Models\ProductRequest::IMAGE_EDITING, $pipeline, true);
             @endphp
             @if($request->isWaitingOnPhotoshoot() && $pastShoots)
-                <div class="rounded-xl bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-900 flex flex-wrap items-center justify-between gap-2">
-                    <span>
+                <div class="{{ $ask }} bg-amber-50 border-amber-200 text-amber-900">
+                    <span class="{{ $askIcon }} bg-amber-100 text-amber-600"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="{{ $warnIcon }}"/></svg></span>
+                    <p class="{{ $askText }}">
                         <span class="font-medium">Waiting on the photoshoot</span>
                         ({{ strtolower(\App\Models\ProductRequest::SHOOT_STATUSES[$request->photoshoot_status] ?? 'not started') }}{{ $request->photoshoot_scheduled_at ? ', ' . $request->photoshoot_scheduled_at->format('d M, H:i') : '' }}).
                         @if($closed) This was published before the images were delivered. @endif
-                    </span>
+                    </p>
                     <a href="{{ route('product-requests.photoshoot-room') }}" class="{{ $small }} bg-white border border-amber-300 hover:bg-amber-100">Photoshoot Schedule</a>
                 </div>
             @endif
 
             @if($needsCopy > 0)
-                <div class="rounded-xl bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-900 flex flex-wrap items-center justify-between gap-2">
-                    <span><span class="font-medium">Awaiting content.</span> {{ number_format($needsCopy) }} product(s) have no description in the uploaded file or the sheet.</span>
-                    <div class="flex gap-2">
-                        <form method="POST" action="{{ route('product-requests.check-sheet-copy', $request) }}">
-                            @csrf
-                            <button type="submit" class="{{ $small }} bg-white border border-amber-300 hover:bg-amber-100">Check again</button>
-                        </form>
-                        <form method="POST" action="{{ route('product-requests.ai-content', $request) }}">
-                            @csrf
-                            <input type="hidden" name="scope" value="missing_description">
-                            <input type="hidden" name="answer" value="generate">
-                            <button type="submit" class="{{ $small }} bg-brand-600 hover:bg-brand-700 text-white">Generate AI content for {{ number_format($needsCopy) }}</button>
-                        </form>
-                        <form method="POST" action="{{ route('product-requests.ai-content', $request) }}">
-                            @csrf
-                            <input type="hidden" name="scope" value="missing_description">
-                            <input type="hidden" name="answer" value="skip">
-                            <button type="submit" class="{{ $small }} bg-white border border-amber-300 hover:bg-amber-100">Skip</button>
-                        </form>
-                    </div>
+                <div class="{{ $ask }} bg-amber-50 border-amber-200 text-amber-900">
+                    <span class="{{ $askIcon }} bg-amber-100 text-amber-600"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="{{ $docIcon }}"/></svg></span>
+                    <p class="{{ $askText }}"><span class="font-medium">Awaiting content.</span> {{ number_format($needsCopy) }} product(s) have no description in the uploaded file or the sheet.</p>
+                    <form method="POST" action="{{ route('product-requests.check-sheet-copy', $request) }}">
+                        @csrf
+                        <button type="submit" class="{{ $small }} bg-white border border-amber-300 hover:bg-amber-100">Check again</button>
+                    </form>
+                    <form method="POST" action="{{ route('product-requests.ai-content', $request) }}">
+                        @csrf
+                        <input type="hidden" name="scope" value="missing_description">
+                        <input type="hidden" name="answer" value="generate">
+                        <button type="submit" class="{{ $small }} bg-brand-600 hover:bg-brand-700 text-white">Generate AI content for {{ number_format($needsCopy) }}</button>
+                    </form>
+                    <form method="POST" action="{{ route('product-requests.ai-content', $request) }}">
+                        @csrf
+                        <input type="hidden" name="scope" value="missing_description">
+                        <input type="hidden" name="answer" value="skip">
+                        <button type="submit" class="{{ $small }} bg-white border border-amber-300 hover:bg-amber-100">Skip</button>
+                    </form>
                 </div>
             @endif
 
             {{-- Looked for and not found: whether copy exists is unknown, so the
                  person decides — look again, or confirm none is coming. --}}
             @if($notOnSheet > 0)
-                <div class="rounded-xl bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-900 flex flex-wrap items-center justify-between gap-2">
-                    <span><span class="font-medium">Not on the sheet.</span> {{ number_format($notOnSheet) }} product(s) weren't found on the sheet's {{ $request->category }} tab, so it's not known whether the brand team wrote copy.</span>
-                    <div class="flex gap-2">
-                        <form method="POST" action="{{ route('product-requests.check-sheet-copy', $request) }}">
-                            @csrf
-                            <button type="submit" class="{{ $small }} bg-white border border-amber-300 hover:bg-amber-100">Check again</button>
-                        </form>
-                        <form method="POST" action="{{ route('product-requests.ai-content', $request) }}">
-                            @csrf
-                            <input type="hidden" name="scope" value="not_on_sheet">
-                            <input type="hidden" name="answer" value="generate">
-                            <button type="submit" class="{{ $small }} bg-brand-600 hover:bg-brand-700 text-white"
-                                    onclick="return confirm('Generate descriptions for {{ $notOnSheet }} product(s) that are not on the sheet?')">Generate anyway</button>
-                        </form>
-                        <form method="POST" action="{{ route('product-requests.ai-content', $request) }}">
-                            @csrf
-                            <input type="hidden" name="scope" value="not_on_sheet">
-                            <input type="hidden" name="answer" value="skip">
-                            <button type="submit" class="{{ $small }} bg-white border border-amber-300 hover:bg-amber-100">Skip</button>
-                        </form>
-                    </div>
+                <div class="{{ $ask }} bg-amber-50 border-amber-200 text-amber-900">
+                    <span class="{{ $askIcon }} bg-amber-100 text-amber-600"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="{{ $docIcon }}"/></svg></span>
+                    <p class="{{ $askText }}"><span class="font-medium">Not on the sheet.</span> {{ number_format($notOnSheet) }} product(s) weren't found on the {{ $request->category }} tab.</p>
+                    <form method="POST" action="{{ route('product-requests.check-sheet-copy', $request) }}">
+                        @csrf
+                        <button type="submit" class="{{ $small }} bg-white border border-amber-300 hover:bg-amber-100">Check again</button>
+                    </form>
+                    <form method="POST" action="{{ route('product-requests.ai-content', $request) }}">
+                        @csrf
+                        <input type="hidden" name="scope" value="not_on_sheet">
+                        <input type="hidden" name="answer" value="generate">
+                        <button type="submit" class="{{ $small }} bg-brand-600 hover:bg-brand-700 text-white"
+                                onclick="return confirm('Generate descriptions for {{ $notOnSheet }} product(s) that are not on the sheet?')">Generate anyway</button>
+                    </form>
+                    <form method="POST" action="{{ route('product-requests.ai-content', $request) }}">
+                        @csrf
+                        <input type="hidden" name="scope" value="not_on_sheet">
+                        <input type="hidden" name="answer" value="skip">
+                        <button type="submit" class="{{ $small }} bg-white border border-amber-300 hover:bg-amber-100">Skip</button>
+                    </form>
                 </div>
             @endif
 
@@ -271,8 +280,9 @@
                 {{-- Null is "nobody read the sheet", not "the sheet is blank".
                      Offering to generate on that risks writing over copy the
                      brand team did supply. --}}
-                <div class="rounded-xl bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-900 flex flex-wrap items-center justify-between gap-2">
-                    <span><span class="font-medium">Awaiting content.</span> The sheet has not been read for {{ number_format($unchecked) }} product(s).</span>
+                <div class="{{ $ask }} bg-amber-50 border-amber-200 text-amber-900">
+                    <span class="{{ $askIcon }} bg-amber-100 text-amber-600"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="{{ $docIcon }}"/></svg></span>
+                    <p class="{{ $askText }}"><span class="font-medium">Awaiting content.</span> The sheet has not been read for {{ number_format($unchecked) }} product(s).</p>
                     <form method="POST" action="{{ route('product-requests.check-sheet-copy', $request) }}">
                         @csrf
                         <button type="submit" class="{{ $small }} bg-brand-600 hover:bg-brand-700 text-white">Check the sheet</button>
@@ -280,43 +290,127 @@
                 </div>
             @endif
 
-            {{-- Next step + progress ──────────────────────────────────────── --}}
-            <div class="bg-white rounded-xl border shadow-sm {{ $panelTone }}">
-                <div class="px-5 py-4 flex flex-wrap items-start justify-between gap-4">
+            {{-- Status: where it is, in pictures and one plain sentence ──────── --}}
+            @php
+                $shoot = $request->needsPhotoshoot();
+                $stageShort = [
+                    \App\Models\ProductRequest::SUBMITTED            => 'Received',
+                    \App\Models\ProductRequest::WAITING_MAPPING      => 'Mapping',
+                    \App\Models\ProductRequest::SKU_VERIFIED         => 'SKUs verified',
+                    \App\Models\ProductRequest::AI_CONTENT           => 'Descriptions',
+                    \App\Models\ProductRequest::WAITING_IMAGES       => $shoot ? 'Book shoot' : 'Images',
+                    \App\Models\ProductRequest::PHOTOSHOOT_SCHEDULED => 'Photoshoot',
+                    \App\Models\ProductRequest::PHOTOSHOOT_COMPLETED => 'Photos done',
+                    \App\Models\ProductRequest::IMAGE_EDITING        => 'Editing',
+                    \App\Models\ProductRequest::QA_REVIEW            => 'Review',
+                    \App\Models\ProductRequest::READY_FOR_UPLOAD     => 'Upload',
+                    \App\Models\ProductRequest::PUBLISHED            => 'Live',
+                    \App\Models\ProductRequest::COMPLETED            => 'Done',
+                ];
+                $outstanding = $request->pending_skus + $request->not_mapped_skus;
+                $now = match ($request->status) {
+                    \App\Models\ProductRequest::SUBMITTED            => "We're checking the SKUs.",
+                    \App\Models\ProductRequest::WAITING_MAPPING      => "{$outstanding} SKU(s) are waiting to be mapped in Cegid.",
+                    \App\Models\ProductRequest::SKU_VERIFIED         => 'All SKUs are verified.',
+                    \App\Models\ProductRequest::AI_CONTENT           => 'Product descriptions are being prepared.',
+                    \App\Models\ProductRequest::WAITING_IMAGES       => $shoot ? 'Waiting for the photoshoot to be booked.' : 'Waiting for the product images.',
+                    \App\Models\ProductRequest::PHOTOSHOOT_SCHEDULED => 'Photoshoot booked' . ($request->photoshoot_scheduled_at ? ' for ' . $request->photoshoot_scheduled_at->format('D d M, H:i') : '') . '.',
+                    \App\Models\ProductRequest::PHOTOSHOOT_COMPLETED, \App\Models\ProductRequest::IMAGE_EDITING => 'The photos are done.',
+                    \App\Models\ProductRequest::PUBLISHED, \App\Models\ProductRequest::COMPLETED => 'Live on the website.',
+                    \App\Models\ProductRequest::CANCELLED            => 'This request was cancelled.',
+                    default                     => $request->statusLabel() . '.',
+                };
+                $next = match (true) {
+                    $closed => null,
+                    in_array($request->status, [\App\Models\ProductRequest::SUBMITTED, \App\Models\ProductRequest::WAITING_MAPPING], true)
+                        => 'Moves on by itself once every SKU is mapped.',
+                    $request->status === \App\Models\ProductRequest::SKU_VERIFIED && ($request->needsPhotoshootDecision() || $request->needsImageSourceDecision())
+                        => 'Moves on once the question above is answered.',
+                    $request->status === \App\Models\ProductRequest::SKU_VERIFIED && $request->suggestedNextStatus() === \App\Models\ProductRequest::PUBLISHED
+                        => 'Goes live by itself once the products are published on Shopify.',
+                    $request->status === \App\Models\ProductRequest::SKU_VERIFIED
+                        => 'Moves on by itself at the next SKU check.',
+                    $request->status === \App\Models\ProductRequest::AI_CONTENT
+                        => 'Moves on by itself once every product has a description.',
+                    $request->status === \App\Models\ProductRequest::WAITING_IMAGES && $shoot
+                        => 'Moves on when the shoot is booked in the Photoshoot Schedule.',
+                    $request->status === \App\Models\ProductRequest::WAITING_IMAGES
+                        => 'Click "Images received" when they arrive.',
+                    $request->status === \App\Models\ProductRequest::PHOTOSHOOT_SCHEDULED
+                        => 'Moves on when the shoot is marked done in the Photoshoot Schedule.',
+                    default
+                        => 'Goes live by itself once the products are published on Shopify.',
+                };
+                $stages  = $request->displayStages();
+                $current = $request->displayStageIndex();
+                $tint    = $onHold && !$closed ? 'border-red-200' : ($ownership === 'mine' ? 'border-brand-200' : 'border-gray-200');
+            @endphp
+            <div class="bg-white rounded-xl border shadow-sm overflow-hidden {{ $tint }}">
+
+                @if($onHold && !$closed)
+                    <div class="px-5 py-2.5 bg-red-50 border-b border-red-100 flex flex-wrap items-center gap-2 text-sm text-red-800">
+                        <span class="font-semibold">{{ $heading }}:</span> {{ $request->hold_reason }}
+                        <span class="text-xs text-red-600">· {{ $request->holdSetter?->name ?? 'someone' }}{{ $held ? ", {$held}d" : '' }}</span>
+                    </div>
+                @endif
+
+                {{-- The steps, as dots on a line --}}
+                <div class="px-5 pt-5 pb-4 overflow-x-auto">
+                    <ol class="flex items-start min-w-max">
+                        @foreach($stages as $i => $stage)
+                            @php
+                                $done = $closed ? $i <= $current : $i < $current;
+                                $here = !$closed && $i === $current;
+                            @endphp
+                            <li class="flex items-start {{ $loop->last ? '' : 'flex-1' }}">
+                                <div class="flex flex-col items-center w-20">
+                                    <span class="relative w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold
+                                        {{ $done ? 'bg-green-500 text-white' : ($here ? 'bg-brand-600 text-white ring-4 ring-brand-100' : 'bg-gray-100 text-gray-400') }}">
+                                        @if($done)
+                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/></svg>
+                                        @else
+                                            {{ $i + 1 }}
+                                        @endif
+                                    </span>
+                                    <span class="mt-1.5 text-[11px] leading-tight text-center {{ $here ? 'text-gray-900 font-semibold' : ($done ? 'text-gray-600' : 'text-gray-400') }}">
+                                        {{ $stageShort[$stage] ?? $request->stageLabel($stage) }}
+                                    </span>
+                                </div>
+                                @unless($loop->last)
+                                    <span class="flex-1 h-0.5 mt-4 -mx-6 min-w-6 {{ $done ? 'bg-green-400' : 'bg-gray-200' }}"></span>
+                                @endunless
+                            </li>
+                        @endforeach
+                    </ol>
+                </div>
+
+                {{-- What is happening, who has it, what moves it on --}}
+                <div class="px-5 py-4 border-t border-gray-100 flex flex-wrap items-center justify-between gap-4">
                     <div class="min-w-0 flex-1">
-                        <p class="text-xs font-medium uppercase tracking-wide {{ $onHold && !$closed ? 'text-red-600' : ($ownership === 'mine' ? 'text-brand-700' : 'text-gray-400') }}">{{ $heading }}</p>
-
-                        @if($onHold && !$closed)
-                            <p class="text-base font-semibold text-red-900 mt-1">{{ $request->hold_reason }}</p>
-                            <p class="text-xs text-red-700 mt-0.5">
-                                By {{ $request->holdSetter?->name ?? 'someone' }}
-                                {{ $request->hold_since ? $request->hold_since->diffForHumans() : '' }}@if($held) &middot; {{ $held }}d blocked @endif
-                            </p>
-                        @elseif(!$closed)
-                            <p class="text-base font-semibold text-gray-900 mt-1">{{ $guide['what'] }}</p>
-                        @endif
-
                         @unless($closed)
-                            <div class="flex flex-wrap items-center gap-2 mt-2.5 text-xs">
-                                <span class="inline-flex items-center gap-1.5 text-gray-600">
-                                    <span class="w-5 h-5 rounded-full bg-gray-100 text-gray-500 text-[10px] font-semibold flex items-center justify-center">
+                            <p class="text-[11px] font-medium uppercase tracking-wide {{ $ownership === 'mine' ? 'text-brand-700' : 'text-gray-400' }}">{{ $onHold ? 'Next step' : $heading }}</p>
+                        @endunless
+                        <p class="text-lg font-semibold text-gray-900 mt-0.5" title="{{ $guide['what'] }}">{{ $now }}</p>
+                        <div class="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5 text-xs text-gray-500">
+                            @unless($closed)
+                                <span class="inline-flex items-center gap-1.5">
+                                    <span class="w-5 h-5 rounded-full bg-gray-100 text-gray-600 text-[10px] font-semibold flex items-center justify-center">
                                         {{ $guide['owner'] ? strtoupper(substr($guide['owner']->name, 0, 1)) : '?' }}
                                     </span>
-                                    @if($ownership === 'mine')
-                                        You
-                                    @elseif($guide['owner'])
-                                        {{ $guide['owner']->name }}
-                                    @else
-                                        <span class="text-amber-700 font-medium">Nobody yet</span>
+                                    @if($ownership === 'mine') You
+                                    @elseif($guide['owner']) {{ $guide['owner']->name }}
+                                    @else <span class="text-amber-700 font-medium">Nobody yet</span>
                                     @endif
-                                    <span class="text-gray-400">&middot; {{ $guide['role'] ?? 'Team' }}</span>
+                                    <span class="text-gray-400">· {{ $guide['role'] ?? 'Team' }}</span>
                                 </span>
-                                <span class="inline-flex items-center px-2 py-0.5 rounded-full font-medium {{ $dueTone }}">{{ $dueText }}</span>
-                                @if($request->photoshoot_scheduled_at && $request->isWaitingOnPhotoshoot())
-                                    <span class="inline-flex items-center px-2 py-0.5 rounded-full font-medium bg-blue-50 text-blue-700">Shoot {{ $request->photoshoot_scheduled_at->format('d M, H:i') }}</span>
-                                @endif
-                            </div>
-                        @endunless
+                            @endunless
+                            @if($next)
+                                <span class="inline-flex items-center gap-1 text-gray-500">
+                                    <svg class="w-3.5 h-3.5 text-brand-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                                    {{ $next }}
+                                </span>
+                            @endif
+                        </div>
                     </div>
 
                     @unless($closed)
@@ -333,51 +427,21 @@
                                     <button type="submit" class="{{ $ownership === 'my_team' ? $btn . ' bg-amber-500 hover:bg-amber-600 text-white' : $btnAlt }}">Take this task</button>
                                 </form>
                             @endif
-                            @if(!empty($transitions))
-                                <button type="button" @click="showTransition = true" class="{{ $btnMain }}">Move to next stage</button>
-                            @elseif($request->isBlockedOnMapping())
+                            {{-- The one stage nothing else can see finish. --}}
+                            @if($request->status === \App\Models\ProductRequest::WAITING_IMAGES && !$shoot)
+                                <form method="POST" action="{{ route('product-requests.images-received', $request) }}">
+                                    @csrf
+                                    <button type="submit" class="{{ $btnMain }}">Images received</button>
+                                </form>
+                            @endif
+                            @if($request->status === \App\Models\ProductRequest::WAITING_IMAGES && $shoot)
+                                <a href="{{ route('product-requests.photoshoot-room') }}" class="{{ $btnAlt }}">Photoshoot Schedule</a>
+                            @endif
+                            @if($request->isBlockedOnMapping())
                                 <button type="button" @click="tab = 'skus'; $nextTick(() => document.getElementById('tabs').scrollIntoView({ behavior: 'smooth' }))" class="{{ $btnAlt }}">View SKUs</button>
                             @endif
                         </div>
                     @endunless
-                </div>
-
-                {{-- Progress, three phases. Hover a phase to see its steps. --}}
-                @php $currentStep = $request->displayStageIndex(); @endphp
-                <div class="px-5 pb-4 pt-1 flex gap-2">
-                    @foreach($request->phaseProgress() as $phase)
-                        @php
-                            $count = count($phase['stages']);
-                            $fill  = match ($phase['state']) {
-                                'done'    => 100,
-                                'current' => (int) round(100 * max(0.5, $currentStep - $phase['start'] + 0.5) / $count),
-                                default   => 0,
-                            };
-                            $steps = collect($phase['stages'])->map(fn ($s) => $request->stageLabel($s))->implode(' → ');
-                            // Moved past the content stage is not the same as having
-                            // content: say what is missing rather than tick it off.
-                            $gap = $phase['key'] === 'content' && $phase['state'] === 'done' && ($needsCopy + $notOnSheet + $unchecked) > 0;
-                        @endphp
-                        <div class="flex-1 min-w-0" title="{{ $steps }}">
-                            <div class="h-1.5 rounded-full bg-gray-100 overflow-hidden">
-                                <div class="h-full rounded-full {{ $gap ? 'bg-amber-400' : ($phase['state'] === 'done' ? 'bg-green-500' : 'bg-brand-600') }}" style="width: {{ $fill }}%"></div>
-                            </div>
-                            <p class="text-xs mt-1.5 truncate {{ $phase['state'] === 'current' ? 'text-gray-900 font-medium' : ($phase['state'] === 'done' ? 'text-gray-600' : 'text-gray-400') }}">
-                                {{ $phase['label'] }}
-                                @if($gap)
-                                    <span class="text-amber-600">!</span>
-                                @elseif($phase['state'] === 'done')
-                                    <span class="text-green-600">&check;</span>
-                                @endif
-                            </p>
-                            @if($gap)
-                                <p class="text-[11px] text-amber-700 truncate">No descriptions yet</p>
-                            @endif
-                            @if($phase['state'] === 'current')
-                                <p class="text-[11px] text-brand-700 truncate">{{ $request->statusLabel() }}</p>
-                            @endif
-                        </div>
-                    @endforeach
                 </div>
             </div>
 
@@ -689,7 +753,8 @@
                                         @if($request->imagesInPim())
                                             Already in the Brand PIM
                                         @elseif($request->images_url)
-                                            <a href="{{ $request->images_url }}" target="_blank" rel="noopener" class="text-brand-600 hover:text-brand-700 underline">{{ $request->images_url }}</a>
+                                            <a href="{{ $request->images_url }}" target="_blank" rel="noopener" title="{{ $request->images_url }}"
+                                               class="inline-flex items-center gap-1 text-brand-600 hover:text-brand-700 font-medium">Open folder &nearr;</a>
                                         @else
                                             <span class="text-amber-600">Not added yet</span>
                                         @endif
@@ -966,7 +1031,8 @@
                                 @if($request->imagesInPim())
                                     In the Brand PIM
                                 @else
-                                    <a href="{{ $request->images_url }}" target="_blank" rel="noopener" class="text-brand-600 hover:text-brand-700 underline">{{ $request->images_url }}</a>
+                                    <a href="{{ $request->images_url }}" target="_blank" rel="noopener" title="{{ $request->images_url }}"
+                                       class="text-brand-600 hover:text-brand-700 font-medium">Open folder &nearr;</a>
                                 @endif
                             </dd>
                         </div>

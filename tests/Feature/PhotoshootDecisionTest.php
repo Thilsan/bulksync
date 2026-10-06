@@ -311,7 +311,9 @@ class PhotoshootDecisionTest extends TestCase
         $this->assertFalse($request->isWaitingOnPhotoshoot());
         $this->assertContains(ProductRequest::PUBLISHED, $request->allowedTransitions());
 
-        // Which is a person's move to make, not the room's.
+        // The room does not publish: that happens on its own once Shopify shows
+        // the products live. These have no products on Shopify, so it waits —
+        // and an admin can still publish by hand as a correction.
         $this->actingAs($this->admin)
             ->post(route('product-requests.transition', $request), ['to_status' => ProductRequest::PUBLISHED])
             ->assertRedirect();

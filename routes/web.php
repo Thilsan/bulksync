@@ -299,6 +299,7 @@ Route::middleware('auth')->group(function () {
         Route::post('/{productRequest}/continue-mapped',   [ProductRequestController::class, 'continueWithMapped'])->name('continue-mapped');
         Route::post('/{productRequest}/photoshoot',         [ProductRequestController::class, 'decidePhotoshoot'])->name('photoshoot-decision');
         Route::post('/{productRequest}/image-request',     [ProductRequestController::class, 'decideImageRequest'])->name('image-request-decision');
+        Route::post('/{productRequest}/images-received',   [ProductRequestController::class, 'imagesReceived'])->name('images-received');
         Route::post('/{productRequest}/chase-mapping',     [ProductRequestController::class, 'chaseMapping'])->name('chase-mapping');
         Route::post('/{productRequest}/check-sheet-copy',  [ProductRequestController::class, 'checkSheetDescriptions'])->name('check-sheet-copy');
         Route::post('/{productRequest}/assign',            [ProductRequestController::class, 'assign'])->name('assign');

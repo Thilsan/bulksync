@@ -119,7 +119,7 @@ class PhotoshootRoomController extends Controller implements HasMiddleware
         // Keep the request's own stage in step, but only inside the photoshoot
         // band — a request sitting at QA has moved past this and must not be
         // dragged back by a calendar tidy-up.
-        $moved = $this->workflow->syncStageWithShoot($productRequest, $user);
+        $moved = $this->workflow->autoAdvance($productRequest, $user) > 0;
 
         return back()->with('success', "Photoshoot for {$productRequest->reference} is now "
             . strtolower(ProductRequest::SHOOT_STATUSES[$data['photoshoot_status']]) . '.'

@@ -895,9 +895,9 @@ class ProductRequest extends Model
             $next    = ($n = $this->suggestedNextStatus()) ? $this->stageLabel($n) : 'the next stage';
 
             $guide['what'] = match ($this->image_source) {
-                self::IMG_PHOTOSHOOT    => "{$checked} and the products are going to the photoshoot. Move the request on to {$next}.",
-                self::IMG_BRAND_WEBSITE => "{$checked} and the images come from the brand website. Move the request on to {$next}.",
-                default                 => "{$checked} and the supplier has sent the images. Move the request on to {$next}.",
+                self::IMG_PHOTOSHOOT    => "{$checked} and the products are going to the photoshoot. Next: {$next}.",
+                self::IMG_BRAND_WEBSITE => "{$checked} and the images come from the brand website. Next: {$next}.",
+                default                 => "{$checked} and the supplier has sent the images. Next: {$next}.",
             };
         }
 
@@ -1675,6 +1675,40 @@ class ProductRequest extends Model
             ->whereIn('action', ['created', 'status_changed'])
             ->where('remarks', 'like', '%sheet marks this Completed%')
             ->exists();
+    }
+
+    /**
+     * Every product has its copy one way or another: supplied, already in
+     * Shopify, generated and pushed, or deliberately left. Nothing unknown.
+     */
+    public function contentIsSettled(): bool
+    {
+        // Any SKU whose copy nobody has accounted for yet — including ones not
+        // on Shopify, which cannot be written for until they are.
+        $open = $this->skus()
+            ->where(fn ($q) => $q->whereNull('sheet_has_description')->orWhere('sheet_has_description', false))
+            ->where(fn ($q) => $q->whereNull('has_description')->orWhere('has_description', false))
+            ->whereNull('content_started_at')
+            ->whereNull('content_skipped_at')
+            ->exists();
+
+        if ($open) {
+            return false;
+        }
+
+        // A run in progress is not settled until it is live on Shopify.
+        $session = $this->aiContentSession;
+
+        return $session === null || $session->status === 'done';
+    }
+
+    /** Every SKU is on Shopify and published there — what "Published" means. */
+    public function isLiveOnShopify(): bool
+    {
+        // There have to be products to be live: none at all is not "all live".
+        return $this->skus()->exists()
+            && !$this->skus()->where(fn ($q) => $q->where('in_shopify', false)
+                ->orWhereNull('shopify_published')->orWhere('shopify_published', false))->exists();
     }
 
     public function canTransitionTo(string $status): bool

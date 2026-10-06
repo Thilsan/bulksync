@@ -2442,6 +2442,48 @@ class ProductRequestTest extends TestCase
         $this->assertSame('E-Commerce Team', $request->guideFor(ProductRequest::PUBLISHED)['role']);
     }
 
+    /** The content stage finishes on its own once every product has its copy. */
+    public function test_ai_content_moves_on_once_every_product_has_copy(): void
+    {
+        Notification::fake();
+
+        $user    = $this->brandManager();
+        $request = $this->submitFor($user, $this->plainSite(), "AC-1\nAC-2");
+        $this->assertSame(ProductRequest::AI_CONTENT, $request->status);
+
+        // One supplied by the brand team, one deliberately left.
+        $request->skus()->where('sku', 'AC-1')->update(['sheet_has_description' => true]);
+        $request->skus()->where('sku', 'AC-2')->update(['content_skipped_at' => now()]);
+
+        app(ProductRequestWorkflow::class)->autoAdvance($request->refresh());
+
+        $this->assertSame(ProductRequest::WAITING_IMAGES, $request->fresh()->status);   // the shoot comes next
+    }
+
+    /** No shoot: "Images received" is the person's say-so, then it goes live by itself. */
+    public function test_images_received_then_published_once_live(): void
+    {
+        Notification::fake();
+
+        $user    = $this->brandManager();
+        $request = $this->submitFor($user, $this->plainSite(), 'IR-1');
+        $request->update([
+            'status' => ProductRequest::WAITING_IMAGES, 'use_ai_content' => false,
+            'image_source' => ProductRequest::IMG_BRAND_WEBSITE, 'photoshoot_decision' => 'no', 'image_request_decision' => 'yes',
+        ]);
+
+        $this->actingAs($user)->post(route('product-requests.images-received', $request))->assertRedirect();
+
+        // Images in, but the products are not live yet: it waits, not closes.
+        $this->assertSame(ProductRequest::WAITING_IMAGES, $request->fresh()->status);
+
+        // The hourly check sees them live and published.
+        $request->skus()->update(['in_shopify' => true, 'shopify_published' => true]);
+        app(ProductRequestWorkflow::class)->autoAdvance($request->refresh());
+
+        $this->assertSame(ProductRequest::PUBLISHED, $request->fresh()->status);
+    }
+
     /** With nothing left before going live, it waits: Published has to mean live. */
     public function test_verified_never_moves_itself_onto_published(): void
     {
