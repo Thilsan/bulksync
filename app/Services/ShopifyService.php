@@ -220,12 +220,22 @@ class ShopifyService
                     'variant_id'    => ltrim(str_replace('gid://shopify/ProductVariant/', '', $node['id'] ?? ''), '/'),
                     'variant_sku'   => $node['sku'] ?? '',
                     'published'     => ($node['product']['status'] ?? '') === 'ACTIVE',
+                    'price'         => isset($node['price']) ? (string) $node['price'] : null,
+                    'stock'         => array_key_exists('inventoryQuantity', $node) ? (int) $node['inventoryQuantity'] : null,
                 ];
             }
 
             return $found;
 
         } catch (\Throwable $e) {
+            // No read_inventory on this store: ask again without the stock column
+            // rather than losing the whole check over it.
+            if ($this->batchWithStock && $this->isStockFieldUnavailable($e->getMessage())) {
+                $this->batchWithStock = false;
+
+                return $this->fetchSkuBatch($batch, $throwOnFailure);
+            }
+
             Log::error('Shopify findVariantsBySkus failed for ' . count($batch) . ' SKUs: ' . $e->getMessage());
 
             // Callers that report per-SKU results must pass true: an empty return
@@ -262,9 +272,16 @@ class ShopifyService
      */
     private function variantBatchQuery(): string
     {
+        // Price and stock are plain variant fields and cost nothing extra. Stock
+        // needs read_inventory, so a store without it is asked again without.
+        $stock = $this->batchWithStock ? ' inventoryQuantity' : '';
+
         return 'query($q:String!){productVariants(first:' . self::SKU_BATCH_PAGE
-            . ',query:$q){edges{node{id sku product{id title status}}}}}';
+            . ',query:$q){edges{node{id sku price' . $stock . ' product{id title status}}}}}';
     }
+
+    /** Off once a store has refused the stock field, for the rest of this run. */
+    private bool $batchWithStock = true;
 
     /**
      * Find a variant by exact barcode using the GraphQL Admin API.

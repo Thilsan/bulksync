@@ -223,6 +223,33 @@ class ShopifyBatchSkuLookupTest extends TestCase
         $service->findVariantsBySkus(['AAA'], true);
     }
 
+    /** Price and stock come back with each SKU. */
+    public function test_each_sku_carries_its_price_and_stock(): void
+    {
+        $edges = [['node' => ['id' => 'gid://shopify/ProductVariant/1', 'sku' => 'P-1', 'price' => '0.00', 'inventoryQuantity' => 0,
+            'product' => ['id' => 'gid://shopify/Product/9', 'title' => 'Bag', 'status' => 'DRAFT']]]];
+
+        $found = $this->service([new Response(200, [], json_encode(['data' => ['productVariants' => ['edges' => $edges]]]))])
+            ->findVariantsBySkus(['P-1'], true);
+
+        $this->assertSame('0.00', $found['P-1'][0]['price']);
+        $this->assertSame(0, $found['P-1'][0]['stock']);
+    }
+
+    /** A store that cannot read stock still answers the check — without stock. */
+    public function test_a_store_without_stock_access_still_answers(): void
+    {
+        $refused = new Response(200, [], json_encode(['errors' => [['message' => "Access denied for inventoryQuantity field. Required access: `read_inventory`"]]]));
+        $edges   = [['node' => ['id' => 'gid://shopify/ProductVariant/1', 'sku' => 'P-1', 'price' => '45.00',
+            'product' => ['id' => 'gid://shopify/Product/9', 'title' => 'Bag', 'status' => 'ACTIVE']]]];
+
+        $found = $this->service([$refused, new Response(200, [], json_encode(['data' => ['productVariants' => ['edges' => $edges]]]))])
+            ->findVariantsBySkus(['P-1'], true);
+
+        $this->assertSame('45.00', $found['P-1'][0]['price']);
+        $this->assertNull($found['P-1'][0]['stock']);
+    }
+
     public function test_the_batch_query_asks_for_a_full_page_and_only_the_reported_fields(): void
     {
         $rc     = new ReflectionClass(ShopifyService::class);
@@ -234,7 +261,7 @@ class ShopifyBatchSkuLookupTest extends TestCase
         $this->assertStringContainsString('first:250', $query);
         $this->assertSame(substr_count($query, '{'), substr_count($query, '}'));
 
-        foreach (['id', 'sku', 'title', 'status'] as $needed) {
+        foreach (['id', 'sku', 'title', 'status', 'price', 'inventoryQuantity'] as $needed) {
             $this->assertStringContainsString($needed, $query);
         }
 

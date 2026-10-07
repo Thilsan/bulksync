@@ -1326,7 +1326,11 @@
                     $leftOutRows   = collect($request->left_out_skus ?? []);
                     $leftNotMapped = $leftOutRows->where('reason', 'not_mapped')->pluck('sku');
                     $leftUnticked  = $leftOutRows->where('reason', 'unticked')->pluck('sku');
-                    $includedSkus  = $request->skus()->orderBy('id')->pluck('sku');
+                    $includedRows  = $request->skus()->orderBy('id')->get(['sku', 'in_shopify', 'shopify_price', 'shopify_stock']);
+                    $includedSkus  = $includedRows->pluck('sku');
+                    // Live but not sellable: no price, or nothing in stock.
+                    $zeroPrice = $includedRows->filter(fn ($k) => $k->in_shopify && $k->shopify_price !== null && (float) $k->shopify_price <= 0)->count();
+                    $zeroStock = $includedRows->filter(fn ($k) => $k->in_shopify && $k->shopify_stock !== null && (int) $k->shopify_stock <= 0)->count();
                     $uploadedTotal = $includedSkus->count() + $leftOutRows->count();
                     $groups = array_filter([
                         ['In this request',                     $includedSkus,  'bg-green-500', 'bg-green-50 border-green-100 text-green-800', 'Being worked on — see the SKUs tab.'],
@@ -1364,11 +1368,34 @@
                                 {{ $label }} <span class="text-gray-400 font-normal">({{ $list->count() }})</span>
                             </p>
                             <p class="text-xs text-gray-500 mt-0.5 mb-2">{{ $hint }}</p>
-                            <div class="flex flex-wrap gap-1.5">
-                                @foreach($list as $sku)
-                                    <span class="rounded-lg border px-2 py-1 font-mono text-xs {{ $chip }}">{{ $sku }}</span>
-                                @endforeach
-                            </div>
+                            @if($label === 'In this request')
+                                @if($zeroPrice || $zeroStock)
+                                    <p class="mb-2 text-xs font-medium text-red-600">
+                                        {{ collect([$zeroPrice ? "{$zeroPrice} with price 0" : null, $zeroStock ? "{$zeroStock} with stock 0" : null])->filter()->implode(' · ') }}
+                                    </p>
+                                @endif
+                                <div class="flex flex-wrap gap-1.5">
+                                    @foreach($includedRows as $row)
+                                        @php
+                                            $noPrice = $row->in_shopify && $row->shopify_price !== null && (float) $row->shopify_price <= 0;
+                                            $noStock = $row->in_shopify && $row->shopify_stock !== null && (int) $row->shopify_stock <= 0;
+                                        @endphp
+                                        <span class="inline-flex items-center gap-2 rounded-lg border px-2 py-1 text-xs {{ $noPrice || $noStock ? 'bg-red-50 border-red-200 text-red-800' : $chip }}">
+                                            <span class="font-mono">{{ $row->sku }}</span>
+                                            @if($row->in_shopify && ($row->shopify_price !== null || $row->shopify_stock !== null))
+                                                <span class="text-[11px] {{ $noPrice ? 'font-semibold text-red-600' : 'opacity-70' }}">{{ $row->shopify_price !== null ? number_format((float) $row->shopify_price, 2) : '—' }}</span>
+                                                <span class="text-[11px] {{ $noStock ? 'font-semibold text-red-600' : 'opacity-70' }}">{{ $row->shopify_stock !== null ? $row->shopify_stock . ' in stock' : '' }}</span>
+                                            @endif
+                                        </span>
+                                    @endforeach
+                                </div>
+                            @else
+                                <div class="flex flex-wrap gap-1.5">
+                                    @foreach($list as $sku)
+                                        <span class="rounded-lg border px-2 py-1 font-mono text-xs {{ $chip }}">{{ $sku }}</span>
+                                    @endforeach
+                                </div>
+                            @endif
                         </section>
                     @endforeach
                 </div>
@@ -1519,7 +1546,7 @@
             @php $assignmentFields = $request->visibleAssignmentRoles(); @endphp
             <div class="{{ $card }}" x-data="{ editTeam: false }">
                 <div class="px-5 py-3.5 flex items-center justify-between">
-                    <h3 class="text-sm font-semibold text-gray-900">Team</h3>
+                    <h3 class="text-sm font-semibold text-gray-900">Assigned to</h3>
                     @unless($closed)
                         <button type="button" @click="editTeam = !editTeam" class="text-xs text-brand-600 hover:text-brand-700 font-medium" x-text="editTeam ? 'Done' : 'Edit'">Edit</button>
                     @endunless

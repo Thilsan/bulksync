@@ -65,6 +65,8 @@ class SkuMappingService
                     'shopify_product_id'    => $inShopify ? ($variants[0]['product_id'] ?? null) : null,
                     'shopify_product_title' => $inShopify ? ($variants[0]['product_title'] ?? null) : null,
                     'shopify_published'     => $inShopify ? (bool) ($variants[0]['published'] ?? false) : null,
+                    'shopify_price'         => $inShopify ? ($variants[0]['price'] ?? null) : null,
+                    'shopify_stock'         => $inShopify ? ($variants[0]['stock'] ?? null) : null,
                     // The lookup returns descriptionHtml already. Keeping it lets the
                     // request offer AI content for only the SKUs that have no copy,
                     // rather than writing over descriptions somebody already wrote.

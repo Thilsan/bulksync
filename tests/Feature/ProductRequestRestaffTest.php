@@ -78,8 +78,8 @@ class ProductRequestRestaffTest extends TestCase
 
         $moved = $workflow->restaffFromCategory($request->refresh());
 
-        $this->assertArrayHasKey('Brand Manager', $moved);
-        $this->assertSame(['from' => 'Ghassen', 'to' => 'Brand Manager'], $moved['Brand Manager']);
+        $this->assertArrayHasKey('Brand Team', $moved);
+        $this->assertSame(['from' => 'Ghassen', 'to' => 'Brand Manager'], $moved['Brand Team']);
         $this->assertSame($manager->id, $request->refresh()->ownerFor('brand_manager_id')?->id);
 
         // And the owner keeps the role that really is theirs.

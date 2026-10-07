@@ -18,6 +18,8 @@ class ProductRequestSku extends Model
         'shopify_product_id',
         'shopify_product_title',
         'shopify_published',
+        'shopify_price',
+        'shopify_stock',
         'has_description',
         'sheet_has_description',
         'sheet_checked_at',

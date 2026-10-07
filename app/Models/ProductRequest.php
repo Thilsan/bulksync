@@ -120,7 +120,7 @@ class ProductRequest extends Model
         self::WAITING_MAPPING => [
             // The brand manager maps in Cegid themselves — there is no separate
             // Supply Chain team to hand it to.
-            'role'  => 'Brand Manager',
+            'role'  => 'Brand Team',
             'role_key' => 'brand_manager',
             'field' => 'brand_manager_id',
             'what'  => 'Map the outstanding SKUs in Cegid, then record the result on the SKUs tab. The request moves on by itself once every SKU is mapped — nobody needs to re-submit it.',
@@ -602,7 +602,7 @@ class ProductRequest extends Model
 
     /** The people a request can be assigned to, and what to call each. */
     public const ASSIGNMENT_ROLES = [
-        'brand_manager_id' => 'Brand Manager',
+        'brand_manager_id' => 'Brand Team',
         'assigned_to'      => 'E-Commerce Team',
         'supply_chain_id'  => 'Supply Chain',
         'photographer_id'  => 'Photoshoot Coordinator',

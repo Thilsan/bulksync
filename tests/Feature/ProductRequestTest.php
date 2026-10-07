@@ -2439,7 +2439,7 @@ class ProductRequestTest extends TestCase
             $this->assertNotEmpty($guide['what'], "Stage {$stage} has no guidance text");
         }
 
-        $this->assertSame('Brand Manager', $request->guideFor(ProductRequest::WAITING_MAPPING)['role']);
+        $this->assertSame('Brand Team', $request->guideFor(ProductRequest::WAITING_MAPPING)['role']);
         $this->assertSame('Photoshoot Coordinator', $request->guideFor(ProductRequest::PHOTOSHOOT_SCHEDULED)['role']);
         // One person per category writes the copy, reviews it and publishes it,
         // so the content stages belong to the E-Commerce owner.
@@ -2718,6 +2718,24 @@ class ProductRequestTest extends TestCase
         $session->update(['status' => 'done']);
         $request->skus()->update(['content_started_at' => now()]);
         $this->assertSame(95, ProductRequest::find($request->id)->progressPercent());   // only going live left
+    }
+
+    /** A SKU on Shopify with price 0 or stock 0 is flagged on the uploaded list. */
+    public function test_the_uploaded_list_flags_zero_price_and_zero_stock(): void
+    {
+        Notification::fake();
+
+        $user    = $this->brandManager();
+        $request = $this->submitFor($user, $this->plainSite(), "ZP-1\nZP-2\nZP-3");
+        $request->update(['left_out_skus' => [['sku' => 'ZP-9', 'reason' => 'not_mapped']]]);
+        $request->skus()->where('sku', 'ZP-1')->update(['in_shopify' => true, 'shopify_price' => 0, 'shopify_stock' => 4]);
+        $request->skus()->where('sku', 'ZP-2')->update(['in_shopify' => true, 'shopify_price' => 120, 'shopify_stock' => 0]);
+        $request->skus()->where('sku', 'ZP-3')->update(['in_shopify' => true, 'shopify_price' => 120, 'shopify_stock' => 2]);
+
+        $this->actingAs($user)->get(route('product-requests.show', $request))
+            ->assertOk()
+            ->assertSee('1 with price 0 · 1 with stock 0')
+            ->assertSee('0 in stock');
     }
 
     /** "Mapped" is only said where Cegid maps SKUs. */
