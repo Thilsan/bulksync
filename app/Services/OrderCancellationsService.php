@@ -49,7 +49,7 @@ class OrderCancellationsService
 
     /**
      * @param  Collection<int, Store>  $stores
-     * @return array{orders: list<array>, failed: list<string>}
+     * @return array{orders: list<array>, failed: list<array{store:string,message:string}>}
      */
     public function forStores(Collection $stores, Carbon $from, Carbon $to): array
     {
@@ -70,7 +70,11 @@ class OrderCancellationsService
                     fn () => ($this->clientFactory)($store)->getCancelledOrders($from, $to));
             } catch (\Throwable $e) {
                 Log::warning("Cancelled orders failed for store {$store->id}: " . $e->getMessage());
-                $failed[] = $store->name;
+
+                // Shopify's own words, trimmed: a scope or version problem is
+                // fixed in the store's app settings, and nobody can fix what
+                // the page only calls "did not answer".
+                $failed[] = ['store' => $store->name, 'message' => self::why($e->getMessage())];
 
                 continue;
             }
@@ -86,6 +90,23 @@ class OrderCancellationsService
         usort($orders, fn ($a, $b) => strcmp($b['cancelled_at'], $a['cancelled_at']));
 
         return ['orders' => $orders, 'failed' => $failed];
+    }
+
+    /** The part of a Shopify failure worth putting on a dashboard. */
+    public static function why(string $message): string
+    {
+        if (stripos($message, 'access denied') !== false || stripos($message, 'HTTP 403') !== false) {
+            return "This store's Shopify app is missing a permission: " . self::trim($message);
+        }
+
+        return self::trim($message);
+    }
+
+    private static function trim(string $message): string
+    {
+        $message = preg_replace('/^Shopify (GraphQL error|HTTP \\d+) in getCancelledOrders: /', '', $message);
+
+        return mb_strimwidth(trim($message), 0, 180, '…');
     }
 
     public static function reason(?string $code): string

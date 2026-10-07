@@ -413,8 +413,12 @@
 
             {{-- A store that failed is named rather than silently missing, so
                  a short list is not mistaken for a quiet month. --}}
-            <p x-show="!loading && stores.length" x-cloak class="px-5 py-2.5 border-t border-gray-100 text-xs text-amber-700"
-               x-text="'Not included — Shopify did not answer for: ' + stores.join(', ')"></p>
+            <div x-show="!loading && stores.length" x-cloak class="px-5 py-2.5 border-t border-gray-100 text-xs text-amber-700 space-y-1">
+                <p class="font-medium">Not included — Shopify refused these stores:</p>
+                <template x-for="f in stores" :key="f.store">
+                    <p><span class="font-medium" x-text="f.store"></span> — <span x-text="f.message"></span></p>
+                </template>
+            </div>
         </div>
 
         {{-- ── Platforms ──────────────────────────────────────────────────

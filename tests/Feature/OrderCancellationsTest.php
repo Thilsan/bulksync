@@ -70,13 +70,16 @@ class OrderCancellationsTest extends TestCase
         Store::create(['name' => 'No Token Shop', 'shopify_domain' => 'notoken.myshopify.com']);
 
         $this->app->instance(OrderCancellationsService::class,
-            new OrderCancellationsService(fn ($s) => throw new \RuntimeException('Shopify down')));
+            new OrderCancellationsService(fn ($s) => throw new \RuntimeException(
+                'Shopify GraphQL error in getCancelledOrders: Access denied for orders field.')));
 
         $this->actingAs($this->admin)
             ->getJson(route('orders.dashboard.cancellations'))
             ->assertOk()
             ->assertJsonPath('orders', [])
-            ->assertJsonPath('failed', ['Broken Shop']);
+            ->assertJsonPath('failed.0.store', 'Broken Shop')
+            ->assertJsonPath('failed.0.message', "This store's Shopify app is missing a permission: Access denied for orders field.")
+            ->assertJsonCount(1, 'failed');
     }
 
     public function test_unknown_reasons_stay_readable(): void

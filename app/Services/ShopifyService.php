@@ -2142,16 +2142,29 @@ class ShopifyService
             $start->toIso8601String(),
         )];
 
-        try {
-            $data = $this->cancellationRequest($this->cancelledOrdersQuery(withNote: true), $variables);
-        } catch (\RuntimeException $e) {
-            // A store whose API has not caught up with the staff note still
-            // has a reason and a total worth showing.
-            if (stripos($e->getMessage(), 'cancellation') === false) {
-                throw $e;
-            }
+        // Shopify refuses the whole query over one field it will not hand
+        // this app, so each optional field is dropped in turn on refusal.
+        // The customer needs read_customers and protected customer data
+        // access, which not every store's app has been granted; the staff
+        // note needs a newer API than some stores answer on. Without either
+        // there is still an order, a reason and a total worth showing.
+        $fields = ['customer' => true, 'note' => true];
 
-            $data = $this->cancellationRequest($this->cancelledOrdersQuery(withNote: false), $variables);
+        while (true) {
+            try {
+                $data = $this->cancellationRequest($this->cancelledOrdersQuery($fields['customer'], $fields['note']), $variables);
+                break;
+            } catch (\RuntimeException $e) {
+                $message = $e->getMessage();
+
+                if ($fields['customer'] && stripos($message, 'customer') !== false) {
+                    $fields['customer'] = false;
+                } elseif ($fields['note'] && (stripos($message, 'cancellation') !== false || stripos($message, 'staffNote') !== false)) {
+                    $fields['note'] = false;
+                } else {
+                    throw $e;
+                }
+            }
         }
 
         $orders = [];
@@ -2188,9 +2201,18 @@ class ShopifyService
     {
         $this->throttle();
 
-        $response = $this->http->post('admin/api/' . self::CANCELLATION_API_VERSION . '/graphql.json', [
-            'json' => ['query' => $query, 'variables' => $variables],
-        ]);
+        try {
+            $response = $this->http->post('admin/api/' . self::CANCELLATION_API_VERSION . '/graphql.json', [
+                'json' => ['query' => $query, 'variables' => $variables],
+            ]);
+        } catch (ClientException $e) {
+            // An HTTP refusal carries its reason in the body, which is the
+            // part worth showing; Guzzle's own message truncates it.
+            $status = $e->getResponse()->getStatusCode();
+            $body   = mb_substr(trim((string) $e->getResponse()->getBody()), 0, 300);
+
+            throw new \RuntimeException("Shopify HTTP {$status} in getCancelledOrders: {$body}", $status, $e);
+        }
 
         $data = json_decode((string) $response->getBody(), true);
         $this->assertNoGraphQlErrors($data, 'getCancelledOrders');
@@ -2198,13 +2220,13 @@ class ShopifyService
         return $data;
     }
 
-    private function cancelledOrdersQuery(bool $withNote): string
+    private function cancelledOrdersQuery(bool $withCustomer, bool $withNote): string
     {
         return 'query($q:String!){'
             . 'orders(first:' . self::CANCELLATION_LIMIT . ',query:$q,sortKey:UPDATED_AT,reverse:true){'
             . 'edges{node{'
             . 'legacyResourceId name cancelledAt cancelReason '
-            . 'customer{displayName} '
+            . ($withCustomer ? 'customer{displayName} ' : '')
             . 'totalPriceSet{shopMoney{amount currencyCode}}'
             . ($withNote ? ' cancellation{staffNote}' : '')
             . '}}}}';
