@@ -133,16 +133,16 @@
                     },
                     colors: {
                         brand: {
-                            50:  '#f0f8fb',
-                            100: '#dceff5',
-                            200: '#bde0ec',
-                            300: '#8fc8dc',
-                            400: '#56a6c4',
-                            500: '#2f87a9',
-                            600: '#1f6f8b',
-                            700: '#1a5a73',
-                            800: '#174a5e',
-                            900: '#123a4a',
+                            50:  '#f3f6fa',
+                            100: '#e4ebf4',
+                            200: '#c9d6e8',
+                            300: '#a3b9d7',
+                            400: '#7f9dc5',
+                            500: '#6185b2',
+                            600: '#4f72a0',
+                            700: '#42618a',
+                            800: '#374f70',
+                            900: '#2c3f59',
                         },
                         /* The shell's cloth and ink. Warm through the whole
                            ramp — a grey neutral next to parchment reads as a
@@ -202,11 +202,11 @@
             and nothing else.
         */
         :root {
-            --accent:      #5f8c7a;   /* sage */
-            --accent-hov:  #527a69;
-            --accent-edge: #466b5b;
-            --accent-soft: #9dc2b2;
-            --accent-rgb:  95,140,122;
+            --accent:      #6185b2;   /* steel blue */
+            --accent-hov:  #52759f;
+            --accent-edge: #46668d;
+            --accent-soft: #a3b9d7;
+            --accent-rgb:  97,133,178;
             --on-accent:   #ffffff;
         }
 
@@ -340,7 +340,7 @@
         main .rounded-xl.bg-white:hover,
         main .rounded-2xl.bg-white:hover {
             box-shadow: 0 1px 2px rgba(15,23,42,.05), 0 22px 44px -26px rgba(15,23,42,.42);
-            border-color: rgba(31,111,139,.22);
+            border-color: rgba(97,133,178,.28);
         }
 
         /*
@@ -433,15 +433,15 @@
            Dark regardless of --on-accent, which is for text on a solid fill. */
         main :is(button, a).border-brand-600 {
             border-color: var(--accent-edge) !important;
-            color: #1f3d33 !important;
+            color: #2c3f59 !important;
             background-color: rgba(var(--accent-rgb),.14) !important;
         }
         main :is(button, a).border-brand-600:hover:not(:disabled) { background-color: rgba(var(--accent-rgb),.38) !important; }
 
         /* Light brand tints take the sidebar's teal-mist. */
-        main [class~="bg-brand-50"], main [class*="bg-brand-50/"] { background-color: #e3f1f6 !important; }
-        main [class~="bg-brand-100"] { background-color: #c3dce8 !important; }
-        main [class*="hover:bg-brand-50"]:hover { background-color: #d3e7ef !important; }
+        main [class~="bg-brand-50"], main [class*="bg-brand-50/"] { background-color: #eaf0f7 !important; }
+        main [class~="bg-brand-100"] { background-color: #d3dfee !important; }
+        main [class*="hover:bg-brand-50"]:hover { background-color: #dfe7f2 !important; }
 
         /* Focus: yellow ring and edge on fields. */
         main [class*="ring-brand-"]:focus,
@@ -577,14 +577,14 @@
                       .border-blue-100, .border-blue-200) { border-color: rgba(255,255,255,.12); }
 
         /* Brand: teal text lifts, pale tints sink to deep teal */
-        html.dark :is(.text-brand-600, .text-brand-700, .text-brand-800) { color: #7cc4dc; }
-        html.dark main [class~="bg-brand-50"], html.dark main [class*="bg-brand-50/"] { background-color: #12303d !important; }
-        html.dark main [class~="bg-brand-100"] { background-color: #17414f !important; }
-        html.dark main [class*="hover:bg-brand-50"]:hover { background-color: #17414f !important; }
-        html.dark :is(.border-brand-200, .border-brand-300) { border-color: #24596b; }
+        html.dark :is(.text-brand-600, .text-brand-700, .text-brand-800) { color: #a3b9d7; }
+        html.dark main [class~="bg-brand-50"], html.dark main [class*="bg-brand-50/"] { background-color: #1a2a40 !important; }
+        html.dark main [class~="bg-brand-100"] { background-color: #22385a !important; }
+        html.dark main [class*="hover:bg-brand-50"]:hover { background-color: #22385a !important; }
+        html.dark :is(.border-brand-200, .border-brand-300) { border-color: #3a5680; }
         html.dark .skeleton { background: linear-gradient(100deg, #1b2938 30%, #243649 50%, #1b2938 70%) 0 0 / 220% 100%; }
 
-        html.dark main :is(button, a).border-brand-600 { color: #cfe8dd !important; }
+        html.dark main :is(button, a).border-brand-600 { color: #d6e1ef !important; }
 
         /* Yellow buttons keep black text; the glow is softer on dark */
         html.dark main .bg-brand-600:hover { box-shadow: 0 10px 24px -12px rgba(var(--accent-rgb),.45); }
