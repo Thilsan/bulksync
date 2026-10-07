@@ -2130,7 +2130,7 @@ class ShopifyService
      * range is among them — and keeps those whose cancelledAt actually falls
      * inside it.
      *
-     * @return list<array{id:string,number:string,customer:?string,reason:?string,staff_note:?string,cancelled_at:string,total:float,currency:?string,url:string}>
+     * @return list<array{id:string,number:string,reason:?string,staff_note:?string,cancelled_at:string,total:float,currency:?string,url:string}>
      */
     public function getCancelledOrders(Carbon $from, Carbon $to): array
     {
@@ -2142,29 +2142,18 @@ class ShopifyService
             $start->toIso8601String(),
         )];
 
-        // Shopify refuses the whole query over one field it will not hand
-        // this app, so each optional field is dropped in turn on refusal.
-        // The customer needs read_customers and protected customer data
-        // access, which not every store's app has been granted; the staff
-        // note needs a newer API than some stores answer on. Without either
-        // there is still an order, a reason and a total worth showing.
-        $fields = ['customer' => true, 'note' => true];
-
-        while (true) {
-            try {
-                $data = $this->cancellationRequest($this->cancelledOrdersQuery($fields['customer'], $fields['note']), $variables);
-                break;
-            } catch (\RuntimeException $e) {
-                $message = $e->getMessage();
-
-                if ($fields['customer'] && stripos($message, 'customer') !== false) {
-                    $fields['customer'] = false;
-                } elseif ($fields['note'] && (stripos($message, 'cancellation') !== false || stripos($message, 'staffNote') !== false)) {
-                    $fields['note'] = false;
-                } else {
-                    throw $e;
-                }
+        // No customer name: the stores' apps are not granted protected
+        // customer data, and asking for it makes Shopify refuse the whole
+        // query. The staff note needs a newer API than some stores answer on,
+        // so it is dropped on refusal rather than losing the order with it.
+        try {
+            $data = $this->cancellationRequest($this->cancelledOrdersQuery(withNote: true), $variables);
+        } catch (\RuntimeException $e) {
+            if (stripos($e->getMessage(), 'cancellation') === false && stripos($e->getMessage(), 'staffNote') === false) {
+                throw $e;
             }
+
+            $data = $this->cancellationRequest($this->cancelledOrdersQuery(withNote: false), $variables);
         }
 
         $orders = [];
@@ -2182,7 +2171,6 @@ class ShopifyService
             $orders[] = [
                 'id'           => (string) ($node['legacyResourceId'] ?? ''),
                 'number'       => (string) ($node['name'] ?? ''),
-                'customer'     => $node['customer']['displayName'] ?? null,
                 'reason'       => $node['cancelReason'] ?? null,
                 'staff_note'   => trim((string) ($node['cancellation']['staffNote'] ?? '')) ?: null,
                 'cancelled_at' => $at,
@@ -2220,13 +2208,12 @@ class ShopifyService
         return $data;
     }
 
-    private function cancelledOrdersQuery(bool $withCustomer, bool $withNote): string
+    private function cancelledOrdersQuery(bool $withNote): string
     {
         return 'query($q:String!){'
             . 'orders(first:' . self::CANCELLATION_LIMIT . ',query:$q,sortKey:UPDATED_AT,reverse:true){'
             . 'edges{node{'
             . 'legacyResourceId name cancelledAt cancelReason '
-            . ($withCustomer ? 'customer{displayName} ' : '')
             . 'totalPriceSet{shopMoney{amount currencyCode}}'
             . ($withNote ? ' cancellation{staffNote}' : '')
             . '}}}}';

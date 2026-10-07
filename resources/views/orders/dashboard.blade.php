@@ -376,11 +376,10 @@
             </div>
 
             <div x-show="!loading && !failed && orders.length > 0" x-cloak class="overflow-x-auto">
-                <table class="w-full text-sm min-w-[760px]">
+                <table class="w-full text-sm min-w-[640px]">
                     <thead class="text-xs text-gray-500 border-b border-gray-100 text-left">
                         <tr>
                             <th class="px-5 py-2.5 font-medium">Order</th>
-                            <th class="px-5 py-2.5 font-medium">Customer</th>
                             <th class="px-5 py-2.5 font-medium">Reason</th>
                             <th class="px-5 py-2.5 font-medium">Staff note</th>
                             <th class="px-5 py-2.5 font-medium text-right">Cancelled</th>
@@ -394,7 +393,6 @@
                                     <a :href="o.url" target="_blank" rel="noopener" class="font-medium text-gray-800 hover:text-brand-600" x-text="o.number"></a>
                                     <span class="block text-xs text-gray-400" x-text="o.store"></span>
                                 </td>
-                                <td class="px-5 py-2.5 text-gray-700" x-text="o.customer || '—'"></td>
                                 <td class="px-5 py-2.5">
                                     <span class="inline-block px-2 py-0.5 rounded-full text-xs border bg-rose-50 text-rose-700 border-rose-200" x-text="o.reason_label"></span>
                                 </td>

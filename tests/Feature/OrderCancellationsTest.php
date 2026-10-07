@@ -46,7 +46,7 @@ class OrderCancellationsTest extends TestCase
         Store::create(['name' => 'Pari Gallery Qatar', 'shopify_domain' => 'pari.myshopify.com', 'shopify_access_token' => 't']);
 
         $fake = $this->fake([[
-            'id' => '1', 'number' => '#5821', 'customer' => 'Mohammad Abdelrahim',
+            'id' => '1', 'number' => '#5821',
             'reason' => 'CUSTOMER', 'staff_note' => 'Not answered.',
             'cancelled_at' => '2026-10-07T06:35:16Z', 'total' => 2141.0, 'currency' => 'QAR',
             'url' => 'https://pari.myshopify.com/admin/orders/1',
@@ -58,7 +58,6 @@ class OrderCancellationsTest extends TestCase
             ->assertOk()
             ->assertJsonPath('orders.0.number', '#5821')
             ->assertJsonPath('orders.0.store', 'Pari Gallery Qatar')
-            ->assertJsonPath('orders.0.customer', 'Mohammad Abdelrahim')
             ->assertJsonPath('orders.0.reason_label', 'Customer changed or cancelled order')
             ->assertJsonPath('orders.0.staff_note', 'Not answered.')
             ->assertJsonPath('failed', []);
