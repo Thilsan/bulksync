@@ -75,6 +75,32 @@ class OrdersSummary
         'wcmq'              => 'WCMQ',
     ];
 
+    /**
+     * Store-row spellings that normalising alone does not turn into the
+     * platform slug. Nothing links a Store to a platform, so the cancelled
+     * orders card has to recognise one from the other by name.
+     */
+    public const PLATFORM_ALIASES = [
+        'parigallery' => ['parisgallery'],
+    ];
+
+    /**
+     * Whether a Store row (by its name or Shopify domain) is this platform.
+     * Both sides are reduced to bare letters and digits with any web suffix
+     * dropped, so "Toys4me.com" and "toys4me" are the same shop.
+     */
+    public static function storeIsPlatform(string $name, ?string $domain, string $slug): bool
+    {
+        $norm = fn (?string $v) => preg_replace('/[^a-z0-9]/', '', preg_replace(
+            '/(\.myshopify\.com|\.com|\.qa)$/', '', preg_replace('/^www\./', '', Str::lower(trim((string) $v)))
+        ));
+
+        $wanted = [$norm($slug), ...array_map($norm, self::PLATFORM_ALIASES[$slug] ?? [])];
+
+        return \in_array($norm($name), $wanted, true)
+            || ($domain !== null && $domain !== '' && \in_array($norm($domain), $wanted, true));
+    }
+
     /** The readable name for a storefront slug. */
     public static function platform(string $slug): string
     {

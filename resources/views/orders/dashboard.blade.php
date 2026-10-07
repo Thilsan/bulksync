@@ -341,12 +341,12 @@
              the page has drawn and covers connected stores only. --}}
         <div class="bg-white rounded-xl border border-gray-200 shadow-sm"
              x-data="{
-                 loading: true, failed: false, orders: [], stores: [], showAll: false,
+                 loading: true, failed: false, orders: [], stores: [], unmatched: [], showAll: false,
                  load() {
                      this.loading = true; this.failed = false;
-                     fetch('{{ route('orders.dashboard.cancellations', ['from' => $filters['from']->format('Y-m-d'), 'to' => $filters['to']->format('Y-m-d')]) }}', { headers: { 'Accept': 'application/json' } })
+                     fetch('{{ route('orders.dashboard.cancellations', ['from' => $filters['from']->format('Y-m-d'), 'to' => $filters['to']->format('Y-m-d'), 'platforms' => $filters['platforms']]) }}', { headers: { 'Accept': 'application/json' } })
                          .then(r => r.ok ? r.json() : Promise.reject())
-                         .then(d => { this.orders = d.orders; this.stores = d.failed; })
+                         .then(d => { this.orders = d.orders; this.stores = d.failed; this.unmatched = d.unmatched || []; })
                          .catch(() => { this.failed = true; })
                          .finally(() => { this.loading = false; });
                  },
@@ -413,6 +413,9 @@
 
             {{-- A store that failed is named rather than silently missing, so
                  a short list is not mistaken for a quiet month. --}}
+            <p x-show="!loading && unmatched.length" x-cloak class="px-5 py-2.5 border-t border-gray-100 text-xs text-gray-500"
+               x-text="'No Shopify store connected for: ' + unmatched.join(', ')"></p>
+
             <div x-show="!loading && stores.length" x-cloak class="px-5 py-2.5 border-t border-gray-100 text-xs text-amber-700 space-y-1">
                 <p class="font-medium">Not included — Shopify refused these stores:</p>
                 <template x-for="f in stores" :key="f.store">

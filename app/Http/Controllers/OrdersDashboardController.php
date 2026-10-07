@@ -434,9 +434,29 @@ class OrdersDashboardController extends Controller
             [$from, $to] = [$to, $from];
         }
 
-        $stores = Store::accessibleBy($user)->orderBy('name')->get();
+        $stores    = Store::accessibleBy($user)->orderBy('name')->get();
+        $platforms = collect($request->input('platforms', []))
+            ->filter(fn ($p) => \is_string($p) && $p !== '')
+            ->values();
 
-        return response()->json(['ok' => true] + $cancellations->forStores($stores, $from, $to));
+        // Narrowed to the platforms the filter bar picked, like the rest of
+        // the tab. A picked platform with no store recognised as it is named
+        // back, so an empty card is not read as "nothing was cancelled".
+        $unmatched = [];
+
+        if ($platforms->isNotEmpty()) {
+            $matches = fn (Store $s, string $p) => OrdersSummary::storeIsPlatform($s->name, $s->shopify_domain, $p);
+
+            $unmatched = $platforms
+                ->reject(fn ($p) => $stores->contains(fn ($s) => $matches($s, $p)))
+                ->map(fn ($p) => OrdersSummary::platform($p))
+                ->values()
+                ->all();
+
+            $stores = $stores->filter(fn ($s) => $platforms->contains(fn ($p) => $matches($s, $p)))->values();
+        }
+
+        return response()->json(['ok' => true, 'unmatched' => $unmatched] + $cancellations->forStores($stores, $from, $to));
     }
 
     // ── Filters ──────────────────────────────────────────────────────────────

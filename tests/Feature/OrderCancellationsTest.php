@@ -82,6 +82,45 @@ class OrderCancellationsTest extends TestCase
             ->assertJsonCount(1, 'failed');
     }
 
+    public function test_only_the_filtered_platforms_stores_are_asked(): void
+    {
+        foreach (['Bluesalon' => 'bluesalon', 'Parisgallery' => 'paris', 'Toys4me.com' => 'toys4me'] as $name => $sub) {
+            Store::create(['name' => $name, 'shopify_domain' => "{$sub}.myshopify.com", 'shopify_access_token' => 't']);
+        }
+
+        $asked = [];
+        $this->app->instance(OrderCancellationsService::class, new OrderCancellationsService(function ($s) use (&$asked) {
+            $asked[] = $s->name;
+
+            return $this->fake([]);
+        }));
+
+        $this->actingAs($this->admin)
+            ->getJson(route('orders.dashboard.cancellations', ['platforms' => ['parigallery', 'toys4me', 'colehaan']]))
+            ->assertOk()
+            ->assertJsonPath('unmatched', ['Cole Haan']);
+
+        $this->assertSame(['Parisgallery', 'Toys4me.com'], $asked);
+    }
+
+    public function test_no_platform_filter_asks_every_store(): void
+    {
+        Store::create(['name' => 'Bluesalon', 'shopify_domain' => 'b.myshopify.com', 'shopify_access_token' => 't']);
+        Store::create(['name' => 'Colehaan', 'shopify_domain' => 'c.myshopify.com', 'shopify_access_token' => 't']);
+
+        $asked = 0;
+        $this->app->instance(OrderCancellationsService::class, new OrderCancellationsService(function ($s) use (&$asked) {
+            $asked++;
+
+            return $this->fake([]);
+        }));
+
+        $this->actingAs($this->admin)->getJson(route('orders.dashboard.cancellations'))
+            ->assertOk()->assertJsonPath('unmatched', []);
+
+        $this->assertSame(2, $asked);
+    }
+
     public function test_unknown_reasons_stay_readable(): void
     {
         $this->assertSame('Not given', OrderCancellationsService::reason(null));
