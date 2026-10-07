@@ -334,6 +334,89 @@
             </details>
         </div>
 
+        {{-- ── Cancelled orders ───────────────────────────────────────────
+             The orders behind the Cancelled tile, with the reason and staff
+             note given in Shopify's cancel dialog. Those live in each store's
+             Shopify, not the delivery endpoint, so this card is fetched after
+             the page has drawn and covers connected stores only. --}}
+        <div class="bg-white rounded-xl border border-gray-200 shadow-sm"
+             x-data="{
+                 loading: true, failed: false, orders: [], stores: [], showAll: false,
+                 load() {
+                     this.loading = true; this.failed = false;
+                     fetch('{{ route('orders.dashboard.cancellations', ['from' => $filters['from']->format('Y-m-d'), 'to' => $filters['to']->format('Y-m-d')]) }}', { headers: { 'Accept': 'application/json' } })
+                         .then(r => r.ok ? r.json() : Promise.reject())
+                         .then(d => { this.orders = d.orders; this.stores = d.failed; })
+                         .catch(() => { this.failed = true; })
+                         .finally(() => { this.loading = false; });
+                 },
+                 get shown() { return this.showAll ? this.orders : this.orders.slice(0, 10); },
+                 when(iso) { return new Date(iso).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Qatar' }); },
+                 money(o) { return o.total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ' + (o.currency || ''); },
+             }"
+             x-init="load()">
+            <div class="px-5 py-3.5 border-b border-gray-100 flex items-center justify-between gap-3">
+                <h3 class="text-sm font-semibold text-gray-800 inline-flex items-center gap-1.5">
+                    <span class="w-2 h-2 rounded-sm {{ $fill['rose'] }}"></span>
+                    Cancelled orders
+                </h3>
+                <span class="text-xs text-gray-400" x-show="!loading && !failed" x-cloak
+                      x-text="orders.length + ' from Shopify'"></span>
+            </div>
+
+            <div x-show="loading" class="px-5 py-6 text-sm text-gray-400">Loading cancellations from Shopify…</div>
+
+            <div x-show="failed" x-cloak class="px-5 py-6 text-sm text-gray-500">
+                Couldn't load cancellations.
+                <button type="button" @click="load()" class="text-brand-600 hover:underline font-medium">Retry</button>
+            </div>
+
+            <div x-show="!loading && !failed && orders.length === 0" x-cloak class="px-5 py-6 text-sm text-gray-500">
+                No orders were cancelled in Shopify in this range.
+            </div>
+
+            <div x-show="!loading && !failed && orders.length > 0" x-cloak class="overflow-x-auto">
+                <table class="w-full text-sm min-w-[760px]">
+                    <thead class="text-xs text-gray-500 border-b border-gray-100 text-left">
+                        <tr>
+                            <th class="px-5 py-2.5 font-medium">Order</th>
+                            <th class="px-5 py-2.5 font-medium">Customer</th>
+                            <th class="px-5 py-2.5 font-medium">Reason</th>
+                            <th class="px-5 py-2.5 font-medium">Staff note</th>
+                            <th class="px-5 py-2.5 font-medium text-right">Cancelled</th>
+                            <th class="px-5 py-2.5 font-medium text-right">Total</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-50">
+                        <template x-for="o in shown" :key="o.store + o.id">
+                            <tr class="hover:bg-gray-50/60 align-top">
+                                <td class="px-5 py-2.5 whitespace-nowrap">
+                                    <a :href="o.url" target="_blank" rel="noopener" class="font-medium text-gray-800 hover:text-brand-600" x-text="o.number"></a>
+                                    <span class="block text-xs text-gray-400" x-text="o.store"></span>
+                                </td>
+                                <td class="px-5 py-2.5 text-gray-700" x-text="o.customer || '—'"></td>
+                                <td class="px-5 py-2.5">
+                                    <span class="inline-block px-2 py-0.5 rounded-full text-xs border bg-rose-50 text-rose-700 border-rose-200" x-text="o.reason_label"></span>
+                                </td>
+                                <td class="px-5 py-2.5 text-gray-600" x-text="o.staff_note || '—'"></td>
+                                <td class="px-5 py-2.5 text-right text-gray-500 whitespace-nowrap" :title="o.cancelled_at" x-text="when(o.cancelled_at)"></td>
+                                <td class="px-5 py-2.5 text-right tabular-nums text-gray-800 whitespace-nowrap" x-text="money(o)"></td>
+                            </tr>
+                        </template>
+                    </tbody>
+                </table>
+                <div class="px-5 py-2.5 border-t border-gray-100" x-show="orders.length > 10">
+                    <button type="button" @click="showAll = !showAll" class="text-xs text-brand-600 hover:underline font-medium"
+                            x-text="showAll ? 'Show fewer' : 'Show all ' + orders.length"></button>
+                </div>
+            </div>
+
+            {{-- A store that failed is named rather than silently missing, so
+                 a short list is not mistaken for a quiet month. --}}
+            <p x-show="!loading && stores.length" x-cloak class="px-5 py-2.5 border-t border-gray-100 text-xs text-amber-700"
+               x-text="'Not included — Shopify did not answer for: ' + stores.join(', ')"></p>
+        </div>
+
         {{-- ── Platforms ──────────────────────────────────────────────────
              One table rather than a bar chart with the same numbers listed
              underneath it. The bar lives in the orders cell, so size and

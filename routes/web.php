@@ -47,6 +47,7 @@ Route::middleware('auth')->group(function () {
     // so the platform table fetches one platform's own split on demand rather
     // than paying for every platform's on every page load.
     Route::get('/management-dashboard/platform/{platform}/order-types', [OrdersDashboardController::class, 'platformOrderTypes'])->name('orders.dashboard.platform-order-types');
+    Route::get('/management-dashboard/cancellations', [OrdersDashboardController::class, 'cancellations'])->name('orders.dashboard.cancellations');
 
     // Who owns what in the e-commerce department. A static org chart rather
     // than a module: the table is written into the view, so there is nothing

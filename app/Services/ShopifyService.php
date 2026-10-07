@@ -2111,6 +2111,105 @@ class ShopifyService
             ->all();
     }
 
+    /**
+     * The API version the cancellation list asks with. The staff note typed
+     * into Shopify's cancel dialog only exists on newer versions than the
+     * one the rest of this class is pinned to.
+     */
+    private const CANCELLATION_API_VERSION = '2026-01';
+
+    /** Enough for any month these stores have had; the list is for reading, not totalling. */
+    private const CANCELLATION_LIMIT = 100;
+
+    /**
+     * Orders cancelled between two dates, most recent first, with the reason
+     * and staff note given when they were cancelled.
+     *
+     * Shopify's search has no cancelled-at filter, so this asks for cancelled
+     * orders updated in the range — cancelling is an update, so every one in
+     * range is among them — and keeps those whose cancelledAt actually falls
+     * inside it.
+     *
+     * @return list<array{id:string,number:string,customer:?string,reason:?string,staff_note:?string,cancelled_at:string,total:float,currency:?string,url:string}>
+     */
+    public function getCancelledOrders(Carbon $from, Carbon $to): array
+    {
+        $start = $from->copy()->startOfDay();
+        $end   = $to->copy()->endOfDay();
+
+        $variables = ['q' => sprintf(
+            "status:cancelled AND updated_at:>='%s'",
+            $start->toIso8601String(),
+        )];
+
+        try {
+            $data = $this->cancellationRequest($this->cancelledOrdersQuery(withNote: true), $variables);
+        } catch (\RuntimeException $e) {
+            // A store whose API has not caught up with the staff note still
+            // has a reason and a total worth showing.
+            if (stripos($e->getMessage(), 'cancellation') === false) {
+                throw $e;
+            }
+
+            $data = $this->cancellationRequest($this->cancelledOrdersQuery(withNote: false), $variables);
+        }
+
+        $orders = [];
+
+        foreach ($data['data']['orders']['edges'] ?? [] as $edge) {
+            $node = $edge['node'] ?? [];
+            $at   = $node['cancelledAt'] ?? null;
+
+            if (!$at || !Carbon::parse($at)->betweenIncluded($start, $end)) {
+                continue;
+            }
+
+            $money = $node['totalPriceSet']['shopMoney'] ?? [];
+
+            $orders[] = [
+                'id'           => (string) ($node['legacyResourceId'] ?? ''),
+                'number'       => (string) ($node['name'] ?? ''),
+                'customer'     => $node['customer']['displayName'] ?? null,
+                'reason'       => $node['cancelReason'] ?? null,
+                'staff_note'   => trim((string) ($node['cancellation']['staffNote'] ?? '')) ?: null,
+                'cancelled_at' => $at,
+                'total'        => (float) ($money['amount'] ?? 0),
+                'currency'     => $money['currencyCode'] ?? null,
+                'url'          => "https://{$this->shop}/admin/orders/" . ($node['legacyResourceId'] ?? ''),
+            ];
+        }
+
+        usort($orders, fn ($a, $b) => strcmp($b['cancelled_at'], $a['cancelled_at']));
+
+        return $orders;
+    }
+
+    private function cancellationRequest(string $query, array $variables): array
+    {
+        $this->throttle();
+
+        $response = $this->http->post('admin/api/' . self::CANCELLATION_API_VERSION . '/graphql.json', [
+            'json' => ['query' => $query, 'variables' => $variables],
+        ]);
+
+        $data = json_decode((string) $response->getBody(), true);
+        $this->assertNoGraphQlErrors($data, 'getCancelledOrders');
+
+        return $data;
+    }
+
+    private function cancelledOrdersQuery(bool $withNote): string
+    {
+        return 'query($q:String!){'
+            . 'orders(first:' . self::CANCELLATION_LIMIT . ',query:$q,sortKey:UPDATED_AT,reverse:true){'
+            . 'edges{node{'
+            . 'legacyResourceId name cancelledAt cancelReason '
+            . 'customer{displayName} '
+            . 'totalPriceSet{shopMoney{amount currencyCode}}'
+            . ($withNote ? ' cancellation{staffNote}' : '')
+            . '}}}}';
+    }
+
     private function orderAnalyticsQuery(): string
     {
         return 'query($q:String!,$cursor:String){'

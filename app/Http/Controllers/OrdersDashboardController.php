@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Store;
 use App\Models\User;
 use App\Services\Ga4AnalyticsService;
+use App\Services\OrderCancellationsService;
 use App\Services\OrdersSummaryService;
 use App\Services\ShopifyAnalyticsService;
 use App\Support\OrdersSummary;
@@ -414,6 +415,28 @@ class OrdersDashboardController extends Controller
             'web'    => $side('web'),
             'manual' => $side('manual'),
         ]);
+    }
+
+    /**
+     * The cancelled orders behind the Cancelled tile, with their reasons.
+     *
+     * Fetched after the page has drawn rather than with it: this is one
+     * Shopify call per store, and the tiles should not wait on the slowest.
+     */
+    public function cancellations(Request $request, OrderCancellationsService $cancellations, #[CurrentUser] User $user): JsonResponse
+    {
+        abort_unless($user->hasFeature('orders_dashboard'), 403);
+
+        $from = $this->date($request->string('from')->toString(), Carbon::today()->startOfMonth());
+        $to   = $this->date($request->string('to')->toString(), Carbon::today());
+
+        if ($from->greaterThan($to)) {
+            [$from, $to] = [$to, $from];
+        }
+
+        $stores = Store::accessibleBy($user)->orderBy('name')->get();
+
+        return response()->json(['ok' => true] + $cancellations->forStores($stores, $from, $to));
     }
 
     // ── Filters ──────────────────────────────────────────────────────────────
