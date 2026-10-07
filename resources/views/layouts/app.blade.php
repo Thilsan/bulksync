@@ -501,36 +501,18 @@
         }
 
         /*
-            The band breathes. Two soft lights drift slowly behind the title,
-            a sheen crosses it every few seconds, and the title and the fact
-            chips rise in on arrival. Content sits above all of it.
+            The band runs like a system: a quiet network of nodes drifting
+            behind the title, links forming between neighbours, and small
+            packets of light travelling along them. Drawn on a canvas in
+            white at low opacity, so the band's own colour never changes.
         */
         .page-hero > :not(.hero-fx) { position: relative; z-index: 1; }
         .hero-fx { position: absolute; inset: 0; pointer-events: none; overflow: hidden; border-radius: inherit; }
-        .hero-fx::before, .hero-fx::after {
-            content: ''; position: absolute; border-radius: 9999px; filter: blur(40px);
-        }
-        .hero-fx::before {
-            width: 340px; height: 340px; left: -80px; top: -170px;
-            background: rgba(255,255,255,.22);
-            animation: hero-drift-a 14s ease-in-out infinite alternate;
-        }
-        .hero-fx::after {
-            width: 300px; height: 300px; right: 8%; bottom: -200px;
-            background: rgba(40,81,132,.55);
-            animation: hero-drift-b 18s ease-in-out infinite alternate;
-        }
-        .hero-sheen {
-            position: absolute; top: 0; bottom: 0; left: 0; width: 40%;
-            background: linear-gradient(100deg, transparent 0%, rgba(255,255,255,.16) 50%, transparent 100%);
-            transform: translateX(-120%) skewX(-18deg);
-            animation: hero-sheen 7s cubic-bezier(.4,0,.2,1) 1s infinite;
-        }
-        @keyframes hero-drift-a { to { transform: translate(260px, 60px) scale(1.15); } }
-        @keyframes hero-drift-b { to { transform: translate(-320px, -40px) scale(.9); } }
-        @keyframes hero-sheen {
-            0%   { transform: translateX(-120%) skewX(-18deg); }
-            35%, 100% { transform: translateX(320%) skewX(-18deg); }
+        .hero-fx canvas { display: block; width: 100%; height: 100%; }
+        /* Fade the network out behind the title so the words stay clean. */
+        .hero-fx {
+            -webkit-mask-image: linear-gradient(90deg, rgba(0,0,0,.35) 0%, #000 45%);
+                    mask-image: linear-gradient(90deg, rgba(0,0,0,.35) 0%, #000 45%);
         }
 
         .page-hero h1 { animation: hero-in .7s cubic-bezier(.22,.61,.36,1) .05s backwards; }
@@ -552,7 +534,6 @@
         @keyframes hero-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 
         @media (prefers-reduced-motion: reduce) {
-            .hero-fx::before, .hero-fx::after, .hero-sheen,
             .page-hero h1, .page-hero nav, .hero-chip { animation: none; }
             .hero-chip { transition: none; }
         }
@@ -1479,7 +1460,7 @@
                 content held inside it rather than as a form on a grey sheet.
             --}}
             <header class="page-hero mb-6">
-                <span class="hero-fx" aria-hidden="true"><span class="hero-sheen"></span></span>
+                <span class="hero-fx" aria-hidden="true"><canvas data-hero-net></canvas></span>
                 @if($crumbs)
                     <nav class="mb-2 flex items-center gap-1.5 text-[11px] font-medium text-white/55" aria-label="Breadcrumb">
                         @foreach($crumbs as $i => $crumb)
@@ -1522,6 +1503,111 @@
         @include('partials.chat-runtime')
         @include('partials.chat-widget')
     @endauth
+
+    <script>
+        /*
+            Page-hero network. Nodes drift; any two closer than LINK px are
+            joined by a line that fades with distance; now and then a packet
+            of light runs along a link, like traffic on a live system. Pauses
+            while the tab is hidden; reduced motion gets one still frame.
+        */
+        (function () {
+            const canvas = document.querySelector('[data-hero-net]');
+            if (!canvas) return;
+
+            const ctx   = canvas.getContext('2d');
+            const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+            const LINK  = 120;
+            let w = 0, h = 0, nodes = [], packets = [], raf = null;
+
+            function size() {
+                const r   = canvas.getBoundingClientRect();
+                const dpr = Math.min(window.devicePixelRatio || 1, 2);
+                w = r.width; h = r.height;
+                canvas.width = w * dpr; canvas.height = h * dpr;
+                ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+                const count = Math.max(14, Math.min(60, Math.round(w * h / 2600)));
+                nodes = Array.from({ length: count }, () => ({
+                    x: Math.random() * w,
+                    y: Math.random() * h,
+                    vx: (Math.random() - .5) * .25,
+                    vy: (Math.random() - .5) * .25,
+                    r: Math.random() * 1.4 + .8,
+                    hub: Math.random() < .12,
+                }));
+                packets = [];
+            }
+
+            function links() {
+                const out = [];
+                for (let i = 0; i < nodes.length; i++) {
+                    for (let j = i + 1; j < nodes.length; j++) {
+                        const d = Math.hypot(nodes[i].x - nodes[j].x, nodes[i].y - nodes[j].y);
+                        if (d < LINK) out.push([nodes[i], nodes[j], d]);
+                    }
+                }
+                return out;
+            }
+
+            function draw(t) {
+                ctx.clearRect(0, 0, w, h);
+                const ls = links();
+
+                for (const [a, b, d] of ls) {
+                    ctx.strokeStyle = `rgba(255,255,255,${(1 - d / LINK) * .28})`;
+                    ctx.lineWidth = .8;
+                    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+                }
+
+                // Spawn a packet on a random link every so often.
+                if (!still && ls.length && packets.length < 6 && Math.random() < .03) {
+                    const [a, b] = ls[Math.floor(Math.random() * ls.length)];
+                    packets.push({ a, b, p: 0, s: .008 + Math.random() * .01 });
+                }
+                packets = packets.filter(k => (k.p += k.s) < 1);
+                for (const k of packets) {
+                    const x = k.a.x + (k.b.x - k.a.x) * k.p;
+                    const y = k.a.y + (k.b.y - k.a.y) * k.p;
+                    const g = ctx.createRadialGradient(x, y, 0, x, y, 6);
+                    g.addColorStop(0, 'rgba(255,255,255,.95)');
+                    g.addColorStop(1, 'rgba(255,255,255,0)');
+                    ctx.fillStyle = g;
+                    ctx.beginPath(); ctx.arc(x, y, 6, 0, Math.PI * 2); ctx.fill();
+                }
+
+                for (const n of nodes) {
+                    const pulse = n.hub ? 1 + Math.sin(t / 600 + n.x) * .35 : 1;
+                    if (n.hub) {
+                        ctx.fillStyle = 'rgba(255,255,255,.12)';
+                        ctx.beginPath(); ctx.arc(n.x, n.y, n.r * 4 * pulse, 0, Math.PI * 2); ctx.fill();
+                    }
+                    ctx.fillStyle = `rgba(255,255,255,${n.hub ? .9 : .55})`;
+                    ctx.beginPath(); ctx.arc(n.x, n.y, n.hub ? n.r * 1.6 : n.r, 0, Math.PI * 2); ctx.fill();
+                }
+            }
+
+            function step(t) {
+                for (const n of nodes) {
+                    n.x += n.vx; n.y += n.vy;
+                    if (n.x < 0 || n.x > w) n.vx *= -1;
+                    if (n.y < 0 || n.y > h) n.vy *= -1;
+                }
+                draw(t);
+                raf = requestAnimationFrame(step);
+            }
+
+            function start() { if (!still && !raf) raf = requestAnimationFrame(step); }
+            function stop()  { if (raf) cancelAnimationFrame(raf); raf = null; }
+
+            size();
+            draw(0);
+            start();
+
+            new ResizeObserver(() => { size(); draw(0); }).observe(canvas);
+            document.addEventListener('visibilitychange', () => document.hidden ? stop() : start());
+        })();
+    </script>
 
 </body>
 </html>
