@@ -231,8 +231,19 @@
             icons reads as a rhythm rather than loose strokes; the current page
             lifts its tile to champagne and its row catches light from the left.
         */
-        .sb-item { transition: background-color .2s ease, color .2s ease, box-shadow .2s ease; }
-        .sb-item:not(.is-on):hover { background-color: rgba(255,255,255,.08); }
+        /* Hover: a wash fills in from the left, the icon tile pops and tilts,
+           and the label leans a few pixels toward the page it opens. */
+        .sb-item { transition: background-size .35s cubic-bezier(.22,.61,.36,1), color .2s ease, box-shadow .2s ease; }
+        .sb-item:not(.is-on) {
+            background-image: linear-gradient(90deg, rgba(255,255,255,.12), rgba(255,255,255,.04));
+            background-repeat: no-repeat; background-size: 0% 100%;
+        }
+        .sb-item:not(.is-on):hover { background-size: 100% 100%; }
+        .sb-label { display: inline-block; transition: transform .3s cubic-bezier(.22,.61,.36,1); }
+        .sb-item:not(.is-on):hover .sb-label { transform: translateX(3px); }
+        .sb-item:not(.is-on):hover .sb-ico { transform: scale(1.08) rotate(-6deg); }
+        .sb-item:hover .sb-ico svg { animation: sb-wiggle .45s ease; }
+        @keyframes sb-wiggle { 40% { transform: scale(1.15); } }
         .sb-item.is-on {
             background: linear-gradient(90deg, rgba(255,255,255,.17), rgba(255,255,255,.07));
             box-shadow: inset 0 1px 0 rgba(255,255,255,.14), 0 8px 20px -14px rgba(8,24,40,.9);
@@ -254,13 +265,14 @@
         .sb-rail { box-shadow: 0 0 10px rgba(252,211,77,.7); }
 
         /* Sub-menu: a quiet tree line, with a dot marking the open page. */
-        .sb-kid { position: relative; transition: background-color .2s ease, color .2s ease; }
+        .sb-kid { position: relative; transition: background-color .2s ease, color .2s ease, padding-left .25s cubic-bezier(.22,.61,.36,1); }
+        .sb-kid:not(.is-on):hover { padding-left: .9rem; }
         .sb-kid::before {
             content: ''; position: absolute; left: -13px; top: 50%; width: 5px; height: 5px;
             margin-top: -2.5px; border-radius: 9999px; background: rgba(255,255,255,.22);
             transition: background-color .2s ease, box-shadow .2s ease;
         }
-        .sb-kid:hover::before { background: rgba(255,255,255,.55); }
+        .sb-kid:hover::before { background: rgba(255,255,255,.75); box-shadow: 0 0 0 3px rgba(255,255,255,.12); }
         .sb-kid.is-on::before { background: #fcd34d; box-shadow: 0 0 0 3px rgba(252,211,77,.18); }
 
         .sb-badge {
@@ -275,7 +287,8 @@
         }
 
         @media (prefers-reduced-motion: reduce) {
-            .sb-item, .sb-ico, .sb-kid, .sb-kid::before { transition: none; }
+            .sb-item, .sb-ico, .sb-kid, .sb-kid::before, .sb-label { transition: none; }
+            .sb-item:hover .sb-ico svg { animation: none; }
         }
 
         .topbar {
@@ -485,6 +498,63 @@
         .page-hero::after {
             content: ''; position: absolute; inset: 0 0 auto 0; height: 2px; pointer-events: none;
             background: linear-gradient(90deg, rgba(255,255,255,.18), transparent 60%);
+        }
+
+        /*
+            The band breathes. Two soft lights drift slowly behind the title,
+            a sheen crosses it every few seconds, and the title and the fact
+            chips rise in on arrival. Content sits above all of it.
+        */
+        .page-hero > :not(.hero-fx) { position: relative; z-index: 1; }
+        .hero-fx { position: absolute; inset: 0; pointer-events: none; overflow: hidden; border-radius: inherit; }
+        .hero-fx::before, .hero-fx::after {
+            content: ''; position: absolute; border-radius: 9999px; filter: blur(40px);
+        }
+        .hero-fx::before {
+            width: 340px; height: 340px; left: -80px; top: -170px;
+            background: rgba(255,255,255,.22);
+            animation: hero-drift-a 14s ease-in-out infinite alternate;
+        }
+        .hero-fx::after {
+            width: 300px; height: 300px; right: 8%; bottom: -200px;
+            background: rgba(40,81,132,.55);
+            animation: hero-drift-b 18s ease-in-out infinite alternate;
+        }
+        .hero-sheen {
+            position: absolute; top: 0; bottom: 0; left: 0; width: 40%;
+            background: linear-gradient(100deg, transparent 0%, rgba(255,255,255,.16) 50%, transparent 100%);
+            transform: translateX(-120%) skewX(-18deg);
+            animation: hero-sheen 7s cubic-bezier(.4,0,.2,1) 1s infinite;
+        }
+        @keyframes hero-drift-a { to { transform: translate(260px, 60px) scale(1.15); } }
+        @keyframes hero-drift-b { to { transform: translate(-320px, -40px) scale(.9); } }
+        @keyframes hero-sheen {
+            0%   { transform: translateX(-120%) skewX(-18deg); }
+            35%, 100% { transform: translateX(320%) skewX(-18deg); }
+        }
+
+        .page-hero h1 { animation: hero-in .7s cubic-bezier(.22,.61,.36,1) .05s backwards; }
+        .page-hero nav { animation: hero-in .6s cubic-bezier(.22,.61,.36,1) backwards; }
+        .hero-chip {
+            animation: hero-in .6s cubic-bezier(.22,.61,.36,1) backwards;
+            transition: transform .25s ease, background-color .25s ease, box-shadow .25s ease;
+        }
+        .hero-chip:nth-child(1) { animation-delay: .15s }
+        .hero-chip:nth-child(2) { animation-delay: .22s }
+        .hero-chip:nth-child(3) { animation-delay: .29s }
+        .hero-chip:nth-child(4) { animation-delay: .36s }
+        .hero-chip:nth-child(n+5) { animation-delay: .43s }
+        .hero-chip:hover {
+            transform: translateY(-2px);
+            background-color: rgba(255,255,255,.18);
+            box-shadow: 0 10px 22px -12px rgba(20,40,70,.7);
+        }
+        @keyframes hero-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+        @media (prefers-reduced-motion: reduce) {
+            .hero-fx::before, .hero-fx::after, .hero-sheen,
+            .page-hero h1, .page-hero nav, .hero-chip { animation: none; }
+            .hero-chip { transition: none; }
         }
 
         /* Softer corners across the working area: closer to the hero's radius,
@@ -892,7 +962,7 @@
                                                 @endforeach
                                             </svg>
                                         </span>
-                                        <span class="truncate">{{ $item['label'] }}</span>
+                                        <span class="sb-label truncate">{{ $item['label'] }}</span>
                                     </a>
                                     @if($badge > 0)
                                         <span class="flex shrink-0 items-center">
@@ -904,9 +974,13 @@
                                     <button type="button" @click.stop="open = !open"
                                             class="flex shrink-0 items-center px-2.5 {{ $item['on'] ? 'text-white/90' : 'text-white/45 hover:text-white' }}"
                                             :aria-expanded="open" aria-label="Toggle {{ $item['label'] }} menu">
-                                        <svg :class="open ? 'rotate-180' : ''" class="h-3.5 w-3.5 transition-transform"
+                                        {{-- Plus when closed, minus when open: the upright stroke folds away. --}}
+                                        <svg :class="open ? 'rotate-180' : ''" class="h-3.5 w-3.5 transition-transform duration-300"
                                              fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5">
-                                            <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
+                                            <path stroke-linecap="round" d="M5 12h14"/>
+                                            <path stroke-linecap="round" d="M12 5v14"
+                                                  :class="open ? 'scale-y-0' : 'scale-y-100'"
+                                                  class="origin-center transition-transform duration-300" style="transform-box: fill-box"/>
                                         </svg>
                                     </button>
                                 </div>
@@ -948,7 +1022,7 @@
                                         @endforeach
                                     </svg>
                                 </span>
-                                <span class="flex-1 truncate">{{ $item['label'] }}</span>
+                                <span class="min-w-0 flex-1"><span class="sb-label max-w-full truncate align-middle">{{ $item['label'] }}</span></span>
                                 @if($badge > 0)
                                     <span class="sb-badge min-w-[1.25rem] shrink-0 rounded-full px-1.5 py-px text-center text-[10px] font-semibold tabular-nums text-white">
                                         {{ $badge > 99 ? '99+' : $badge }}
@@ -1405,6 +1479,7 @@
                 content held inside it rather than as a form on a grey sheet.
             --}}
             <header class="page-hero mb-6">
+                <span class="hero-fx" aria-hidden="true"><span class="hero-sheen"></span></span>
                 @if($crumbs)
                     <nav class="mb-2 flex items-center gap-1.5 text-[11px] font-medium text-white/55" aria-label="Breadcrumb">
                         @foreach($crumbs as $i => $crumb)
