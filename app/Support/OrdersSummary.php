@@ -101,6 +101,61 @@ class OrdersSummary
             || ($domain !== null && $domain !== '' && \in_array($norm($domain), $wanted, true));
     }
 
+    /**
+     * The delivery system's cancelled orders, each joined to its Shopify
+     * cancellation where one exists.
+     *
+     * The delivery list decides which orders appear, so the card and the
+     * Cancelled tile count the same orders. Shopify only adds what the
+     * delivery system never recorded: the reason and the staff note. An order Shopify never cancelled, or one entered by hand,
+     * still appears, with the delivery system's status as its reason.
+     *
+     * Order numbers are compared without a leading # or punctuation, and
+     * then by their digits alone, within the same platform — the two systems
+     * need not spell "BS32011" the same way.
+     *
+     * @param  list<array>  $shopify   rows from OrderCancellationsService, each with a 'store'
+     * @param  list<array>  $delivery  rows from the endpoint's cancelled_orders
+     */
+    public static function reconcile(array $shopify, array $delivery): array
+    {
+        $norm   = fn ($v) => preg_replace('/[^A-Z0-9]/', '', Str::upper((string) $v));
+        $digits = fn ($v) => preg_replace('/\D/', '', (string) $v);
+        $rows   = [];
+
+        foreach ($delivery as $order) {
+            $platform = (string) ($order['platform'] ?? '');
+            $number   = (string) ($order['order_number'] ?? '');
+            $status   = (string) ($order['status'] ?? 'Cancelled');
+
+            $match = collect($shopify)->first(fn ($s) => self::storeIsPlatform((string) $s['store'], null, $platform)
+                && $norm($s['number']) === $norm($number))
+                ?? collect($shopify)->first(fn ($s) => self::storeIsPlatform((string) $s['store'], null, $platform)
+                && $digits($number) !== '' && $digits($s['number']) === $digits($number));
+
+            $rows[] = $match
+                ? $match + ['status' => $status, 'in_shopify' => true]
+                : [
+                    'id'            => $platform . ':' . $number,
+                    'number'        => $number,
+                    'store'         => self::platform($platform),
+                    'reason'        => null,
+                    'reason_label'  => $status,
+                    'staff_note'    => null,
+                    'cancelled_at'  => $order['cancelled_at'] ?? null,
+                    'total'         => (float) ($order['total'] ?? 0),
+                    'currency'      => $order['currency'] ?? null,
+                    'url'           => null,
+                    'status'        => $status,
+                    'in_shopify'    => false,
+                ];
+        }
+
+        usort($rows, fn ($a, $b) => strcmp((string) $b['cancelled_at'], (string) $a['cancelled_at']));
+
+        return $rows;
+    }
+
     /** The readable name for a storefront slug. */
     public static function platform(string $slug): string
     {

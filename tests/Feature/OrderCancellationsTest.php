@@ -23,6 +23,10 @@ class OrderCancellationsTest extends TestCase
     {
         parent::setUp();
 
+        // .env carries the real orders endpoint; nothing here may reach it.
+        \Illuminate\Support\Facades\Http::preventStrayRequests();
+        config(['services.orders_api.token' => null]);
+
         $this->admin = User::create([
             'name' => 'Ada Okonkwo', 'email' => 'ada@example.test',
             'password' => 'password', 'is_active' => true, 'is_super_admin' => true,
@@ -60,7 +64,6 @@ class OrderCancellationsTest extends TestCase
             ->assertJsonPath('orders.0.store', 'Pari Gallery Qatar')
             ->assertJsonPath('orders.0.reason_label', 'Customer changed or cancelled order')
             ->assertJsonPath('orders.0.staff_note', 'Not answered.')
-            ->assertJsonPath('orders.0.payment_label', 'Unpaid')
             ->assertJsonPath('failed', []);
     }
 
@@ -145,6 +148,80 @@ class OrderCancellationsTest extends TestCase
         $this->actingAs($this->admin)->getJson(route('orders.dashboard.cancellations', ['basis' => 'nonsense']))->assertOk();
 
         $this->assertSame(['created', 'updated', 'created'], $seen);
+    }
+
+    private function endpoint(?array $cancelled): void
+    {
+        config([
+            'services.orders_api.url'   => 'https://orders.test/orders_summary.php',
+            'services.orders_api.token' => 'test-token-value',
+        ]);
+
+        $data = ['totals' => ['total_orders' => 0]];
+
+        if ($cancelled !== null) {
+            $data['cancelled_orders'] = $cancelled;
+        }
+
+        \Illuminate\Support\Facades\Http::fake(['orders.test/*' => \Illuminate\Support\Facades\Http::response(
+            ['status_code' => 100, 'message' => 'ok', 'data' => $data],
+        )]);
+    }
+
+    public function test_the_delivery_list_decides_which_orders_appear(): void
+    {
+        Store::create(['name' => 'Bluesalon', 'shopify_domain' => 'b.myshopify.com', 'shopify_access_token' => 't']);
+
+        $row = fn ($n, $note) => [
+            'id' => $n, 'number' => $n, 'reason' => 'CUSTOMER', 'staff_note' => $note, 'payment' => 'VOIDED',
+            'cancelled_at' => '2026-10-05T10:00:00Z', 'total' => 100.0, 'currency' => 'QAR', 'url' => "https://b/{$n}",
+        ];
+
+        // Shopify cancelled three; the delivery system counts one of them,
+        // spelled without the prefix, and one manual order Shopify never saw.
+        $fake = $this->fake([$row('BS32011', 'PAYLATER'), $row('BS32162', 'Via CRM'), $row('BS32037', 'PAYLATER')]);
+        $this->app->instance(OrderCancellationsService::class, new OrderCancellationsService(fn ($s) => $fake));
+
+        $this->endpoint([
+            ['platform' => 'bluesalon', 'order_number' => '32162', 'status' => 'Cancelled', 'status_id' => 6],
+            ['platform' => 'bluesalon', 'order_number' => 'M-900', 'status' => 'Failed', 'status_id' => 17, 'total' => 50],
+        ]);
+
+        $json = $this->actingAs($this->admin)
+            ->getJson(route('orders.dashboard.cancellations'))
+            ->assertOk()
+            ->assertJsonPath('source', 'delivery')
+            ->assertJsonCount(2, 'orders')
+            ->json('orders');
+
+        $byNumber = collect($json)->keyBy('number');
+
+        $this->assertSame('Via CRM', $byNumber['BS32162']['staff_note']);
+        $this->assertTrue($byNumber['BS32162']['in_shopify']);
+        $this->assertSame('Failed', $byNumber['M-900']['reason_label']);
+        $this->assertFalse($byNumber['M-900']['in_shopify']);
+        $this->assertArrayNotHasKey('BS32011', $byNumber->all());
+
+        \Illuminate\Support\Facades\Http::assertSent(fn ($r) => str_contains($r->url(), 'include=cancelled_orders'));
+    }
+
+    public function test_without_the_delivery_list_the_card_is_shopifys_own(): void
+    {
+        Store::create(['name' => 'Bluesalon', 'shopify_domain' => 'b.myshopify.com', 'shopify_access_token' => 't']);
+
+        $fake = $this->fake([[
+            'id' => '1', 'number' => 'BS1', 'reason' => 'CUSTOMER', 'staff_note' => null, 'payment' => 'PAID',
+            'cancelled_at' => '2026-10-05T10:00:00Z', 'total' => 1.0, 'currency' => 'QAR', 'url' => 'https://b/1',
+        ]]);
+        $this->app->instance(OrderCancellationsService::class, new OrderCancellationsService(fn ($s) => $fake));
+
+        $this->endpoint(null);
+
+        $this->actingAs($this->admin)
+            ->getJson(route('orders.dashboard.cancellations'))
+            ->assertOk()
+            ->assertJsonPath('source', 'shopify')
+            ->assertJsonCount(1, 'orders');
     }
 
     public function test_unknown_reasons_stay_readable(): void

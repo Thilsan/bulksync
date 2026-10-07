@@ -423,7 +423,7 @@ class OrdersDashboardController extends Controller
      * Fetched after the page has drawn rather than with it: this is one
      * Shopify call per store, and the tiles should not wait on the slowest.
      */
-    public function cancellations(Request $request, OrderCancellationsService $cancellations, #[CurrentUser] User $user): JsonResponse
+    public function cancellations(Request $request, OrderCancellationsService $cancellations, OrdersSummaryService $orders, #[CurrentUser] User $user): JsonResponse
     {
         abort_unless($user->hasFeature('orders_dashboard'), 403);
 
@@ -459,7 +459,63 @@ class OrdersDashboardController extends Controller
             $stores = $stores->filter(fn ($s) => $platforms->contains(fn ($p) => $matches($s, $p)))->values();
         }
 
-        return response()->json(['ok' => true, 'unmatched' => $unmatched] + $cancellations->forStores($stores, $from, $to, $basis));
+        $shopify  = $cancellations->forStores($stores, $from, $to, $basis);
+        $delivery = $this->deliveryCancellations($orders, $from, $to, $basis, $platforms->all());
+
+        // Once the endpoint names its cancelled orders, those are the list —
+        // exactly what the Cancelled tile counts — with Shopify's reasons
+        // joined on. Until then the card is Shopify's own cancellations.
+        if ($delivery !== null) {
+            return response()->json([
+                'ok'        => true,
+                'source'    => 'delivery',
+                'unmatched' => [],
+                'orders'    => OrdersSummary::reconcile($shopify['orders'], $delivery),
+                'failed'    => $shopify['failed'],
+            ]);
+        }
+
+        return response()->json(['ok' => true, 'source' => 'shopify', 'unmatched' => $unmatched] + $shopify);
+    }
+
+    /**
+     * The order numbers behind the Cancelled tile, or null while the endpoint
+     * does not send them.
+     *
+     * Asked for with include=cancelled_orders so the main page's call stays
+     * as light as it is. An endpoint that does not know the parameter ignores
+     * it and simply leaves the key out, which is the null case.
+     */
+    private function deliveryCancellations(OrdersSummaryService $orders, Carbon $from, Carbon $to, string $basis, array $platforms): ?array
+    {
+        if (! $orders->configured()) {
+            return null;
+        }
+
+        $params = [
+            'from'       => $from->format('Y-m-d'),
+            'to'         => $to->format('Y-m-d'),
+            'date_basis' => $basis,
+            'include'    => 'cancelled_orders',
+        ];
+
+        $platforms = array_values(array_diff($platforms, self::EXCLUDED_PLATFORMS));
+
+        if ($platforms) {
+            $params['platform'] = implode(',', $platforms);
+        }
+
+        $result = $orders->fetch($params);
+        $list   = $result['ok'] ? ($result['data']['cancelled_orders'] ?? null) : null;
+
+        if (! \is_array($list)) {
+            return null;
+        }
+
+        return array_values(array_filter(
+            $list,
+            fn ($row) => \is_array($row) && ! \in_array($row['platform'] ?? null, self::EXCLUDED_PLATFORMS, true),
+        ));
     }
 
     // ── Filters ──────────────────────────────────────────────────────────────

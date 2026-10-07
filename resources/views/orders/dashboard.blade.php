@@ -341,12 +341,12 @@
              the page has drawn and covers connected stores only. --}}
         <div class="bg-white rounded-xl border border-gray-200 shadow-sm"
              x-data="{
-                 loading: true, failed: false, orders: [], stores: [], unmatched: [], showAll: false,
+                 loading: true, failed: false, orders: [], stores: [], unmatched: [], source: 'shopify', showAll: false,
                  load() {
                      this.loading = true; this.failed = false;
                      fetch('{{ route('orders.dashboard.cancellations', ['from' => $filters['from']->format('Y-m-d'), 'to' => $filters['to']->format('Y-m-d'), 'basis' => $filters['basis'], 'platforms' => $filters['platforms']]) }}', { headers: { 'Accept': 'application/json' } })
                          .then(r => r.ok ? r.json() : Promise.reject())
-                         .then(d => { this.orders = d.orders; this.stores = d.failed; this.unmatched = d.unmatched || []; })
+                         .then(d => { this.orders = d.orders; this.stores = d.failed; this.unmatched = d.unmatched || []; this.source = d.source || 'shopify'; })
                          .catch(() => { this.failed = true; })
                          .finally(() => { this.loading = false; });
                  },
@@ -361,7 +361,7 @@
                     Cancelled orders
                 </h3>
                 <span class="text-xs text-gray-400" x-show="!loading && !failed" x-cloak
-                      x-text="orders.length + ' from Shopify · {{ $filters['basis'] === 'created' ? 'placed in this range' : 'cancelled in this range' }}'"></span>
+                      x-text="source === 'delivery' ? orders.length + ' · same orders as the Cancelled tile' : orders.length + ' from Shopify · {{ $filters['basis'] === 'created' ? 'placed in this range' : 'cancelled in this range' }}'"></span>
             </div>
 
             <div x-show="loading" class="px-5 py-6 text-sm text-gray-400">Loading cancellations from Shopify…</div>
@@ -379,18 +379,17 @@
                  this lists what Shopify cancelled. An order cancelled before it
                  was ever sent out — an unpaid pay-later checkout, say — is only
                  in Shopify, so the two can differ. --}}
-            <p x-show="!loading && !failed && orders.length > 0" x-cloak class="px-5 pt-3 text-xs text-gray-400">
+            <p x-show="!loading && !failed && orders.length > 0 && source === 'shopify'" x-cloak class="px-5 pt-3 text-xs text-gray-400">
                 From each store's Shopify, so it can include orders cancelled before they reached the delivery system — the Cancelled tile counts only those that did.
             </p>
 
             <div x-show="!loading && !failed && orders.length > 0" x-cloak class="overflow-x-auto">
-                <table class="w-full text-sm min-w-[720px]">
+                <table class="w-full text-sm min-w-[640px]">
                     <thead class="text-xs text-gray-500 border-b border-gray-100 text-left">
                         <tr>
                             <th class="px-5 py-2.5 font-medium">Order</th>
                             <th class="px-5 py-2.5 font-medium">Reason</th>
                             <th class="px-5 py-2.5 font-medium">Staff note</th>
-                            <th class="px-5 py-2.5 font-medium">Payment</th>
                             <th class="px-5 py-2.5 font-medium text-right">Cancelled</th>
                             <th class="px-5 py-2.5 font-medium text-right">Total</th>
                         </tr>
@@ -399,15 +398,15 @@
                         <template x-for="o in shown" :key="o.store + o.id">
                             <tr class="hover:bg-gray-50/60 align-top">
                                 <td class="px-5 py-2.5 whitespace-nowrap">
-                                    <a :href="o.url" target="_blank" rel="noopener" class="font-medium text-gray-800 hover:text-brand-600" x-text="o.number"></a>
+                                    <template x-if="o.url"><a :href="o.url" target="_blank" rel="noopener" class="font-medium text-gray-800 hover:text-brand-600" x-text="o.number"></a></template>
+                                    <template x-if="!o.url"><span class="font-medium text-gray-800" x-text="o.number" title="Not found among this store's Shopify cancellations"></span></template>
                                     <span class="block text-xs text-gray-400" x-text="o.store"></span>
                                 </td>
                                 <td class="px-5 py-2.5">
                                     <span class="inline-block px-2 py-0.5 rounded-full text-xs border bg-rose-50 text-rose-700 border-rose-200" x-text="o.reason_label"></span>
                                 </td>
                                 <td class="px-5 py-2.5 text-gray-600" x-text="o.staff_note || '—'"></td>
-                                <td class="px-5 py-2.5 text-gray-600 whitespace-nowrap" x-text="o.payment_label"></td>
-                                <td class="px-5 py-2.5 text-right text-gray-500 whitespace-nowrap" :title="o.cancelled_at" x-text="when(o.cancelled_at)"></td>
+                                <td class="px-5 py-2.5 text-right text-gray-500 whitespace-nowrap" :title="o.cancelled_at" x-text="o.cancelled_at ? when(o.cancelled_at) : '—'"></td>
                                 <td class="px-5 py-2.5 text-right tabular-nums text-gray-800 whitespace-nowrap" x-text="money(o)"></td>
                             </tr>
                         </template>

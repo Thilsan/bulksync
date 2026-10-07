@@ -2185,7 +2185,6 @@ class ShopifyService
                 'staff_note'   => trim((string) ($node['cancellation']['staffNote'] ?? '')) ?: null,
                 'cancelled_at' => $at,
                 'ordered_at'   => $node['createdAt'] ?? null,
-                'payment'      => $node['displayFinancialStatus'] ?? null,
                 'total'        => (float) ($money['amount'] ?? 0),
                 'currency'     => $money['currencyCode'] ?? null,
                 'url'          => "https://{$this->shop}/admin/orders/" . ($node['legacyResourceId'] ?? ''),
@@ -2225,7 +2224,7 @@ class ShopifyService
         return 'query($q:String!){'
             . 'orders(first:' . self::CANCELLATION_LIMIT . ',query:$q,sortKey:UPDATED_AT,reverse:true){'
             . 'edges{node{'
-            . 'legacyResourceId name createdAt cancelledAt cancelReason displayFinancialStatus '
+            . 'legacyResourceId name createdAt cancelledAt cancelReason '
             . 'totalPriceSet{shopMoney{amount currencyCode}}'
             . ($withNote ? ' cancellation{staffNote}' : '')
             . '}}}}';

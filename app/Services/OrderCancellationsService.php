@@ -35,22 +35,6 @@ class OrderCancellationsService
     ];
 
     /**
-     * Where the money stood when the order was cancelled. A cash-on-delivery
-     * order is unpaid until the door, so "Unpaid" says nothing about whether
-     * it ever reached the delivery system — only that no money was taken.
-     */
-    public const PAYMENTS = [
-        'PAID'               => 'Paid',
-        'PARTIALLY_PAID'     => 'Partly paid',
-        'REFUNDED'           => 'Refunded',
-        'PARTIALLY_REFUNDED' => 'Partly refunded',
-        'AUTHORIZED'         => 'Authorised',
-        'PENDING'            => 'Unpaid',
-        'VOIDED'             => 'Unpaid',
-        'EXPIRED'            => 'Unpaid',
-    ];
-
-    /**
      * Builds the per-store Shopify client. A plain callable so tests can swap
      * in a stub that never touches the network.
      *
@@ -99,7 +83,6 @@ class OrderCancellationsService
                 $orders[] = $row + [
                     'store'        => $store->name,
                     'reason_label' => self::reason($row['reason'] ?? null),
-                    'payment_label' => self::PAYMENTS[$row['payment'] ?? ''] ?? (isset($row['payment']) ? ucfirst(strtolower(str_replace('_', ' ', $row['payment']))) : '—'),
                 ];
             }
         }
