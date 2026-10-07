@@ -359,6 +359,17 @@
                 ];
                 $outstanding = $request->pending_skus + $request->not_mapped_skus;
                 $notOnShopify = $request->skus()->where('in_shopify', false)->count();
+                // At the copy stage, nothing has started until someone generates
+                // (or the sheet supplies it): say what to do, not what comes later.
+                $contentStep = null;
+                if ($request->status === \App\Models\ProductRequest::AI_CONTENT && !$request->aiContentSession && !$closed) {
+                    $contentStep = match (true) {
+                        $unchecked > 0             => 'check',
+                        $needsCopy > 0             => 'generate',
+                        $notOnSheet > 0            => 'not_on_sheet',
+                        default                    => null,
+                    };
+                }
                 // Still at the start, with products that do not exist on Shopify:
                 // nothing else can happen until they are created (or mapped).
                 $missingProducts = !$closed && $notOnShopify > 0 && in_array($request->status,
@@ -369,7 +380,7 @@
                     \App\Models\ProductRequest::SKU_VERIFIED         => $notOnShopify > 0
                         ? number_format($notOnShopify) . ' of ' . number_format($request->total_skus) . ' products aren\'t on Shopify yet.'
                         : 'All SKUs are verified.',
-                    \App\Models\ProductRequest::AI_CONTENT           => 'Product descriptions are being prepared.',
+                    \App\Models\ProductRequest::AI_CONTENT           => $contentStep ? "Product descriptions haven't been started." : 'Product descriptions are being prepared.',
                     \App\Models\ProductRequest::WAITING_IMAGES       => $shoot ? 'Waiting for the photoshoot to be booked.' : 'Waiting for the product images.',
                     \App\Models\ProductRequest::PHOTOSHOOT_SCHEDULED => 'Photoshoot booked' . ($request->photoshoot_scheduled_at ? ' for ' . $request->photoshoot_scheduled_at->format('D d M, H:i') : '') . '.',
                     \App\Models\ProductRequest::PHOTOSHOOT_COMPLETED, \App\Models\ProductRequest::IMAGE_EDITING => 'The photos are done.',
@@ -389,6 +400,8 @@
                         => 'Goes live by itself once the products are published on Shopify.',
                     $request->status === \App\Models\ProductRequest::SKU_VERIFIED
                         => 'Moves on by itself at the next SKU check.',
+                    $request->status === \App\Models\ProductRequest::AI_CONTENT && $contentStep
+                        => 'Then it moves on by itself once every product has a description.',
                     $request->status === \App\Models\ProductRequest::AI_CONTENT
                         => 'Moves on by itself once every product has a description.',
                     $request->status === \App\Models\ProductRequest::WAITING_IMAGES && $shoot
@@ -409,7 +422,12 @@
                 $createStep   = !$missingProducts || $usesMapping ? null
                     : ($draftsPushed > 0 ? 'check' : ($draftsBuilt > 0 ? 'push' : 'build'));
 
-                $upNext = $missingProducts
+                $upNext = $contentStep ? match ($contentStep) {
+                        'check'        => ['Check the sheet', 'See which of the ' . number_format($unchecked) . ' product(s) already have descriptions from the brand team, before generating any.'],
+                        'generate'     => ['Generate AI content', 'AI writes the descriptions for the ' . number_format($needsCopy) . ' product(s) that have none.'],
+                        'not_on_sheet' => ['Generate AI content or skip', number_format($notOnSheet) . ' product(s) are not on the sheet — decide in the yellow box above.'],
+                    }
+                    : ($missingProducts
                     ? ($usesMapping
                         ? ['Map the SKUs', 'The brand manager maps the ' . number_format($notOnShopify) . ' missing SKU(s) in Cegid. Once they show on Shopify, click Check SKUs.']
                         : match ($createStep) {
@@ -430,7 +448,7 @@
                     \App\Models\ProductRequest::PHOTOSHOOT_COMPLETED => ['Photos done', 'The finished photos are ready for the website.'],
                     \App\Models\ProductRequest::PUBLISHED            => ['Live', 'The products go live on the website.'],
                     default                     => [$request->stageLabel($upcoming), null],
-                } : null);
+                } : null));
 
                 $stages  = $request->displayStages();
                 $current = $request->displayStageIndex();
@@ -453,6 +471,11 @@
                     // Nothing counts as progress while the products do not exist yet.
                     $overall     = $missingProducts ? 5
                         : ($closed && $request->status !== \App\Models\ProductRequest::CANCELLED ? 100 : $request->progressPercent());
+                    // At the copy step with nothing started, the step is not
+                    // progress yet: show where the step before it left off.
+                    if ($contentStep && !$closed) {
+                        $overall = (int) round(max(0, $request->displayStageIndex()) / max(1, count($request->displayStages())) * 100);
+                    }
                     $C           = 2 * M_PI * 42;
                     $phaseIcons  = [
                         'intake'     => 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4',
@@ -576,6 +599,25 @@
                                 <form method="POST" action="{{ route('product-requests.claim', $request) }}">
                                     @csrf
                                     <button type="submit" class="{{ $ownership === 'my_team' ? $btn . ' bg-amber-500 hover:bg-amber-600 text-white' : $btnAlt }}">Take this task</button>
+                                </form>
+                            @endif
+                            {{-- The copy step's own action, right where it says what to do. --}}
+                            @if($contentStep === 'check')
+                                <form method="POST" action="{{ route('product-requests.check-sheet-copy', $request) }}" x-data="{ busy: false }" @submit="busy = true">
+                                    @csrf
+                                    <button type="submit" :disabled="busy" class="{{ $btnMain }} disabled:opacity-70">
+                                        <span x-text="busy ? 'Checking the sheet…' : 'Check the sheet'">Check the sheet</span>
+                                    </button>
+                                </form>
+                            @elseif($contentStep === 'generate')
+                                <form method="POST" action="{{ route('product-requests.ai-content', $request) }}" x-data="{ busy: false }" @submit="busy = true">
+                                    @csrf
+                                    <input type="hidden" name="scope" value="missing_description">
+                                    <input type="hidden" name="answer" value="generate">
+                                    <button type="submit" :disabled="busy" class="{{ $btnMain }} disabled:opacity-70">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                                        <span x-text="busy ? 'Starting…' : 'Generate AI content'">Generate AI content</span>
+                                    </button>
                                 </form>
                             @endif
                             {{-- Products created on Shopify (or mapped): one click confirms it. --}}
