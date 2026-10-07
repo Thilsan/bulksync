@@ -479,9 +479,8 @@
             overflow: hidden;
             border-radius: 1.15rem;
             padding: 1.6rem 1.75rem 1.75rem;
-            background:
-                linear-gradient(90deg, #303132 0%, #33475f 30%, #38598a 54%, #55768a 62%, #739078 73%, #6a8f7c 100%);
-            box-shadow: 0 18px 40px -28px rgba(25,40,60,.85);
+            background: #285184;
+            box-shadow: 0 18px 40px -28px rgba(40,81,132,.85);
         }
         .page-hero::after {
             content: ''; position: absolute; inset: 0 0 auto 0; height: 2px; pointer-events: none;
