@@ -87,7 +87,7 @@
                   confirmed: false,
                   onlySkus: '',
                   submitting: false,
-                  peek: null, cache: {},
+                  expanded: {}, cache: {},
                   async onSubmit(e) {
                       if (this.confirmed || !this.usesMapping) { this.submitting = true; return; }
                       if (!e.target.reportValidity()) return;
@@ -106,6 +106,7 @@
                               return;
                           } else {
                               this.check.result = body;
+                              this.openAll(body.mapped.map(r => r.sku));
                           }
                       } catch (err) {
                           this.check.error = 'The check could not reach the server.';
@@ -119,9 +120,22 @@
                       this.check.open = false;
                       this.$nextTick(() => this.$refs.form.requestSubmit());
                   },
-                  async variants(sku) {
-                      this.peek = this.peek === sku ? null : sku;
-                      if (!this.peek || this.cache[sku]) return;
+                  // Open by default: the first 40 load a few at a time, so a long
+                  // list neither waits on forty Shopify calls nor floods it.
+                  async openAll(skus) {
+                      this.expanded = {};
+                      const first = skus.slice(0, 40);
+                      first.forEach(s => this.expanded[s] = true);
+                      const queue = [...first];
+                      const worker = async () => { while (queue.length) await this.fetchVariants(queue.shift()); };
+                      await Promise.all([worker(), worker(), worker()]);
+                  },
+                  variants(sku) {
+                      this.expanded[sku] = !this.expanded[sku];
+                      if (this.expanded[sku]) this.fetchVariants(sku);
+                  },
+                  async fetchVariants(sku) {
+                      if (this.cache[sku]) return;
                       this.cache[sku] = { data: null, error: null, loading: true };
                       try {
                           const res  = await fetch('{{ route('product-requests.precheck-variants') }}?store_id=' + this.storeId + '&sku=' + encodeURIComponent(sku), { headers: { Accept: 'application/json' } });
@@ -449,9 +463,12 @@
             </div>
 
             {{-- Check & confirm: which SKUs are mapped on the website and which still need mapping --}}
-            <div x-show="check.open" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4" @keydown.escape.window="if (!check.loading) check.open = false">
+            {{-- Teleported to <main>: the New Request panel is its own layer, and
+                 anything inside it sits under the chat button however high it goes. --}}
+            <template x-teleport="main">
+            <div x-show="check.open" x-cloak class="fixed inset-0 z-[200] flex items-center justify-center p-4" @keydown.escape.window="if (!check.loading) check.open = false">
                 <div class="absolute inset-0 bg-gray-900/40 backdrop-blur-[2px]" @click="if (!check.loading) check.open = false"></div>
-                <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[88vh] flex flex-col overflow-hidden"
+                <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-6xl max-h-[92vh] flex flex-col overflow-hidden"
                      x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0 scale-95" x-transition:enter-end="opacity-100 scale-100">
 
                     {{-- Checking --}}
@@ -509,10 +526,15 @@
                             <div class="px-6 py-4 overflow-y-auto space-y-5">
                                 {{-- Mapped --}}
                                 <section x-show="check.result.mapped.length">
-                                    <h4 class="text-xs font-semibold uppercase tracking-wider text-green-700 mb-2 flex items-center gap-1.5">
+                                    <div class="flex items-center justify-between mb-2">
+                                    <h4 class="text-xs font-semibold uppercase tracking-wider text-green-700 flex items-center gap-1.5">
                                         <span class="w-2 h-2 rounded-full bg-green-500"></span>
-                                        Mapped — goes into the request (<span x-text="check.result.mapped.length"></span>)
+                                        <span x-text="`Mapped — goes into the request (${check.result.mapped.length})`"></span>
                                     </h4>
+                                    <button type="button" class="text-xs font-medium text-brand-700 hover:text-brand-800"
+                                            @click="Object.values(expanded).some(v => v) ? (expanded = {}) : openAll(check.result.mapped.map(r => r.sku))"
+                                            x-text="Object.values(expanded).some(v => v) ? 'Hide all colours & sizes' : 'Show all colours & sizes'"></button>
+                                    </div>
                                     <div class="space-y-1.5">
                                         <template x-for="row in check.result.mapped" :key="row.sku">
                                             <div class="rounded-xl border border-gray-200">
@@ -527,10 +549,10 @@
                                                     <span class="text-[11px] font-medium rounded-full px-2 py-0.5"
                                                           :class="row.published ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-100 text-gray-500'"
                                                           x-text="row.published ? 'Published' : 'Draft'"></span>
-                                                    <span class="text-xs font-medium text-brand-700 whitespace-nowrap" x-text="peek === row.sku ? 'Hide' : 'Colours & sizes'"></span>
+                                                    <span class="text-xs font-medium text-brand-700 whitespace-nowrap" x-text="expanded[row.sku] ? 'Hide' : 'Colours & sizes'"></span>
                                                 </button>
-                                                <div x-show="peek === row.sku" class="border-t border-gray-100 bg-gray-50/70 px-3 pb-3 rounded-b-xl">
-                                                    <template x-if="peek === row.sku">
+                                                <div x-show="expanded[row.sku]" class="border-t border-gray-100 bg-gray-50/70 px-3 pb-3 rounded-b-xl">
+                                                    <template x-if="expanded[row.sku]">
                                                         <div x-data="{ get breakdown() { return cache[row.sku]?.data }, get breakdownLoading() { return cache[row.sku]?.loading ?? true }, get breakdownError() { return cache[row.sku]?.error } }">
                                                             @include('partials.variant-breakdown')
                                                         </div>
@@ -545,7 +567,7 @@
                                 <section x-show="check.result.unmapped.length">
                                     <h4 class="text-xs font-semibold uppercase tracking-wider text-red-600 mb-2 flex items-center gap-1.5">
                                         <span class="w-2 h-2 rounded-full bg-red-500"></span>
-                                        Not mapped yet — map these in Cegid (<span x-text="check.result.unmapped.length"></span>)
+                                        <span x-text="`Not mapped yet — map these in Cegid (${check.result.unmapped.length})`"></span>
                                     </h4>
                                     <div class="flex flex-wrap gap-1.5">
                                         <template x-for="sku in check.result.unmapped" :key="sku">
@@ -569,6 +591,7 @@
                     </template>
                 </div>
             </div>
+            </template>
         </form>
     </div>
 </div>
