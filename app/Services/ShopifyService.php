@@ -525,6 +525,9 @@ class ShopifyService
      *
      * @return list<array<string, mixed>>
      */
+    /** The shop's currency, as the last variant breakdown read it. */
+    private ?string $breakdownCurrency = null;
+
     private function fetchSkuBreakdownEdges(string $sku, bool $withStock): array
     {
         $this->throttle();
@@ -541,6 +544,8 @@ class ShopifyService
 
         $data = json_decode((string) $response->getBody(), true);
         $this->assertNoGraphQlErrors($data, "getSkuVariantBreakdown({$sku})");
+
+        $this->breakdownCurrency = $data['data']['shop']['currencyCode'] ?? null;
 
         return $data['data']['productVariants']['edges'] ?? [];
     }
@@ -626,6 +631,8 @@ class ShopifyService
                 'size'       => $size !== '' ? $size : ($node['title'] ?? ''),
                 'sku'        => $node['sku'] ?? '',
                 'variant_id' => ltrim(str_replace('gid://shopify/ProductVariant/', '', $node['id'] ?? ''), '/'),
+                'price'      => isset($node['price']) ? (string) $node['price'] : null,
+                'compare_at_price' => isset($node['compareAtPrice']) ? (string) $node['compareAtPrice'] : null,
                 'has_image'  => $hasImage,
                 'image_count'=> count($images),
                 'preview'    => $images[0] ?? null,
@@ -659,6 +666,7 @@ class ShopifyService
             'variant_count'   => $total,
             'with_image_count'=> $withImg,
             'stock'           => $stockKnown ? $totalStock : null,
+            'currency'        => $this->breakdownCurrency,
             'colours'         => array_values($colours),
         ];
     }
@@ -718,14 +726,16 @@ class ShopifyService
         // one SKU names one variant, and each extra multiplies the product body.
         $stock = $withStock ? ' inventoryQuantity' : '';
 
-        return 'query($q:String!){productVariants(first:3,query:$q){edges{node{
+        // Price and the shop's currency are plain fields: they cost nothing next
+        // to the variants and media this already reads.
+        return 'query($q:String!){shop{currencyCode} productVariants(first:3,query:$q){edges{node{
             id sku
             product{
                 id title status
                 options{name}
                 media(first:250){edges{node{id}}}
                 variants(first:250){edges{node{
-                    id sku title' . $stock . '
+                    id sku title price compareAtPrice' . $stock . '
                     selectedOptions{name value}
                     image{url}
                     media(first:10){edges{node{... on MediaImage{image{url}}}}}

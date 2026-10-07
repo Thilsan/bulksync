@@ -41,6 +41,8 @@ class ShopifySkuVariantBreakdownTest extends TestCase
             'sku'               => $v['sku'],
             'title'             => $v['colour'] . ' / ' . $v['size'],
             'inventoryQuantity' => $v['stock'] ?? 0,
+            'price'             => $v['price'] ?? null,
+            'compareAtPrice'    => $v['compare'] ?? null,
             'selectedOptions'   => [
                 ['name' => 'Color', 'value' => $v['colour']],
                 ['name' => 'Size',  'value' => $v['size']],
@@ -63,9 +65,23 @@ class ShopifySkuVariantBreakdownTest extends TestCase
 
         $matched = $matchSku !== '' ? $matchSku : $variants[0]['sku'];
 
-        return new Response(200, [], json_encode(['data' => ['productVariants' => ['edges' => [
+        return new Response(200, [], json_encode(['data' => ['shop' => ['currencyCode' => 'QAR'], 'productVariants' => ['edges' => [
             ['node' => ['id' => 'gid://shopify/ProductVariant/' . crc32($matched), 'sku' => $matched, 'product' => $product]],
         ]]]]));
+    }
+
+    /** The price people check sits beside each size, in the shop's currency. */
+    public function test_each_size_carries_its_price_and_the_shop_currency(): void
+    {
+        $breakdown = $this->service($this->payload([
+            ['sku' => 'P-M', 'colour' => 'Red', 'size' => 'M', 'price' => '450.00', 'compare' => '600.00'],
+            ['sku' => 'P-L', 'colour' => 'Red', 'size' => 'L', 'price' => '450.00'],
+        ]))->getSkuVariantBreakdown('P-M');
+
+        $this->assertSame('QAR', $breakdown['currency']);
+        $this->assertSame('450.00', $breakdown['colours'][0]['sizes'][0]['price']);
+        $this->assertSame('600.00', $breakdown['colours'][0]['sizes'][0]['compare_at_price']);
+        $this->assertNull($breakdown['colours'][0]['sizes'][1]['compare_at_price']);
     }
 
     public function test_variants_are_grouped_by_colour_with_the_sizes_under_each(): void

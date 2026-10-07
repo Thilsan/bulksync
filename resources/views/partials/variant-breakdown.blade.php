@@ -22,7 +22,6 @@
                                     own SKU or id had to build the export.
                                 --}}
                                 <div class="flex flex-wrap items-center gap-2 text-xs">
-                                    <span class="font-medium text-gray-700" x-text="breakdown.product_title"></span>
                                     <span class="rounded-md bg-white px-2 py-0.5 font-mono text-[11px] text-gray-500 ring-1 ring-gray-200"
                                           x-text="'ID ' + breakdown.product_id"></span>
                                     <span class="rounded-full px-2 py-0.5 text-[11px] font-semibold"
@@ -90,7 +89,7 @@
                                                     <tr class="bg-gray-50/70 text-left text-[10px] text-gray-400">
                                                         <th class="px-4 py-2 font-semibold">Size</th>
                                                         <th class="px-4 py-2 font-semibold">Variant SKU</th>
-                                                        <th class="px-4 py-2 font-semibold">Variant ID</th>
+                                                        <th class="px-4 py-2 text-right font-semibold">Price</th>
                                                         <th class="px-4 py-2 text-right font-semibold">Stock</th>
                                                         <th class="px-4 py-2 text-right font-semibold">Photos</th>
                                                     </tr>
@@ -110,7 +109,21 @@
                                                                       class="ml-1.5 text-[9px] font-semibold uppercase tracking-wide text-brand-600">searched</span>
                                                             </td>
                                                             <td class="px-4 py-2 font-mono text-gray-600" x-text="size.sku || '—'"></td>
-                                                            <td class="px-4 py-2 font-mono text-gray-400" x-text="size.variant_id"></td>
+                                                            {{-- The variant ID is on hover; the price is what people check. --}}
+                                                            <td class="px-4 py-2 text-right whitespace-nowrap" :title="'Variant ID ' + size.variant_id">
+                                                                <template x-if="size.price !== null && size.price !== undefined">
+                                                                    <span>
+                                                                        <span x-show="size.compare_at_price && Number(size.compare_at_price) > Number(size.price)"
+                                                                              class="mr-1 text-gray-400 line-through"
+                                                                              x-text="Number(size.compare_at_price).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })"></span>
+                                                                        <span class="font-medium text-gray-800"
+                                                                              x-text="(breakdown.currency ? breakdown.currency + ' ' : '') + Number(size.price).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })"></span>
+                                                                    </span>
+                                                                </template>
+                                                                <template x-if="size.price === null || size.price === undefined">
+                                                                    <span class="text-gray-400">—</span>
+                                                                </template>
+                                                            </td>
                                                             {{-- A dash, not 0, when the store would not report stock. --}}
                                                             <td class="px-4 py-2 text-right">
                                                                 <span class="figure"
