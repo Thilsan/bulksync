@@ -72,7 +72,7 @@ class ProductRequest extends Model
     public const STATUS_LABELS = [
         self::SUBMITTED            => 'Submitted',
         self::WAITING_MAPPING      => 'Waiting for Mapping',
-        self::SKU_VERIFIED         => 'SKU Verified',
+        self::SKU_VERIFIED         => 'SKU Mapped',
         self::WAITING_IMAGES       => 'Waiting for Images',
         self::PHOTOSHOOT_SCHEDULED => 'Photoshoot Scheduled',
         self::PHOTOSHOOT_COMPLETED => 'Photoshoot Completed',
@@ -1058,6 +1058,31 @@ class ProductRequest extends Model
     }
 
     /**
+     * The stage to show in a list's Status column. SKU Mapped is a hand-off
+     * point, not somewhere work sits: once it is reached the request is really
+     * waiting on the next stage, so that is what the list shows. Every other
+     * status shows as itself.
+     */
+    public function listStage(): string
+    {
+        if ($this->status === self::SKU_VERIFIED) {
+            return $this->suggestedNextStatus() ?? $this->status;
+        }
+
+        return $this->status;
+    }
+
+    public function listStatusLabel(): string
+    {
+        return $this->stageLabel($this->listStage());
+    }
+
+    public function listStatusColor(): string
+    {
+        return self::STATUS_COLORS[$this->listStage()] ?? 'bg-gray-100 text-gray-700 border-gray-200';
+    }
+
+    /**
      * Stage name as it applies to THIS request. "AI Content Generation" is a lie
      * when the brand team is writing the copy themselves, and the content team
      * needs to know which it is at a glance.
@@ -1534,7 +1559,22 @@ class ProductRequest extends Model
         $i = $this->displayStageIndex();
         if ($i < 0) return 0;
 
-        return (int) round(($i + 1) / count($this->displayStages()) * 100);
+        $stages = $this->displayStages();
+        $total  = count($stages);
+        $anchor = array_search(self::SKU_VERIFIED, $stages, true);
+
+        // SKU Mapped is the end of intake and reads 20%: the stages before it
+        // share the first 20%, the ones after share the remaining 80%, so the
+        // ring stays honest however many optional stages a request skips.
+        if ($anchor === false || $total - 1 <= $anchor) {
+            return (int) round(($i + 1) / $total * 100);
+        }
+
+        if ($i <= $anchor) {
+            return (int) round(($i + 1) / ($anchor + 1) * 20);
+        }
+
+        return (int) round(20 + ($i - $anchor) / ($total - 1 - $anchor) * 80);
     }
 
     /**

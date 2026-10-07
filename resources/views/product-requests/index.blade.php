@@ -123,9 +123,9 @@
                                 @endif
                             </td>
                             <td class="px-3 py-3.5">
-                                <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border {{ $item->statusColor() }} whitespace-nowrap">
+                                <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border {{ $item->listStatusColor() }} whitespace-nowrap">
                                     <span class="w-1.5 h-1.5 rounded-full bg-current opacity-70"></span>
-                                    {{ $item->statusLabel() }}
+                                    {{ $item->listStatusLabel() }}
                                 </span>
                             </td>
                             <td class="px-3 py-3.5">
