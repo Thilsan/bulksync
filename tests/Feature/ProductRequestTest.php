@@ -2694,7 +2694,9 @@ class ProductRequestTest extends TestCase
         $this->assertSame(20, $at(ProductRequest::AI_CONTENT));               // copy not started
         $session = \App\Models\AiContentSession::forceCreate(['user_id' => $request->user_id, 'input_type' => 'skus', 'status' => 'processing', 'total_items' => 2]);
         $this->assertSame(45, $at(ProductRequest::AI_CONTENT, ['ai_content_session_id' => $session->id]));
-        $this->assertSame(95, $at(ProductRequest::PHOTOSHOOT_SCHEDULED));
+        $this->assertSame(45, $at(ProductRequest::WAITING_IMAGES));           // waiting for the shoot
+        $this->assertSame(45, $at(ProductRequest::PHOTOSHOOT_SCHEDULED));     // booked, not shot
+        $this->assertSame(95, $at(ProductRequest::PHOTOSHOOT_COMPLETED));     // shoot done
         $this->assertSame(100, $at(ProductRequest::PUBLISHED));
     }
 

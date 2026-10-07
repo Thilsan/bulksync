@@ -1589,7 +1589,8 @@ class ProductRequest extends Model
      *   20%  SKUs verified — and still 20% at the copy stage until someone
      *        actually starts it
      *   45%  AI content generation started
-     *   95%  photoshoot, and anything after it short of going live — or,
+     *   45%  also while waiting for the photoshoot, or booked but not shot
+     *   95%  photoshoot completed, and anything after it short of going live — or,
      *        with no photoshoot, every description done (only going live left)
      *   100% published
      */
@@ -1615,6 +1616,10 @@ class ProductRequest extends Model
                 => $this->hasSkusMissingFromShopify() ? 5 : ($onlyLiveLeft ? 95 : 20),
             self::AI_CONTENT
                 => $onlyLiveLeft && $this->contentIsSettled() ? 95 : ($this->ai_content_session_id ? 45 : 20),
+            // Waiting for the shoot, or booked but not shot: the copy is done,
+            // the pictures are not — still 45% until the shoot is completed.
+            self::WAITING_IMAGES, self::PHOTOSHOOT_SCHEDULED
+                => 45,
             default
                 => 95,
         };
