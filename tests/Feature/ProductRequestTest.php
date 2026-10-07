@@ -2579,7 +2579,7 @@ class ProductRequestTest extends TestCase
         // The whole uploaded list stays on record, each left-out SKU with its reason.
         $this->assertSame([['sku' => 'NEW-1', 'reason' => 'not_mapped'], ['sku' => 'SKIP-1', 'reason' => 'unticked']], $request->left_out_skus);
         $this->actingAs($user)->get(route('product-requests.show', $request))
-            ->assertOk()->assertSee('Not included — 2 SKUs from the uploaded list')->assertSee('NEW-1')->assertSee('SKIP-1');
+            ->assertOk()->assertSee('Uploaded list (4)')->assertSee('Everything that was uploaded')->assertSee('NEW-1')->assertSee('SKIP-1');
 
         // Adding one later takes it off the list.
         Queue::fake();

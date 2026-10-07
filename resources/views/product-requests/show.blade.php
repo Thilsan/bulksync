@@ -870,6 +870,10 @@
                         // Only where SKUs are not resolved through Cegid — elsewhere
                         // an unmatched SKU is the brand manager's to map, not a product to invent.
                         'drafts'      => $usesMapping ? null : 'Shopify Drafts (' . $drafts->count() . ')',
+                        // A record of everything that was uploaded, kept apart from the
+                        // SKUs actually being worked on so the two never get confused.
+                        'uploaded'    => $request->left_out_skus || $request->skuFiles->isNotEmpty()
+                            ? 'Uploaded list (' . ($request->total_skus + count($request->left_out_skus ?? [])) . ')' : null,
                         'attachments' => 'Files (' . $request->attachments()->count() . ')',
                     ]) as $key => $label)
                         <button type="button" @click="tab = '{{ $key }}'"
@@ -1187,65 +1191,6 @@
                         @endunless
                     </div>
 
-                    {{-- The rest of the uploaded list: what was asked for but did not go in, and why --}}
-                    @php
-                        $leftOutRows = collect($request->left_out_skus ?? []);
-                        $leftNotMapped = $leftOutRows->where('reason', 'not_mapped')->pluck('sku');
-                        $leftUnticked  = $leftOutRows->where('reason', 'unticked')->pluck('sku');
-                    @endphp
-                    @if($leftOutRows->isNotEmpty())
-                        <div class="mx-6 mb-4 rounded-2xl border border-gray-200 bg-gray-50/60 p-4" x-data="{ open: true }">
-                            <button type="button" @click="open = !open" class="w-full flex items-center justify-between gap-3 text-left">
-                                <span>
-                                    <span class="block text-sm font-semibold text-gray-900">Not included — {{ $leftOutRows->count() }} {{ $leftOutRows->count() === 1 ? 'SKU' : 'SKUs' }} from the uploaded list</span>
-                                    <span class="block text-xs text-gray-500">In the file that was uploaded, but left out when the request was created.</span>
-                                </span>
-                                <svg class="w-4 h-4 text-gray-400 transition-transform shrink-0" :class="open && 'rotate-180'" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>
-                            </button>
-
-                            <div x-show="open" x-cloak class="mt-3 space-y-3">
-                                @if($leftNotMapped->isNotEmpty())
-                                    <div>
-                                        <p class="text-xs font-medium text-red-700 mb-1.5 flex items-center gap-1.5">
-                                            <span class="w-2 h-2 rounded-full bg-red-500"></span>
-                                            Not mapped yet ({{ $leftNotMapped->count() }}) — map in Cegid, then add them
-                                        </p>
-                                        <div class="flex flex-wrap gap-1.5">
-                                            @foreach($leftNotMapped as $sku)
-                                                <span class="rounded-lg bg-red-50 border border-red-100 px-2 py-1 font-mono text-xs text-red-700">{{ $sku }}</span>
-                                            @endforeach
-                                        </div>
-                                    </div>
-                                @endif
-                                @if($leftUnticked->isNotEmpty())
-                                    <div>
-                                        <p class="text-xs font-medium text-gray-600 mb-1.5 flex items-center gap-1.5">
-                                            <span class="w-2 h-2 rounded-full bg-gray-400"></span>
-                                            Left out by choice ({{ $leftUnticked->count() }}) — mapped, but unticked
-                                        </p>
-                                        <div class="flex flex-wrap gap-1.5">
-                                            @foreach($leftUnticked as $sku)
-                                                <span class="rounded-lg bg-white border border-gray-200 px-2 py-1 font-mono text-xs text-gray-600">{{ $sku }}</span>
-                                            @endforeach
-                                        </div>
-                                    </div>
-                                @endif
-
-                                @unless($closed)
-                                    <form method="POST" action="{{ route('product-requests.skus.add', $request) }}" class="flex flex-wrap items-center gap-2 pt-1">
-                                        @csrf
-                                        <input type="hidden" name="skus" value="{{ $leftOutRows->pluck('sku')->implode("\n") }}">
-                                        <button type="submit" class="{{ $small }} bg-brand-600 hover:bg-brand-700 text-white"
-                                                onclick="return confirm('Add these {{ $leftOutRows->count() }} SKU(s) to the request and check them again?')">
-                                            Add {{ $leftOutRows->count() === 1 ? 'it' : 'all ' . $leftOutRows->count() }} to the request
-                                        </button>
-                                        <span class="text-xs text-gray-400">They're checked again; any still not mapped show as Pending.</span>
-                                    </form>
-                                @endunless
-                            </div>
-                        </div>
-                    @endif
-
                     @if($skus->isEmpty())
                         <div class="px-6 pb-10 pt-4 text-center">
                             <p class="text-sm text-gray-400">No SKUs yet.</p>
@@ -1338,6 +1283,58 @@
                         @include('product-requests.partials.shopify-drafts')
                     </div>
                 @endunless
+
+                {{-- Tab: uploaded list — a record, not a worklist --}}
+                @php
+                    $leftOutRows   = collect($request->left_out_skus ?? []);
+                    $leftNotMapped = $leftOutRows->where('reason', 'not_mapped')->pluck('sku');
+                    $leftUnticked  = $leftOutRows->where('reason', 'unticked')->pluck('sku');
+                    $includedSkus  = $request->skus()->orderBy('id')->pluck('sku');
+                    $uploadedTotal = $includedSkus->count() + $leftOutRows->count();
+                    $groups = array_filter([
+                        ['In this request',                     $includedSkus,  'bg-green-500', 'bg-green-50 border-green-100 text-green-800', 'Being worked on — see the SKUs tab.'],
+                        $leftNotMapped->isNotEmpty() ? ['Not mapped yet',      $leftNotMapped, 'bg-red-500',   'bg-red-50 border-red-100 text-red-700',      'Not mapped in Cegid when the request was created. Once mapped, add them with + Add SKUs on the SKUs tab.'] : null,
+                        $leftUnticked->isNotEmpty()  ? ['Left out by choice',  $leftUnticked,  'bg-gray-400',  'bg-white border-gray-200 text-gray-600',     'Mapped, but unticked when the request was created.'] : null,
+                    ]);
+                @endphp
+                <div x-show="tab === 'uploaded'" x-cloak class="px-6 py-5 space-y-5">
+                    <div class="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                            <h4 class="text-sm font-semibold text-gray-900">Everything that was uploaded</h4>
+                            <p class="text-xs text-gray-500 mt-0.5">
+                                {{ $uploadedTotal }} {{ $uploadedTotal === 1 ? 'SKU' : 'SKUs' }} in the product list, and what happened to each. For the record only — nothing here is worked on.
+                            </p>
+                        </div>
+                        @if($file = $request->skuFiles->first())
+                            <a href="{{ route('product-requests.attachments.download', [$request, $file]) }}" class="{{ $small }} border border-gray-300 bg-white text-gray-700 hover:bg-gray-50">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                                {{ $file->original_name }}
+                            </a>
+                        @endif
+                    </div>
+
+                    {{-- The split at a glance --}}
+                    <div class="flex h-2 rounded-full overflow-hidden bg-gray-100">
+                        @foreach($groups as [$label, $list, $dot])
+                            <div class="{{ $dot }}" style="width: {{ $uploadedTotal ? 100 * $list->count() / $uploadedTotal : 0 }}%" title="{{ $label }}: {{ $list->count() }}"></div>
+                        @endforeach
+                    </div>
+
+                    @foreach($groups as [$label, $list, $dot, $chip, $hint])
+                        <section>
+                            <p class="text-sm font-medium text-gray-900 flex items-center gap-2">
+                                <span class="w-2 h-2 rounded-full {{ $dot }}"></span>
+                                {{ $label }} <span class="text-gray-400 font-normal">({{ $list->count() }})</span>
+                            </p>
+                            <p class="text-xs text-gray-500 mt-0.5 mb-2">{{ $hint }}</p>
+                            <div class="flex flex-wrap gap-1.5">
+                                @foreach($list as $sku)
+                                    <span class="rounded-lg border px-2 py-1 font-mono text-xs {{ $chip }}">{{ $sku }}</span>
+                                @endforeach
+                            </div>
+                        </section>
+                    @endforeach
+                </div>
 
                 {{-- Tab: files --}}
                 <div x-show="tab === 'attachments'" x-cloak class="px-5 py-5 space-y-6">
