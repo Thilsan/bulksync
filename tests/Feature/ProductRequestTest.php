@@ -2506,6 +2506,68 @@ class ProductRequestTest extends TestCase
             ->assertNotFound();
     }
 
+    /** On a Cegid-mapped website the list is checked before the request is made. */
+    public function test_the_check_before_submitting_splits_mapped_from_unmapped(): void
+    {
+        Notification::fake();
+
+        $user  = $this->brandManager();
+        $store = $this->mappingSite();
+        $user->stores()->sync([$store->id]);
+
+        $shopify = \Mockery::mock(\App\Services\ShopifyService::class);
+        $shopify->shouldReceive('findVariantsBySkus')->andReturn([
+            'MAP-1' => [['product_title' => 'Trolley', 'published' => true]],
+            'MAP-2' => [['product_title' => 'Case', 'published' => false]],
+        ]);
+        $this->app->bind(\App\Services\ShopifyService::class, fn () => $shopify);
+
+        $this->actingAs($user)->postJson(route('product-requests.precheck'), [
+            'store_id' => $store->id,
+            'sku_csv'  => UploadedFile::fake()->createWithContent('list.csv', "SKU\nMAP-1\nMAP-2\nNEW-1\n"),
+        ])->assertOk()->assertJson([
+            'mapping'  => true,
+            'mapped'   => [['sku' => 'MAP-1', 'title' => 'Trolley', 'published' => true], ['sku' => 'MAP-2', 'title' => 'Case', 'published' => false]],
+            'unmapped' => ['NEW-1'],
+        ]);
+
+        // A website without mapping has nothing to check.
+        $plain = $this->plainSite();
+        $user->stores()->attach($plain->id);
+        $this->actingAs($user)->postJson(route('product-requests.precheck'), ['store_id' => $plain->id, 'skus' => 'X-1'])
+            ->assertOk()->assertJson(['mapping' => false]);
+    }
+
+    /** Going ahead with only the mapped SKUs leaves the rest out, and says so. */
+    public function test_submitting_with_only_the_mapped_skus(): void
+    {
+        Notification::fake();
+        Queue::fake();
+
+        $user  = $this->brandManager();
+        $store = $this->mappingSite();
+        $user->stores()->sync([$store->id]);
+
+        $this->actingAs($user)->post(route('product-requests.store'), [
+            'store_id'           => $store->id,
+            'request_type'       => 'new_brand',
+            'brand'              => 'Samsonite',
+            'category'           => 'Luggage',
+            'skus'               => "MAP-1\nMAP-2\nNEW-1",
+            'only_skus'          => json_encode(['MAP-1', 'map-2']),
+            'online_launch_date' => now()->addDays(18)->format('Y-m-d H:i'),
+            'image_source'       => ProductRequest::IMG_PHOTOSHOOT,
+            'use_ai_content'     => 1,
+            'priority'           => 'high',
+        ])->assertSessionHasNoErrors();
+
+        $request = ProductRequest::latest('id')->first();
+
+        $this->assertSame(['MAP-1', 'MAP-2'], $request->skus()->orderBy('id')->pluck('sku')->all());
+        $this->assertStringContainsString('1 left out as not mapped in Cegid yet: NEW-1',
+            (string) ProductRequestActivity::where('product_request_id', $request->id)->where('action', 'created')->value('remarks'));
+    }
+
     /** With nothing left before going live, it waits: Published has to mean live. */
     public function test_verified_never_moves_itself_onto_published(): void
     {

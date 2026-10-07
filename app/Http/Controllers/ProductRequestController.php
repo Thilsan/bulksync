@@ -526,6 +526,77 @@ class ProductRequestController extends Controller implements HasMiddleware
     }
 
     /**
+     * Check a product list against the website before the request is made.
+     *
+     * On a website with Cegid mapping only mapped SKUs can be worked on, so the
+     * person sees which are ready and which they still have to map — before
+     * anything is created, rather than finding out from the request afterwards.
+     */
+    public function precheck(Request $request, #[CurrentUser] User $user): JsonResponse
+    {
+        $request->validate([
+            'store_id' => 'required|integer',
+            'sku_csv'  => 'nullable|file|mimes:csv,txt|max:20480',
+            'skus'     => 'nullable|string',
+        ]);
+
+        $store = Store::selectableFor($user)->firstWhere('id', $request->integer('store_id'));
+        abort_unless($store, 403, 'You do not have access to that website.');
+
+        $skus = $this->parseSkus($request);
+
+        if (!$store->requires_sku_mapping || $skus === []) {
+            return response()->json(['mapping' => false]);
+        }
+
+        try {
+            $found = app(\App\Services\ShopifyService::class, ['store' => $store])->findVariantsBySkus($skus, throwOnFailure: true);
+        } catch (\Throwable $e) {
+            Log::warning("Pre-submit SKU check failed on {$store->name}: " . $e->getMessage());
+
+            return response()->json(['error' => "Couldn't check the SKUs on {$store->name} right now. You can still submit — they are checked again after."], 502);
+        }
+
+        $mapped = $unmapped = [];
+        foreach ($skus as $sku) {
+            if ($hit = ($found[$sku][0] ?? null)) {
+                $mapped[] = ['sku' => $sku, 'title' => $hit['product_title'], 'published' => (bool) $hit['published']];
+            } else {
+                $unmapped[] = $sku;
+            }
+        }
+
+        return response()->json([
+            'mapping'  => true,
+            'store'    => $store->name,
+            'mapped'   => $mapped,
+            'unmapped' => $unmapped,
+        ]);
+    }
+
+    /** One SKU's colours and sizes on a chosen website, for the check before submitting. */
+    public function precheckVariants(Request $request, #[CurrentUser] User $user): JsonResponse
+    {
+        $store = Store::selectableFor($user)->firstWhere('id', $request->integer('store_id'));
+        abort_unless($store, 403, 'You do not have access to that website.');
+
+        $sku = trim((string) $request->query('sku', ''));
+        abort_if($sku === '', 422, 'No SKU given.');
+
+        try {
+            $breakdown = app(\App\Services\ShopifyService::class, ['store' => $store])->getSkuVariantBreakdown($sku, true);
+        } catch (\Throwable $e) {
+            Log::warning("Variant breakdown failed for {$sku} on {$store->name}: " . $e->getMessage());
+
+            return response()->json(['error' => "Couldn't read this SKU from {$store->name} on Shopify right now. Try again in a moment."], 502);
+        }
+
+        return $breakdown === null
+            ? response()->json(['error' => "No variant on {$store->name} carries the SKU {$sku}."], 404)
+            : response()->json($breakdown);
+    }
+
+    /**
      * Who a request will land on, for the new-request form's Team box.
      *
      * Asks the same questions staffing asks on submit — brand first, then the
@@ -623,6 +694,17 @@ class ProductRequestController extends Controller implements HasMiddleware
 
         $skus = $this->parseSkus($request);
 
+        // The check before submitting found some SKUs not mapped in Cegid yet and
+        // the person chose to go ahead with only the mapped ones. The rest are
+        // theirs to map; they are named in the log so nobody wonders where they went.
+        $leftOut = [];
+        if ($request->filled('only_skus')) {
+            $keep    = collect(json_decode((string) $request->input('only_skus'), true) ?: [])
+                ->map(fn ($s) => mb_strtolower(trim((string) $s)))->flip();
+            $leftOut = array_values(array_filter($skus, fn ($s) => !$keep->has(mb_strtolower(trim($s)))));
+            $skus    = array_values(array_filter($skus, fn ($s) => $keep->has(mb_strtolower(trim($s)))));
+        }
+
         if (empty($skus)) {
             return back()->withInput()->withErrors(['skus' => 'Please enter at least one SKU or upload a CSV.']);
         }
@@ -691,7 +773,8 @@ class ProductRequestController extends Controller implements HasMiddleware
             description: 'Product request created',
             actor:       $user,
             toStatus:    ProductRequest::SUBMITTED,
-            remarks:     count($skus) . ' SKUs submitted',
+            remarks:     count($skus) . ' SKUs submitted'
+                . ($leftOut ? '; ' . count($leftOut) . ' left out as not mapped in Cegid yet: ' . implode(', ', array_slice($leftOut, 0, 50)) . (count($leftOut) > 50 ? '…' : '') : ''),
         );
 
         // Apply each role the requester filled in. assignRole writes the owner

@@ -275,6 +275,8 @@ Route::middleware('auth')->group(function () {
 
         Route::get('/my-tasks',                [ProductRequestController::class, 'myTasks'])->name('my-tasks');
         Route::get('/team-preview',            [ProductRequestController::class, 'teamPreview'])->name('team-preview');
+        Route::post('/precheck',               [ProductRequestController::class, 'precheck'])->name('precheck');
+        Route::get('/precheck/variants',       [ProductRequestController::class, 'precheckVariants'])->name('precheck-variants');
 
         Route::get('/queue/{queue}',           [ProductRequestController::class, 'queue'])->name('queue')
             ->whereIn('queue', ['photoshoot', 'content']);
