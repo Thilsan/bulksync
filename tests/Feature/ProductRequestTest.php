@@ -234,7 +234,13 @@ class ProductRequestTest extends TestCase
         $request = $this->submitFor($user, $this->plainSite(), "A-1\nA-2");
 
         $this->assertFalse($request->requiresMapping());
-        // Verified straight away, then on by itself to the first stage with work.
+        // Verified straight away — and it stays there: none of these products
+        // are on Shopify yet, and nothing after this can happen until they are.
+        $this->assertSame(ProductRequest::SKU_VERIFIED, $request->fresh()->status);
+
+        // Once they show on Shopify it moves on by itself.
+        $request->skus()->update(['in_shopify' => true]);
+        app(ProductRequestWorkflow::class)->autoAdvance($request->refresh());
         $this->assertPassedVerified($request, ProductRequest::AI_CONTENT);
 
         // The stage is absent from the stepper and can never be moved to.
@@ -2449,7 +2455,9 @@ class ProductRequestTest extends TestCase
 
         $user    = $this->brandManager();
         $request = $this->submitFor($user, $this->plainSite(), "AC-1\nAC-2");
-        $this->assertSame(ProductRequest::AI_CONTENT, $request->status);
+        $request->skus()->update(['in_shopify' => true]);   // the products exist
+        app(ProductRequestWorkflow::class)->autoAdvance($request->refresh());
+        $this->assertSame(ProductRequest::AI_CONTENT, $request->fresh()->status);
 
         // One supplied by the brand team, one deliberately left.
         $request->skus()->where('sku', 'AC-1')->update(['sheet_has_description' => true]);
@@ -2593,6 +2601,7 @@ class ProductRequestTest extends TestCase
 
         $user    = $this->brandManager();
         $request = $this->submitFor($user, $this->plainSite(), 'ASK-1');
+        $request->skus()->update(['in_shopify' => true]);   // only the question is holding it
         $request->update(['status' => ProductRequest::SKU_VERIFIED, 'photoshoot_decision' => null, 'image_source' => null]);
         $request->refresh();
 
@@ -2634,8 +2643,12 @@ class ProductRequestTest extends TestCase
             ->assertOk()
             ->assertDontSee('Where are the images coming from?');
 
-        // Nothing left to answer, so verified moves straight on to the copy.
-        $this->assertSame(ProductRequest::AI_CONTENT, $request->status);
+        // Nothing left to answer — it waits only for the products to reach
+        // Shopify, then moves straight on to the copy.
+        $this->assertSame(ProductRequest::SKU_VERIFIED, $request->status);
+        $request->skus()->update(['in_shopify' => true]);
+        app(ProductRequestWorkflow::class)->autoAdvance($request->refresh());
+        $this->assertSame(ProductRequest::AI_CONTENT, $request->fresh()->status);
     }
 
     /** The image source was picked on the form, so SKU Verified does not ask for it again. */
@@ -2689,9 +2702,9 @@ class ProductRequestTest extends TestCase
         $requester = $this->brandManager();
         $request   = $this->submitFor($requester, $this->plainSite(), 'TEAM-1');
 
-        // Past SKU Verified on its own, at AI Content — the E-Commerce team's
-        // stage — with nobody named.
-        $this->assertSame(ProductRequest::AI_CONTENT, $request->status);
+        // At SKU Verified — the products are not on Shopify yet — which the
+        // E-Commerce team owns, with nobody named.
+        $this->assertSame(ProductRequest::SKU_VERIFIED, $request->status);
 
         $ecom = User::create([
             'name' => 'Ecom Person', 'email' => 'ecom@example.test', 'password' => 'password',
@@ -4013,6 +4026,7 @@ class ProductRequestTest extends TestCase
     {
         $request->skus()->update([
             'mapping_status' => ProductRequest::MAP_MAPPED,
+            'in_shopify'     => true,
             'mapping_set_by' => $request->user_id,
             'mapping_set_at' => now(),
         ]);

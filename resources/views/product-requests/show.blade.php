@@ -357,10 +357,13 @@
                     \App\Models\ProductRequest::COMPLETED            => 'Done',
                 ];
                 $outstanding = $request->pending_skus + $request->not_mapped_skus;
+                $notOnShopify = $request->skus()->where('in_shopify', false)->count();
                 $now = match ($request->status) {
                     \App\Models\ProductRequest::SUBMITTED            => "We're checking the SKUs.",
                     \App\Models\ProductRequest::WAITING_MAPPING      => "{$outstanding} SKU(s) are waiting to be mapped in Cegid.",
-                    \App\Models\ProductRequest::SKU_VERIFIED         => 'All SKUs are verified.',
+                    \App\Models\ProductRequest::SKU_VERIFIED         => $notOnShopify > 0
+                        ? number_format($notOnShopify) . ' of ' . number_format($request->total_skus) . ' products aren\'t on Shopify yet.'
+                        : 'All SKUs are verified.',
                     \App\Models\ProductRequest::AI_CONTENT           => 'Product descriptions are being prepared.',
                     \App\Models\ProductRequest::WAITING_IMAGES       => $shoot ? 'Waiting for the photoshoot to be booked.' : 'Waiting for the product images.',
                     \App\Models\ProductRequest::PHOTOSHOOT_SCHEDULED => 'Photoshoot booked' . ($request->photoshoot_scheduled_at ? ' for ' . $request->photoshoot_scheduled_at->format('D d M, H:i') : '') . '.',
@@ -373,6 +376,8 @@
                     $closed => null,
                     in_array($request->status, [\App\Models\ProductRequest::SUBMITTED, \App\Models\ProductRequest::WAITING_MAPPING], true)
                         => 'Moves on by itself once every SKU is mapped.',
+                    $request->status === \App\Models\ProductRequest::SKU_VERIFIED && $notOnShopify > 0
+                        => ($usesMapping ? 'Moves on by itself once they are mapped and show on Shopify.' : 'Create them on Shopify (the Shopify Drafts tab helps) — it moves on by itself once they show there.'),
                     $request->status === \App\Models\ProductRequest::SKU_VERIFIED && ($request->needsPhotoshootDecision() || $request->needsImageSourceDecision())
                         => 'Moves on once the question above is answered.',
                     $request->status === \App\Models\ProductRequest::SKU_VERIFIED && $request->suggestedNextStatus() === \App\Models\ProductRequest::PUBLISHED

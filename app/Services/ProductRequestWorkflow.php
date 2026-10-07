@@ -231,10 +231,16 @@ class ProductRequestWorkflow
     private function stageFinished(ProductRequest $request): ?string
     {
         return match ($request->status) {
+            // Verified is not the same as existing: on a website with no Cegid
+            // step the check passes straight away, but nothing after this —
+            // the copy above all, which is written from the live product — can
+            // happen until the products are actually on Shopify.
             ProductRequest::SKU_VERIFIED => $request->isFullyMapped()
+                && $request->skus()->exists()
+                && !$request->skus()->where('in_shopify', false)->exists()
                 && !$request->needsPhotoshootDecision()
                 && !$request->needsImageSourceDecision()
-                    ? 'every SKU is verified' : null,
+                    ? 'every SKU is verified and on Shopify' : null,
 
             ProductRequest::AI_CONTENT => $request->contentIsSettled()
                 ? 'every product has its copy' : null,
