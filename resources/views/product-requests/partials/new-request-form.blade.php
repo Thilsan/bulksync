@@ -230,7 +230,7 @@
                                 </div>
 
                                 <div class="rounded-lg border border-gray-200 bg-white p-3">
-                                    <label class="block text-xs font-medium text-gray-500 mb-1.5">New to the website?</label>
+                                    <label class="block text-xs font-medium text-gray-500 mb-1.5">Is it new products?</label>
                                     <div class="flex rounded-lg bg-gray-100 p-1 gap-1">
                                         @foreach(['new_brand' => 'Yes', 'existing_brand' => 'No'] as $value => $label)
                                             <label class="relative flex-1 text-center cursor-pointer rounded-md px-2 py-1 text-sm text-gray-600 transition-colors hover:text-gray-900 has-[:checked]:bg-white has-[:checked]:text-gray-900 has-[:checked]:font-medium has-[:checked]:shadow-sm">
@@ -244,7 +244,7 @@
 
                             {{-- Team: who the category hands this to, shown once a category is picked --}}
                             <div class="sm:col-span-2 rounded-lg border border-gray-200 bg-white p-3" x-data="{
-                                    allRoles: {{ Illuminate\Support\Js::from(collect(\App\Models\ProductRequest::assignableRoles())->map(fn ($label, $key) => ['key' => $key, 'label' => $label])->values()) }},
+                                    allRoles: {{ Illuminate\Support\Js::from(collect(\App\Models\ProductRequest::assignableRoles())->map(fn ($label, $key) => ['key' => $key, 'label' => $key === 'brand_manager_id' ? 'Brand Team' : $label])->values()) }},
                                     // Only the roles this request will actually use: no shoot
                                     // means no coordinator, and no Cegid means no mapping.
                                     get activeRoles() {
@@ -275,9 +275,9 @@
                                     },
                                  }"
                                  x-init="load(); $watch('category', () => load()); $watch('brand', () => { clearTimeout(this._t); this._t = setTimeout(() => load(), 400); }); $watch('storeId', () => load())">
-                                <label class="block text-xs font-medium text-gray-500 mb-1.5">Team</label>
+                                <label class="block text-xs font-medium text-gray-500 mb-1.5">Assigned to</label>
                                 <template x-if="!category">
-                                    <p class="text-sm text-gray-400">Pick a category to see the team.</p>
+                                    <p class="text-sm text-gray-400">Pick a category to see who it is assigned to.</p>
                                 </template>
                                 <template x-if="category">
                                     <div class="flex flex-wrap gap-x-6 gap-y-1.5">
