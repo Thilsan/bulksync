@@ -333,8 +333,21 @@
                             <div class="flex items-center gap-3 min-w-0">
                                 <span class="w-9 h-9 rounded-xl text-xs font-bold flex items-center justify-center shrink-0 {{ $tone($item->brand) }}">{{ $initials($item->brand) }}</span>
                                 <div class="min-w-0">
-                                    <a href="{{ $url }}" class="font-medium text-gray-900 hover:text-brand-700 truncate block max-w-[22rem]">{{ $item->displayName() }}</a>
-                                    <p class="text-xs text-gray-400 mt-0.5 truncate">{{ $item->reference }} &middot; {{ $item->store?->name ?? 'No website' }}</p>
+                                    <div class="flex items-center gap-2 min-w-0">
+                                        <a href="{{ $url }}" class="font-medium text-gray-900 hover:text-brand-700 truncate max-w-[22rem]">{{ $item->displayName() }}</a>
+                                        {{-- From the SharePoint tracking sheet: its row number, so it can be found there. --}}
+                                        @if($item->sheet_request_no)
+                                            <span class="inline-flex items-center gap-1 shrink-0 rounded-md bg-emerald-50 border border-emerald-100 px-1.5 py-0.5 text-[11px] font-medium text-emerald-700"
+                                                  title="From the SharePoint tracking sheet{{ $item->sheet_request_date ? ', requested ' . $item->sheet_request_date->format('d M Y') : '' }}">
+                                                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 10h18M3 14h18M10 3v18M5 3h14a2 2 0 012 2v14a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2z"/></svg>
+                                                Sheet #{{ $item->sheet_request_no }}
+                                            </span>
+                                        @endif
+                                    </div>
+                                    <p class="text-xs text-gray-400 mt-0.5 truncate">
+                                        {{ $item->reference }} &middot; {{ $item->store?->name ?? 'No website' }}
+                                        @if($item->sheet_request_date) &middot; Requested {{ $item->sheet_request_date->format('d M Y') }} @endif
+                                    </p>
                                 </div>
                             </div>
                         </td>
