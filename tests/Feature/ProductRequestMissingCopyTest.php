@@ -412,7 +412,7 @@ class ProductRequestMissingCopyTest extends TestCase
         $this->actingAs($this->user)
             ->get(route('product-requests.show', $request))
             ->assertOk()
-            ->assertSee('The sheet has not been read for 12 product(s)');
+            ->assertSee('be read automatically for 12 product(s)');
     }
 
     /** Copy on the sheet is theirs to apply — not ours to write over. */

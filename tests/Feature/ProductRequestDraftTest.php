@@ -378,6 +378,27 @@ class ProductRequestDraftTest extends TestCase
         $this->assertTrue((bool) $request->skus()->where('sku', 'GHOST-SKU')->value('sheet_has_description'));    // not on the sheet
     }
 
+    /** The SKU check reads the sheet itself — nobody has to press a button. */
+    public function test_the_sku_check_reads_the_sheet_for_copy_by_itself(): void
+    {
+        $user    = $this->user();
+        $request = $this->request($this->store(), $user, ['ZIM-1-W-38', 'ZIM-9-SOLO']);
+        $request->skus()->update(['in_shopify' => true, 'has_description' => false]);
+        $request->update(['status' => ProductRequest::AI_CONTENT, 'use_ai_content' => true]);
+        $this->fakeSheet();
+
+        // Shopify is not the point here: the check "completes" without changing anything.
+        $mapping = Mockery::mock(\App\Services\SkuMappingService::class);
+        $mapping->shouldReceive('validate')->andReturnUsing(fn ($r) => $r->update(['validation_status' => 'completed']));
+        $this->app->instance(\App\Services\SkuMappingService::class, $mapping);
+
+        (new \App\Jobs\ValidateProductRequestSkusJob($request->id))->handle($mapping, app(\App\Services\ProductRequestWorkflow::class));
+
+        $this->assertSame(0, $request->fresh()->sheetUncheckedCount());
+        $this->assertTrue((bool) $request->skus()->where('sku', 'ZIM-1-W-38')->value('sheet_has_description'));
+        $this->assertFalse((bool) $request->skus()->where('sku', 'ZIM-9-SOLO')->value('sheet_has_description'));
+    }
+
     /**
      * A tab with no description column cannot answer the question. Marking every
      * SKU as having no copy would offer to write over descriptions sitting in a

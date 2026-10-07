@@ -2677,6 +2677,27 @@ class ProductRequestTest extends TestCase
         $this->assertNotSame('SKU Not Mapped', $fresh->listStatusLabel());
     }
 
+    /** Progress is a set of milestones the team agreed, not a share of stages. */
+    public function test_progress_follows_the_agreed_milestones(): void
+    {
+        Notification::fake();
+
+        $request = $this->submitFor($this->brandManager(), $this->plainSite(), "PG-1\nPG-2");
+        $at = function (string $status, array $extra = []) use ($request) {
+            $request->forceFill(['status' => $status] + $extra)->save();
+            return ProductRequest::find($request->id)->progressPercent();
+        };
+
+        $this->assertSame(5, $at(ProductRequest::SKU_VERIFIED));              // not on Shopify yet
+        $request->skus()->update(['in_shopify' => true]);
+        $this->assertSame(20, $at(ProductRequest::SKU_VERIFIED));             // verified and mapped
+        $this->assertSame(20, $at(ProductRequest::AI_CONTENT));               // copy not started
+        $session = \App\Models\AiContentSession::forceCreate(['user_id' => $request->user_id, 'input_type' => 'skus', 'status' => 'processing', 'total_items' => 2]);
+        $this->assertSame(45, $at(ProductRequest::AI_CONTENT, ['ai_content_session_id' => $session->id]));
+        $this->assertSame(95, $at(ProductRequest::PHOTOSHOOT_SCHEDULED));
+        $this->assertSame(100, $at(ProductRequest::PUBLISHED));
+    }
+
     /** "Mapped" is only said where Cegid maps SKUs. */
     public function test_the_verified_stage_is_only_called_mapped_on_a_cegid_website(): void
     {

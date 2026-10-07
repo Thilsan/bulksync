@@ -217,6 +217,33 @@ class ProductRequestWorkflow
         return $moved;
     }
 
+    /**
+     * Find out from the tracking sheet which live products already have a
+     * description, for the ones nobody has answered for yet — the uploaded CSV
+     * answers on upload, this covers the rest. Nobody should have to press a
+     * button for the app to look something up.
+     *
+     * Each product is marked once checked (found or not), so the hourly run
+     * does not read the sheet again for it.
+     */
+    public function readSheetCopy(ProductRequest $request, ?User $actor = null): void
+    {
+        if ($request->isClosed() || $request->sheetUncheckedCount() === 0) {
+            return;
+        }
+
+        try {
+            app(ProductRequestDraftBuilder::class)->syncSheetDescriptions($request);
+        } catch (\Throwable $e) {
+            // No tab for the category, or the sheet unreachable: the request
+            // page offers to try again.
+            Log::info("readSheetCopy: skipped for {$request->reference}: " . $e->getMessage());
+            return;
+        }
+
+        $this->autoAdvance($request->refresh(), $actor);
+    }
+
     /** Kept for callers that only care about leaving SKU Verified. */
     public function advancePastVerified(ProductRequest $request, ?User $actor = null, bool $notify = true): bool
     {

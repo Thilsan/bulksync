@@ -332,10 +332,10 @@
                      brand team did supply. --}}
                 <div class="{{ $ask }} bg-amber-50 border-amber-200 text-amber-900">
                     <span class="{{ $askIcon }} bg-amber-100 text-amber-600"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="{{ $docIcon }}"/></svg></span>
-                    <p class="{{ $askText }}"><span class="font-medium">Awaiting content.</span> The sheet has not been read for {{ number_format($unchecked) }} product(s).</p>
+                    <p class="{{ $askText }}"><span class="font-medium">Awaiting content.</span> The sheet couldn&#39;t be read automatically for {{ number_format($unchecked) }} product(s).</p>
                     <form method="POST" action="{{ route('product-requests.check-sheet-copy', $request) }}">
                         @csrf
-                        <button type="submit" class="{{ $small }} bg-brand-600 hover:bg-brand-700 text-white">Check the sheet</button>
+                        <button type="submit" class="{{ $small }} bg-brand-600 hover:bg-brand-700 text-white">Try again</button>
                     </form>
                 </div>
             @endif
@@ -423,7 +423,8 @@
                     : ($draftsPushed > 0 ? 'check' : ($draftsBuilt > 0 ? 'push' : 'build'));
 
                 $upNext = $contentStep ? match ($contentStep) {
-                        'check'        => ['Check the sheet', 'See which of the ' . number_format($unchecked) . ' product(s) already have descriptions from the brand team, before generating any.'],
+                        // Only reached when the automatic look-up could not read the sheet.
+                        'check'        => ['Check the sheet again', "The sheet couldn't be read automatically for " . number_format($unchecked) . ' product(s). Try again, so nothing the brand team wrote gets written over.'],
                         'generate'     => ['Generate AI content', 'AI writes the descriptions for the ' . number_format($needsCopy) . ' product(s) that have none.'],
                         'not_on_sheet' => ['Generate AI content or skip', number_format($notOnSheet) . ' product(s) are not on the sheet — decide in the yellow box above.'],
                     }
@@ -468,14 +469,8 @@
                 @php
                     $phases      = $request->phaseProgress();
                     $currentStep = $request->displayStageIndex();
-                    // Nothing counts as progress while the products do not exist yet.
-                    $overall     = $missingProducts ? 5
-                        : ($closed && $request->status !== \App\Models\ProductRequest::CANCELLED ? 100 : $request->progressPercent());
-                    // At the copy step with nothing started, the step is not
-                    // progress yet: show where the step before it left off.
-                    if ($contentStep && !$closed) {
-                        $overall = (int) round(max(0, $request->displayStageIndex()) / max(1, count($request->displayStages())) * 100);
-                    }
+                    // Fixed milestones — see ProductRequest::progressPercent().
+                    $overall     = $request->progressPercent();
                     $C           = 2 * M_PI * 42;
                     $phaseIcons  = [
                         'intake'     => 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4',
@@ -606,7 +601,7 @@
                                 <form method="POST" action="{{ route('product-requests.check-sheet-copy', $request) }}" x-data="{ busy: false }" @submit="busy = true">
                                     @csrf
                                     <button type="submit" :disabled="busy" class="{{ $btnMain }} disabled:opacity-70">
-                                        <span x-text="busy ? 'Checking the sheet…' : 'Check the sheet'">Check the sheet</span>
+                                        <span x-text="busy ? 'Checking the sheet…' : 'Try again'">Try again</span>
                                     </button>
                                 </form>
                             @elseif($contentStep === 'generate')

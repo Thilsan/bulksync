@@ -60,6 +60,8 @@ class ValidateProductRequestSkusJob implements ShouldQueue
                 && !in_array($beforeStatus, [ProductRequest::SUBMITTED, ProductRequest::WAITING_MAPPING], true)) {
                 $workflow->announceBalance($request, $request->mapped_skus - $beforeMapped);
             }
+
+            $workflow->readSheetCopy($request, $this->actorId ? User::find($this->actorId) : null);
         }
 
         Log::info("ValidateProductRequestSkusJob: {$request->reference} — {$request->mapped_skus} mapped, {$request->pending_skus} pending, {$request->not_mapped_skus} not mapped.");

@@ -1581,28 +1581,35 @@ class ProductRequest extends Model
         return $i === false ? -1 : $i;
     }
 
+    /**
+     * How far along the request is, as the team measures it: fixed milestones,
+     * not a share of however many stages this request happens to have.
+     *
+     *   5%   products not on Shopify yet (not mapped, or not created)
+     *   20%  SKUs verified — and still 20% at the copy stage until someone
+     *        actually starts it
+     *   45%  AI content generation started
+     *   95%  photoshoot, and anything after it short of going live
+     *   100% published
+     */
     public function progressPercent(): int
     {
-        if ($this->status === self::CANCELLED) return 0;
-        $i = $this->displayStageIndex();
-        if ($i < 0) return 0;
-
-        $stages = $this->displayStages();
-        $total  = count($stages);
-        $anchor = array_search(self::SKU_VERIFIED, $stages, true);
-
-        // SKU Mapped is the end of intake and reads 20%: the stages before it
-        // share the first 20%, the ones after share the remaining 80%, so the
-        // ring stays honest however many optional stages a request skips.
-        if ($anchor === false || $total - 1 <= $anchor) {
-            return (int) round(($i + 1) / $total * 100);
+        if ($this->status === self::CANCELLED) {
+            return 0;
         }
 
-        if ($i <= $anchor) {
-            return (int) round(($i + 1) / ($anchor + 1) * 20);
+        if ($this->isClosed()) {
+            return 100;
         }
 
-        return (int) round(20 + ($i - $anchor) / ($total - 1 - $anchor) * 80);
+        return match ($this->status) {
+            self::SUBMITTED, self::WAITING_MAPPING, self::SKU_VERIFIED
+                => $this->hasSkusMissingFromShopify() ? 5 : 20,
+            self::AI_CONTENT
+                => $this->ai_content_session_id ? 45 : 20,
+            default
+                => 95,
+        };
     }
 
     /**

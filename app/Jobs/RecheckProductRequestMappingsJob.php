@@ -43,7 +43,12 @@ class RecheckProductRequestMappingsJob implements ShouldQueue
                   // a balance nobody is watching otherwise: the request has left
                   // the mapping queue but is not finishable until Cegid
                   // catches up with the rest.
-                  ->orWhereRaw('mapped_skus < total_skus');
+                  ->orWhereRaw('mapped_skus < total_skus')
+                  // …and ones at the copy stage whose products the sheet has not
+                  // been read for yet: the look-up nobody should have to press.
+                  ->orWhere(fn ($w) => $w->where('status', ProductRequest::AI_CONTENT)
+                      ->whereHas('skus', fn ($k) => $k->where('in_shopify', true)
+                          ->whereNull('sheet_has_description')->whereNull('sheet_checked_at')));
             })
             ->orderBy('validated_at')   // oldest check first; nulls lead
             ->limit(self::MAX_PER_RUN)
@@ -69,6 +74,9 @@ class RecheckProductRequestMappingsJob implements ShouldQueue
                 }
 
                 $workflow->reconcileMapping($request);
+                $request->refresh();
+
+                $workflow->readSheetCopy($request);
                 $request->refresh();
 
                 if ($request->status !== $beforeStatus) {
