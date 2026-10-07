@@ -222,6 +222,64 @@
                 radial-gradient(420px 320px at 0% 108%, rgba(var(--accent-rgb),.16), transparent 72%),
                 linear-gradient(172deg, #1f6f8b 0%, #1a6480 46%, #2b4c85 100%);
         }
+        /* The champagne thread down the right edge. */
+        .app-sidebar::after {
+            content: ''; position: absolute; inset: 0 0 0 auto; width: 1px; pointer-events: none;
+            background: linear-gradient(180deg, rgba(253,230,138,0) 0%, rgba(253,230,138,.35) 30%, rgba(253,230,138,.12) 100%);
+        }
+
+        /*
+            Nav rows. Each icon sits in its own small tile, so the column of
+            icons reads as a rhythm rather than loose strokes; the current page
+            lifts its tile to champagne and its row catches light from the left.
+        */
+        .sb-item { transition: background-color .2s ease, color .2s ease, box-shadow .2s ease; }
+        .sb-item:not(.is-on):hover { background-color: rgba(255,255,255,.08); }
+        .sb-item.is-on {
+            background: linear-gradient(90deg, rgba(255,255,255,.17), rgba(255,255,255,.07));
+            box-shadow: inset 0 1px 0 rgba(255,255,255,.14), 0 8px 20px -14px rgba(8,24,40,.9);
+        }
+        .sb-ico {
+            display: grid; place-items: center; flex-shrink: 0;
+            width: 1.75rem; height: 1.75rem; border-radius: .55rem;
+            background: rgba(255,255,255,.06);
+            box-shadow: inset 0 0 0 1px rgba(255,255,255,.08);
+            color: rgba(255,255,255,.62);
+            transition: background-color .2s ease, color .2s ease, box-shadow .2s ease, transform .2s ease;
+        }
+        .sb-item:hover .sb-ico { color: #fff; background: rgba(255,255,255,.11); }
+        .sb-item.is-on .sb-ico {
+            color: #3b2f0b;
+            background: linear-gradient(180deg, #fde68a, #fcd34d);
+            box-shadow: inset 0 1px 0 rgba(255,255,255,.5), 0 4px 12px -4px rgba(252,211,77,.55);
+        }
+        .sb-rail { box-shadow: 0 0 10px rgba(252,211,77,.7); }
+
+        /* Sub-menu: a quiet tree line, with a dot marking the open page. */
+        .sb-kid { position: relative; transition: background-color .2s ease, color .2s ease; }
+        .sb-kid::before {
+            content: ''; position: absolute; left: -13px; top: 50%; width: 5px; height: 5px;
+            margin-top: -2.5px; border-radius: 9999px; background: rgba(255,255,255,.22);
+            transition: background-color .2s ease, box-shadow .2s ease;
+        }
+        .sb-kid:hover::before { background: rgba(255,255,255,.55); }
+        .sb-kid.is-on::before { background: #fcd34d; box-shadow: 0 0 0 3px rgba(252,211,77,.18); }
+
+        .sb-badge {
+            background: linear-gradient(180deg, #f87171, #dc2626);
+            box-shadow: inset 0 1px 0 rgba(255,255,255,.25), 0 2px 8px -2px rgba(220,38,38,.6);
+        }
+
+        /* The list fades out under the brand and the clock instead of being cut. */
+        .nav-scroll {
+            -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 14px, #000 calc(100% - 18px), transparent 100%);
+                    mask-image: linear-gradient(180deg, transparent 0, #000 14px, #000 calc(100% - 18px), transparent 100%);
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .sb-item, .sb-ico, .sb-kid, .sb-kid::before { transition: none; }
+        }
+
         .topbar {
             background:
                 linear-gradient(104deg, #1f6f8b 0%, #1a6480 46%, #2b4c85 100%);
@@ -776,11 +834,11 @@
 
     <aside class="app-sidebar fixed inset-y-0 left-0 z-40 flex w-64 shrink-0 flex-col overflow-hidden
                   transform transition-transform duration-200 ease-out
-                  lg:static lg:h-screen lg:translate-x-0 lg:transition-none"
+                  lg:relative lg:h-screen lg:translate-x-0 lg:transition-none"
            :class="nav ? 'translate-x-0 shadow-2xl' : '-translate-x-full'">
 
         {{-- Brand --}}
-        <div class="relative flex flex-col gap-3 px-4 pb-4 pt-5">
+        <div class="relative flex flex-col gap-3.5 px-5 pb-5 pt-6">
             <div class="flex items-start justify-between gap-2">
                 <img src="{{ asset('aih_logo_whitegray-3.png') }}" alt="Abuissa Holding" class="h-9 w-auto">
                 <button type="button" @click="nav = false"
@@ -792,9 +850,13 @@
                 </button>
             </div>
             <div>
-                <p class="font-display text-[15px] leading-tight text-white">Ai Ecommerce Studio</p>
-                <p class="mt-0.5 text-[10px] uppercase tracking-[.14em] text-white/60">Abuissa Holding</p>
+                <p class="font-display text-[17px] leading-tight tracking-[-.01em] text-white">Ai Ecommerce Studio</p>
+                <p class="mt-1 flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-[.18em] text-amber-100/60">
+                    <span class="h-px w-3 bg-amber-200/60"></span>
+                    Abuissa Holding
+                </p>
             </div>
+            <span class="absolute inset-x-5 bottom-0 h-px bg-gradient-to-r from-white/25 via-white/10 to-transparent"></span>
         </div>
 
         {{-- Navigation --}}
@@ -802,13 +864,13 @@
             @foreach($navGroups as $gi => $group)
                 @php $tone = $accents[$group['accent'] ?? 'brand'] ?? $accents['brand']; @endphp
                 @if($group['label'])
-                    <p class="{{ $gi === 0 ? '' : 'mt-5' }} mb-1.5 flex items-center gap-2 px-3 text-[10px] font-semibold uppercase tracking-[.14em] {{ $tone['label'] }}">
+                    <p class="{{ $gi === 0 ? '' : 'mt-6' }} mb-2 flex items-center gap-2 px-3 text-[10px] font-semibold uppercase tracking-[.16em] {{ $tone['label'] }}">
                         {{ $group['label'] }}
-                        <span class="h-px flex-1 bg-gradient-to-r from-white/25 to-transparent"></span>
+                        <span class="h-px flex-1 bg-gradient-to-r from-white/20 to-transparent"></span>
                     </p>
                 @endif
 
-                <div class="space-y-0.5 {{ ($group['gap'] ?? false) ? 'mb-3' : '' }}">
+                <div class="space-y-1 {{ ($group['gap'] ?? false) ? 'mb-3' : '' }}">
                     @foreach($group['items'] as $item)
                         @php
                             $kids  = $item['children'] ?? [];
@@ -819,32 +881,32 @@
                             {{-- Parent with a sub-menu: the label navigates, the chevron only expands.
                                  It starts open whenever you are anywhere inside its section. --}}
                             <div x-data="{ open: {{ $item['on'] ? 'true' : 'false' }} }">
-                                <div class="relative flex items-stretch rounded-lg transition-colors
-                                            {{ $item['on'] ? 'bg-white/15 shadow-sm ring-1 ring-white/20' : 'hover:bg-white/10' }}">
+                                <div class="sb-item {{ $item['on'] ? 'is-on' : '' }} relative flex items-stretch rounded-xl">
                                     @if($item['on'])
-                                        <span class="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full {{ $tone['rail'] }}"></span>
+                                        <span class="sb-rail absolute -left-3 top-1/2 h-6 w-[3px] -translate-y-1/2 rounded-r-full {{ $tone['rail'] }}"></span>
                                     @endif
                                     <a href="{{ $item['url'] }}" @click="open = true"
                                        @if($item['on']) aria-current="page" @endif
-                                       class="flex min-w-0 flex-1 items-center gap-2.5 px-3 py-2 text-[13px] font-medium
+                                       class="flex min-w-0 flex-1 items-center gap-3 py-1.5 pl-1.5 pr-2 text-[13px] font-medium
                                               {{ $item['on'] ? 'text-white' : 'text-white/80 hover:text-white' }}">
-                                        <svg class="h-4 w-4 shrink-0 {{ $item['on'] ? $tone['on'] : $tone['off'] }}"
-                                             fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.85">
-                                            @foreach($ico[$item['icon']] as $d)
-                                                <path stroke-linecap="round" stroke-linejoin="round" d="{{ $d }}"/>
-                                            @endforeach
-                                        </svg>
+                                        <span class="sb-ico">
+                                            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.85">
+                                                @foreach($ico[$item['icon']] as $d)
+                                                    <path stroke-linecap="round" stroke-linejoin="round" d="{{ $d }}"/>
+                                                @endforeach
+                                            </svg>
+                                        </span>
                                         <span class="truncate">{{ $item['label'] }}</span>
                                     </a>
                                     @if($badge > 0)
-                                        <span class="flex shrink-0 items-center pr-1">
-                                            <span class="rounded-full bg-red-500/90 px-1.5 py-px text-[10px] font-semibold tabular-nums text-white">
+                                        <span class="flex shrink-0 items-center">
+                                            <span class="sb-badge min-w-[1.25rem] rounded-full px-1.5 py-px text-center text-[10px] font-semibold tabular-nums text-white">
                                                 {{ $badge > 99 ? '99+' : $badge }}
                                             </span>
                                         </span>
                                     @endif
                                     <button type="button" @click.stop="open = !open"
-                                            class="flex shrink-0 items-center px-2 {{ $item['on'] ? 'text-white' : 'text-white/50 hover:text-white' }}"
+                                            class="flex shrink-0 items-center px-2.5 {{ $item['on'] ? 'text-white/90' : 'text-white/45 hover:text-white' }}"
                                             :aria-expanded="open" aria-label="Toggle {{ $item['label'] }} menu">
                                         <svg :class="open ? 'rotate-180' : ''" class="h-3.5 w-3.5 transition-transform"
                                              fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5">
@@ -857,16 +919,16 @@
                                      x-transition:enter="transition ease-out duration-150"
                                      x-transition:enter-start="opacity-0 -translate-y-1"
                                      x-transition:enter-end="opacity-100 translate-y-0"
-                                     class="ml-[1.4rem] mt-0.5 space-y-0.5 border-l border-white/15 pl-3">
+                                     class="ml-[1.35rem] mt-1 mb-1.5 space-y-0.5 border-l border-white/[.12] pl-3">
                                     @foreach($kids as $kid)
                                         @php $kidBadge = (int) ($kid['badge'] ?? 0); @endphp
                                         <a href="{{ $kid['url'] }}"
                                            @if($kid['on']) aria-current="page" @endif
-                                           class="flex items-center gap-2 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors
-                                                  {{ $kid['on'] ? 'bg-white/15 text-white shadow-sm' : 'text-white/60 hover:bg-white/10 hover:text-white' }}">
+                                           class="sb-kid {{ $kid['on'] ? 'is-on bg-white/[.12] text-white' : 'text-white/60 hover:bg-white/[.07] hover:text-white' }}
+                                                  ml-1 flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-[12.5px] font-medium">
                                             <span class="flex-1 truncate">{{ $kid['label'] }}</span>
                                             @if($kidBadge > 0)
-                                                <span class="shrink-0 text-[10px] font-semibold tabular-nums text-amber-200">
+                                                <span class="shrink-0 rounded-full bg-amber-300/15 px-1.5 py-px text-[10px] font-semibold tabular-nums text-amber-200 ring-1 ring-amber-200/25">
                                                     {{ $kidBadge > 99 ? '99+' : $kidBadge }}
                                                 </span>
                                             @endif
@@ -877,21 +939,25 @@
                         @else
                             <a href="{{ $item['url'] }}"
                                @if($item['on']) aria-current="page" @endif
-                               class="relative flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium transition-colors
-                                      {{ $item['on']
-                                          ? 'bg-white/15 text-white shadow-sm ring-1 ring-parch-200'
-                                          : 'text-white/80 hover:bg-white/10 hover:text-white' }}">
+                               class="sb-item {{ $item['on'] ? 'is-on text-white' : 'text-white/80 hover:text-white' }}
+                                      relative flex items-center gap-3 rounded-xl py-1.5 pl-1.5 pr-2 text-[13px] font-medium">
                                 @if($item['on'])
                                     {{-- Accent rail: marks the current page without relying on tint alone --}}
-                                    <span class="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full {{ $tone['rail'] }}"></span>
+                                    <span class="sb-rail absolute -left-3 top-1/2 h-6 w-[3px] -translate-y-1/2 rounded-r-full {{ $tone['rail'] }}"></span>
                                 @endif
-                                <svg class="h-4 w-4 shrink-0 {{ $item['on'] ? $tone['on'] : $tone['off'] }}"
-                                     fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.85">
-                                    @foreach($ico[$item['icon']] as $d)
-                                        <path stroke-linecap="round" stroke-linejoin="round" d="{{ $d }}"/>
-                                    @endforeach
-                                </svg>
-                                <span class="truncate">{{ $item['label'] }}</span>
+                                <span class="sb-ico">
+                                    <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.85">
+                                        @foreach($ico[$item['icon']] as $d)
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="{{ $d }}"/>
+                                        @endforeach
+                                    </svg>
+                                </span>
+                                <span class="flex-1 truncate">{{ $item['label'] }}</span>
+                                @if($badge > 0)
+                                    <span class="sb-badge min-w-[1.25rem] shrink-0 rounded-full px-1.5 py-px text-center text-[10px] font-semibold tabular-nums text-white">
+                                        {{ $badge > 99 ? '99+' : $badge }}
+                                    </span>
+                                @endif
                             </a>
                         @endif
                     @endforeach
@@ -900,7 +966,7 @@
         </nav>
 
         {{-- Clock --}}
-        <div class="relative border-t border-white/15 px-4 py-3"
+        <div class="relative px-3 pb-3 pt-2"
              x-data="{
                  tz: '{{ config('app.timezone') }}',
                  time: '',
@@ -912,12 +978,12 @@
                  }
              }"
              x-init="tick(); setInterval(() => tick(), 1000)">
-            <div class="flex items-baseline justify-between gap-2">
-                <p class="flex items-center gap-2 text-base font-semibold tabular-nums text-white">
-                    <span class="live-dot h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400"></span>
+            <div class="flex items-center justify-between gap-2 rounded-xl bg-black/15 px-3.5 py-2.5 ring-1 ring-inset ring-white/10">
+                <p class="flex items-center gap-2 font-display text-lg leading-none tabular-nums text-white">
+                    <span class="live-dot h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,.8)]"></span>
                     <span x-text="time">{{ now()->format('H:i') }}</span>
                 </p>
-                <p class="truncate text-[11px] text-white/60" x-text="date">{{ now()->format('D, d M Y') }}</p>
+                <p class="truncate text-[11px] text-white/55" x-text="date">{{ now()->format('D, d M Y') }}</p>
             </div>
         </div>
 
