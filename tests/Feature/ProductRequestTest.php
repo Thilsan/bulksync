@@ -2651,6 +2651,21 @@ class ProductRequestTest extends TestCase
         $this->assertSame(ProductRequest::AI_CONTENT, $request->fresh()->status);
     }
 
+    /** The list never jumps ahead of products Shopify does not have. */
+    public function test_the_list_says_not_mapped_until_the_products_are_on_shopify(): void
+    {
+        Notification::fake();
+
+        $request = $this->submitFor($this->brandManager(), $this->plainSite(), "NM-1\nNM-2");
+        $this->assertSame(ProductRequest::SKU_VERIFIED, $request->status);
+        $this->assertSame('SKU Not Mapped', $request->listStatusLabel());
+
+        $request->skus()->update(['in_shopify' => true]);
+        $fresh = ProductRequest::find($request->id);
+        $fresh->status = ProductRequest::SKU_VERIFIED;   // the hand-off view, before the move
+        $this->assertNotSame('SKU Not Mapped', $fresh->listStatusLabel());
+    }
+
     /** "Mapped" is only said where Cegid maps SKUs. */
     public function test_the_verified_stage_is_only_called_mapped_on_a_cegid_website(): void
     {

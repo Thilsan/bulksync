@@ -245,7 +245,7 @@
                                 @else
                                     <span class="{{ $days <= 7 ? 'text-amber-700' : 'text-gray-500' }}">In {{ $days }} {{ \Illuminate\Support\Str::plural('day', $days) }}</span>
                                 @endif
-                                <span class="text-gray-400">&middot; {{ $item->statusLabel() }}</span>
+                                <span class="text-gray-400">&middot; {{ $item->listStatusLabel() }}</span>
                             </p>
                         </div>
                         <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium border shrink-0 {{ $item->priorityColor() }}">{{ $item->priorityLabel() }}</span>

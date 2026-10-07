@@ -78,7 +78,8 @@
 
 <div class="space-y-5"
      x-data="{
-        tab: 'skus',
+        // A build lands back on the drafts it made.
+        tab: @js(session('open_tab', 'skus')),
         editing: false,
         showTransition: false,
         showCancel: false,
@@ -98,7 +99,7 @@
                 .catch(() => {});
         }
      }"
-     x-init="setInterval(() => poll(), 4000)">
+     x-init="setInterval(() => poll(), 4000); @if(session('open_tab')) $nextTick(() => document.getElementById('tabs')?.scrollIntoView({ behavior: 'smooth', block: 'start' })); @endif">
 
     {{-- ── Header ─────────────────────────────────────────────────────────── --}}
     <div class="flex flex-wrap items-start justify-between gap-3">
@@ -110,7 +111,7 @@
             <div class="min-w-0">
                 <h2 class="font-display text-2xl leading-tight text-gray-900 truncate">{{ $request->displayName() }}</h2>
                 <div class="flex flex-wrap items-center gap-1.5 mt-1.5">
-                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border {{ $request->statusColor() }}">{{ $request->statusLabel() }}</span>
+                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border {{ $request->hasSkusMissingFromShopify() ? $request->listStatusColor() : $request->statusColor() }}">{{ $request->hasSkusMissingFromShopify() ? 'SKU Not Mapped' : $request->statusLabel() }}</span>
                     @unless($closed)
                         <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium {{ $dueTone }}">
                             <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
@@ -402,10 +403,20 @@
                 // What comes after this, in plain words — the card's job is to
                 // say what is next, not to repeat what just finished.
                 $upcoming  = $closed ? null : $request->suggestedNextStatus();
+                // Where the products are in being created: built as drafts, pushed to Shopify.
+                $draftsBuilt  = isset($drafts) ? $drafts->count() : 0;
+                $draftsPushed = isset($drafts) ? $drafts->whereNotNull('pushed_at')->count() : 0;
+                $createStep   = !$missingProducts || $usesMapping ? null
+                    : ($draftsPushed > 0 ? 'check' : ($draftsBuilt > 0 ? 'push' : 'build'));
+
                 $upNext = $missingProducts
                     ? ($usesMapping
-                        ? ['Map the SKUs', 'The brand manager maps the ' . number_format($notOnShopify) . ' missing SKU(s) in Cegid so they show on Shopify.']
-                        : ['Create the products', 'Build the ' . number_format($notOnShopify) . ' product(s) from the sheet as Shopify drafts, then upload them to Shopify.'])
+                        ? ['Map the SKUs', 'The brand manager maps the ' . number_format($notOnShopify) . ' missing SKU(s) in Cegid. Once they show on Shopify, click Check SKUs.']
+                        : match ($createStep) {
+                            'build' => ['Create the products', 'Build the ' . number_format($notOnShopify) . ' product(s) from the sheet as Shopify drafts, then push them to Shopify.'],
+                            'push'  => ['Push the drafts to Shopify', number_format($draftsBuilt) . ' draft(s) are built. Check them, push them to Shopify, then click Check SKUs.'],
+                            'check' => ['Click Check SKUs', 'The products have been created on Shopify. Check SKUs confirms they are there and moves the request on.'],
+                        })
                     : ($upcoming ? match ($upcoming) {
                     \App\Models\ProductRequest::WAITING_MAPPING      => ['SKU mapping', 'The brand manager maps the SKUs in Cegid.'],
                     \App\Models\ProductRequest::SKU_VERIFIED         => ['SKUs verified', 'Every SKU is checked against the website.'],
@@ -567,18 +578,29 @@
                                     <button type="submit" class="{{ $ownership === 'my_team' ? $btn . ' bg-amber-500 hover:bg-amber-600 text-white' : $btnAlt }}">Take this task</button>
                                 </form>
                             @endif
+                            {{-- Products created on Shopify (or mapped): one click confirms it. --}}
+                            @if($missingProducts && ($createStep === 'check' || $usesMapping))
+                                <form method="POST" action="{{ route('product-requests.revalidate', $request) }}" x-data="{ busy: false }" @submit="busy = true">
+                                    @csrf
+                                    <button type="submit" :disabled="busy" class="{{ $createStep === 'check' ? $btnMain : $btnAlt }} disabled:opacity-70">
+                                        <svg class="w-4 h-4" :class="busy && 'animate-spin'" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                                        <span x-text="busy ? 'Checking…' : 'Check SKUs'">Check SKUs</span>
+                                    </button>
+                                </form>
+                            @endif
                             {{-- Products that do not exist yet: build them from the sheet, right here. --}}
                             @if($missingProducts && !$usesMapping)
                                 @if(isset($drafts) && $drafts->isNotEmpty())
-                                    <button type="button" @click="tab = 'drafts'; $nextTick(() => document.getElementById('tabs').scrollIntoView({ behavior: 'smooth' }))" class="{{ $btnMain }}">
+                                    <button type="button" @click="tab = 'drafts'; $nextTick(() => document.getElementById('tabs').scrollIntoView({ behavior: 'smooth' }))" class="{{ $createStep === 'push' ? $btnMain : $btnAlt }}">
                                         View drafts ({{ $drafts->count() }})
                                     </button>
                                 @else
-                                    <form method="POST" action="{{ route('product-requests.drafts.build', $request) }}">
+                                    <form method="POST" action="{{ route('product-requests.drafts.build', $request) }}" x-data="{ busy: false }" @submit="busy = true">
                                         @csrf
-                                        <button type="submit" class="{{ $btnMain }}">
-                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M3 14h18M10 3v18M5 3h14a2 2 0 012 2v14a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2z"/></svg>
-                                            Build from sheet
+                                        <button type="submit" :disabled="busy" class="{{ $btnMain }} disabled:opacity-70">
+                                            <svg x-show="!busy" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M3 14h18M10 3v18M5 3h14a2 2 0 012 2v14a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2z"/></svg>
+                                            <svg x-show="busy" x-cloak class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                                            <span x-text="busy ? 'Building from the sheet…' : 'Build from sheet'">Build from sheet</span>
                                         </button>
                                     </form>
                                 @endif

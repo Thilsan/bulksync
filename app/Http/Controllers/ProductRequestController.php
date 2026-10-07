@@ -1129,11 +1129,11 @@ class ProductRequestController extends Controller implements HasMiddleware
             $result = $this->draftBuilder->build($productRequest);
         } catch (\Throwable $e) {
             Log::error("Draft build failed for {$productRequest->reference}: " . $e->getMessage());
-            return back()->with('warning', $e->getMessage());
+            return back()->with('open_tab', 'drafts')->with('warning', $e->getMessage());
         }
 
         if ($result['built'] === 0 && $result['skipped_existing'] === 0) {
-            return back()->with('warning', 'Nothing to build — every SKU on this request is already in Shopify, or the sheet has no rows for the ones that are not.');
+            return back()->with('open_tab', 'drafts')->with('warning', 'Nothing to build — every SKU on this request is already in Shopify, or the sheet has no rows for the ones that are not.');
         }
 
         $message = "{$result['built']} draft product(s) built from {$result['variants']} SKU(s).";
@@ -1163,7 +1163,7 @@ class ProductRequestController extends Controller implements HasMiddleware
             $message .= ' Matched loosely — check these: ' . implode(', ', $columns['loose']) . '.';
         }
 
-        return back()->with('success', $message);
+        return back()->with('open_tab', 'drafts')->with('success', $message);
     }
 
     /** The staged drafts in Shopify's product import CSV format. Streamed. */
@@ -1190,7 +1190,7 @@ class ProductRequestController extends Controller implements HasMiddleware
         abort_unless($draft->product_request_id === $productRequest->id, 404);
 
         if ($draft->isPushed()) {
-            return back()->with('warning', 'This product is already in Shopify — edit it there.');
+            return back()->with('open_tab', 'drafts')->with('warning', 'This product is already in Shopify — edit it there.');
         }
 
         $data = $request->validate([
@@ -1221,7 +1221,7 @@ class ProductRequestController extends Controller implements HasMiddleware
             );
         }
 
-        return back()->with('success', "\"{$draft->title}\" updated.");
+        return back()->with('open_tab', 'drafts')->with('success', "\"{$draft->title}\" updated.");
     }
 
     public function destroyDraft(ProductRequest $productRequest, ProductRequestDraftProduct $draft, #[CurrentUser] User $user): RedirectResponse
@@ -1230,13 +1230,13 @@ class ProductRequestController extends Controller implements HasMiddleware
         abort_unless($draft->product_request_id === $productRequest->id, 404);
 
         if ($draft->isPushed()) {
-            return back()->with('warning', 'This product is already in Shopify — deleting the draft here would not remove it.');
+            return back()->with('open_tab', 'drafts')->with('warning', 'This product is already in Shopify — deleting the draft here would not remove it.');
         }
 
         $title = $draft->title;
         $draft->delete();
 
-        return back()->with('success', "\"{$title}\" removed from the drafts.");
+        return back()->with('open_tab', 'drafts')->with('success', "\"{$title}\" removed from the drafts.");
     }
 
     /**
@@ -1258,7 +1258,7 @@ class ProductRequestController extends Controller implements HasMiddleware
         $store = Store::selectableFor($user)->firstWhere('id', (int) $data['store_id']);
 
         if (!$store) {
-            return back()->withErrors(['store_id' => 'You do not have access to that website.']);
+            return back()->with('open_tab', 'drafts')->withErrors(['store_id' => 'You do not have access to that website.']);
         }
 
         set_time_limit(600);   // Shopify fetches every image URL server-side
@@ -1275,7 +1275,13 @@ class ProductRequestController extends Controller implements HasMiddleware
             $message .= " {$result['failed']} failed — the reason is on each row.";
         }
 
-        return back()->with($result['pushed'] > 0 ? 'success' : 'warning', $message);
+        // The request only moves on once the SKU check sees the products, so say
+        // what to do next while it is in front of them.
+        if ($result['pushed'] > 0) {
+            $message .= ' Now click Check SKUs so the request picks them up and moves on.';
+        }
+
+        return back()->with('open_tab', 'drafts')->with($result['pushed'] > 0 ? 'success' : 'warning', $message);
     }
 
     // ── Workflow ─────────────────────────────────────────────────────────────

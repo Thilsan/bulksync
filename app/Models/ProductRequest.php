@@ -1065,21 +1065,40 @@ class ProductRequest extends Model
      */
     public function listStage(): string
     {
-        if ($this->status === self::SKU_VERIFIED) {
+        // Only a hand-off once every product is actually there.
+        if ($this->status === self::SKU_VERIFIED && !$this->hasSkusMissingFromShopify()) {
             return $this->suggestedNextStatus() ?? $this->status;
         }
 
         return $this->status;
     }
 
+    /**
+     * Still at the start with products Shopify does not have — not mapped in
+     * Cegid, or not created yet. Nothing after this can happen until they are.
+     */
+    public function hasSkusMissingFromShopify(): bool
+    {
+        if (!in_array($this->status, [self::SUBMITTED, self::WAITING_MAPPING, self::SKU_VERIFIED], true)) {
+            return false;
+        }
+
+        return $this->missingFromShopify ??= $this->skus()->where('in_shopify', false)->exists();
+    }
+
+    /** Memo for hasSkusMissingFromShopify(): a list asks it twice per row. */
+    protected ?bool $missingFromShopify = null;
+
     public function listStatusLabel(): string
     {
-        return $this->stageLabel($this->listStage());
+        return $this->hasSkusMissingFromShopify() ? 'SKU Not Mapped' : $this->stageLabel($this->listStage());
     }
 
     public function listStatusColor(): string
     {
-        return self::STATUS_COLORS[$this->listStage()] ?? 'bg-gray-100 text-gray-700 border-gray-200';
+        return $this->hasSkusMissingFromShopify()
+            ? 'bg-red-50 text-red-700 border-red-200'
+            : (self::STATUS_COLORS[$this->listStage()] ?? 'bg-gray-100 text-gray-700 border-gray-200');
     }
 
     /**
