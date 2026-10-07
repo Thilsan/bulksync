@@ -1589,7 +1589,8 @@ class ProductRequest extends Model
      *   20%  SKUs verified — and still 20% at the copy stage until someone
      *        actually starts it
      *   45%  AI content generation started
-     *   95%  photoshoot, and anything after it short of going live
+     *   95%  photoshoot, and anything after it short of going live — or,
+     *        with no photoshoot, every description done (only going live left)
      *   100% published
      */
     public function progressPercent(): int
@@ -1602,11 +1603,18 @@ class ProductRequest extends Model
             return 100;
         }
 
+        // Nothing left but going live — supplier images with every description
+        // done, or brand-supplied copy with no shoot — is as far as a request
+        // gets before publishing, the same as having finished the photoshoot.
+        $onlyLiveLeft = $this->suggestedNextStatus() === self::PUBLISHED;
+
         return match ($this->status) {
-            self::SUBMITTED, self::WAITING_MAPPING, self::SKU_VERIFIED
+            self::SUBMITTED, self::WAITING_MAPPING
                 => $this->hasSkusMissingFromShopify() ? 5 : 20,
+            self::SKU_VERIFIED
+                => $this->hasSkusMissingFromShopify() ? 5 : ($onlyLiveLeft ? 95 : 20),
             self::AI_CONTENT
-                => $this->ai_content_session_id ? 45 : 20,
+                => $onlyLiveLeft && $this->contentIsSettled() ? 95 : ($this->ai_content_session_id ? 45 : 20),
             default
                 => 95,
         };

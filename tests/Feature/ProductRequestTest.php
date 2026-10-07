@@ -2698,6 +2698,26 @@ class ProductRequestTest extends TestCase
         $this->assertSame(100, $at(ProductRequest::PUBLISHED));
     }
 
+    /** Supplier images: no shoot, so finishing the descriptions is the 95% point. */
+    public function test_supplier_image_progress_reaches_95_when_the_copy_is_done(): void
+    {
+        Notification::fake();
+
+        $request = $this->submitFor($this->brandManager(), $this->plainSite(), 'SUP-1');
+        $request->skus()->update(['in_shopify' => true, 'has_description' => false, 'sheet_has_description' => false, 'sheet_checked_at' => now()]);
+        $session = \App\Models\AiContentSession::forceCreate(['user_id' => $request->user_id, 'input_type' => 'skus', 'status' => 'processing', 'total_items' => 1]);
+        $request->forceFill([
+            'status' => ProductRequest::AI_CONTENT, 'use_ai_content' => true, 'ai_content_session_id' => $session->id,
+            'image_source' => ProductRequest::IMG_SUPPLIER, 'photoshoot_decision' => 'no', 'image_request_decision' => 'no',
+        ])->save();
+
+        $this->assertSame(45, ProductRequest::find($request->id)->progressPercent());   // generating
+
+        $session->update(['status' => 'done']);
+        $request->skus()->update(['content_started_at' => now()]);
+        $this->assertSame(95, ProductRequest::find($request->id)->progressPercent());   // only going live left
+    }
+
     /** "Mapped" is only said where Cegid maps SKUs. */
     public function test_the_verified_stage_is_only_called_mapped_on_a_cegid_website(): void
     {
