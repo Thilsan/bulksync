@@ -1093,6 +1093,12 @@ class ProductRequest extends Model
             return 'Content from Brand Team';
         }
 
+        // "Mapped" is only true where Cegid maps SKUs. Elsewhere the check just
+        // confirms the list was received — the products may not exist yet.
+        if ($stage === self::SKU_VERIFIED && $this->store_id && !$this->requiresMapping()) {
+            return 'SKUs Checked';
+        }
+
         return self::STATUS_LABELS[$stage] ?? $stage;
     }
 

@@ -2651,6 +2651,17 @@ class ProductRequestTest extends TestCase
         $this->assertSame(ProductRequest::AI_CONTENT, $request->fresh()->status);
     }
 
+    /** "Mapped" is only said where Cegid maps SKUs. */
+    public function test_the_verified_stage_is_only_called_mapped_on_a_cegid_website(): void
+    {
+        Notification::fake();
+
+        $user = $this->brandManager();
+
+        $this->assertSame('SKUs Checked', $this->submitFor($user, $this->plainSite(), 'LBL-1')->stageLabel(ProductRequest::SKU_VERIFIED));
+        $this->assertSame('SKU Mapped',   $this->submitFor($user, $this->mappingSite(), 'LBL-2')->stageLabel(ProductRequest::SKU_VERIFIED));
+    }
+
     /** The image source was picked on the form, so SKU Verified does not ask for it again. */
     public function test_sku_verified_guidance_follows_the_image_source_picked_on_the_form(): void
     {

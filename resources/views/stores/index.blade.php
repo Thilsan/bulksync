@@ -175,7 +175,7 @@
                                 <span class="block text-xs text-gray-400">
                                     Product creation requests for this website go through the
                                     <span class="font-medium">Waiting for Mapping</span> stage with the brand manager.
-                                    Leave off and requests skip straight to SKU Mapped.
+                                    Leave off and requests skip straight to SKUs Checked.
                                 </span>
                             </span>
                         </label>
