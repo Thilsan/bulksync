@@ -218,9 +218,7 @@
             shows: one thread of it, the length of the panel.
         */
         .app-sidebar {
-            background:
-                radial-gradient(420px 320px at 0% 108%, rgba(var(--accent-rgb),.16), transparent 72%),
-                linear-gradient(172deg, #070303 0%, #285184 46%, #285184 100%);
+            background: #285184;
         }
         /* The champagne thread down the right edge. */
         .app-sidebar::after {
