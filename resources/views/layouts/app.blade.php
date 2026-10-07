@@ -452,7 +452,9 @@
         main :is(button, a).border-brand-600:hover:not(:disabled) { background-color: rgba(var(--accent-rgb),.38) !important; }
 
         /* Light brand tints take the sidebar's teal-mist. */
-        main [class~="bg-brand-50"], main [class*="bg-brand-50/"] { background-color: #eaf0f7 !important; }
+        /* Only a resting bg-brand-50 — a substring match on "bg-brand-50/" also
+           caught hover:bg-brand-50/40 and tinted every row all the time. */
+        main [class~="bg-brand-50"], main [class^="bg-brand-50/"], main [class*=" bg-brand-50/"] { background-color: #eaf0f7 !important; }
         main [class~="bg-brand-100"] { background-color: #d3dfee !important; }
         main [class*="hover:bg-brand-50"]:hover { background-color: #dfe7f2 !important; }
 
@@ -629,7 +631,7 @@
 
         /* Brand: teal text lifts, pale tints sink to deep teal */
         html.dark :is(.text-brand-600, .text-brand-700, .text-brand-800) { color: #a3b9d7; }
-        html.dark main [class~="bg-brand-50"], html.dark main [class*="bg-brand-50/"] { background-color: #1a2a40 !important; }
+        html.dark main [class~="bg-brand-50"], html.dark main [class^="bg-brand-50/"], html.dark main [class*=" bg-brand-50/"] { background-color: #1a2a40 !important; }
         html.dark main [class~="bg-brand-100"] { background-color: #22385a !important; }
         html.dark main [class*="hover:bg-brand-50"]:hover { background-color: #22385a !important; }
         html.dark :is(.border-brand-200, .border-brand-300) { border-color: #3a5680; }

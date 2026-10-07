@@ -172,7 +172,7 @@
                         $initials = collect(preg_split('/\s+/', trim($owner)))->filter()->take(2)
                             ->map(fn ($w) => mb_strtoupper(mb_substr($w, 0, 1)))->implode('');
                     @endphp
-                    <tr class="group relative transition-colors hover:bg-brand-50/40">
+                    <tr class="group relative bg-white transition-colors hover:bg-[#f7f9fc]">
                         <td class="relative py-3.5 pl-6 pr-4">
                             {{-- Accent rail on hover: which row the actions belong to. --}}
                             <span class="absolute inset-y-2 left-0 w-[3px] origin-center scale-y-0 rounded-r-full bg-[#6185b2] transition-transform duration-200 group-hover:scale-y-100"></span>
