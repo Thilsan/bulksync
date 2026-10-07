@@ -1133,7 +1133,7 @@ class ProductRequestController extends Controller implements HasMiddleware
         }
 
         if ($result['built'] === 0 && $result['skipped_existing'] === 0) {
-            return back()->with('open_tab', 'drafts')->with('warning', 'Nothing to build — every SKU on this request is already in Shopify, or the sheet has no rows for the ones that are not.');
+            return back()->with('open_tab', 'drafts')->with('warning', 'Nothing to build — every SKU on this request is already in Shopify, or neither the uploaded product list nor the sheet has rows for the ones that are not.');
         }
 
         $message = "{$result['built']} draft product(s) built from {$result['variants']} SKU(s).";
@@ -1144,7 +1144,7 @@ class ProductRequestController extends Controller implements HasMiddleware
 
         if ($missing = $result['missing_from_sheet']) {
             $shown    = array_slice($missing, 0, 10);
-            $message .= ' ' . count($missing) . ' SKU(s) have no row on the sheet: ' . implode(', ', $shown)
+            $message .= ' ' . count($missing) . ' SKU(s) have no row in the uploaded product list or the sheet: ' . implode(', ', $shown)
                 . (count($missing) > count($shown) ? '…' : '') . '.';
         }
 

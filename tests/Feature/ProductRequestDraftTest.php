@@ -472,6 +472,48 @@ class ProductRequestDraftTest extends TestCase
     }
 
     /** On a Cegid website an unmatched SKU is Supply Chain's, not a new product. */
+    /**
+     * A request raised in the app: its products are described only in the CSV
+     * that was uploaded, so the drafts are built from that — no sheet needed.
+     */
+    public function test_drafts_are_built_from_the_uploaded_product_list(): void
+    {
+        $user    = $this->user();
+        $request = $this->request($this->store(), $user, ['PS-1', 'PS-2']);
+
+        $dir = "product-requests/{$request->id}";
+        @mkdir(storage_path("app/{$dir}"), 0755, true);
+        file_put_contents(storage_path("app/{$dir}/list.csv"),
+            "Date,Brand Name,Item SKU,Product Name,Long Description,Price,Size,Color,Barcode/EAN\n"
+            . "07/10/2026,PS PAUL SMITH,PS-1,Blouse Beige,\"Soft cotton blouse.\",450,42,Beige,629100001\n"
+            . ",,,,\"Machine washable.\",,,,\n"
+            . "07/10/2026,PS PAUL SMITH,PS-2,Blouse Pink,Light and airy.,450,44,Pink,629100002\n");
+        \App\Models\ProductRequestAttachment::create([
+            'product_request_id' => $request->id, 'user_id' => $user->id,
+            'kind' => \App\Models\ProductRequestAttachment::KIND_SKU_FILE,
+            'original_name' => 'women PC.csv', 'path' => "{$dir}/list.csv", 'mime' => 'text/csv', 'size' => 300,
+        ]);
+
+        // The sheet must not be needed at all.
+        $drive = Mockery::mock(OneDriveService::class);
+        $drive->shouldNotReceive('worksheetValues');
+        $this->app->instance(OneDriveService::class, $drive);
+
+        try {
+            $result = $this->build($request);
+
+            $this->assertSame([], $result['missing_from_sheet']);
+            $this->assertSame(2, $result['variants']);
+
+            $titles = ProductRequestDraftProduct::where('product_request_id', $request->id)->pluck('body_html', 'title');
+            $this->assertCount(2, $titles);
+            // The paragraph on its own row stayed with its product.
+            $this->assertStringContainsString('Machine washable', (string) $titles->first(fn ($body, $title) => str_contains($title, 'Beige')));
+        } finally {
+            \Illuminate\Support\Facades\File::deleteDirectory(storage_path("app/{$dir}"));
+        }
+    }
+
     public function test_a_cegid_website_cannot_build_drafts(): void
     {
         $user    = $this->user();

@@ -43,8 +43,9 @@ class ProductRequestDraftBuilder
         }
 
         $worksheet = $this->worksheetFor($request);
+        $upload    = $this->uploadedCsvPath($request);
 
-        if (!$worksheet) {
+        if (!$worksheet && !$upload) {
             throw new \RuntimeException(
                 "No sheet tab is configured for the \"{$request->category}\" category — see config/product_request_sync.php."
             );
@@ -62,7 +63,36 @@ class ProductRequestDraftBuilder
             return ['built' => 0, 'variants' => 0, 'skipped_existing' => 0, 'missing_from_sheet' => [], 'columns' => $empty];
         }
 
-        [$rows, $columns] = $this->sheetRowsFor($worksheet, $missing);
+        // The product list the requester uploaded carries the same columns as
+        // the sheet, and for a request raised in the app it is the only place
+        // those products are described. It goes first; the sheet fills in
+        // whatever it lacks.
+        $rows    = [];
+        $columns = null;
+
+        if ($upload) {
+            [$rows, $columns] = $this->rowsFromValues($this->csvValues($upload), $missing, 'uploaded CSV', joinContinuations: true);
+        }
+
+        $stillMissing = array_values(array_diff(
+            array_map([$this, 'normalizeSku'], $missing),
+            array_map(fn ($r) => $this->normalizeSku($r['fields']['sku']), $rows),
+        ));
+
+        if ($stillMissing && $worksheet) {
+            try {
+                [$sheetRows, $sheetColumns] = $this->sheetRowsFor($worksheet, $stillMissing);
+                $rows    = array_merge($rows, $sheetRows);
+                $columns ??= $sheetColumns;
+            } catch (\Throwable $e) {
+                // With an upload to build from, a sheet problem is not the end.
+                if (!$upload) {
+                    throw $e;
+                }
+            }
+        }
+
+        $columns ??= $empty;
 
         // A SKU the sheet has no row for cannot be invented — it is reported so
         // whoever asked can go and add it rather than wonder where it went.
@@ -311,13 +341,28 @@ class ProductRequestDraftBuilder
         $item   = $this->drive->resolveShareItem(config('product_request_sync.master_sheet_url'));
         $values = $this->drive->worksheetValues($item['driveId'], $item['itemId'], $worksheet);
 
+        return $this->rowsFromValues($values, $skus, "\"{$worksheet}\" tab");
+    }
+
+    /**
+     * Rows for the given SKUs out of a header row plus data rows — the sheet's
+     * tab or an uploaded CSV, read the same way so both build the same drafts.
+     *
+     * An Excel export puts a long description's later paragraphs on rows of
+     * their own with no SKU; $joinContinuations folds those back into the
+     * product above.
+     *
+     * @return array{0: array<int, array{fields: array<string, string|null>, raw: array<string, string|null>}>, 1: array<string, mixed>}
+     */
+    private function rowsFromValues(array $values, array $skus, string $source, bool $joinContinuations = false): array
+    {
         $header   = $values[0] ?? [];
         $resolved = $this->resolveColumns($header);
         $index    = $resolved['index'];
 
         if (!isset($index['sku'])) {
             throw new \RuntimeException(
-                "The \"{$worksheet}\" tab has no SKU column — it has: "
+                "The {$source} has no SKU column — it has: "
                 . implode(', ', array_filter(array_map(fn ($h) => trim((string) $h), $header)))
                 . '. Add the right name to config/product_request_draft.php.'
             );
@@ -325,11 +370,23 @@ class ProductRequestDraftBuilder
 
         $wanted = array_flip(array_map([$this, 'normalizeSku'], $skus));
         $rows   = [];
+        $last   = null;   // index into $rows of the SKU row above, or null
 
         foreach (array_slice($values, 1) as $row) {
             $sku = $this->normalizeSku($row[$index['sku']] ?? '');
 
-            if ($sku === '' || !isset($wanted[$sku])) {
+            if ($sku === '') {
+                $extra = isset($index['body_html']) ? $this->cell($row[$index['body_html']] ?? null) : null;
+
+                if ($joinContinuations && $last !== null && filled($extra)) {
+                    $rows[$last]['fields']['body_html'] = trim(($rows[$last]['fields']['body_html'] ?? '') . "\n\n" . $extra);
+                }
+
+                continue;
+            }
+
+            if (!isset($wanted[$sku])) {
+                $last = null;
                 continue;
             }
 
@@ -347,9 +404,45 @@ class ProductRequestDraftBuilder
                 'fields' => collect($index)->map(fn ($at) => $this->cell($row[$at] ?? null))->all(),
                 'raw'    => $raw,
             ];
+            $last = array_key_last($rows);
         }
 
         return [$rows, $resolved['report']];
+    }
+
+    /** The product list uploaded with the request, if it is still on disk. */
+    private function uploadedCsvPath(ProductRequest $request): ?string
+    {
+        foreach ($request->skuFiles()->get() as $file) {
+            $path = storage_path('app/' . $file->path);
+
+            if (is_file($path)) {
+                return $path;
+            }
+        }
+
+        return null;
+    }
+
+    /** A CSV as rows of cells — quoted cells may hold commas and line breaks. */
+    private function csvValues(string $path): array
+    {
+        $values = [];
+        $handle = fopen($path, 'r');
+
+        while ($handle && ($row = fgetcsv($handle, null, ',', '"', '')) !== false) {
+            $values[] = $row;
+        }
+
+        if ($handle) {
+            fclose($handle);
+        }
+
+        if (isset($values[0][0])) {
+            $values[0][0] = preg_replace('/^\xEF\xBB\xBF/', '', (string) $values[0][0]);   // Excel's BOM
+        }
+
+        return $values;
     }
 
     /**

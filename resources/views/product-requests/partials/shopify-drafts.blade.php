@@ -11,7 +11,7 @@
         <div>
             <h3 class="text-sm font-semibold text-gray-800">Shopify Drafts</h3>
             <p class="text-xs text-gray-500 mt-0.5">
-                Built from the tracking sheet for the SKUs that are not in Shopify yet.
+                Built from the uploaded product list (or the tracking sheet) for the SKUs that are not in Shopify yet.
                 Products are created as <span class="font-medium">drafts</span> — nothing goes live from here.
             </p>
         </div>
