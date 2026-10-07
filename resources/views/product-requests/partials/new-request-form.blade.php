@@ -106,7 +106,7 @@
                               return;
                           } else {
                               this.check.result = body;
-                              this.openAll(this.groups.map(g => g.key));
+                              this.openAll(body.mapped.map(r => r.sku));
                           }
                       } catch (err) {
                           this.check.error = 'The check could not reach the server.';
@@ -120,17 +120,6 @@
                       this.check.open = false;
                       this.$nextTick(() => this.$refs.form.requestSubmit());
                   },
-                  // Several uploaded SKUs are often sizes of one product: show it once.
-                  get groups() {
-                      const out = {};
-                      for (const r of (this.check.result?.mapped || [])) {
-                          const k = r.product_id || r.sku;
-                          (out[k] ||= { key: k, title: r.title, published: r.published, skus: [] }).skus.push(r.sku);
-                      }
-                      return Object.values(out);
-                  },
-                  // Keyed by product, read once via its first SKU.
-                  skuFor(key) { return this.groups.find(g => g.key === key)?.skus[0] || key; },
                   // Open by default: the first 40 load a few at a time, so a long
                   // list neither waits on forty Shopify calls nor floods it.
                   async openAll(skus) {
@@ -138,24 +127,23 @@
                       const first = skus.slice(0, 40);
                       first.forEach(s => this.expanded[s] = true);
                       const queue = [...first];
-                      const worker = async () => { while (queue.length) { const k = queue.shift(); await this.fetchVariants(k); } };
+                      const worker = async () => { while (queue.length) await this.fetchVariants(queue.shift()); };
                       await Promise.all([worker(), worker(), worker()]);
                   },
                   variants(sku) {
                       this.expanded[sku] = !this.expanded[sku];
                       if (this.expanded[sku]) this.fetchVariants(sku);
                   },
-                  async fetchVariants(key) {
-                      if (this.cache[key]) return;
-                      const sku = this.skuFor(key);
-                      this.cache[key] = { data: null, error: null, loading: true };
+                  async fetchVariants(sku) {
+                      if (this.cache[sku]) return;
+                      this.cache[sku] = { data: null, error: null, loading: true };
                       try {
                           const res  = await fetch('{{ route('product-requests.precheck-variants') }}?store_id=' + this.storeId + '&sku=' + encodeURIComponent(sku), { headers: { Accept: 'application/json' } });
                           const body = await res.json();
-                          this.cache[key] = res.ok ? { data: body, error: null, loading: false }
-                                               : { data: null, error: body.error || body.message || 'Could not read the variants.', loading: false };
+                          this.cache[sku] = res.ok ? { data: body, error: null, loading: false }
+                                                   : { data: null, error: body.error || body.message || 'Could not read the variants.', loading: false };
                       } catch (err) {
-                          this.cache[key] = { data: null, error: 'Could not reach Shopify for this product.', loading: false };
+                          this.cache[sku] = { data: null, error: 'Could not reach Shopify for this SKU.', loading: false };
                       }
                   },
               }"
@@ -536,95 +524,37 @@
                             </div>
 
                             <div class="px-6 py-4 overflow-y-auto space-y-5">
-                                {{-- Mapped, one card per product --}}
+                                {{-- Mapped --}}
                                 <section x-show="check.result.mapped.length">
-                                    <div class="flex items-center justify-between mb-3">
-                                        <h4 class="text-sm font-semibold text-gray-900 flex items-center gap-2">
-                                            <span class="w-2 h-2 rounded-full bg-green-500"></span>
-                                            <span x-text="`Ready to go — ${check.result.mapped.length} SKUs in ${groups.length} ${groups.length === 1 ? 'product' : 'products'}`"></span>
-                                        </h4>
-                                        <button type="button" class="text-xs font-medium text-brand-700 hover:text-brand-800"
-                                                @click="Object.values(expanded).some(v => v) ? (expanded = {}) : openAll(groups.map(g => g.key))"
-                                                x-text="Object.values(expanded).some(v => v) ? 'Collapse all' : 'Expand all'"></button>
+                                    <div class="flex items-center justify-between mb-2">
+                                    <h4 class="text-xs font-semibold uppercase tracking-wider text-green-700 flex items-center gap-1.5">
+                                        <span class="w-2 h-2 rounded-full bg-green-500"></span>
+                                        <span x-text="`Mapped — goes into the request (${check.result.mapped.length})`"></span>
+                                    </h4>
+                                    <button type="button" class="text-xs font-medium text-brand-700 hover:text-brand-800"
+                                            @click="Object.values(expanded).some(v => v) ? (expanded = {}) : openAll(check.result.mapped.map(r => r.sku))"
+                                            x-text="Object.values(expanded).some(v => v) ? 'Hide all colours & sizes' : 'Show all colours & sizes'"></button>
                                     </div>
-
-                                    <div class="space-y-3">
-                                        <template x-for="g in groups" :key="g.key">
-                                            <div class="rounded-2xl border border-gray-200 bg-white overflow-hidden">
-                                                {{-- Product header --}}
-                                                <button type="button" @click="variants(g.key)" class="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50/70">
-                                                    <template x-if="cache[g.key]?.data?.colours?.[0]?.preview">
-                                                        <img :src="cache[g.key].data.colours[0].preview" class="w-11 h-11 rounded-xl object-cover border border-gray-100 shrink-0" alt="">
-                                                    </template>
-                                                    <template x-if="!cache[g.key]?.data?.colours?.[0]?.preview">
-                                                        <span class="w-11 h-11 rounded-xl bg-gray-50 border border-gray-100 text-gray-300 flex items-center justify-center shrink-0">
-                                                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
-                                                        </span>
-                                                    </template>
-                                                    <span class="min-w-0 flex-1">
-                                                        <span class="block text-sm font-semibold text-gray-900 truncate" x-text="g.title || 'Untitled product'"></span>
-                                                        <span class="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-gray-500">
-                                                            <span class="font-medium text-green-700" x-text="`${g.skus.length} of your ${g.skus.length === 1 ? 'SKU' : 'SKUs'}`"></span>
-                                                            <template x-if="cache[g.key]?.data">
-                                                                <span class="contents">
-                                                                    <span class="text-gray-300">·</span>
-                                                                    <span x-text="`${cache[g.key].data.variant_count} sizes`"></span>
-                                                                    <template x-if="cache[g.key].data.stock !== null">
-                                                                        <span class="contents"><span class="text-gray-300">·</span><span x-text="`${cache[g.key].data.stock} in stock`"></span></span>
-                                                                    </template>
-                                                                    <span class="text-gray-300">·</span>
-                                                                    <span :class="cache[g.key].data.with_image_count ? 'text-gray-500' : 'text-red-500'"
-                                                                          x-text="cache[g.key].data.with_image_count ? `${cache[g.key].data.with_image_count} with photos` : 'No photos yet'"></span>
-                                                                </span>
-                                                            </template>
-                                                        </span>
+                                    <div class="space-y-1.5">
+                                        <template x-for="row in check.result.mapped" :key="row.sku">
+                                            <div class="rounded-xl border border-gray-200">
+                                                <button type="button" @click="variants(row.sku)" class="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-gray-50 rounded-xl">
+                                                    <span class="w-8 h-8 rounded-lg bg-green-50 text-green-600 flex items-center justify-center shrink-0">
+                                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg>
                                                     </span>
-                                                    <span class="text-[11px] font-medium rounded-full px-2.5 py-1 shrink-0"
-                                                          :class="g.published ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-100 text-gray-500'"
-                                                          x-text="g.published ? 'Published' : 'Draft'"></span>
-                                                    <svg class="w-4 h-4 text-gray-400 shrink-0 transition-transform" :class="expanded[g.key] && 'rotate-180'" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>
+                                                    <span class="min-w-0 flex-1">
+                                                        <span class="block text-sm font-medium text-gray-900 truncate" x-text="row.title || 'Untitled product'"></span>
+                                                        <span class="block text-xs font-mono text-gray-500" x-text="row.sku"></span>
+                                                    </span>
+                                                    <span class="text-[11px] font-medium rounded-full px-2 py-0.5"
+                                                          :class="row.published ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-100 text-gray-500'"
+                                                          x-text="row.published ? 'Published' : 'Draft'"></span>
+                                                    <span class="text-xs font-medium text-brand-700 whitespace-nowrap" x-text="expanded[row.sku] ? 'Hide' : 'Colours & sizes'"></span>
                                                 </button>
-
-                                                {{-- Sizes as tiles, per colour --}}
-                                                <div x-show="expanded[g.key]" class="border-t border-gray-100 bg-gray-50/50 px-4 py-3">
-                                                    <template x-if="!cache[g.key] || cache[g.key].loading">
-                                                        <p class="text-xs text-gray-400 py-2">Reading sizes from Shopify…</p>
-                                                    </template>
-                                                    <template x-if="cache[g.key]?.error">
-                                                        <p class="text-xs text-red-600 py-2" x-text="cache[g.key].error"></p>
-                                                    </template>
-                                                    <template x-if="cache[g.key]?.data">
-                                                        <div class="space-y-3">
-                                                            <template x-for="colour in cache[g.key].data.colours" :key="colour.colour">
-                                                                <div>
-                                                                    <p class="text-xs font-medium text-gray-700 mb-1.5" x-text="colour.colour"></p>
-                                                                    <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2">
-                                                                        <template x-for="size in colour.sizes" :key="size.variant_id">
-                                                                            <div class="rounded-xl border px-3 py-2"
-                                                                                 :class="g.skus.map(s => s.toLowerCase()).includes((size.sku || '').toLowerCase())
-                                                                                     ? 'border-green-300 bg-green-50 ring-1 ring-green-100'
-                                                                                     : 'border-gray-200 bg-white'"
-                                                                                 :title="`Variant ID ${size.variant_id}`">
-                                                                                <div class="flex items-center justify-between gap-1">
-                                                                                    <span class="text-sm font-semibold text-gray-900" x-text="size.size || '—'"></span>
-                                                                                    <svg x-show="g.skus.map(s => s.toLowerCase()).includes((size.sku || '').toLowerCase())"
-                                                                                         class="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
-                                                                                </div>
-                                                                                <p class="mt-0.5 font-mono text-[11px] text-gray-500 truncate" x-text="size.sku || '—'"></p>
-                                                                                <div class="mt-1 flex items-center justify-between text-[11px]">
-                                                                                    <span :class="size.stock === null ? 'text-gray-400' : (size.stock > 0 ? 'text-gray-600' : 'text-red-500')"
-                                                                                          x-text="size.stock === null ? '— stock' : `${size.stock} in stock`"></span>
-                                                                                    <span :class="size.has_image ? 'text-gray-500' : 'text-red-400'"
-                                                                                          x-text="size.has_image ? `${size.image_count} 📷` : 'no photo'"></span>
-                                                                                </div>
-                                                                            </div>
-                                                                        </template>
-                                                                    </div>
-                                                                </div>
-                                                            </template>
-                                                            <p class="text-[11px] text-gray-400 flex items-center gap-1.5">
-                                                                <span class="w-3 h-3 rounded border border-green-300 bg-green-50"></span> In your product list
-                                                            </p>
+                                                <div x-show="expanded[row.sku]" class="border-t border-gray-100 bg-gray-50/70 px-3 pb-3 rounded-b-xl">
+                                                    <template x-if="expanded[row.sku]">
+                                                        <div x-data="{ get breakdown() { return cache[row.sku]?.data }, get breakdownLoading() { return cache[row.sku]?.loading ?? true }, get breakdownError() { return cache[row.sku]?.error } }">
+                                                            @include('partials.variant-breakdown')
                                                         </div>
                                                     </template>
                                                 </div>
@@ -635,7 +565,7 @@
 
                                 {{-- Not mapped --}}
                                 <section x-show="check.result.unmapped.length">
-                                    <h4 class="text-sm font-semibold text-gray-900 mb-2 flex items-center gap-2">
+                                    <h4 class="text-xs font-semibold uppercase tracking-wider text-red-600 mb-2 flex items-center gap-1.5">
                                         <span class="w-2 h-2 rounded-full bg-red-500"></span>
                                         <span x-text="`Not mapped yet — map these in Cegid (${check.result.unmapped.length})`"></span>
                                     </h4>

@@ -560,7 +560,7 @@ class ProductRequestController extends Controller implements HasMiddleware
         $mapped = $unmapped = [];
         foreach ($skus as $sku) {
             if ($hit = ($found[$sku][0] ?? null)) {
-                $mapped[] = ['sku' => $sku, 'title' => $hit['product_title'], 'published' => (bool) $hit['published'], 'product_id' => (string) ($hit['product_id'] ?? $sku)];
+                $mapped[] = ['sku' => $sku, 'title' => $hit['product_title'], 'published' => (bool) $hit['published']];
             } else {
                 $unmapped[] = $sku;
             }
