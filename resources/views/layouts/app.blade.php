@@ -281,8 +281,7 @@
         }
 
         .topbar {
-            background:
-                linear-gradient(104deg, #1f6f8b 0%, #1a6480 46%, #2b4c85 100%);
+            background: #285184;
         }
 
         /* Live ticker. The track holds the list twice, so sliding it by half lands
