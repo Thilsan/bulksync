@@ -434,6 +434,9 @@ class OrdersDashboardController extends Controller
             [$from, $to] = [$to, $from];
         }
 
+        $basis = $request->string('basis')->toString();
+        $basis = \array_key_exists($basis, OrdersSummaryService::BASES) ? $basis : 'created';
+
         $stores    = Store::accessibleBy($user)->orderBy('name')->get();
         $platforms = collect($request->input('platforms', []))
             ->filter(fn ($p) => \is_string($p) && $p !== '')
@@ -456,7 +459,7 @@ class OrdersDashboardController extends Controller
             $stores = $stores->filter(fn ($s) => $platforms->contains(fn ($p) => $matches($s, $p)))->values();
         }
 
-        return response()->json(['ok' => true, 'unmatched' => $unmatched] + $cancellations->forStores($stores, $from, $to));
+        return response()->json(['ok' => true, 'unmatched' => $unmatched] + $cancellations->forStores($stores, $from, $to, $basis));
     }
 
     // ── Filters ──────────────────────────────────────────────────────────────

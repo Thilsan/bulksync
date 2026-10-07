@@ -2122,25 +2122,31 @@ class ShopifyService
     private const CANCELLATION_LIMIT = 100;
 
     /**
-     * Orders cancelled between two dates, most recent first, with the reason
-     * and staff note given when they were cancelled.
+     * Cancelled orders in a range, most recently cancelled first, with the
+     * reason and staff note given when they were cancelled.
      *
-     * Shopify's search has no cancelled-at filter, so this asks for cancelled
-     * orders updated in the range — cancelling is an update, so every one in
-     * range is among them — and keeps those whose cancelledAt actually falls
-     * inside it.
+     * By order date, the range is when they were placed. Otherwise it is
+     * when they were cancelled: Shopify's search has no cancelled-at filter,
+     * so this asks for cancelled orders updated since the start — cancelling
+     * is an update, so every one in range is among them — and keeps those
+     * whose cancelledAt actually falls inside it.
      *
      * @return list<array{id:string,number:string,reason:?string,staff_note:?string,cancelled_at:string,total:float,currency:?string,url:string}>
      */
-    public function getCancelledOrders(Carbon $from, Carbon $to): array
+    public function getCancelledOrders(Carbon $from, Carbon $to, string $basis = 'created'): array
     {
         $start = $from->copy()->startOfDay();
         $end   = $to->copy()->endOfDay();
 
-        $variables = ['q' => sprintf(
-            "status:cancelled AND updated_at:>='%s'",
-            $start->toIso8601String(),
-        )];
+        // On "Order date" the range is when the order was placed, the same
+        // way the delivery tiles count it, so the list and the Cancelled tile
+        // answer the same question. Any other basis lists what was cancelled
+        // in the range.
+        $byCreated = $basis === 'created';
+
+        $variables = ['q' => $byCreated
+            ? sprintf("status:cancelled AND created_at:>='%s' AND created_at:<='%s'", $start->toIso8601String(), $end->toIso8601String())
+            : sprintf("status:cancelled AND updated_at:>='%s'", $start->toIso8601String())];
 
         // No customer name: the stores' apps are not granted protected
         // customer data, and asking for it makes Shopify refuse the whole
@@ -2162,7 +2168,11 @@ class ShopifyService
             $node = $edge['node'] ?? [];
             $at   = $node['cancelledAt'] ?? null;
 
-            if (!$at || !Carbon::parse($at)->betweenIncluded($start, $end)) {
+            if (!$at) {
+                continue;
+            }
+
+            if (!$byCreated && !Carbon::parse($at)->betweenIncluded($start, $end)) {
                 continue;
             }
 
@@ -2174,6 +2184,7 @@ class ShopifyService
                 'reason'       => $node['cancelReason'] ?? null,
                 'staff_note'   => trim((string) ($node['cancellation']['staffNote'] ?? '')) ?: null,
                 'cancelled_at' => $at,
+                'ordered_at'   => $node['createdAt'] ?? null,
                 'total'        => (float) ($money['amount'] ?? 0),
                 'currency'     => $money['currencyCode'] ?? null,
                 'url'          => "https://{$this->shop}/admin/orders/" . ($node['legacyResourceId'] ?? ''),
@@ -2213,7 +2224,7 @@ class ShopifyService
         return 'query($q:String!){'
             . 'orders(first:' . self::CANCELLATION_LIMIT . ',query:$q,sortKey:UPDATED_AT,reverse:true){'
             . 'edges{node{'
-            . 'legacyResourceId name cancelledAt cancelReason '
+            . 'legacyResourceId name createdAt cancelledAt cancelReason '
             . 'totalPriceSet{shopMoney{amount currencyCode}}'
             . ($withNote ? ' cancellation{staffNote}' : '')
             . '}}}}';

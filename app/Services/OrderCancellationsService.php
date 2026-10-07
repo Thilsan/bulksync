@@ -51,7 +51,7 @@ class OrderCancellationsService
      * @param  Collection<int, Store>  $stores
      * @return array{orders: list<array>, failed: list<array{store:string,message:string}>}
      */
-    public function forStores(Collection $stores, Carbon $from, Carbon $to): array
+    public function forStores(Collection $stores, Carbon $from, Carbon $to, string $basis = 'created'): array
     {
         $orders = [];
         $failed = [];
@@ -63,11 +63,11 @@ class OrderCancellationsService
                 continue;
             }
 
-            $key = sprintf('order_cancellations.%d.%s.%s', $store->id, $from->toDateString(), $to->toDateString());
+            $key = sprintf('order_cancellations.%d.%s.%s.%s', $store->id, $from->toDateString(), $to->toDateString(), $basis);
 
             try {
                 $rows = Cache::remember($key, now()->addMinutes(self::CACHE_TTL_MINUTES),
-                    fn () => ($this->clientFactory)($store)->getCancelledOrders($from, $to));
+                    fn () => ($this->clientFactory)($store)->getCancelledOrders($from, $to, $basis));
             } catch (\Throwable $e) {
                 Log::warning("Cancelled orders failed for store {$store->id}: " . $e->getMessage());
 

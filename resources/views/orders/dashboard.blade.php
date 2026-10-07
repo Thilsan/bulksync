@@ -344,7 +344,7 @@
                  loading: true, failed: false, orders: [], stores: [], unmatched: [], showAll: false,
                  load() {
                      this.loading = true; this.failed = false;
-                     fetch('{{ route('orders.dashboard.cancellations', ['from' => $filters['from']->format('Y-m-d'), 'to' => $filters['to']->format('Y-m-d'), 'platforms' => $filters['platforms']]) }}', { headers: { 'Accept': 'application/json' } })
+                     fetch('{{ route('orders.dashboard.cancellations', ['from' => $filters['from']->format('Y-m-d'), 'to' => $filters['to']->format('Y-m-d'), 'basis' => $filters['basis'], 'platforms' => $filters['platforms']]) }}', { headers: { 'Accept': 'application/json' } })
                          .then(r => r.ok ? r.json() : Promise.reject())
                          .then(d => { this.orders = d.orders; this.stores = d.failed; this.unmatched = d.unmatched || []; })
                          .catch(() => { this.failed = true; })
@@ -361,7 +361,7 @@
                     Cancelled orders
                 </h3>
                 <span class="text-xs text-gray-400" x-show="!loading && !failed" x-cloak
-                      x-text="orders.length + ' from Shopify'"></span>
+                      x-text="orders.length + ' from Shopify · {{ $filters['basis'] === 'created' ? 'placed in this range' : 'cancelled in this range' }}'"></span>
             </div>
 
             <div x-show="loading" class="px-5 py-6 text-sm text-gray-400">Loading cancellations from Shopify…</div>
@@ -372,7 +372,7 @@
             </div>
 
             <div x-show="!loading && !failed && orders.length === 0" x-cloak class="px-5 py-6 text-sm text-gray-500">
-                No orders were cancelled in Shopify in this range.
+                {{ $filters['basis'] === 'created' ? 'None of the orders placed in this range were cancelled in Shopify.' : 'No orders were cancelled in Shopify in this range.' }}
             </div>
 
             <div x-show="!loading && !failed && orders.length > 0" x-cloak class="overflow-x-auto">

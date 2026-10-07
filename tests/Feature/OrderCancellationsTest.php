@@ -120,6 +120,32 @@ class OrderCancellationsTest extends TestCase
         $this->assertSame(2, $asked);
     }
 
+    public function test_the_date_basis_reaches_shopify(): void
+    {
+        Store::create(['name' => 'Bluesalon', 'shopify_domain' => 'b.myshopify.com', 'shopify_access_token' => 't']);
+
+        $seen = [];
+        $fake = new class($seen) {
+            public function __construct(public array &$seen) {}
+
+            public function getCancelledOrders($from, $to, $basis = 'created'): array
+            {
+                $this->seen[] = $basis;
+
+                return [];
+            }
+        };
+        $this->app->instance(OrderCancellationsService::class, new OrderCancellationsService(fn ($s) => $fake));
+
+        $this->actingAs($this->admin)->getJson(route('orders.dashboard.cancellations'))->assertOk();
+        $this->actingAs($this->admin)->getJson(route('orders.dashboard.cancellations', ['basis' => 'updated']))->assertOk();
+        // Same range as the first call, so it would come from the cache.
+        \Illuminate\Support\Facades\Cache::flush();
+        $this->actingAs($this->admin)->getJson(route('orders.dashboard.cancellations', ['basis' => 'nonsense']))->assertOk();
+
+        $this->assertSame(['created', 'updated', 'created'], $seen);
+    }
+
     public function test_unknown_reasons_stay_readable(): void
     {
         $this->assertSame('Not given', OrderCancellationsService::reason(null));
