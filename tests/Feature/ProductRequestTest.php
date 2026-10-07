@@ -2572,7 +2572,7 @@ class ProductRequestTest extends TestCase
         $request = ProductRequest::latest('id')->first();
 
         $this->assertSame(['MAP-1', 'MAP-2'], $request->skus()->orderBy('id')->pluck('sku')->all());
-        $this->assertStringContainsString('1 left out as not mapped in Cegid yet: NEW-1',
+        $this->assertStringContainsString('1 left out at the check (not mapped yet, or unticked): NEW-1',
             (string) ProductRequestActivity::where('product_request_id', $request->id)->where('action', 'created')->value('remarks'));
     }
 

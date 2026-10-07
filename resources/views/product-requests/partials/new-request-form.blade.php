@@ -88,6 +88,9 @@
                   onlySkus: '',
                   submitting: false,
                   expanded: {}, cache: {},
+                  // Which mapped SKUs go into the request: all of them unless unticked.
+                  chosen: {},
+                  get chosenSkus() { return (this.check.result?.mapped || []).map(r => r.sku).filter(s => this.chosen[s]); },
                   async onSubmit(e) {
                       if (this.confirmed || !this.usesMapping) { this.submitting = true; return; }
                       if (!e.target.reportValidity()) return;
@@ -106,6 +109,7 @@
                               return;
                           } else {
                               this.check.result = body;
+                              this.chosen = Object.fromEntries(body.mapped.map(r => [r.sku, true]));
                               this.openAll(body.mapped.map(r => r.sku));
                           }
                       } catch (err) {
@@ -531,26 +535,33 @@
                                         <span class="w-2 h-2 rounded-full bg-green-500"></span>
                                         <span x-text="`Mapped — goes into the request (${check.result.mapped.length})`"></span>
                                     </h4>
+                                    <span class="flex items-center gap-4">
+                                    <button type="button" class="text-xs font-medium text-brand-700 hover:text-brand-800"
+                                            @click="const all = chosenSkus.length === check.result.mapped.length; check.result.mapped.forEach(r => chosen[r.sku] = !all)"
+                                            x-text="chosenSkus.length === check.result.mapped.length ? 'Clear all' : 'Select all'"></button>
                                     <button type="button" class="text-xs font-medium text-brand-700 hover:text-brand-800"
                                             @click="Object.values(expanded).some(v => v) ? (expanded = {}) : openAll(check.result.mapped.map(r => r.sku))"
                                             x-text="Object.values(expanded).some(v => v) ? 'Hide all colours & sizes' : 'Show all colours & sizes'"></button>
+                                    </span>
                                     </div>
                                     <div class="space-y-1.5">
                                         <template x-for="row in check.result.mapped" :key="row.sku">
-                                            <div class="rounded-xl border border-gray-200">
-                                                <button type="button" @click="variants(row.sku)" class="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-gray-50 rounded-xl">
-                                                    <span class="w-8 h-8 rounded-lg bg-green-50 text-green-600 flex items-center justify-center shrink-0">
-                                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg>
-                                                    </span>
+                                            <div class="rounded-xl border transition-colors" :class="chosen[row.sku] ? 'border-gray-200' : 'border-gray-100 bg-gray-50/60'">
+                                                <div class="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-gray-50 rounded-xl cursor-pointer" @click="variants(row.sku)">
+                                                    <label class="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 cursor-pointer"
+                                                           :class="chosen[row.sku] ? 'bg-green-50' : 'bg-gray-100'" @click.stop
+                                                           :title="chosen[row.sku] ? 'In this request — untick to leave it out' : 'Left out — tick to include it'">
+                                                        <input type="checkbox" x-model="chosen[row.sku]" class="w-4 h-4 rounded border-gray-300 text-green-600 accent-green-600 focus:ring-green-500">
+                                                    </label>
                                                     <span class="min-w-0 flex-1">
-                                                        <span class="block text-sm font-medium text-gray-900 truncate" x-text="row.title || 'Untitled product'"></span>
+                                                        <span class="block text-sm font-medium truncate" :class="chosen[row.sku] ? 'text-gray-900' : 'text-gray-400 line-through'" x-text="row.title || 'Untitled product'"></span>
                                                         <span class="block text-xs font-mono text-gray-500" x-text="row.sku"></span>
                                                     </span>
                                                     <span class="text-[11px] font-medium rounded-full px-2 py-0.5"
                                                           :class="row.published ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-100 text-gray-500'"
                                                           x-text="row.published ? 'Published' : 'Draft'"></span>
                                                     <span class="text-xs font-medium text-brand-700 whitespace-nowrap" x-text="expanded[row.sku] ? 'Hide' : 'Colours & sizes'"></span>
-                                                </button>
+                                                </div>
                                                 <div x-show="expanded[row.sku]" class="border-t border-gray-100 bg-gray-50/70 px-3 pb-3 rounded-b-xl">
                                                     <template x-if="expanded[row.sku]">
                                                         <div x-data="{ get breakdown() { return cache[row.sku]?.data }, get breakdownLoading() { return cache[row.sku]?.loading ?? true }, get breakdownError() { return cache[row.sku]?.error } }">
@@ -581,10 +592,13 @@
 
                             <div class="px-6 py-4 bg-gray-50 border-t border-gray-100 flex flex-wrap justify-end gap-2">
                                 <button type="button" @click="check.open = false" class="border border-gray-300 bg-white text-gray-700 text-sm font-medium px-4 py-2 rounded-lg hover:bg-gray-50">Back</button>
-                                <button type="button" x-show="check.result.mapped.length" @click="go(check.result.mapped.map(r => r.sku))"
-                                        class="inline-flex items-center gap-2 text-white text-sm font-medium px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700">
+                                <span x-show="check.result.mapped.length && !chosenSkus.length" class="self-center text-xs text-gray-500">Tick at least one SKU.</span>
+                                <button type="button" x-show="check.result.mapped.length" @click="go(chosenSkus)" :disabled="!chosenSkus.length"
+                                        class="inline-flex items-center gap-2 text-white text-sm font-medium px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed">
                                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
-                                    <span x-text="check.result.unmapped.length ? `Create request with ${check.result.mapped.length} mapped SKUs` : 'Create request'"></span>
+                                    <span x-text="chosenSkus.length === check.result.mapped.length && !check.result.unmapped.length
+                                              ? 'Create request'
+                                              : `Create request with ${chosenSkus.length} ${chosenSkus.length === 1 ? 'SKU' : 'SKUs'}`"></span>
                                 </button>
                             </div>
                         </div>

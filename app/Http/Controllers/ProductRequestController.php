@@ -774,7 +774,7 @@ class ProductRequestController extends Controller implements HasMiddleware
             actor:       $user,
             toStatus:    ProductRequest::SUBMITTED,
             remarks:     count($skus) . ' SKUs submitted'
-                . ($leftOut ? '; ' . count($leftOut) . ' left out as not mapped in Cegid yet: ' . implode(', ', array_slice($leftOut, 0, 50)) . (count($leftOut) > 50 ? '…' : '') : ''),
+                . ($leftOut ? '; ' . count($leftOut) . ' left out at the check (not mapped yet, or unticked): ' . implode(', ', array_slice($leftOut, 0, 50)) . (count($leftOut) > 50 ? '…' : '') : ''),
         );
 
         // Apply each role the requester filled in. assignRole writes the owner
