@@ -1241,7 +1241,7 @@
                                 $pub  = $live && $sku->shopify_published;
                             @endphp
                             <div x-show="visible(@js($sku->sku), @js($sku->shopify_product_title), @js($sku->mapping_status), {{ $live ? 'true' : 'false' }}, {{ $pub ? 'true' : 'false' }})"
-                                 @if($live) @mouseenter="hoverIn(@js($sku->sku))" @mouseleave="hoverOut()" @endif
+
                                  class="relative rounded-2xl border transition-colors"
                                  :class="open === @js($sku->sku) || (peek === @js($sku->sku) && !open) ? 'border-brand-300 shadow-sm' : 'border-gray-200 hover:border-gray-300'">
                                 <div class="flex items-center gap-3 px-4 py-3 {{ $live ? 'cursor-pointer' : '' }}"
