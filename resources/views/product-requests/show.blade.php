@@ -358,6 +358,10 @@
                 ];
                 $outstanding = $request->pending_skus + $request->not_mapped_skus;
                 $notOnShopify = $request->skus()->where('in_shopify', false)->count();
+                // Still at the start, with products that do not exist on Shopify:
+                // nothing else can happen until they are created (or mapped).
+                $missingProducts = !$closed && $notOnShopify > 0 && in_array($request->status,
+                    [\App\Models\ProductRequest::SUBMITTED, \App\Models\ProductRequest::WAITING_MAPPING, \App\Models\ProductRequest::SKU_VERIFIED], true);
                 $now = match ($request->status) {
                     \App\Models\ProductRequest::SUBMITTED            => "We're checking the SKUs.",
                     \App\Models\ProductRequest::WAITING_MAPPING      => "{$outstanding} SKU(s) are waiting to be mapped in Cegid.",
@@ -377,7 +381,7 @@
                     in_array($request->status, [\App\Models\ProductRequest::SUBMITTED, \App\Models\ProductRequest::WAITING_MAPPING], true)
                         => 'Moves on by itself once every SKU is mapped.',
                     $request->status === \App\Models\ProductRequest::SKU_VERIFIED && $notOnShopify > 0
-                        => ($usesMapping ? 'Moves on by itself once they are mapped and show on Shopify.' : 'Create them on Shopify (the Shopify Drafts tab helps) — it moves on by itself once they show there.'),
+                        => ($usesMapping ? 'Moves on by itself once they are mapped and show on Shopify.' : 'Moves on by itself once they show on Shopify.'),
                     $request->status === \App\Models\ProductRequest::SKU_VERIFIED && ($request->needsPhotoshootDecision() || $request->needsImageSourceDecision())
                         => 'Moves on once the question above is answered.',
                     $request->status === \App\Models\ProductRequest::SKU_VERIFIED && $request->suggestedNextStatus() === \App\Models\ProductRequest::PUBLISHED
@@ -398,7 +402,11 @@
                 // What comes after this, in plain words — the card's job is to
                 // say what is next, not to repeat what just finished.
                 $upcoming  = $closed ? null : $request->suggestedNextStatus();
-                $upNext = $upcoming ? match ($upcoming) {
+                $upNext = $missingProducts
+                    ? ($usesMapping
+                        ? ['Map the SKUs', 'The brand manager maps the ' . number_format($notOnShopify) . ' missing SKU(s) in Cegid so they show on Shopify.']
+                        : ['Create the products', 'Build the ' . number_format($notOnShopify) . ' product(s) from the sheet as Shopify drafts, then upload them to Shopify.'])
+                    : ($upcoming ? match ($upcoming) {
                     \App\Models\ProductRequest::WAITING_MAPPING      => ['SKU mapping', 'The brand manager maps the SKUs in Cegid.'],
                     \App\Models\ProductRequest::SKU_VERIFIED         => ['SKUs verified', 'Every SKU is checked against the website.'],
                     \App\Models\ProductRequest::AI_CONTENT           => ['Descriptions (AI content)', $request->needsContentCount() > 0
@@ -411,7 +419,7 @@
                     \App\Models\ProductRequest::PHOTOSHOOT_COMPLETED => ['Photos done', 'The finished photos are ready for the website.'],
                     \App\Models\ProductRequest::PUBLISHED            => ['Live', 'The products go live on the website.'],
                     default                     => [$request->stageLabel($upcoming), null],
-                } : null;
+                } : null);
 
                 $stages  = $request->displayStages();
                 $current = $request->displayStageIndex();
@@ -431,7 +439,9 @@
                 @php
                     $phases      = $request->phaseProgress();
                     $currentStep = $request->displayStageIndex();
-                    $overall     = $closed && $request->status !== \App\Models\ProductRequest::CANCELLED ? 100 : $request->progressPercent();
+                    // Nothing counts as progress while the products do not exist yet.
+                    $overall     = $missingProducts ? 5
+                        : ($closed && $request->status !== \App\Models\ProductRequest::CANCELLED ? 100 : $request->progressPercent());
                     $C           = 2 * M_PI * 42;
                     $phaseIcons  = [
                         'intake'     => 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4',
@@ -458,7 +468,7 @@
                         <svg class="w-28 h-28 -rotate-90" viewBox="0 0 100 100">
                             <circle cx="50" cy="50" r="42" fill="none" stroke-width="9" class="text-gray-100" stroke="currentColor"/>
                             <circle cx="50" cy="50" r="42" fill="none" stroke-width="9" stroke-linecap="round" stroke="currentColor"
-                                    class="{{ $overall >= 100 ? 'text-green-500' : 'text-sky-500' }} transition-all duration-700"
+                                    class="{{ $missingProducts ? 'text-red-500' : ($overall >= 100 ? 'text-green-500' : 'text-sky-500') }} transition-all duration-700"
                                     stroke-dasharray="{{ $C }}" stroke-dashoffset="{{ $C * (1 - $overall / 100) }}"/>
                         </svg>
                         <div class="absolute inset-0 flex flex-col items-center justify-center">
@@ -475,7 +485,9 @@
                                 $here = !$closed && $phase['state'] === 'current';
                                 // Moved past the copy is not the same as having it.
                                 $gap  = $phase['key'] === 'content' && $done && ($needsCopy + $notOnSheet + $unchecked) > 0;
+                                $blocked = $here && $missingProducts && $phase['key'] === 'intake';
                                 [$bg, $iconTone, $titleTone, $stateText, $stateTone] = match (true) {
+                                    $blocked => ['bg-red-50 border-red-200 ring-2 ring-red-100', 'bg-red-100 text-red-600', 'text-gray-900', $request->statusLabel(), 'text-red-700'],
                                     $gap  => ['bg-amber-50 border-amber-100', 'bg-amber-100 text-amber-600', 'text-gray-800', 'No descriptions yet', 'text-amber-700'],
                                     $done => ['bg-green-50 border-green-100', 'bg-green-100 text-green-600', 'text-gray-800', 'Done', 'text-green-700'],
                                     $here => ['bg-sky-50 border-sky-200 ring-2 ring-sky-100', 'bg-sky-100 text-sky-600', 'text-gray-900', $request->statusLabel(), 'text-sky-700'],
@@ -494,9 +506,13 @@
                                     </span>
                                 </div>
                                 <p class="mt-2 text-sm font-semibold leading-snug {{ $stateTone }}">
-                                    @if($here)<span class="inline-block w-2 h-2 rounded-full bg-sky-500 animate-pulse mr-1 align-middle"></span>@endif{{ $stateText }}
+                                    @if($here)<span class="inline-block w-2 h-2 rounded-full {{ $blocked ? 'bg-red-500' : 'bg-sky-500' }} animate-pulse mr-1 align-middle"></span>@endif{{ $stateText }}
                                 </p>
-                                <p class="text-[11px] text-gray-500">{{ count($phase['stages']) }} {{ \Illuminate\Support\Str::plural('step', count($phase['stages'])) }}</p>
+                                @if($blocked)
+                                    <p class="text-[11px] font-medium text-red-600">{{ number_format($notOnShopify) }} not on Shopify</p>
+                                @else
+                                    <p class="text-[11px] text-gray-500">{{ count($phase['stages']) }} {{ \Illuminate\Support\Str::plural('step', count($phase['stages'])) }}</p>
+                                @endif
                             </div>
                         @endforeach
                     </div>
@@ -550,6 +566,22 @@
                                     @csrf
                                     <button type="submit" class="{{ $ownership === 'my_team' ? $btn . ' bg-amber-500 hover:bg-amber-600 text-white' : $btnAlt }}">Take this task</button>
                                 </form>
+                            @endif
+                            {{-- Products that do not exist yet: build them from the sheet, right here. --}}
+                            @if($missingProducts && !$usesMapping)
+                                @if(isset($drafts) && $drafts->isNotEmpty())
+                                    <button type="button" @click="tab = 'drafts'; $nextTick(() => document.getElementById('tabs').scrollIntoView({ behavior: 'smooth' }))" class="{{ $btnMain }}">
+                                        View drafts ({{ $drafts->count() }})
+                                    </button>
+                                @else
+                                    <form method="POST" action="{{ route('product-requests.drafts.build', $request) }}">
+                                        @csrf
+                                        <button type="submit" class="{{ $btnMain }}">
+                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M3 14h18M10 3v18M5 3h14a2 2 0 012 2v14a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2z"/></svg>
+                                            Build from sheet
+                                        </button>
+                                    </form>
+                                @endif
                             @endif
                             {{-- The one stage nothing else can see finish. --}}
                             @if($request->status === \App\Models\ProductRequest::WAITING_IMAGES && !$shoot)
