@@ -625,6 +625,7 @@ class ProductRequest extends Model
     public const MAP_NOT_MAPPED = 'not_mapped';
 
     protected $fillable = [
+        'left_out_skus',
         'reference',
         'sheet_request_no',
         'sheet_request_date',
@@ -681,6 +682,8 @@ class ProductRequest extends Model
         return [
             'sheet_snapshot'            => 'array',
             'sheet_request_date'        => 'date',
+            // [{sku, reason: not_mapped|unticked}] — what the upload asked for but did not go in.
+            'left_out_skus'             => 'array',
             'photoshoot_decided_at'     => 'datetime',
             'image_requested_at'        => 'datetime',
             'store_launch_date'         => 'date',    // expected showroom launch; a day, not a slot

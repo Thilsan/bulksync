@@ -155,6 +155,7 @@
               @submit="onSubmit($event)">
             @csrf
             <input type="hidden" name="only_skus" :value="onlySkus">
+            <input type="hidden" name="unmapped_skus" :value="check.result ? JSON.stringify(check.result.unmapped) : ''">
 
             <div class="flex-1 min-h-0 overflow-y-auto px-4 py-6 sm:px-6">
                 <div class="max-w-4xl mx-auto">

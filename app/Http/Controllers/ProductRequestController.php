@@ -698,6 +698,8 @@ class ProductRequestController extends Controller implements HasMiddleware
         // the person chose to go ahead with only the mapped ones. The rest are
         // theirs to map; they are named in the log so nobody wonders where they went.
         $leftOut = [];
+        $unmappedAtCheck = collect(json_decode((string) $request->input('unmapped_skus'), true) ?: [])
+            ->map(fn ($s) => mb_strtolower(trim((string) $s)))->flip();
         if ($request->filled('only_skus')) {
             $keep    = collect(json_decode((string) $request->input('only_skus'), true) ?: [])
                 ->map(fn ($s) => mb_strtolower(trim((string) $s)))->flip();
@@ -747,6 +749,12 @@ class ProductRequestController extends Controller implements HasMiddleware
             'notes'                     => $data['notes'] ?? null,
             'validation_status'         => 'pending',
             'total_skus'                => count($skus),
+            // Everything the upload asked for that did not go in, and why, so
+            // the request is a record of the whole list.
+            'left_out_skus'             => $leftOut ? array_map(fn ($sku) => [
+                'sku'    => $sku,
+                'reason' => $unmappedAtCheck->has(mb_strtolower(trim($sku))) ? 'not_mapped' : 'unticked',
+            ], $leftOut) : null,
         ]);
 
         $this->mapping->syncSkus($productRequest, $skus);
@@ -1026,6 +1034,14 @@ class ProductRequestController extends Controller implements HasMiddleware
 
         $this->mapping->syncSkus($productRequest, $merged);
         $this->applyCsvCopy($productRequest);
+
+        // A SKU left out at submission and added now is no longer left out.
+        if ($productRequest->left_out_skus) {
+            $added = collect($merged)->map(fn ($x) => mb_strtolower(trim($x)))->flip();
+            $still = array_values(array_filter($productRequest->left_out_skus,
+                fn ($row) => !$added->has(mb_strtolower(trim($row['sku'])))));
+            $productRequest->update(['left_out_skus' => $still ?: null]);
+        }
 
         $this->storeAttachments($request, $productRequest, $user, 'sku_csv', ProductRequestAttachment::KIND_SKU_FILE);
 

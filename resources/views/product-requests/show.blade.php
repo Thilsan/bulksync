@@ -1187,6 +1187,65 @@
                         @endunless
                     </div>
 
+                    {{-- The rest of the uploaded list: what was asked for but did not go in, and why --}}
+                    @php
+                        $leftOutRows = collect($request->left_out_skus ?? []);
+                        $leftNotMapped = $leftOutRows->where('reason', 'not_mapped')->pluck('sku');
+                        $leftUnticked  = $leftOutRows->where('reason', 'unticked')->pluck('sku');
+                    @endphp
+                    @if($leftOutRows->isNotEmpty())
+                        <div class="mx-6 mb-4 rounded-2xl border border-gray-200 bg-gray-50/60 p-4" x-data="{ open: true }">
+                            <button type="button" @click="open = !open" class="w-full flex items-center justify-between gap-3 text-left">
+                                <span>
+                                    <span class="block text-sm font-semibold text-gray-900">Not included — {{ $leftOutRows->count() }} {{ $leftOutRows->count() === 1 ? 'SKU' : 'SKUs' }} from the uploaded list</span>
+                                    <span class="block text-xs text-gray-500">In the file that was uploaded, but left out when the request was created.</span>
+                                </span>
+                                <svg class="w-4 h-4 text-gray-400 transition-transform shrink-0" :class="open && 'rotate-180'" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>
+                            </button>
+
+                            <div x-show="open" x-cloak class="mt-3 space-y-3">
+                                @if($leftNotMapped->isNotEmpty())
+                                    <div>
+                                        <p class="text-xs font-medium text-red-700 mb-1.5 flex items-center gap-1.5">
+                                            <span class="w-2 h-2 rounded-full bg-red-500"></span>
+                                            Not mapped yet ({{ $leftNotMapped->count() }}) — map in Cegid, then add them
+                                        </p>
+                                        <div class="flex flex-wrap gap-1.5">
+                                            @foreach($leftNotMapped as $sku)
+                                                <span class="rounded-lg bg-red-50 border border-red-100 px-2 py-1 font-mono text-xs text-red-700">{{ $sku }}</span>
+                                            @endforeach
+                                        </div>
+                                    </div>
+                                @endif
+                                @if($leftUnticked->isNotEmpty())
+                                    <div>
+                                        <p class="text-xs font-medium text-gray-600 mb-1.5 flex items-center gap-1.5">
+                                            <span class="w-2 h-2 rounded-full bg-gray-400"></span>
+                                            Left out by choice ({{ $leftUnticked->count() }}) — mapped, but unticked
+                                        </p>
+                                        <div class="flex flex-wrap gap-1.5">
+                                            @foreach($leftUnticked as $sku)
+                                                <span class="rounded-lg bg-white border border-gray-200 px-2 py-1 font-mono text-xs text-gray-600">{{ $sku }}</span>
+                                            @endforeach
+                                        </div>
+                                    </div>
+                                @endif
+
+                                @unless($closed)
+                                    <form method="POST" action="{{ route('product-requests.skus.add', $request) }}" class="flex flex-wrap items-center gap-2 pt-1">
+                                        @csrf
+                                        <input type="hidden" name="skus" value="{{ $leftOutRows->pluck('sku')->implode("\n") }}">
+                                        <button type="submit" class="{{ $small }} bg-brand-600 hover:bg-brand-700 text-white"
+                                                onclick="return confirm('Add these {{ $leftOutRows->count() }} SKU(s) to the request and check them again?')">
+                                            Add {{ $leftOutRows->count() === 1 ? 'it' : 'all ' . $leftOutRows->count() }} to the request
+                                        </button>
+                                        <span class="text-xs text-gray-400">They're checked again; any still not mapped show as Pending.</span>
+                                    </form>
+                                @endunless
+                            </div>
+                        </div>
+                    @endif
+
                     @if($skus->isEmpty())
                         <div class="px-6 pb-10 pt-4 text-center">
                             <p class="text-sm text-gray-400">No SKUs yet.</p>

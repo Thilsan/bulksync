@@ -2561,8 +2561,9 @@ class ProductRequestTest extends TestCase
             'request_type'       => 'new_brand',
             'brand'              => 'Samsonite',
             'category'           => 'Luggage',
-            'skus'               => "MAP-1\nMAP-2\nNEW-1",
+            'skus'               => "MAP-1\nMAP-2\nNEW-1\nSKIP-1",
             'only_skus'          => json_encode(['MAP-1', 'map-2']),
+            'unmapped_skus'      => json_encode(['NEW-1']),
             'online_launch_date' => now()->addDays(18)->format('Y-m-d H:i'),
             'image_source'       => ProductRequest::IMG_PHOTOSHOOT,
             'use_ai_content'     => 1,
@@ -2572,8 +2573,18 @@ class ProductRequestTest extends TestCase
         $request = ProductRequest::latest('id')->first();
 
         $this->assertSame(['MAP-1', 'MAP-2'], $request->skus()->orderBy('id')->pluck('sku')->all());
-        $this->assertStringContainsString('1 left out at the check (not mapped yet, or unticked): NEW-1',
+        $this->assertStringContainsString('2 left out at the check (not mapped yet, or unticked): NEW-1, SKIP-1',
             (string) ProductRequestActivity::where('product_request_id', $request->id)->where('action', 'created')->value('remarks'));
+
+        // The whole uploaded list stays on record, each left-out SKU with its reason.
+        $this->assertSame([['sku' => 'NEW-1', 'reason' => 'not_mapped'], ['sku' => 'SKIP-1', 'reason' => 'unticked']], $request->left_out_skus);
+        $this->actingAs($user)->get(route('product-requests.show', $request))
+            ->assertOk()->assertSee('Not included — 2 SKUs from the uploaded list')->assertSee('NEW-1')->assertSee('SKIP-1');
+
+        // Adding one later takes it off the list.
+        Queue::fake();
+        $this->actingAs($user)->post(route('product-requests.skus.add', $request), ['skus' => 'SKIP-1'])->assertRedirect();
+        $this->assertSame([['sku' => 'NEW-1', 'reason' => 'not_mapped']], $request->fresh()->left_out_skus);
     }
 
     /** With nothing left before going live, it waits: Published has to mean live. */
