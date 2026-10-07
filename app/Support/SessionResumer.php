@@ -223,7 +223,7 @@ class SessionResumer
             throw new RuntimeException('This check has neither its SKU list nor its uploaded CSV left, so there is nothing to run again.');
         }
 
-        RunSkuCheckJob::dispatch($session->id)->onQueue('bulkupload');
+        RunSkuCheckJob::dispatch($session->id)->onQueue('skucheck');
 
         return "SKU check #{$session->id} queued again.";
     }

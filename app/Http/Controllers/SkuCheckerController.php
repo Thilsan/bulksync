@@ -99,7 +99,7 @@ class SkuCheckerController extends Controller
             'raw_skus'   => implode("\n", $skus),
         ]);
 
-        RunSkuCheckJob::dispatch($session->id)->onQueue('bulkupload');
+        RunSkuCheckJob::dispatch($session->id)->onQueue('skucheck');
 
         return redirect()->route('sku-checker.show', $session);
     }
