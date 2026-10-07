@@ -375,13 +375,22 @@
                 {{ $filters['basis'] === 'created' ? 'None of the orders placed in this range were cancelled in Shopify.' : 'No orders were cancelled in Shopify in this range.' }}
             </div>
 
+            {{-- The tile above counts what the delivery system marked cancelled;
+                 this lists what Shopify cancelled. An order cancelled before it
+                 was ever sent out — an unpaid pay-later checkout, say — is only
+                 in Shopify, so the two can differ. --}}
+            <p x-show="!loading && !failed && orders.length > 0" x-cloak class="px-5 pt-3 text-xs text-gray-400">
+                From each store's Shopify, so it can include orders cancelled before they reached the delivery system — the Cancelled tile counts only those that did.
+            </p>
+
             <div x-show="!loading && !failed && orders.length > 0" x-cloak class="overflow-x-auto">
-                <table class="w-full text-sm min-w-[640px]">
+                <table class="w-full text-sm min-w-[720px]">
                     <thead class="text-xs text-gray-500 border-b border-gray-100 text-left">
                         <tr>
                             <th class="px-5 py-2.5 font-medium">Order</th>
                             <th class="px-5 py-2.5 font-medium">Reason</th>
                             <th class="px-5 py-2.5 font-medium">Staff note</th>
+                            <th class="px-5 py-2.5 font-medium">Payment</th>
                             <th class="px-5 py-2.5 font-medium text-right">Cancelled</th>
                             <th class="px-5 py-2.5 font-medium text-right">Total</th>
                         </tr>
@@ -397,6 +406,7 @@
                                     <span class="inline-block px-2 py-0.5 rounded-full text-xs border bg-rose-50 text-rose-700 border-rose-200" x-text="o.reason_label"></span>
                                 </td>
                                 <td class="px-5 py-2.5 text-gray-600" x-text="o.staff_note || '—'"></td>
+                                <td class="px-5 py-2.5 text-gray-600 whitespace-nowrap" x-text="o.payment_label"></td>
                                 <td class="px-5 py-2.5 text-right text-gray-500 whitespace-nowrap" :title="o.cancelled_at" x-text="when(o.cancelled_at)"></td>
                                 <td class="px-5 py-2.5 text-right tabular-nums text-gray-800 whitespace-nowrap" x-text="money(o)"></td>
                             </tr>
