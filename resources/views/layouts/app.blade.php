@@ -220,7 +220,7 @@
         .app-sidebar {
             background:
                 radial-gradient(420px 320px at 0% 108%, rgba(var(--accent-rgb),.16), transparent 72%),
-                linear-gradient(172deg, #1f6f8b 0%, #1a6480 46%, #2b4c85 100%);
+                linear-gradient(172deg, #070303 0%, #285184 46%, #285184 100%);
         }
         /* The champagne thread down the right edge. */
         .app-sidebar::after {
