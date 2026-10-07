@@ -508,7 +508,8 @@
         */
         .page-hero > :not(.hero-fx) { position: relative; z-index: 1; }
         .hero-fx { position: absolute; inset: 0; pointer-events: none; overflow: hidden; border-radius: inherit; }
-        .hero-fx canvas { display: block; width: 100%; height: 100%; }
+        .hero-fx canvas, .app-net canvas { display: block; width: 100%; height: 100%; }
+        .app-net { position: absolute; inset: 0; z-index: -1; pointer-events: none; }
         /* Fade the network out behind the title so the words stay clean. */
         .hero-fx {
             -webkit-mask-image: linear-gradient(90deg, rgba(0,0,0,.35) 0%, #000 45%);
@@ -1041,7 +1042,11 @@
     </aside>
 
     {{-- Main content. `scrolled` lifts the top bar off the page once you scroll. --}}
-    <div class="flex-1 flex flex-col overflow-hidden" x-data="{ scrolled: false }">
+    <div class="relative flex-1 flex flex-col overflow-hidden" x-data="{ scrolled: false }">
+
+        {{-- The working area's backdrop: the same network as the page hero,
+             far fainter, held still behind the scrolling content. --}}
+        <div class="app-net" aria-hidden="true"><canvas data-net="app"></canvas></div>
 
         {{-- Top bar --}}
         <header class="topbar relative z-20 flex shrink-0 items-center justify-between gap-3 px-4 py-2.5 transition-shadow sm:px-8"
@@ -1460,7 +1465,7 @@
                 content held inside it rather than as a form on a grey sheet.
             --}}
             <header class="page-hero mb-6">
-                <span class="hero-fx" aria-hidden="true"><canvas data-hero-net></canvas></span>
+                <span class="hero-fx" aria-hidden="true"><canvas data-net="hero"></canvas></span>
                 @if($crumbs)
                     <nav class="mb-2 flex items-center gap-1.5 text-[11px] font-medium text-white/55" aria-label="Breadcrumb">
                         @foreach($crumbs as $i => $crumb)
@@ -1506,106 +1511,112 @@
 
     <script>
         /*
-            Page-hero network. Nodes drift; any two closer than LINK px are
+            Network backdrops. Nodes drift; any two closer than `link` px are
             joined by a line that fades with distance; now and then a packet
-            of light runs along a link, like traffic on a live system. Pauses
-            while the tab is hidden; reduced motion gets one still frame.
+            of light runs along a link, like traffic on a live system. Two
+            instances: white on the page hero, a faint accent wash behind the
+            working area. Pauses while the tab is hidden; reduced motion gets
+            one still frame.
         */
         (function () {
-            const canvas = document.querySelector('[data-hero-net]');
-            if (!canvas) return;
-
-            const ctx   = canvas.getContext('2d');
             const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-            const LINK  = 120;
-            let w = 0, h = 0, nodes = [], packets = [], raf = null;
 
-            function size() {
-                const r   = canvas.getBoundingClientRect();
-                const dpr = Math.min(window.devicePixelRatio || 1, 2);
-                w = r.width; h = r.height;
-                canvas.width = w * dpr; canvas.height = h * dpr;
-                ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            const presets = {
+                hero: { rgb: () => '255,255,255', line: .28, dot: .55, hubDot: .9, glow: .12, packet: .95, link: 120, area: 2600, max: 60, maxPackets: 6 },
+                // Dark mode needs a lighter tint to show at all on the deep ground.
+                app:  { rgb: () => document.documentElement.classList.contains('dark') ? '163,185,215' : '97,133,178',
+                        line: .16, dot: .30, hubDot: .5, glow: .08, packet: .6, link: 140, area: 9000, max: 90, maxPackets: 5 },
+            };
 
-                const count = Math.max(14, Math.min(60, Math.round(w * h / 2600)));
-                nodes = Array.from({ length: count }, () => ({
-                    x: Math.random() * w,
-                    y: Math.random() * h,
-                    vx: (Math.random() - .5) * .25,
-                    vy: (Math.random() - .5) * .25,
-                    r: Math.random() * 1.4 + .8,
-                    hub: Math.random() < .12,
-                }));
-                packets = [];
-            }
+            function net(canvas, o) {
+                const ctx = canvas.getContext('2d');
+                let w = 0, h = 0, nodes = [], packets = [], raf = null;
 
-            function links() {
-                const out = [];
-                for (let i = 0; i < nodes.length; i++) {
-                    for (let j = i + 1; j < nodes.length; j++) {
-                        const d = Math.hypot(nodes[i].x - nodes[j].x, nodes[i].y - nodes[j].y);
-                        if (d < LINK) out.push([nodes[i], nodes[j], d]);
-                    }
+                function size() {
+                    const r   = canvas.getBoundingClientRect();
+                    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+                    w = r.width; h = r.height;
+                    canvas.width = w * dpr; canvas.height = h * dpr;
+                    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+                    const count = Math.max(14, Math.min(o.max, Math.round(w * h / o.area)));
+                    nodes = Array.from({ length: count }, () => ({
+                        x: Math.random() * w,
+                        y: Math.random() * h,
+                        vx: (Math.random() - .5) * .25,
+                        vy: (Math.random() - .5) * .25,
+                        r: Math.random() * 1.4 + .8,
+                        hub: Math.random() < .12,
+                    }));
+                    packets = [];
                 }
-                return out;
-            }
 
-            function draw(t) {
-                ctx.clearRect(0, 0, w, h);
-                const ls = links();
+                function draw(t) {
+                    const c = o.rgb();
+                    ctx.clearRect(0, 0, w, h);
 
-                for (const [a, b, d] of ls) {
-                    ctx.strokeStyle = `rgba(255,255,255,${(1 - d / LINK) * .28})`;
+                    const ls = [];
+                    for (let i = 0; i < nodes.length; i++) {
+                        for (let j = i + 1; j < nodes.length; j++) {
+                            const d = Math.hypot(nodes[i].x - nodes[j].x, nodes[i].y - nodes[j].y);
+                            if (d < o.link) ls.push([nodes[i], nodes[j], d]);
+                        }
+                    }
+
                     ctx.lineWidth = .8;
-                    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
-                }
-
-                // Spawn a packet on a random link every so often.
-                if (!still && ls.length && packets.length < 6 && Math.random() < .03) {
-                    const [a, b] = ls[Math.floor(Math.random() * ls.length)];
-                    packets.push({ a, b, p: 0, s: .008 + Math.random() * .01 });
-                }
-                packets = packets.filter(k => (k.p += k.s) < 1);
-                for (const k of packets) {
-                    const x = k.a.x + (k.b.x - k.a.x) * k.p;
-                    const y = k.a.y + (k.b.y - k.a.y) * k.p;
-                    const g = ctx.createRadialGradient(x, y, 0, x, y, 6);
-                    g.addColorStop(0, 'rgba(255,255,255,.95)');
-                    g.addColorStop(1, 'rgba(255,255,255,0)');
-                    ctx.fillStyle = g;
-                    ctx.beginPath(); ctx.arc(x, y, 6, 0, Math.PI * 2); ctx.fill();
-                }
-
-                for (const n of nodes) {
-                    const pulse = n.hub ? 1 + Math.sin(t / 600 + n.x) * .35 : 1;
-                    if (n.hub) {
-                        ctx.fillStyle = 'rgba(255,255,255,.12)';
-                        ctx.beginPath(); ctx.arc(n.x, n.y, n.r * 4 * pulse, 0, Math.PI * 2); ctx.fill();
+                    for (const [a, b, d] of ls) {
+                        ctx.strokeStyle = `rgba(${c},${(1 - d / o.link) * o.line})`;
+                        ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
                     }
-                    ctx.fillStyle = `rgba(255,255,255,${n.hub ? .9 : .55})`;
-                    ctx.beginPath(); ctx.arc(n.x, n.y, n.hub ? n.r * 1.6 : n.r, 0, Math.PI * 2); ctx.fill();
+
+                    if (!still && ls.length && packets.length < o.maxPackets && Math.random() < .03) {
+                        const [a, b] = ls[Math.floor(Math.random() * ls.length)];
+                        packets.push({ a, b, p: 0, s: .008 + Math.random() * .01 });
+                    }
+                    packets = packets.filter(k => (k.p += k.s) < 1);
+                    for (const k of packets) {
+                        const x = k.a.x + (k.b.x - k.a.x) * k.p;
+                        const y = k.a.y + (k.b.y - k.a.y) * k.p;
+                        const g = ctx.createRadialGradient(x, y, 0, x, y, 6);
+                        g.addColorStop(0, `rgba(${c},${o.packet})`);
+                        g.addColorStop(1, `rgba(${c},0)`);
+                        ctx.fillStyle = g;
+                        ctx.beginPath(); ctx.arc(x, y, 6, 0, Math.PI * 2); ctx.fill();
+                    }
+
+                    for (const n of nodes) {
+                        if (n.hub) {
+                            const pulse = 1 + Math.sin(t / 600 + n.x) * .35;
+                            ctx.fillStyle = `rgba(${c},${o.glow})`;
+                            ctx.beginPath(); ctx.arc(n.x, n.y, n.r * 4 * pulse, 0, Math.PI * 2); ctx.fill();
+                        }
+                        ctx.fillStyle = `rgba(${c},${n.hub ? o.hubDot : o.dot})`;
+                        ctx.beginPath(); ctx.arc(n.x, n.y, n.hub ? n.r * 1.6 : n.r, 0, Math.PI * 2); ctx.fill();
+                    }
                 }
+
+                function step(t) {
+                    for (const n of nodes) {
+                        n.x += n.vx; n.y += n.vy;
+                        if (n.x < 0 || n.x > w) n.vx *= -1;
+                        if (n.y < 0 || n.y > h) n.vy *= -1;
+                    }
+                    draw(t);
+                    raf = requestAnimationFrame(step);
+                }
+
+                function start() { if (!still && !raf) raf = requestAnimationFrame(step); }
+                function stop()  { if (raf) cancelAnimationFrame(raf); raf = null; }
+
+                size(); draw(0); start();
+                new ResizeObserver(() => { size(); draw(0); }).observe(canvas);
+                document.addEventListener('visibilitychange', () => document.hidden ? stop() : start());
             }
 
-            function step(t) {
-                for (const n of nodes) {
-                    n.x += n.vx; n.y += n.vy;
-                    if (n.x < 0 || n.x > w) n.vx *= -1;
-                    if (n.y < 0 || n.y > h) n.vy *= -1;
-                }
-                draw(t);
-                raf = requestAnimationFrame(step);
-            }
-
-            function start() { if (!still && !raf) raf = requestAnimationFrame(step); }
-            function stop()  { if (raf) cancelAnimationFrame(raf); raf = null; }
-
-            size();
-            draw(0);
-            start();
-
-            new ResizeObserver(() => { size(); draw(0); }).observe(canvas);
-            document.addEventListener('visibilitychange', () => document.hidden ? stop() : start());
+            document.querySelectorAll('[data-net]').forEach(c => {
+                const o = presets[c.dataset.net];
+                if (o) net(c, o);
+            });
         })();
     </script>
 
