@@ -27,7 +27,21 @@ return new class extends Migration
 
         // Rows synced before this column existed. The next nightly sync would
         // fill them anyway, but the Divisions view should not sit empty until then.
-        DB::table('store_products')->whereNotNull('sku')->select('id', 'sku')->chunkById(1000, function ($rows) {
+        //
+        // One statement on MySQL rather than an update per row: on the live
+        // catalogue the row-by-row version ran for many minutes with the deploy
+        // waiting behind it. Same rule as StoreProduct::divisionFromSku() —
+        // three letters then three digits. Only rows still empty, so a re-run
+        // after an interruption carries on rather than starting over.
+        if (DB::getDriverName() === 'mysql') {
+            DB::statement("UPDATE store_products SET division = UPPER(LEFT(TRIM(sku), 6))
+                           WHERE division IS NULL AND sku IS NOT NULL
+                             AND TRIM(sku) REGEXP '^[A-Za-z]{3}[0-9]{3}'");
+
+            return;
+        }
+
+        DB::table('store_products')->whereNull('division')->whereNotNull('sku')->select('id', 'sku')->chunkById(1000, function ($rows) {
             foreach ($rows as $row) {
                 if ($division = StoreProduct::divisionFromSku($row->sku)) {
                     DB::table('store_products')->where('id', $row->id)->update(['division' => $division]);
