@@ -15,6 +15,8 @@
     {{-- ── Everything run so far ───────────────────────────────────────────
          Summed across every session, not the page below, so paging does not
          move the totals. --}}
+    @include('photo-editor.partials.usage')
+
     <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {{-- No "On Shopify" tile. A photo can be pushed, replaced, re-pushed
              and deleted again, so the lifetime count of push requests is not

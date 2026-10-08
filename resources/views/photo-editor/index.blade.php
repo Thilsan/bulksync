@@ -65,6 +65,8 @@
     </div>
     @endif
 
+    @include('photo-editor.partials.usage')
+
     <form method="POST" action="{{ route('photo-editor.store') }}" @submit="loading = true">
         @csrf
 

@@ -68,6 +68,11 @@ class PhotoEditorController extends Controller implements HasMiddleware
             'photoroomConfigured'  => $this->photoroom->isConfigured(),
             'isSandbox'            => $this->photoroom->isSandbox(),
 
+            // Photoroom's own figure, or null. See accountUsage(): a run gets
+            // planned against this, so a number we reconstructed ourselves is
+            // worse than none.
+            'usage'                => $this->photoroom->accountUsage(),
+
 
             // What the settings block on the form starts filled in with. Same
             // array the session is created with, so the two cannot drift.
@@ -121,6 +126,7 @@ class PhotoEditorController extends Controller implements HasMiddleware
         $isSuperAdmin = (bool) auth()->user()->is_super_admin;
 
         return view('photo-editor.history', [
+            'usage'        => $this->photoroom->accountUsage(),
             'sessions'     => $this->scope()
                 ->with($isSuperAdmin ? ['store', 'user'] : ['store'])
                 ->latest()

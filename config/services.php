@@ -141,6 +141,15 @@ return [
         'quota_closed_seconds' => (int) env('PHOTOROOM_QUOTA_CLOSED_SECONDS', 3600),
 
         /*
+         * How long Photoroom's own usage figure is held before asking again.
+         *
+         * It is rendered on a page load, and the number does not move between
+         * two refreshes a minute apart. Five minutes keeps the screen honest
+         * without a round trip per visitor.
+         */
+        'account_cache_seconds' => (int) env('PHOTOROOM_ACCOUNT_CACHE_SECONDS', 300),
+
+        /*
          * Off: let Photoroom choose the canvas for a redraw.
          *
          * Measured on the six files Photoroom's own support could not

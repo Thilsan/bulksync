@@ -22,6 +22,19 @@ class PhotoroomService
     private const ENDPOINT = 'https://image-api.photoroom.com/v2/edit';
 
     /**
+     * What Photoroom says is left, as opposed to what we counted.
+     *
+     * The app used to show an allowance reconstructed from its own rows, which
+     * could only ever undercount: an edit made in Photoroom's web app, or by
+     * another holder of the key, was invisible to it, and the plan size was an
+     * env var typed in by hand. It read "75 left" on the morning Photoroom
+     * started answering 402, so it was removed rather than caveated.
+     *
+     * This is the figure from the account itself.
+     */
+    private const ACCOUNT_ENDPOINT = 'https://image-api.photoroom.com/v2/account';
+
+    /**
      * Shadow overrides only exist on the newer shadow model, which has to be
      * asked for by header — without it the override fields are ignored in
      * silence and the result looks like the sliders did nothing.
@@ -2337,6 +2350,85 @@ class PhotoroomService
      * marker do too. Scoping by key also means swapping a spent sandbox key
      * for a live one starts clean rather than inheriting hours of back-off.
      */
+    /**
+     * The plan's own numbers, or null when they cannot be had.
+     *
+     * Null rather than a guess, deliberately. The whole reason the old
+     * allowance bar came down is that a confidently wrong number gets a run
+     * planned against it; a missing one only gets somebody checking the
+     * dashboard, which is where the truth was all along.
+     *
+     * Cached, because this is rendered on a page load and the figure does not
+     * move between two refreshes a minute apart. The cache is keyed on the API
+     * key like the pacing and quota markers, so swapping a sandbox key for a
+     * live one does not show one account's numbers against the other's.
+     *
+     * @return array{available:int, subscription:int, used:int, plan:?string}|null
+     */
+    public function accountUsage(): ?array
+    {
+        if (!$this->isConfigured()) {
+            return null;
+        }
+
+        $key = $this->cacheKey('account');
+
+        try {
+            $cached = Cache::get($key);
+        } catch (\Throwable) {
+            $cached = null;
+        }
+
+        if (is_array($cached)) {
+            return $cached;
+        }
+
+        try {
+            $response = Http::withHeaders(['x-api-key' => $this->apiKey])
+                ->timeout(8)
+                ->acceptJson()
+                ->get(self::ACCOUNT_ENDPOINT);
+
+            if (!$response->successful()) {
+                Log::warning('Photoroom account lookup failed', ['status' => $response->status()]);
+
+                return null;
+            }
+
+            $body = (array) $response->json();
+
+            // Absent rather than zero is the case that matters: a response that
+            // changed shape would otherwise read as a spent plan.
+            if (!isset($body['images']['available'], $body['images']['subscription'])) {
+                Log::warning('Photoroom account response had no image counts', [
+                    'keys' => array_keys($body),
+                ]);
+
+                return null;
+            }
+
+            $available    = max(0, (int) $body['images']['available']);
+            $subscription = max(0, (int) $body['images']['subscription']);
+
+            $usage = [
+                'available'    => $available,
+                'subscription' => $subscription,
+                'used'         => max(0, $subscription - $available),
+                'plan'         => isset($body['plan']) ? (string) $body['plan'] : null,
+            ];
+
+            Cache::put($key, $usage, now()->addSeconds(
+                (int) config('services.photoroom.account_cache_seconds', 300),
+            ));
+
+            return $usage;
+        } catch (\Throwable $e) {
+            Log::warning('Photoroom account lookup could not run: ' . $e->getMessage());
+
+            return null;
+        }
+    }
+
     private function cacheKey(string $suffix): string
     {
         return 'photoroom:' . substr(sha1($this->apiKey), 0, 12) . ':' . $suffix;
