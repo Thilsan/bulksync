@@ -86,6 +86,7 @@
         showHold: false,
         showHandover: false,
         showPublish: false,
+        showPublishPreview: false,
         validating: {{ in_array($request->validation_status, ['pending', 'running'], true) ? 'true' : 'false' }},
         poll() {
             if (!this.validating) return;
@@ -137,7 +138,8 @@
                 $canPublish = $request->canTransitionTo(\App\Models\ProductRequest::PUBLISHED);
             @endphp
             @if($canPublish)
-                <button type="button" @click="showPublish = true" class="{{ $btnMain }}">
+                {{-- Bluesalon, created in the system: preview the products and put them live on Shopify. Otherwise: mark it published. --}}
+                <button type="button" @click="{{ $request->publishesToShopify() ? 'showPublishPreview' : 'showPublish' }} = true" class="{{ $btnMain }}">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
                     Publish
                 </button>
@@ -397,7 +399,7 @@
                     $request->status === \App\Models\ProductRequest::SKU_VERIFIED && ($request->needsPhotoshootDecision() || $request->needsImageSourceDecision())
                         => 'Moves on once the question above is answered.',
                     $request->status === \App\Models\ProductRequest::SKU_VERIFIED && $request->suggestedNextStatus() === \App\Models\ProductRequest::PUBLISHED
-                        => 'Goes live by itself once the products are published on Shopify.',
+                        => ($request->publishesToShopify() ? 'Goes live when you click Publish.' : 'Goes live by itself once the products are published on Shopify.'),
                     $request->status === \App\Models\ProductRequest::SKU_VERIFIED
                         => 'Moves on by itself at the next SKU check.',
                     $request->status === \App\Models\ProductRequest::AI_CONTENT && $contentStep
@@ -411,7 +413,7 @@
                     $request->status === \App\Models\ProductRequest::PHOTOSHOOT_SCHEDULED
                         => 'Moves on when the shoot is marked done in the Photoshoot Schedule.',
                     default
-                        => 'Goes live by itself once the products are published on Shopify.',
+                        => ($request->publishesToShopify() ? 'Goes live when you click Publish.' : 'Goes live by itself once the products are published on Shopify.'),
                 };
                 // What comes after this, in plain words — the card's job is to
                 // say what is next, not to repeat what just finished.
@@ -1743,6 +1745,222 @@
             </form>
         </div>
     </div>
+
+    {{-- Bluesalon publish: preview the products, choose channels, put them live --}}
+    @if($request->publishesToShopify() && !$closed)
+    <div x-show="showPublishPreview" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4" @keydown.escape.window="showPublishPreview = false"
+         x-data="{
+            loaded: false, loading: false, error: null, data: null,
+            picked: {}, channelsOn: {}, busy: false, one: null, oneError: null,
+            // Publish a single product without leaving the preview.
+            async publishOne(p) {
+                this.one = p.id; this.oneError = null;
+                const fd = new FormData();
+                fd.append('_token', '{{ csrf_token() }}');
+                fd.append('product_ids[]', p.id);
+                this.channels.forEach(c => { fd.append('channel_ids[]', c.id); fd.append('channel_names[]', c.name); });
+                try {
+                    const res  = await fetch('{{ route('product-requests.publish-one', $request) }}', { method: 'POST', body: fd, headers: { Accept: 'application/json' } });
+                    const body = await res.json();
+                    if (!res.ok) { this.oneError = { id: p.id, text: body.error || body.message || 'Could not publish.' }; }
+                    else {
+                        p.status = 'active';
+                        p.channels = [...(p.channels || []), ...this.channels.filter(c => !(p.channels || []).some(x => x.id === c.id))];
+                        this.picked[p.id] = false;
+                        if (body.request_published) window.location.reload();
+                    }
+                } catch (e) { this.oneError = { id: p.id, text: 'Could not reach the server.' }; }
+                this.one = null;
+            },
+            get allLive() { return (this.data?.products || []).length > 0 && this.data.products.every(p => p.status === 'active'); },
+            async load() {
+                if (this.loaded || this.loading) return;
+                this.loading = true; this.error = null;
+                try {
+                    const res  = await fetch('{{ route('product-requests.publish-preview', $request) }}', { headers: { Accept: 'application/json' } });
+                    const body = await res.json();
+                    if (!res.ok) { this.error = body.error || body.message || 'Could not load the preview.'; }
+                    else {
+                        this.data = body;
+                        // Everything not already live is ticked; live ones are shown, not re-done.
+                        body.products.forEach(p => this.picked[p.id] = p.status !== 'active');
+                        (body.channels || []).forEach(c => this.channelsOn[c.id] = /online store/i.test(c.name));
+                        this.loaded = true;
+                    }
+                } catch (e) { this.error = 'Could not reach the server.'; }
+                this.loading = false;
+            },
+            get chosen()   { return (this.data?.products || []).filter(p => this.picked[p.id]); },
+            get channels() { return (this.data?.channels || []).filter(c => this.channelsOn[c.id]); },
+            money(n) { return n === null || n === undefined ? '—' : Number(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); },
+         }"
+         x-effect="if (showPublishPreview) load()">
+        <div class="absolute inset-0 bg-gray-900/40 backdrop-blur-[2px]" @click="showPublishPreview = false"></div>
+        <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-6xl max-h-[92vh] flex flex-col overflow-hidden"
+             x-show="showPublishPreview"
+             x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0 scale-95" x-transition:enter-end="opacity-100 scale-100">
+            <form method="POST" action="{{ route('product-requests.publish', $request) }}" class="flex flex-col min-h-0" @submit="busy = true">
+                @csrf
+                <template x-for="p in chosen" :key="'pid' + p.id"><input type="hidden" name="product_ids[]" :value="p.id"></template>
+                <template x-for="c in channels" :key="'cid' + c.id"><input type="hidden" name="channel_ids[]" :value="c.id"></template>
+                <template x-for="c in channels" :key="'cn' + c.id"><input type="hidden" name="channel_names[]" :value="c.name"></template>
+
+                <div class="px-6 pt-6 pb-4 border-b border-gray-100 flex items-start justify-between gap-4">
+                    <div>
+                        <h3 class="text-lg font-semibold text-gray-900">Publish {{ $request->displayName() }}</h3>
+                        <p class="text-sm text-gray-500 mt-0.5">Check the products, choose where they go live, then publish. They are set to <b>Active</b> on <span x-text="data?.store || 'Shopify'"></span>.</p>
+                    </div>
+                    <button type="button" @click="showPublishPreview = false" class="text-gray-400 hover:text-gray-700" aria-label="Close">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+                    </button>
+                </div>
+
+                <div class="px-6 py-5 overflow-y-auto space-y-6">
+                    <template x-if="loading">
+                        <p class="py-14 text-center text-sm text-gray-500">Reading the products from Shopify…</p>
+                    </template>
+                    <template x-if="error">
+                        <p class="py-6 text-center text-sm text-red-600" x-text="error"></p>
+                    </template>
+
+                    <template x-if="loaded">
+                        <div class="space-y-6">
+                            @if($publishIssues)
+                                <div class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                                    <p class="font-medium mb-1">Not everything is finished:</p>
+                                    <ul class="list-disc pl-5 space-y-0.5">
+                                        @foreach($publishIssues as [, , $title])<li>{{ $title }}</li>@endforeach
+                                    </ul>
+                                </div>
+                            @endif
+
+                            {{-- Products --}}
+                            <section>
+                                <div class="flex items-center justify-between mb-3">
+                                    <h4 class="text-sm font-semibold text-gray-900"
+                                        x-text="`Products (${data.products.length}) — ${data.products.filter(p => p.status === 'active').length} already live`"></h4>
+                                    <button type="button" class="text-xs font-medium text-brand-700"
+                                            @click="const all = data.products.filter(p => p.status !== 'active').every(p => picked[p.id]); data.products.forEach(p => { if (p.status !== 'active') picked[p.id] = !all })">Select / clear all</button>
+                                </div>
+                                <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                                    <template x-for="p in data.products" :key="p.id">
+                                        <div class="rounded-2xl border p-3 flex gap-3 transition"
+                                             :class="p.status === 'active' ? 'border-emerald-200 bg-emerald-50/40' : (picked[p.id] ? 'border-brand-300 bg-white' : 'border-gray-200 bg-gray-50/60 opacity-70')">
+                                            <div class="w-28 shrink-0">
+                                                <template x-if="p.images.length">
+                                                    <div>
+                                                        <img :src="p.images[0]" class="w-28 h-28 rounded-xl object-cover border border-gray-100" alt="">
+                                                        <div class="mt-1 flex gap-1">
+                                                            <template x-for="img in p.images.slice(1, 4)" :key="img">
+                                                                <img :src="img" class="w-8 h-8 rounded-md object-cover border border-gray-100" alt="">
+                                                            </template>
+                                                            <span x-show="p.images.length > 4" class="text-[10px] text-gray-500 self-center" x-text="`+${p.images.length - 4}`"></span>
+                                                        </div>
+                                                    </div>
+                                                </template>
+                                                <template x-if="!p.images.length">
+                                                    <div class="w-28 h-28 rounded-xl border border-dashed border-red-200 bg-red-50/50 flex flex-col items-center justify-center text-red-400 text-[11px]">
+                                                        <svg class="w-6 h-6 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.6"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                                                        No photos
+                                                    </div>
+                                                </template>
+                                            </div>
+
+                                            <div class="min-w-0 flex-1">
+                                                <div class="flex items-start justify-between gap-2">
+                                                    <p class="text-sm font-semibold text-gray-900 leading-snug" x-text="p.title"></p>
+                                                    <template x-if="p.status === 'active'">
+                                                        <span class="shrink-0 rounded-full bg-emerald-100 text-emerald-700 px-2 py-0.5 text-[11px] font-semibold">Published</span>
+                                                    </template>
+                                                    <template x-if="p.status !== 'active'">
+                                                        <label class="shrink-0 flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer">
+                                                            <input type="checkbox" x-model="picked[p.id]" class="w-4 h-4 rounded border-gray-300 accent-green-600">
+                                                            Publish
+                                                        </label>
+                                                    </template>
+                                                </div>
+                                                <p class="mt-1 text-sm text-gray-800"
+                                                   x-text="p.price_min === null ? 'No price' : ((data.currency || '') + (p.price_min === p.price_max ? money(p.price_min) : money(p.price_min) + ' – ' + money(p.price_max)))"></p>
+                                                <p class="text-xs text-gray-500 mt-0.5"
+                                                   x-text="`${p.variants.length} ${p.variants.length === 1 ? 'variant' : 'variants'} · ${p.stock ?? '—'} in stock · ${p.request_skus.length} on this request`"></p>
+                                                <p class="mt-1.5 text-xs text-gray-600 line-clamp-2" x-text="p.description || ''"></p>
+
+                                                <div class="mt-2 flex flex-wrap gap-1">
+                                                    <span x-show="!p.images.length" class="rounded-full bg-red-50 text-red-600 px-2 py-0.5 text-[11px]">No photos</span>
+                                                    <span x-show="!p.has_description" class="rounded-full bg-red-50 text-red-600 px-2 py-0.5 text-[11px]">No description</span>
+                                                    <span x-show="p.price_min === null || p.price_min === 0" class="rounded-full bg-red-50 text-red-600 px-2 py-0.5 text-[11px]">No price</span>
+                                                    <span x-show="p.stock === 0" class="rounded-full bg-amber-50 text-amber-700 px-2 py-0.5 text-[11px]">0 in stock</span>
+                                                    <span x-show="p.variants.length > p.request_skus.length" class="rounded-full bg-gray-100 text-gray-600 px-2 py-0.5 text-[11px]"
+                                                          x-text="`All ${p.variants.length} sizes go live`"></span>
+                                                </div>
+
+                                                <template x-if="p.channels && p.channels.length">
+                                                    <p class="mt-2 text-[11px] text-emerald-700" x-text="'Live on: ' + p.channels.map(c => c.name).join(', ')"></p>
+                                                </template>
+
+                                                <template x-if="p.status !== 'active'">
+                                                    <div class="mt-2.5 flex items-center gap-2">
+                                                        <button type="button" @click="publishOne(p)" :disabled="one !== null"
+                                                                class="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-xs font-medium px-3 py-1.5 disabled:opacity-50">
+                                                            <svg class="w-3.5 h-3.5" :class="one === p.id && 'animate-spin'" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+                                                            <span x-text="one === p.id ? 'Publishing…' : 'Publish this'"></span>
+                                                        </button>
+                                                        <span class="text-[11px] text-gray-400" x-text="channels.length ? 'to ' + channels.map(c => c.name).join(', ') : 'Active only — no channel on'"></span>
+                                                    </div>
+                                                </template>
+                                                <p x-show="oneError && oneError.id === p.id" class="mt-1 text-[11px] text-red-600" x-text="oneError?.text"></p>
+                                            </div>
+                                        </div>
+                                    </template>
+                                </div>
+                                <template x-if="data.missing.length">
+                                    <p class="mt-3 text-xs text-gray-500" x-text="`${data.missing.length} SKU(s) on this request are not on Shopify and can't be published: ${data.missing.join(', ')}`"></p>
+                                </template>
+                            </section>
+
+                            {{-- Sales channels --}}
+                            <section>
+                                <h4 class="text-sm font-semibold text-gray-900 mb-1">Sales channels</h4>
+                                <p class="text-xs text-gray-500 mb-3">Where the products go live.</p>
+                                <template x-if="data.channels_error">
+                                    <p class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900" x-text="data.channels_error"></p>
+                                </template>
+                                <template x-if="data.channels">
+                                    <div class="rounded-2xl border border-gray-200 divide-y divide-gray-100">
+                                        <label class="flex items-center justify-between px-4 py-2.5 bg-gray-50/70 cursor-pointer rounded-t-2xl">
+                                            <span class="text-sm font-medium text-gray-700">All channels</span>
+                                            <input type="checkbox" class="sr-only peer"
+                                                   :checked="data.channels.every(c => channelsOn[c.id])"
+                                                   @change="const on = $event.target.checked; data.channels.forEach(c => channelsOn[c.id] = on)">
+                                            <span class="relative w-10 h-6 rounded-full bg-gray-300 peer-checked:bg-green-600 transition after:absolute after:top-0.5 after:left-0.5 after:w-5 after:h-5 after:rounded-full after:bg-white after:transition peer-checked:after:translate-x-4"></span>
+                                        </label>
+                                        <template x-for="c in data.channels" :key="c.id">
+                                            <label class="flex items-center justify-between px-4 py-2.5 cursor-pointer">
+                                                <span class="text-sm text-gray-800" x-text="c.name"></span>
+                                                <input type="checkbox" x-model="channelsOn[c.id]" class="sr-only peer">
+                                                <span class="relative w-10 h-6 rounded-full bg-gray-300 peer-checked:bg-green-600 transition after:absolute after:top-0.5 after:left-0.5 after:w-5 after:h-5 after:rounded-full after:bg-white after:transition peer-checked:after:translate-x-4"></span>
+                                            </label>
+                                        </template>
+                                    </div>
+                                </template>
+                            </section>
+                        </div>
+                    </template>
+                </div>
+
+                <div class="px-6 py-4 bg-gray-50 border-t border-gray-100 flex flex-wrap items-center justify-end gap-2">
+                    <span x-show="loaded" class="mr-auto text-xs text-gray-500"
+                          x-text="`${(data?.products || []).filter(p => p.status === 'active').length} of ${(data?.products || []).length} live · ${chosen.length} selected · ${channels.length} ${channels.length === 1 ? 'channel' : 'channels'}`"></span>
+                    <button type="button" @click="showPublishPreview = false" class="{{ $btnAlt }}">Not yet</button>
+                    <button type="submit" :disabled="!loaded || busy || one !== null || (!chosen.length && !allLive)" class="{{ $btnMain }} disabled:opacity-50">
+                        <svg class="w-4 h-4" :class="busy && 'animate-spin'" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                        <span x-text="busy ? 'Publishing…' : (chosen.length ? `Publish ${chosen.length} selected` : (allLive ? 'Close as published' : 'Tick products to publish'))"></span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+    @endif
 
     {{-- Report a blocker --}}
     <div x-show="showHold" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4">

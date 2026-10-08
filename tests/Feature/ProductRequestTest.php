@@ -2738,6 +2738,107 @@ class ProductRequestTest extends TestCase
             ->assertSee('0 in stock');
     }
 
+    /** Bluesalon: Publish previews the products, then puts the chosen ones live. */
+    public function test_bluesalon_publishing_previews_then_activates_the_chosen_products(): void
+    {
+        Notification::fake();
+        Queue::fake();
+
+        $user    = $this->brandManager();
+        $request = $this->submitFor($user, $this->mappingSite(), "PUB-A\nPUB-B\nPUB-C");
+        $request->skus()->update(['mapping_status' => ProductRequest::MAP_MAPPED, 'in_shopify' => true]);
+        $request->skus()->whereIn('sku', ['PUB-A', 'PUB-B'])->update(['shopify_product_id' => '111', 'shopify_published' => false]);
+        $request->skus()->where('sku', 'PUB-C')->update(['shopify_product_id' => '222', 'shopify_published' => true]);
+        $request->forceFill(['status' => ProductRequest::SKU_VERIFIED, 'use_ai_content' => false, 'mapped_skus' => 3, 'pending_skus' => 0,
+            'image_source' => ProductRequest::IMG_SUPPLIER, 'photoshoot_decision' => 'no', 'image_request_decision' => 'no'])->save();
+
+        $shopify = \Mockery::mock(\App\Services\ShopifyService::class);
+        $shopify->shouldReceive('getProductsForPublishing')->andReturn([
+            '111' => ['id' => '111', 'title' => 'Bag', 'status' => 'draft', 'images' => ['a.jpg'], 'has_description' => true, 'description' => 'x', 'stock' => 3, 'price_min' => 10.0, 'price_max' => 10.0, 'variants' => [], 'channels' => []],
+            '222' => ['id' => '222', 'title' => 'Case', 'status' => 'active', 'images' => [], 'has_description' => true, 'description' => 'y', 'stock' => 1, 'price_min' => 5.0, 'price_max' => 5.0, 'variants' => [], 'channels' => [['id' => 'gid://shopify/Publication/1', 'name' => 'Online Store']]],
+        ]);
+        $shopify->shouldReceive('getSalesChannels')->andReturn([['id' => 'gid://shopify/Publication/1', 'name' => 'Online Store'], ['id' => 'gid://shopify/Publication/2', 'name' => 'Point of Sale']]);
+        $shopify->shouldReceive('lastCurrency')->andReturn('QAR');
+        $this->app->bind(\App\Services\ShopifyService::class, fn () => $shopify);
+
+        $preview = $this->actingAs($user)->getJson(route('product-requests.publish-preview', $request))->assertOk();
+        $this->assertSame(['PUB-A', 'PUB-B'], $preview->json('products.0.request_skus'));
+        $this->assertSame('active', $preview->json('products.1.status'));
+        $this->assertCount(2, $preview->json('channels'));
+
+        $shopify->shouldReceive('activateProduct')->once()->with('111');
+        $shopify->shouldReceive('publishProductToChannels')->once()->with('111', ['gid://shopify/Publication/1']);
+
+        // One at a time from the preview; a product not on the request is ignored.
+        $this->actingAs($user)->postJson(route('product-requests.publish-one', $request), [
+            'product_ids' => ['111', '999'], 'channel_ids' => ['gid://shopify/Publication/1'], 'channel_names' => ['Online Store'],
+        ])->assertOk()->assertJson(['published' => ['111']]);
+
+        $this->assertStringContainsString('1 product(s) set Active on Shopify and published to Online Store',
+            (string) ProductRequestActivity::where('product_request_id', $request->id)->where('action', 'shopify_published')->value('description'));
+    }
+
+    /** The request only closes once every product on it is live. */
+    public function test_the_request_closes_only_when_every_product_is_live(): void
+    {
+        Notification::fake();
+        Queue::fake();
+
+        $user    = $this->brandManager();
+        $request = $this->submitFor($user, $this->mappingSite(), "TWO-A\nTWO-B");
+        $request->skus()->update(['mapping_status' => ProductRequest::MAP_MAPPED, 'in_shopify' => true]);
+        $request->skus()->where('sku', 'TWO-A')->update(['shopify_product_id' => '1']);
+        $request->skus()->where('sku', 'TWO-B')->update(['shopify_product_id' => '2']);
+        $request->forceFill(['status' => ProductRequest::SKU_VERIFIED, 'use_ai_content' => false, 'mapped_skus' => 2, 'pending_skus' => 0,
+            'image_source' => ProductRequest::IMG_SUPPLIER, 'photoshoot_decision' => 'no', 'image_request_decision' => 'no'])->save();
+
+        $live = [];
+        $shopify = \Mockery::mock(\App\Services\ShopifyService::class);
+        $shopify->shouldReceive('activateProduct')->andReturnUsing(function ($id) use (&$live) { $live[$id] = true; });
+        $shopify->shouldReceive('publishProductToChannels');
+        $shopify->shouldReceive('getProductsForPublishing')->andReturnUsing(function () use (&$live) {
+            return [
+                '1' => ['status' => isset($live['1']) ? 'active' : 'draft'],
+                '2' => ['status' => isset($live['2']) ? 'active' : 'draft'],
+            ];
+        });
+        $this->app->bind(\App\Services\ShopifyService::class, fn () => $shopify);
+
+        $this->actingAs($user)->postJson(route('product-requests.publish-one', $request), ['product_ids' => ['1']])
+            ->assertOk()->assertJson(['request_published' => false]);
+        $this->assertNotSame(ProductRequest::PUBLISHED, $request->fresh()->status);
+
+        $this->actingAs($user)->post(route('product-requests.publish', $request), ['product_ids' => ['2']]);
+        $this->assertSame(ProductRequest::PUBLISHED, $request->fresh()->status);
+    }
+
+    /** Other websites, and Bluesalon requests from the sheet, keep the plain publish. */
+    public function test_shopify_publishing_is_only_for_bluesalon_requests_made_in_the_system(): void
+    {
+        Notification::fake();
+
+        $user  = $this->brandManager();
+        $other = $this->submitFor($user, $this->plainSite(), 'OTH-1');
+        $sheet = $this->submitFor($user, $this->mappingSite(), 'SHT-1');
+        $sheet->update(['sheet_request_no' => 243]);
+
+        foreach ([$other, $sheet] as $request) {
+            $this->assertFalse($request->fresh()->publishesToShopify());
+            $this->actingAs($user)->getJson(route('product-requests.publish-preview', $request))->assertNotFound();
+            $this->actingAs($user)->post(route('product-requests.publish', $request), ['product_ids' => ['1']])->assertNotFound();
+        }
+
+        // Made in the system on Bluesalon: never goes live on its own, only on Publish.
+        $made = $this->submitFor($user, $this->mappingSite(), 'MADE-1');
+        $made->skus()->update(['mapping_status' => ProductRequest::MAP_MAPPED, 'in_shopify' => true, 'shopify_published' => true]);
+        $made->forceFill(['status' => ProductRequest::SKU_VERIFIED, 'use_ai_content' => false, 'mapped_skus' => 1, 'pending_skus' => 0,
+            'image_source' => ProductRequest::IMG_SUPPLIER, 'photoshoot_decision' => 'no', 'image_request_decision' => 'no'])->save();
+
+        $this->assertTrue($made->fresh()->publishesToShopify());
+        app(ProductRequestWorkflow::class)->autoAdvance($made->fresh());
+        $this->assertNotSame(ProductRequest::PUBLISHED, $made->fresh()->status);
+    }
+
     /** "Mapped" is only said where Cegid maps SKUs. */
     public function test_the_verified_stage_is_only_called_mapped_on_a_cegid_website(): void
     {

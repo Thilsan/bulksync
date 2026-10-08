@@ -1392,6 +1392,16 @@ class ProductRequest extends Model
      * request to its SKU rows on the category tab — so showing it saves opening
      * the sheet to look it up.
      */
+    /**
+     * Published from here, onto Shopify: a Bluesalon request created inside
+     * the system (uploaded product list). Requests synced from the SharePoint
+     * tracking sheet keep the plain publish, and go live the way they always have.
+     */
+    public function publishesToShopify(): bool
+    {
+        return $this->requiresMapping() && $this->sheet_request_no === null;
+    }
+
     public function sheetLabel(): ?string
     {
         if (!$this->sheet_request_no) {

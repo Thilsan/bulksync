@@ -201,7 +201,8 @@ class ProductRequestWorkflow
             // Published is the end and has to mean live: the only closing move
             // made on its own, and only on what Shopify says.
             if (in_array($next, ProductRequest::CLOSED_STATUSES, true)) {
-                if ($next !== ProductRequest::PUBLISHED || !$request->isLiveOnShopify()) {
+                // Requests published from here go live only when someone clicks Publish.
+                if ($next !== ProductRequest::PUBLISHED || $request->publishesToShopify() || !$request->isLiveOnShopify()) {
                     break;
                 }
                 $reason = 'every product is live on Shopify';

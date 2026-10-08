@@ -1771,6 +1771,154 @@ class ShopifyService
         ]);
     }
 
+    // ── Publishing a product request ───────────────────────────────────────
+
+    /** One GraphQL call, errors raised — the publishing calls all go through here. */
+    private function graphql(string $query, array $variables, string $context): array
+    {
+        $this->throttle();
+
+        $response = $this->http->post("admin/api/{$this->apiVersion}/graphql.json", [
+            'json' => ['query' => $query, 'variables' => $variables],
+        ]);
+
+        $data = json_decode((string) $response->getBody(), true);
+        $this->assertNoGraphQlErrors($data, $context);
+
+        return $data['data'] ?? [];
+    }
+
+    /**
+     * The store's sales channels (Online Store, Point of Sale, …).
+     * Needs the read_publications scope; throws without it.
+     *
+     * @return list<array{id: string, name: string}>
+     */
+    public function getSalesChannels(): array
+    {
+        $data = $this->graphql('{publications(first:50){edges{node{id name}}}}', [], 'getSalesChannels');
+
+        return collect($data['publications']['edges'] ?? [])
+            ->map(fn ($e) => ['id' => $e['node']['id'], 'name' => $e['node']['name'] ?? ''])
+            ->filter(fn ($c) => $c['name'] !== '')
+            ->values()->all();
+    }
+
+    /**
+     * What a product looks like on Shopify right now, for the preview before
+     * publishing: photos, price, stock, sizes, whether it is live and where.
+     *
+     * The channels it is on need read_publications; without that scope they
+     * come back as null rather than failing the whole preview.
+     *
+     * @param  list<string>  $productIds  numeric ids
+     * @return array<string, array<string, mixed>>  keyed by numeric id
+     */
+    public function getProductsForPublishing(array $productIds): array
+    {
+        $ids = array_values(array_unique(array_filter($productIds)));
+        if (!$ids) {
+            return [];
+        }
+
+        $gids = array_map(fn ($id) => "gid://shopify/Product/{$id}", $ids);
+        $out  = [];
+
+        foreach (array_chunk($gids, 25) as $batch) {
+            $base = 'id title status descriptionHtml totalInventory
+                     media(first:8){edges{node{... on MediaImage{image{url}}}}}
+                     variants(first:100){edges{node{sku price title inventoryQuantity}}}';
+
+            try {
+                $data = $this->graphql(
+                    'query($ids:[ID!]!){shop{currencyCode} nodes(ids:$ids){... on Product{' . $base . '
+                        resourcePublicationsV2(first:30,onlyPublished:true){edges{node{publication{id name}}}}}}}',
+                    ['ids' => $batch], 'getProductsForPublishing');
+                $channelsKnown = true;
+            } catch (\RuntimeException $e) {
+                // No read_publications: show the products without their channels.
+                $data = $this->graphql('query($ids:[ID!]!){shop{currencyCode} nodes(ids:$ids){... on Product{' . $base . '}}}',
+                    ['ids' => $batch], 'getProductsForPublishing');
+                $channelsKnown = false;
+            }
+
+            $this->breakdownCurrency = $data['shop']['currencyCode'] ?? $this->breakdownCurrency;
+
+            foreach ($data['nodes'] ?? [] as $node) {
+                if (empty($node['id'])) {
+                    continue;
+                }
+
+                $id       = ltrim(str_replace('gid://shopify/Product/', '', $node['id']), '/');
+                $variants = collect($node['variants']['edges'] ?? [])->map(fn ($e) => $e['node']);
+                $prices   = $variants->pluck('price')->filter(fn ($p) => $p !== null && $p !== '')->map(fn ($p) => (float) $p);
+
+                $out[$id] = [
+                    'id'          => $id,
+                    'title'       => $node['title'] ?? '',
+                    'status'      => strtolower($node['status'] ?? ''),
+                    'has_description' => filled(trim(strip_tags((string) ($node['descriptionHtml'] ?? '')))),
+                    'description' => \Illuminate\Support\Str::limit(trim(strip_tags((string) ($node['descriptionHtml'] ?? ''))), 220),
+                    'images'      => collect($node['media']['edges'] ?? [])->pluck('node.image.url')->filter()->values()->all(),
+                    'stock'       => $node['totalInventory'] ?? null,
+                    'price_min'   => $prices->min(),
+                    'price_max'   => $prices->max(),
+                    'variants'    => $variants->map(fn ($v) => [
+                        'sku' => $v['sku'] ?? '', 'title' => $v['title'] ?? '', 'price' => $v['price'] ?? null, 'stock' => $v['inventoryQuantity'] ?? null,
+                    ])->values()->all(),
+                    'channels'    => $channelsKnown
+                        ? collect($node['resourcePublicationsV2']['edges'] ?? [])->map(fn ($e) => [
+                            'id' => $e['node']['publication']['id'] ?? '', 'name' => $e['node']['publication']['name'] ?? '',
+                          ])->values()->all()
+                        : null,
+                ];
+            }
+        }
+
+        return $out;
+    }
+
+    /** The shop's currency, as the last product read reported it. */
+    public function lastCurrency(): ?string
+    {
+        return $this->breakdownCurrency;
+    }
+
+    /** Draft → Active. */
+    public function activateProduct(string $productId): void
+    {
+        $data = $this->graphql(
+            'mutation($input:ProductInput!){productUpdate(input:$input){product{id status}userErrors{field message}}}',
+            ['input' => ['id' => "gid://shopify/Product/{$productId}", 'status' => 'ACTIVE']],
+            "activateProduct({$productId})");
+
+        if ($err = $data['productUpdate']['userErrors'][0]['message'] ?? null) {
+            throw new \RuntimeException($err);
+        }
+    }
+
+    /**
+     * Make a product available on the given sales channels. Already being on
+     * one is not an error. Needs write_publications.
+     *
+     * @param  list<string>  $publicationIds  gids
+     */
+    public function publishProductToChannels(string $productId, array $publicationIds): void
+    {
+        if (!$publicationIds) {
+            return;
+        }
+
+        $data = $this->graphql(
+            'mutation($id:ID!,$input:[PublicationInput!]!){publishablePublish(id:$id,input:$input){userErrors{field message}}}',
+            ['id' => "gid://shopify/Product/{$productId}", 'input' => array_map(fn ($p) => ['publicationId' => $p], array_values($publicationIds))],
+            "publishProductToChannels({$productId})");
+
+        if ($err = $data['publishablePublish']['userErrors'][0]['message'] ?? null) {
+            throw new \RuntimeException($err);
+        }
+    }
+
     // ── AI Content update ──────────────────────────────────────────────────
 
     public function updateProductContent(string $productId, string $description, string $metaTitle, string $metaDescription, string $title = ''): void

@@ -527,6 +527,165 @@ class ProductRequestController extends Controller implements HasMiddleware
     }
 
     /**
+     * What publishing this request would put live: each Shopify product behind
+     * its SKUs, as Shopify has it now, and the website's sales channels.
+     *
+     * Bluesalon requests created in the system only (see publishesToShopify()).
+     */
+    public function publishPreview(ProductRequest $productRequest, #[CurrentUser] User $user): JsonResponse
+    {
+        $this->authorizeView($productRequest, $user);
+
+        $store = $productRequest->store;
+        abort_unless($store && $productRequest->publishesToShopify(), 404, 'Publishing to Shopify is only for Bluesalon requests created in the system.');
+
+        // Product id => the request's SKUs on it.
+        $bySku = $productRequest->skus()->where('in_shopify', true)->whereNotNull('shopify_product_id')
+            ->get(['sku', 'shopify_product_id'])
+            ->groupBy('shopify_product_id')
+            ->map(fn ($rows) => $rows->pluck('sku')->values());
+
+        $shopify = app(\App\Services\ShopifyService::class, ['store' => $store]);
+
+        try {
+            $products = $shopify->getProductsForPublishing($bySku->keys()->map(fn ($k) => (string) $k)->all());
+        } catch (\Throwable $e) {
+            Log::warning("Publish preview failed for {$productRequest->reference}: " . $e->getMessage());
+
+            return response()->json(['error' => "Couldn't read the products from {$store->name} on Shopify right now."], 502);
+        }
+
+        $channels = null;
+        $channelsError = null;
+        try {
+            $channels = $shopify->getSalesChannels();
+        } catch (\Throwable $e) {
+            $channelsError = "Sales channels can't be read on {$store->name} — its Shopify app needs the read_publications and write_publications permissions. Products can still be set to Active.";
+        }
+
+        return response()->json([
+            'store'          => $store->name,
+            'currency'       => $shopify->lastCurrency() ? $shopify->lastCurrency() . ' ' : '',
+            'channels'       => $channels,
+            'channels_error' => $channelsError,
+            'missing'        => $productRequest->skus()->where('in_shopify', false)->pluck('sku'),
+            'products'       => collect($products)->map(fn ($p) => $p + ['request_skus' => $bySku[$p['id']] ?? []])->values(),
+        ]);
+    }
+
+    /**
+     * Put the chosen products live — Active, and on the chosen sales channels.
+     * The request closes as Published once every one of its products is live,
+     * whether that took one click or several.
+     */
+    public function publishToShopify(Request $request, ProductRequest $productRequest, #[CurrentUser] User $user): RedirectResponse
+    {
+        [$done, $failed, $closed, $channelNames] = $this->publishChosen($request, $productRequest, $user);
+
+        if ($done === null) {
+            return back()->withErrors(['to_status' => $failed]);
+        }
+
+        if ($done === [] && $failed) {
+            return back()->with('warning', 'Nothing was published — every product failed on Shopify: ' . implode('; ', $failed));
+        }
+
+        $message = count($done) . ' product(s) are live' . ($done ? " on {$channelNames}" : '') . '.'
+            . ($closed ? ' Every product is live, so the request is Published.' : ' The request stays open until every product is published.');
+
+        return back()->with($failed ? 'warning' : 'success', $message . ($failed ? ' Failed: ' . implode('; ', $failed) . '.' : ''));
+    }
+
+    /** One product from the preview, without leaving it. */
+    public function publishOneToShopify(Request $request, ProductRequest $productRequest, #[CurrentUser] User $user): JsonResponse
+    {
+        [$done, $failed, $closed] = $this->publishChosen($request, $productRequest, $user);
+
+        if ($done === null || !$done) {
+            return response()->json(['error' => is_string($failed) ? $failed : (implode('; ', $failed) ?: 'Nothing was published.')], 422);
+        }
+
+        return response()->json(['published' => $done, 'request_published' => $closed]);
+    }
+
+    /**
+     * @return array{0: list<string>|null, 1: list<string>|string, 2: bool, 3: string}
+     *         [published ids (null when refused), failures (or the refusal), request closed, channel names]
+     */
+    private function publishChosen(Request $request, ProductRequest $productRequest, User $user): array
+    {
+        $this->authorizeView($productRequest, $user);
+
+        abort_unless($productRequest->publishesToShopify(), 404, 'Publishing to Shopify is only for Bluesalon requests created in the system.');
+
+        $data = $request->validate([
+            'product_ids'   => 'array',
+            'product_ids.*' => 'string|max:40',
+            'channel_ids'   => 'array',
+            'channel_ids.*' => 'string|max:120',
+            'channel_names' => 'array',
+        ]);
+
+        if (!$productRequest->canTransitionTo(ProductRequest::PUBLISHED)) {
+            return [null, $productRequest->publishBlockedBecause() ?? 'This request cannot be published from ' . $productRequest->statusLabel() . '.', false, ''];
+        }
+
+        // Only products that really belong to this request.
+        $own = $productRequest->skus()->whereNotNull('shopify_product_id')->pluck('shopify_product_id')->map(fn ($v) => (string) $v)->unique()->values();
+        $ids = collect($data['product_ids'] ?? [])->map(fn ($v) => (string) $v)->intersect($own)->values();
+
+        $shopify      = app(\App\Services\ShopifyService::class, ['store' => $productRequest->store]);
+        $channels     = $data['channel_ids'] ?? [];
+        $channelNames = implode(', ', array_filter($data['channel_names'] ?? [])) ?: 'no sales channel';
+        $done = $failed = [];
+
+        foreach ($ids as $id) {
+            try {
+                $shopify->activateProduct($id);
+                $shopify->publishProductToChannels($id, $channels);
+                $done[] = $id;
+            } catch (\Throwable $e) {
+                Log::warning("Publishing product {$id} for {$productRequest->reference} failed: " . $e->getMessage());
+                $failed[] = $id . ' (' . \Illuminate\Support\Str::limit($e->getMessage(), 80) . ')';
+            }
+        }
+
+        if ($done) {
+            $this->workflow->log(
+                request:     $productRequest,
+                action:      'shopify_published',
+                description: count($done) . ' product(s) set Active on Shopify and published to ' . $channelNames,
+                actor:       $user,
+                remarks:     $failed ? 'Failed: ' . implode('; ', $failed) : null,
+            );
+        }
+
+        // Closed once every product on the request is live — asked of Shopify,
+        // not assumed, so a product set back to draft there is noticed.
+        $allLive = false;
+        if ($done || $ids->isEmpty()) {
+            try {
+                $live    = collect($shopify->getProductsForPublishing($own->all()))->where('status', 'active')->keys()->map(fn ($k) => (string) $k);
+                $allLive = $own->isNotEmpty() && $own->diff($live)->isEmpty();
+            } catch (\Throwable $e) {
+                $allLive = $own->diff($done)->isEmpty();
+            }
+        }
+
+        if ($allLive) {
+            $skipped = $productRequest->publishGaps();
+            $this->workflow->transition($productRequest, ProductRequest::PUBLISHED, $user, trim(
+                'Every product is live on Shopify.' . ($skipped ? ' Published without: ' . implode('; ', $skipped) . '.' : '')
+            ));
+        }
+
+        // The SKU check reads the new status back, so the request shows them live.
+        ValidateProductRequestSkusJob::dispatch($productRequest->id, $user->id, reconcile: false)->onQueue(Queues::PRODUCT_REQUESTS);
+
+        return [$done, $failed, $productRequest->fresh()->status === ProductRequest::PUBLISHED, $channelNames];
+    }
+
+    /**
      * Check a product list against the website before the request is made.
      *
      * On a website with Cegid mapping only mapped SKUs can be worked on, so the

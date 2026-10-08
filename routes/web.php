@@ -296,6 +296,9 @@ Route::middleware('auth')->group(function () {
         Route::get('/{productRequest}/activities',         [ProductRequestController::class, 'activities'])->name('activities');
         Route::get('/{productRequest}/skus/download',      [ProductRequestController::class, 'downloadSkus'])->name('skus.download');
         Route::get('/{productRequest}/variants',           [ProductRequestController::class, 'variants'])->name('variants');
+        Route::get('/{productRequest}/publish-preview',    [ProductRequestController::class, 'publishPreview'])->name('publish-preview');
+        Route::post('/{productRequest}/publish',           [ProductRequestController::class, 'publishToShopify'])->name('publish');
+        Route::post('/{productRequest}/publish/one',       [ProductRequestController::class, 'publishOneToShopify'])->name('publish-one');
 
         Route::post('/{productRequest}/revalidate',        [ProductRequestController::class, 'revalidate'])->name('revalidate');
         Route::post('/{productRequest}/skus',              [ProductRequestController::class, 'addSkus'])->name('skus.add');
