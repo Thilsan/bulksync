@@ -7,8 +7,8 @@ namespace App\Support;
  * worker in Cloudways → Application Settings → Supervisord Jobs.
  *
  * Everything used to share 'bulkupload', so one person's photo-editor run held
- * a colleague's one-SKU check on Pending until it finished. The photo editor
- * and SKU checker now have workers of their own; uploads, AI content, audits
+ * a colleague's one-SKU check on Pending until it finished. The photo editor,
+ * SKU checker and AI content now have workers of their own; uploads, audits
  * and product requests still share 'bulkupload' (two processes) to keep the
  * worker count down.
  *
@@ -21,10 +21,10 @@ final class Queues
     public const SHARED      = 'bulkupload';
     public const SKU_CHECK   = 'skucheck';
     public const PHOTOS      = 'photos';
+    public const AI          = 'ai';
     public const MAINTENANCE = 'maintenance';
 
     public const UPLOADS          = self::SHARED;
-    public const AI               = self::SHARED;
     public const AUDITS           = self::SHARED;
     public const PRODUCT_REQUESTS = self::SHARED;
 
@@ -33,6 +33,7 @@ final class Queues
         self::SHARED,
         self::SKU_CHECK,
         self::PHOTOS,
+        self::AI,
         self::MAINTENANCE,
     ];
 }
