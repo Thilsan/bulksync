@@ -127,6 +127,7 @@ class PhotoEditorController extends Controller implements HasMiddleware
 
         return view('photo-editor.history', [
             'usage'        => $this->photoroom->accountUsage(),
+            'periods'      => $this->billingPeriods(),
             'sessions'     => $this->scope()
                 ->with($isSuperAdmin ? ['store', 'user'] : ['store'])
                 ->latest()
@@ -1189,6 +1190,59 @@ class PhotoEditorController extends Controller implements HasMiddleware
     // ──────────────────────────────────────────────────────────────────────
 
     /** Super admins see every session; everyone else sees only their own. */
+    /**
+     * How many photographs were edited in each billing period.
+     *
+     * Billing period, not calendar month. The Photoroom allowance resets on
+     * the day the plan was last changed — the 8th, after the October upgrade —
+     * so a run on the 7th and a run on the 9th fall in different allowances
+     * while sitting in the same calendar month. Grouping by month would put
+     * them together and the figure would never reconcile with the dashboard.
+     *
+     * Counted on created_at rather than updated_at: an item is scanned and
+     * edited inside the same run, minutes apart, and created_at never moves
+     * afterwards. updated_at does, every time a photo is re-pushed, which
+     * would quietly migrate old work into the current period.
+     *
+     * This counts photographs, not credits. A redraw that falls back to a
+     * plain cutout spends two of the plan's images on one photograph here, so
+     * these numbers run at or below what Photoroom charges. The card above
+     * carries Photoroom's own figure for the period in progress; this is for
+     * the shape of the months behind it.
+     *
+     * @return list<array{starts:\Illuminate\Support\Carbon, ends:\Illuminate\Support\Carbon, images:int}>
+     */
+    private function billingPeriods(int $limit = 12): array
+    {
+        $day = max(1, min(28, (int) config('services.photoroom.cycle_day', 8)));
+
+        $daily = PhotoEditItem::whereIn('status', ['edited', 'pushed'])
+            ->whereIn('photo_edit_session_id', $this->scope()->select('id'))
+            ->selectRaw('DATE(created_at) AS d, COUNT(*) AS n')
+            ->groupBy('d')
+            ->pluck('n', 'd');
+
+        $totals = [];
+
+        foreach ($daily as $date => $count) {
+            $on    = \Illuminate\Support\Carbon::parse($date);
+            $start = $on->day >= $day
+                ? $on->copy()->startOfDay()->setDay($day)
+                : $on->copy()->subMonthNoOverflow()->startOfDay()->setDay($day);
+
+            $key          = $start->toDateString();
+            $totals[$key] = ($totals[$key] ?? 0) + (int) $count;
+        }
+
+        krsort($totals);
+
+        return collect($totals)->take($limit)->map(fn ($images, $start) => [
+            'starts' => $starts = \Illuminate\Support\Carbon::parse($start),
+            'ends'   => $starts->copy()->addMonthNoOverflow()->subDay(),
+            'images' => $images,
+        ])->values()->all();
+    }
+
     private function scope()
     {
         $user = auth()->user();

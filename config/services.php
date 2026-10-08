@@ -150,6 +150,17 @@ return [
         'account_cache_seconds' => (int) env('PHOTOROOM_ACCOUNT_CACHE_SECONDS', 300),
 
         /*
+         * The day of the month the Photoroom allowance resets.
+         *
+         * Not the 1st. The cycle runs from whenever the plan was last changed
+         * — 8 November after the upgrade on 8 October — so a calendar month is
+         * the wrong unit for comparing our own count against the plan's. The
+         * API does not report the date, so it is set here and read off the
+         * Photoroom dashboard when it changes.
+         */
+        'cycle_day' => (int) env('PHOTOROOM_CYCLE_DAY', 8),
+
+        /*
          * Off: let Photoroom choose the canvas for a redraw.
          *
          * Measured on the six files Photoroom's own support could not

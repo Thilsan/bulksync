@@ -79,6 +79,45 @@
         @endforeach
     </div>
 
+    {{-- Billing periods, not calendar months.
+
+         The Photoroom allowance resets on the 8th, so a run on the 7th and one
+         on the 9th belong to different allowances inside the same calendar
+         month. Grouped the other way these figures would never reconcile with
+         the dashboard. --}}
+    @if (!empty($periods))
+        <div class="rounded-xl border border-gray-200 bg-white">
+            <div class="flex items-baseline justify-between border-b border-gray-100 px-5 py-3">
+                <p class="text-[11px] font-medium uppercase tracking-[.12em] text-gray-400">Photos edited by month</p>
+                <p class="text-xs text-gray-400">Billing periods, starting the {{ config('services.photoroom.cycle_day', 8) }}th</p>
+            </div>
+
+            <table class="w-full text-sm">
+                <tbody>
+                    @foreach ($periods as $i => $p)
+                        <tr class="{{ $i ? 'border-t border-gray-50' : '' }}">
+                            <td class="px-5 py-2.5 text-gray-700">
+                                {{ $p['starts']->format('j M') }} &ndash; {{ $p['ends']->format('j M Y') }}
+                                @if ($i === 0)
+                                    <span class="ml-1 rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-500">current</span>
+                                @endif
+                            </td>
+                            <td class="px-5 py-2.5 text-right font-semibold tabular-nums text-gray-900">
+                                {{ number_format($p['images']) }}
+                            </td>
+                        </tr>
+                    @endforeach
+                </tbody>
+            </table>
+
+            <p class="border-t border-gray-100 px-5 py-2.5 text-xs text-gray-400">
+                Photographs edited, which is not the same as Photoroom images &mdash; a redraw that falls back to
+                a plain cutout spends two of them on one photograph. Photoroom's own figure for the period in
+                progress is above.
+            </p>
+        </div>
+    @endif
+
     <div class="flex items-center justify-between gap-3">
         <p class="flex items-center gap-2 text-sm text-gray-500">
             <span class="inline-flex items-center rounded-full bg-brand-50 px-2.5 py-0.5 text-xs font-semibold tabular-nums text-brand-700 ring-1 ring-inset ring-brand-100">
