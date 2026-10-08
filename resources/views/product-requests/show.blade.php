@@ -1842,73 +1842,168 @@
                                     <button type="button" class="text-xs font-medium text-brand-700"
                                             @click="const all = data.products.filter(p => p.status !== 'active').every(p => picked[p.id]); data.products.forEach(p => { if (p.status !== 'active') picked[p.id] = !all })">Select / clear all</button>
                                 </div>
-                                <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                                <div class="space-y-4">
                                     <template x-for="p in data.products" :key="p.id">
-                                        <div class="rounded-2xl border p-3 flex gap-3 transition"
-                                             :class="p.status === 'active' ? 'border-emerald-200 bg-emerald-50/40' : (picked[p.id] ? 'border-brand-300 bg-white' : 'border-gray-200 bg-gray-50/60 opacity-70')">
-                                            <div class="w-28 shrink-0">
-                                                <template x-if="p.images.length">
-                                                    <div>
-                                                        <img :src="p.images[0]" class="w-28 h-28 rounded-xl object-cover border border-gray-100" alt="">
-                                                        <div class="mt-1 flex gap-1">
-                                                            <template x-for="img in p.images.slice(1, 4)" :key="img">
-                                                                <img :src="img" class="w-8 h-8 rounded-md object-cover border border-gray-100" alt="">
-                                                            </template>
-                                                            <span x-show="p.images.length > 4" class="text-[10px] text-gray-500 self-center" x-text="`+${p.images.length - 4}`"></span>
+                                        {{-- One product, laid out like its page on the website --}}
+                                        <div class="rounded-2xl border p-4 transition"
+                                             x-data="{ shown: 0, more: false, table: false }"
+                                             :class="p.status === 'active' ? 'border-emerald-200 bg-emerald-50/30' : (picked[p.id] ? 'border-brand-300 bg-white' : 'border-gray-200 bg-gray-50/60 opacity-75')">
+                                            <div class="grid gap-5 md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+
+                                                {{-- Gallery --}}
+                                                <div>
+                                                    <template x-if="p.images.length">
+                                                        <div>
+                                                            <div class="aspect-square rounded-xl overflow-hidden border border-gray-100 bg-gray-50">
+                                                                <img :src="p.images[shown]" class="w-full h-full object-contain" alt="">
+                                                            </div>
+                                                            <div class="mt-2 flex flex-wrap gap-1.5">
+                                                                <template x-for="(img, i) in p.images" :key="img">
+                                                                    <button type="button" @click="shown = i"
+                                                                            class="w-14 h-14 rounded-lg overflow-hidden border-2 transition"
+                                                                            :class="shown === i ? 'border-brand-500' : 'border-transparent hover:border-gray-300'">
+                                                                        <img :src="img" class="w-full h-full object-cover" alt="">
+                                                                    </button>
+                                                                </template>
+                                                            </div>
+                                                            <p class="mt-1 text-[11px] text-gray-400" x-text="`${p.images.length} ${p.images.length === 1 ? 'photo' : 'photos'} in the gallery`"></p>
                                                         </div>
+                                                    </template>
+                                                    <template x-if="!p.images.length">
+                                                        <div class="aspect-square rounded-xl border-2 border-dashed border-red-200 bg-red-50/50 flex flex-col items-center justify-center text-red-400 text-sm">
+                                                            <svg class="w-10 h-10 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.4"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                                                            No photos yet
+                                                        </div>
+                                                    </template>
+                                                </div>
+
+                                                {{-- Details --}}
+                                                <div class="min-w-0">
+                                                    <div class="flex items-start justify-between gap-3">
+                                                        <div class="min-w-0">
+                                                            <p class="text-[11px] uppercase tracking-wider text-gray-400" x-text="[p.vendor, p.type].filter(Boolean).join(' · ')"></p>
+                                                            <h5 class="text-lg font-semibold text-gray-900 leading-snug" x-text="p.title"></h5>
+                                                        </div>
+                                                        <template x-if="p.status === 'active'">
+                                                            <span class="shrink-0 rounded-full bg-emerald-100 text-emerald-700 px-2.5 py-1 text-xs font-semibold">Published</span>
+                                                        </template>
+                                                        <template x-if="p.status !== 'active'">
+                                                            <label class="shrink-0 flex items-center gap-1.5 text-sm text-gray-600 cursor-pointer">
+                                                                <input type="checkbox" x-model="picked[p.id]" class="w-4 h-4 rounded border-gray-300 accent-green-600">
+                                                                Select
+                                                            </label>
+                                                        </template>
                                                     </div>
-                                                </template>
-                                                <template x-if="!p.images.length">
-                                                    <div class="w-28 h-28 rounded-xl border border-dashed border-red-200 bg-red-50/50 flex flex-col items-center justify-center text-red-400 text-[11px]">
-                                                        <svg class="w-6 h-6 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.6"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
-                                                        No photos
+
+                                                    <div class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs">
+                                                        <a :href="p.admin_url" target="_blank" rel="noopener" class="inline-flex items-center gap-1 font-medium text-brand-600 hover:text-brand-700">
+                                                            Open in Shopify
+                                                            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+                                                        </a>
+                                                        <a x-show="p.store_url" :href="p.store_url" target="_blank" rel="noopener" class="inline-flex items-center gap-1 font-medium text-emerald-700 hover:text-emerald-800">
+                                                            View on website
+                                                            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+                                                        </a>
                                                     </div>
-                                                </template>
+
+                                                    <p class="mt-3 text-xl font-semibold text-gray-900"
+                                                       x-text="p.price_min === null ? 'No price' : ((data.currency || '') + (p.price_min === p.price_max ? money(p.price_min) : money(p.price_min) + ' – ' + money(p.price_max)))"></p>
+                                                    <p class="text-xs text-gray-500" x-text="`${p.stock ?? '—'} in stock · ${p.request_skus.length} of its SKUs on this request`"></p>
+
+                                                    {{-- Options, as the website offers them --}}
+                                                    <template x-for="o in (p.options || [])" :key="o.name">
+                                                        <div class="mt-3">
+                                                            <p class="text-xs font-medium text-gray-700 mb-1.5" x-text="o.name"></p>
+                                                            <div class="flex flex-wrap gap-1.5">
+                                                                <template x-for="v in o.values" :key="v">
+                                                                    <span class="rounded-lg border px-3 py-1 text-sm"
+                                                                          :class="p.variants.some(x => (x.options || {})[o.name] === v && p.request_skus.includes(x.sku)) ? 'border-brand-400 bg-brand-50 text-brand-800 font-medium' : 'border-gray-200 bg-white text-gray-700'"
+                                                                          x-text="v"></span>
+                                                                </template>
+                                                            </div>
+                                                        </div>
+                                                    </template>
+
+                                                    {{-- Description --}}
+                                                    <div class="mt-4">
+                                                        <p class="text-xs font-medium text-gray-700 mb-1">Description</p>
+                                                        <template x-if="p.has_description">
+                                                            <div>
+                                                                <div class="prose prose-sm max-w-none text-gray-700 text-sm leading-relaxed overflow-hidden [&_p]:mb-2 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5"
+                                                                     :class="more ? '' : 'max-h-28'" x-html="p.description_html"></div>
+                                                                <button type="button" @click="more = !more" class="mt-1 text-xs font-medium text-brand-700" x-text="more ? 'Show less' : 'Show more'"></button>
+                                                            </div>
+                                                        </template>
+                                                        <template x-if="!p.has_description">
+                                                            <p class="text-sm text-red-600">No description yet.</p>
+                                                        </template>
+                                                    </div>
+
+                                                    <div class="mt-3 flex flex-wrap gap-1">
+                                                        <span x-show="!p.images.length" class="rounded-full bg-red-50 text-red-600 px-2 py-0.5 text-[11px]">No photos</span>
+                                                        <span x-show="!p.has_description" class="rounded-full bg-red-50 text-red-600 px-2 py-0.5 text-[11px]">No description</span>
+                                                        <span x-show="p.price_min === null || p.price_min === 0" class="rounded-full bg-red-50 text-red-600 px-2 py-0.5 text-[11px]">No price</span>
+                                                        <span x-show="p.stock === 0" class="rounded-full bg-amber-50 text-amber-700 px-2 py-0.5 text-[11px]">0 in stock</span>
+                                                        <span x-show="p.variants.length > p.request_skus.length" class="rounded-full bg-gray-100 text-gray-600 px-2 py-0.5 text-[11px]"
+                                                              x-text="`All ${p.variants.length} variants go live`"></span>
+                                                    </div>
+
+                                                    <template x-if="p.channels && p.channels.length">
+                                                        <p class="mt-2 text-[11px] text-emerald-700" x-text="'Live on: ' + p.channels.map(c => c.name).join(', ')"></p>
+                                                    </template>
+
+                                                    <template x-if="p.status !== 'active'">
+                                                        <div class="mt-3 flex items-center gap-2">
+                                                            <button type="button" @click="publishOne(p)" :disabled="one !== null"
+                                                                    class="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-4 py-2 disabled:opacity-50">
+                                                                <svg class="w-4 h-4" :class="one === p.id && 'animate-spin'" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+                                                                <span x-text="one === p.id ? 'Publishing…' : 'Publish this product'"></span>
+                                                            </button>
+                                                            <span class="text-[11px] text-gray-400" x-text="channels.length ? 'to ' + channels.map(c => c.name).join(', ') : 'Active only — no channel on'"></span>
+                                                        </div>
+                                                    </template>
+                                                    <p x-show="oneError && oneError.id === p.id" class="mt-1 text-[11px] text-red-600" x-text="oneError?.text"></p>
+                                                </div>
                                             </div>
 
-                                            <div class="min-w-0 flex-1">
-                                                <div class="flex items-start justify-between gap-2">
-                                                    <p class="text-sm font-semibold text-gray-900 leading-snug" x-text="p.title"></p>
-                                                    <template x-if="p.status === 'active'">
-                                                        <span class="shrink-0 rounded-full bg-emerald-100 text-emerald-700 px-2 py-0.5 text-[11px] font-semibold">Published</span>
-                                                    </template>
-                                                    <template x-if="p.status !== 'active'">
-                                                        <label class="shrink-0 flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer">
-                                                            <input type="checkbox" x-model="picked[p.id]" class="w-4 h-4 rounded border-gray-300 accent-green-600">
-                                                            Publish
-                                                        </label>
-                                                    </template>
+                                            {{-- Every variant --}}
+                                            <div class="mt-4 border-t border-gray-100 pt-3">
+                                                <button type="button" @click="table = !table" class="flex items-center gap-1 text-xs font-medium text-gray-700">
+                                                    <svg class="w-3.5 h-3.5 transition-transform" :class="table && 'rotate-90'" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
+                                                    <span x-text="`Variants (${p.variants.length})`"></span>
+                                                </button>
+                                                <div x-show="table" x-cloak class="mt-2 overflow-x-auto rounded-xl border border-gray-100">
+                                                    <table class="w-full text-xs">
+                                                        <thead>
+                                                            <tr class="bg-gray-50 text-left text-[10px] uppercase tracking-wider text-gray-400">
+                                                                <th class="px-3 py-2 font-semibold w-10"></th>
+                                                                <th class="px-3 py-2 font-semibold">Variant</th>
+                                                                <th class="px-3 py-2 font-semibold">SKU</th>
+                                                                <th class="px-3 py-2 font-semibold text-right">Price</th>
+                                                                <th class="px-3 py-2 font-semibold text-right">Stock</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody class="divide-y divide-gray-50">
+                                                            <template x-for="v in p.variants" :key="v.sku + v.title">
+                                                                <tr :class="p.request_skus.includes(v.sku) && 'bg-brand-50/50'">
+                                                                    <td class="px-3 py-1.5">
+                                                                        <template x-if="v.image"><img :src="v.image" class="w-7 h-7 rounded object-cover" alt=""></template>
+                                                                    </td>
+                                                                    <td class="px-3 py-1.5 text-gray-800">
+                                                                        <span x-text="v.title"></span>
+                                                                        <span x-show="p.request_skus.includes(v.sku)" class="ml-1 text-[9px] font-semibold uppercase tracking-wide text-brand-600">on request</span>
+                                                                    </td>
+                                                                    <td class="px-3 py-1.5 font-mono text-gray-600" x-text="v.sku || '—'"></td>
+                                                                    <td class="px-3 py-1.5 text-right whitespace-nowrap">
+                                                                        <span x-show="v.compare_at && Number(v.compare_at) > Number(v.price)" class="mr-1 text-gray-400 line-through" x-text="money(v.compare_at)"></span>
+                                                                        <span :class="!Number(v.price) ? 'text-red-600 font-semibold' : 'text-gray-800'" x-text="money(v.price)"></span>
+                                                                    </td>
+                                                                    <td class="px-3 py-1.5 text-right" :class="v.stock === 0 ? 'text-red-600 font-semibold' : 'text-gray-700'" x-text="v.stock ?? '—'"></td>
+                                                                </tr>
+                                                            </template>
+                                                        </tbody>
+                                                    </table>
                                                 </div>
-                                                <p class="mt-1 text-sm text-gray-800"
-                                                   x-text="p.price_min === null ? 'No price' : ((data.currency || '') + (p.price_min === p.price_max ? money(p.price_min) : money(p.price_min) + ' – ' + money(p.price_max)))"></p>
-                                                <p class="text-xs text-gray-500 mt-0.5"
-                                                   x-text="`${p.variants.length} ${p.variants.length === 1 ? 'variant' : 'variants'} · ${p.stock ?? '—'} in stock · ${p.request_skus.length} on this request`"></p>
-                                                <p class="mt-1.5 text-xs text-gray-600 line-clamp-2" x-text="p.description || ''"></p>
-
-                                                <div class="mt-2 flex flex-wrap gap-1">
-                                                    <span x-show="!p.images.length" class="rounded-full bg-red-50 text-red-600 px-2 py-0.5 text-[11px]">No photos</span>
-                                                    <span x-show="!p.has_description" class="rounded-full bg-red-50 text-red-600 px-2 py-0.5 text-[11px]">No description</span>
-                                                    <span x-show="p.price_min === null || p.price_min === 0" class="rounded-full bg-red-50 text-red-600 px-2 py-0.5 text-[11px]">No price</span>
-                                                    <span x-show="p.stock === 0" class="rounded-full bg-amber-50 text-amber-700 px-2 py-0.5 text-[11px]">0 in stock</span>
-                                                    <span x-show="p.variants.length > p.request_skus.length" class="rounded-full bg-gray-100 text-gray-600 px-2 py-0.5 text-[11px]"
-                                                          x-text="`All ${p.variants.length} sizes go live`"></span>
-                                                </div>
-
-                                                <template x-if="p.channels && p.channels.length">
-                                                    <p class="mt-2 text-[11px] text-emerald-700" x-text="'Live on: ' + p.channels.map(c => c.name).join(', ')"></p>
-                                                </template>
-
-                                                <template x-if="p.status !== 'active'">
-                                                    <div class="mt-2.5 flex items-center gap-2">
-                                                        <button type="button" @click="publishOne(p)" :disabled="one !== null"
-                                                                class="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-xs font-medium px-3 py-1.5 disabled:opacity-50">
-                                                            <svg class="w-3.5 h-3.5" :class="one === p.id && 'animate-spin'" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
-                                                            <span x-text="one === p.id ? 'Publishing…' : 'Publish this'"></span>
-                                                        </button>
-                                                        <span class="text-[11px] text-gray-400" x-text="channels.length ? 'to ' + channels.map(c => c.name).join(', ') : 'Active only — no channel on'"></span>
-                                                    </div>
-                                                </template>
-                                                <p x-show="oneError && oneError.id === p.id" class="mt-1 text-[11px] text-red-600" x-text="oneError?.text"></p>
                                             </div>
                                         </div>
                                     </template>

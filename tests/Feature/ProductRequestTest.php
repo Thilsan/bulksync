@@ -2763,6 +2763,7 @@ class ProductRequestTest extends TestCase
 
         $preview = $this->actingAs($user)->getJson(route('product-requests.publish-preview', $request))->assertOk();
         $this->assertSame(['PUB-A', 'PUB-B'], $preview->json('products.0.request_skus'));
+        $this->assertSame('https://bluesalon.myshopify.com/admin/products/111', $preview->json('products.0.admin_url'));
         $this->assertSame('active', $preview->json('products.1.status'));
         $this->assertCount(2, $preview->json('channels'));
 

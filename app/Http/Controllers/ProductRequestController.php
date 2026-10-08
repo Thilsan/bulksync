@@ -569,7 +569,10 @@ class ProductRequestController extends Controller implements HasMiddleware
             'channels'       => $channels,
             'channels_error' => $channelsError,
             'missing'        => $productRequest->skus()->where('in_shopify', false)->pluck('sku'),
-            'products'       => collect($products)->map(fn ($p) => $p + ['request_skus' => $bySku[$p['id']] ?? []])->values(),
+            'products'       => collect($products)->map(fn ($p) => $p + [
+                'request_skus' => $bySku[$p['id']] ?? [],
+                'admin_url'    => 'https://' . $store->shopify_domain . '/admin/products/' . $p['id'],
+            ])->values(),
         ]);
     }
 

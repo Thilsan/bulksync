@@ -1825,9 +1825,10 @@ class ShopifyService
         $out  = [];
 
         foreach (array_chunk($gids, 25) as $batch) {
-            $base = 'id title status descriptionHtml totalInventory
-                     media(first:8){edges{node{... on MediaImage{image{url}}}}}
-                     variants(first:100){edges{node{sku price title inventoryQuantity}}}';
+            $base = 'id title status onlineStoreUrl descriptionHtml totalInventory vendor productType
+                     options{name values}
+                     media(first:20){edges{node{... on MediaImage{image{url}}}}}
+                     variants(first:100){edges{node{sku price compareAtPrice title inventoryQuantity selectedOptions{name value} image{url}}}}';
 
             try {
                 $data = $this->graphql(
@@ -1857,14 +1858,25 @@ class ShopifyService
                     'id'          => $id,
                     'title'       => $node['title'] ?? '',
                     'status'      => strtolower($node['status'] ?? ''),
+                    'store_url'   => $node['onlineStoreUrl'] ?? null,
                     'has_description' => filled(trim(strip_tags((string) ($node['descriptionHtml'] ?? '')))),
                     'description' => \Illuminate\Support\Str::limit(trim(strip_tags((string) ($node['descriptionHtml'] ?? ''))), 220),
+                    // Shown as the website shows it, with only formatting tags kept.
+                    'description_html' => strip_tags((string) ($node['descriptionHtml'] ?? ''),
+                        '<p><br><b><strong><i><em><u><ul><ol><li><h2><h3><h4><h5><span><div><table><tr><td><th><tbody><thead>'),
+                    'vendor'      => $node['vendor'] ?? null,
+                    'type'        => $node['productType'] ?? null,
+                    'options'     => collect($node['options'] ?? [])->map(fn ($o) => ['name' => $o['name'] ?? '', 'values' => $o['values'] ?? []])
+                        ->reject(fn ($o) => $o['name'] === 'Title' && $o['values'] === ['Default Title'])->values()->all(),
                     'images'      => collect($node['media']['edges'] ?? [])->pluck('node.image.url')->filter()->values()->all(),
                     'stock'       => $node['totalInventory'] ?? null,
                     'price_min'   => $prices->min(),
                     'price_max'   => $prices->max(),
                     'variants'    => $variants->map(fn ($v) => [
-                        'sku' => $v['sku'] ?? '', 'title' => $v['title'] ?? '', 'price' => $v['price'] ?? null, 'stock' => $v['inventoryQuantity'] ?? null,
+                        'sku' => $v['sku'] ?? '', 'title' => $v['title'] ?? '', 'price' => $v['price'] ?? null,
+                        'compare_at' => $v['compareAtPrice'] ?? null, 'stock' => $v['inventoryQuantity'] ?? null,
+                        'options' => collect($v['selectedOptions'] ?? [])->pluck('value', 'name')->all(),
+                        'image' => $v['image']['url'] ?? null,
                     ])->values()->all(),
                     'channels'    => $channelsKnown
                         ? collect($node['resourcePublicationsV2']['edges'] ?? [])->map(fn ($e) => [
