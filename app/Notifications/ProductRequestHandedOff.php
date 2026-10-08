@@ -8,6 +8,7 @@ use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
+use App\Support\Queues;
 
 /**
  * Tells the person a task has been taken off.
@@ -28,7 +29,7 @@ class ProductRequestHandedOff extends Notification implements ShouldQueue
         public readonly string $newOwnerName,
         public readonly string $actorName,
     ) {
-        $this->onQueue('bulkupload');
+        $this->onQueue(Queues::PRODUCT_REQUESTS);
     }
 
     public static function forRequest(ProductRequest $request, string $roleLabel, string $newOwnerName, string $actorName): self

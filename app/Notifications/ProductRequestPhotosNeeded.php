@@ -8,6 +8,7 @@ use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
+use App\Support\Queues;
 
 /**
  * Asks the brand manager for the products, because a shoot has been agreed.
@@ -29,7 +30,7 @@ class ProductRequestPhotosNeeded extends Notification implements ShouldQueue
         public readonly int    $skus,
         public readonly string $askedBy,
     ) {
-        $this->onQueue('bulkupload');
+        $this->onQueue(Queues::PRODUCT_REQUESTS);
     }
 
     public static function forRequest(ProductRequest $request, string $askedBy): self

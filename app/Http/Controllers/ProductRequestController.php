@@ -35,6 +35,7 @@ use Illuminate\Support\Facades\Notification as NotificationFacade;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 use Symfony\Component\HttpFoundation\StreamedResponse;
+use App\Support\Queues;
 
 class ProductRequestController extends Controller implements HasMiddleware
 {
@@ -806,7 +807,7 @@ class ProductRequestController extends Controller implements HasMiddleware
         $staffed = $this->workflow->staffFromCategory($productRequest, $user);
         $assigned += count($staffed);
 
-        ValidateProductRequestSkusJob::dispatch($productRequest->id, $user->id)->onQueue('bulkupload');
+        ValidateProductRequestSkusJob::dispatch($productRequest->id, $user->id)->onQueue(Queues::PRODUCT_REQUESTS);
 
         $names = collect($staffed)->unique('id')->pluck('name')->join(', ', ' and ');
 
@@ -992,7 +993,7 @@ class ProductRequestController extends Controller implements HasMiddleware
             actor:       $user,
         );
 
-        ValidateProductRequestSkusJob::dispatch($productRequest->id, $user->id)->onQueue('bulkupload');
+        ValidateProductRequestSkusJob::dispatch($productRequest->id, $user->id)->onQueue(Queues::PRODUCT_REQUESTS);
 
         return back()->with('success', 'SKU validation started.');
     }
@@ -1052,7 +1053,7 @@ class ProductRequestController extends Controller implements HasMiddleware
             actor:       $user,
         );
 
-        ValidateProductRequestSkusJob::dispatch($productRequest->id, $user->id)->onQueue('bulkupload');
+        ValidateProductRequestSkusJob::dispatch($productRequest->id, $user->id)->onQueue(Queues::PRODUCT_REQUESTS);
 
         return back()->with('success', "{$added} SKU(s) added. Validation restarted.");
     }
@@ -1461,7 +1462,7 @@ class ProductRequestController extends Controller implements HasMiddleware
 
         $productRequest->update(['ai_content_session_id' => $session->id]);
 
-        GenerateAiContentJob::dispatch($session->id)->onQueue('bulkupload');
+        GenerateAiContentJob::dispatch($session->id)->onQueue(Queues::AI);
 
         return $skus->count();
     }
@@ -1966,7 +1967,7 @@ class ProductRequestController extends Controller implements HasMiddleware
 
         $productRequest->update(['ai_content_session_id' => $session->id]);
 
-        GenerateAiContentJob::dispatch($session->id)->onQueue('bulkupload');
+        GenerateAiContentJob::dispatch($session->id)->onQueue(Queues::AI);
 
         $handled = $productRequest->contentHandledCount() - $eligible->count();
         $why     = $onlyBlank

@@ -7,6 +7,7 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
 use App\Notifications\Concerns\BuildsRequestEmail;
 use Illuminate\Notifications\Notification;
+use App\Support\Queues;
 
 /**
  * One daily nudge per person, listing only what they are actually holding up.
@@ -24,7 +25,7 @@ class ProductRequestReminder extends Notification implements ShouldQueue
      */
     public function __construct(public readonly array $items)
     {
-        $this->onQueue('bulkupload');
+        $this->onQueue(Queues::PRODUCT_REQUESTS);
     }
 
     public function via(object $notifiable): array

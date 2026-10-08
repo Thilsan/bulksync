@@ -11,6 +11,7 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
+use App\Support\Queues;
 
 class ScanOneDriveFolderJob implements ShouldQueue
 {
@@ -114,7 +115,7 @@ class ScanOneDriveFolderJob implements ShouldQueue
                     foreach ($items as $item) {
                         try {
                             ProcessUploadItemJob::dispatch($item->id)
-                                ->onQueue('bulkupload');
+                                ->onQueue(Queues::UPLOADS);
                         } catch (\Throwable $e) {
                             Log::error("ScanOneDriveFolderJob: dispatch failed for item {$item->id}: " . $e->getMessage());
                         }

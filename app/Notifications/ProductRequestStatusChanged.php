@@ -8,6 +8,7 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
 use App\Notifications\Concerns\BuildsRequestEmail;
 use Illuminate\Notifications\Notification;
+use App\Support\Queues;
 
 class ProductRequestStatusChanged extends Notification implements ShouldQueue
 {
@@ -22,7 +23,7 @@ class ProductRequestStatusChanged extends Notification implements ShouldQueue
         public readonly string  $actorName,
         public readonly ?string $remarks = null,
     ) {
-        $this->onQueue('bulkupload');
+        $this->onQueue(Queues::PRODUCT_REQUESTS);
     }
 
     public static function forRequest(ProductRequest $request, ?string $fromStatus, string $actorName, ?string $remarks = null): self

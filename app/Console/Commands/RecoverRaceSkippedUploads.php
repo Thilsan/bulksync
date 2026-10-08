@@ -7,6 +7,7 @@ use App\Models\UploadItem;
 use App\Models\UploadSession;
 use App\Services\UploadBaselineResolver;
 use Illuminate\Console\Command;
+use App\Support\Queues;
 
 /**
  * Re-queues files that a pre-fix run dropped as "Already Has Image" when they
@@ -92,7 +93,7 @@ class RecoverRaceSkippedUploads extends Command
 
             $item->update(['status' => 'pending', 'error_message' => null]);
 
-            ProcessUploadItemJob::dispatch($item->id)->onQueue('bulkupload');
+            ProcessUploadItemJob::dispatch($item->id)->onQueue(Queues::UPLOADS);
         }
 
         if ($dryRun) {

@@ -8,6 +8,7 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
 use App\Notifications\Concerns\BuildsRequestEmail;
 use Illuminate\Notifications\Notification;
+use App\Support\Queues;
 
 /**
  * A request stalling matters more than most status changes — the launch date
@@ -27,7 +28,7 @@ class ProductRequestHoldChanged extends Notification implements ShouldQueue
         public readonly string  $stageLabel,
         public readonly string  $actorName,
     ) {
-        $this->onQueue('bulkupload');
+        $this->onQueue(Queues::PRODUCT_REQUESTS);
     }
 
     public static function forRequest(ProductRequest $request, string $actorName): self

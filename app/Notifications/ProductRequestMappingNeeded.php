@@ -8,6 +8,7 @@ use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
+use App\Support\Queues;
 
 /**
  * Asks the brand manager to map the SKUs a website is still missing.
@@ -36,7 +37,7 @@ class ProductRequestMappingNeeded extends Notification implements ShouldQueue
         public readonly int    $total,
         public readonly array  $pending,
     ) {
-        $this->onQueue('bulkupload');
+        $this->onQueue(Queues::PRODUCT_REQUESTS);
     }
 
     public static function forRequest(ProductRequest $request): self

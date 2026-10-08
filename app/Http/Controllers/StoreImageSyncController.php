@@ -8,6 +8,7 @@ use App\Models\StoreMigrationSession;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
+use App\Support\Queues;
 
 class StoreImageSyncController extends Controller
 {
@@ -85,7 +86,7 @@ class StoreImageSyncController extends Controller
         ]);
 
         RunStoreImageSyncJob::dispatch($token, $fromStore->id, $toStore->id, $skus, $request->migration_type)
-            ->onQueue('bulkupload');
+            ->onQueue(Queues::UPLOADS);
 
         return redirect()->route('store-image-sync.show', $token);
     }

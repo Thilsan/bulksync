@@ -26,6 +26,7 @@ use Illuminate\Routing\Controllers\Middleware;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
+use App\Support\Queues;
 
 /**
  * Fetch product photos from OneDrive, edit them through Photoroom, review the
@@ -225,13 +226,12 @@ class PhotoEditorController extends Controller implements HasMiddleware
          * run finished. Nothing had failed; their scan was simply hundreds of
          * places down the line.
          *
-         * Workers take bulkupload-scan before bulkupload (see
-         * resources/supervisor/bulksync-worker.conf), so a scan never waits on
-         * an edit. Their edits still queue behind the other run's, which is
-         * fair — and bounded by Photoroom's per-minute ceiling either way.
+         * The photo editor has its own queue and worker now (see Queues), so a
+         * scan no longer waits on anyone's uploads or AI content, and edits are
+         * released at Photoroom's pace, so it isn't far behind other runs either.
          */
         ScanPhotoEditFolderJob::dispatch($session->id)
-            ->onQueue(config('services.photo_editor.scan_queue', 'bulkupload-scan'));
+            ->onQueue(config('services.photo_editor.scan_queue', Queues::PHOTOS));
 
         return redirect()->route('photo-editor.configure', $session)
             ->with('info', 'Reading the folder. Your settings are carried over — nothing is sent to Photoroom until you start the run.');
@@ -454,13 +454,13 @@ class PhotoEditorController extends Controller implements HasMiddleware
             ->chunkById(500, function ($items) use ($gap, &$slot) {
                 foreach ($items as $item) {
                     if ($item->skip_edit) {
-                        CopyOriginalPhotoJob::dispatch($item->id)->onQueue('bulkupload');
+                        CopyOriginalPhotoJob::dispatch($item->id)->onQueue(Queues::PHOTOS);
 
                         continue;
                     }
 
                     EditPhotoItemJob::dispatch($item->id)
-                        ->onQueue('bulkupload')
+                        ->onQueue(Queues::PHOTOS)
                         ->delay(now()->addSeconds((int) floor($slot++ * $gap)));
                 }
             });
@@ -500,7 +500,7 @@ class PhotoEditorController extends Controller implements HasMiddleware
                 'onedrive_download_url' => $source->onedrive_download_url,
             ]);
 
-            EditPhotoItemJob::dispatch($item->id)->onQueue('bulkupload');
+            EditPhotoItemJob::dispatch($item->id)->onQueue(Queues::PHOTOS);
         }
 
         foreach (PhotoEditGroup::whereIn('id', $groupIds)->where('lifestyle_count', '>', 0)->get() as $group) {
@@ -521,7 +521,7 @@ class PhotoEditorController extends Controller implements HasMiddleware
                     'selected'              => false, // generated, so opted into rather than out of
                 ]);
 
-                GenerateLifestyleImageJob::dispatch($item->id, $i)->onQueue('bulkupload');
+                GenerateLifestyleImageJob::dispatch($item->id, $i)->onQueue(Queues::PHOTOS);
             }
         }
 
@@ -1113,7 +1113,7 @@ class PhotoEditorController extends Controller implements HasMiddleware
         PhotoEditItem::whereIn('id', $pushable)->update(['status' => 'pushing']);
 
         foreach ($pushable as $id) {
-            PushEditedPhotoJob::dispatch($id)->onQueue('bulkupload');
+            PushEditedPhotoJob::dispatch($id)->onQueue(Queues::PHOTOS);
         }
 
         return response()->json([
@@ -1159,7 +1159,7 @@ class PhotoEditorController extends Controller implements HasMiddleware
             'error_message' => null,
         ]);
 
-        EditPhotoItemJob::dispatch($item->id)->onQueue('bulkupload');
+        EditPhotoItemJob::dispatch($item->id)->onQueue(Queues::PHOTOS);
 
         return response()->json(['status' => 'queued']);
     }

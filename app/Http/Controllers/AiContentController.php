@@ -12,6 +12,7 @@ use App\Services\ShopifyService;
 use App\Support\ProductTagTaxonomy;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use App\Support\Queues;
 
 class AiContentController extends Controller
 {
@@ -122,7 +123,7 @@ class AiContentController extends Controller
             'total_items' => $skus->count(),
         ]);
 
-        GenerateAiContentJob::dispatch($session->id)->onQueue('bulkupload');
+        GenerateAiContentJob::dispatch($session->id)->onQueue(Queues::AI);
 
         return redirect()->route('ai-content.show', $session)
             ->with('success', 'AI content generation started.');
@@ -217,7 +218,7 @@ class AiContentController extends Controller
         }
 
         $aiContentSession->update(['status' => 'translating']);
-        TranslateAiContentJob::dispatch($aiContentSession->id)->onQueue('bulkupload');
+        TranslateAiContentJob::dispatch($aiContentSession->id)->onQueue(Queues::AI);
 
         return redirect()->route('ai-content.show', $aiContentSession)
             ->with('success', 'Arabic translation started.');

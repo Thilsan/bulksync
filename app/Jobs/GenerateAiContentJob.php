@@ -13,6 +13,7 @@ use App\Services\ShopifyService;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\Log;
+use App\Support\Queues;
 
 class GenerateAiContentJob implements ShouldQueue
 {
@@ -87,7 +88,7 @@ class GenerateAiContentJob implements ShouldQueue
             // session stays "processing" and the progress bar keeps moving.
             if ($nextOffset !== null) {
                 Log::info('GenerateAiContentJob: chunk done, continuing', ['session' => $this->sessionId, 'next_offset' => $nextOffset]);
-                self::dispatch($this->sessionId, $nextOffset)->onQueue('bulkupload');
+                self::dispatch($this->sessionId, $nextOffset)->onQueue(Queues::AI);
 
                 return;
             }

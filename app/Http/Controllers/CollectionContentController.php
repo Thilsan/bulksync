@@ -11,6 +11,7 @@ use App\Models\Store;
 use App\Services\ShopifyService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use App\Support\Queues;
 
 /**
  * SEO content for collection pages.
@@ -211,7 +212,7 @@ class CollectionContentController extends Controller
             ]);
         }
 
-        GenerateCollectionContentJob::dispatch($session->id)->onQueue('bulkupload');
+        GenerateCollectionContentJob::dispatch($session->id)->onQueue(Queues::AI);
 
         return redirect()->route('collection-content.show', $session)
             ->with('success', count($collections) . ' collection(s) queued. Review the suggestions before anything is pushed.');

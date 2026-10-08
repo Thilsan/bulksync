@@ -10,6 +10,7 @@ use App\Models\SkuCheckSession;
 use App\Models\Store;
 use App\Services\ShopifyService;
 use Illuminate\Http\Request;
+use App\Support\Queues;
 
 class SkuCheckerController extends Controller
 {
@@ -99,7 +100,7 @@ class SkuCheckerController extends Controller
             'raw_skus'   => implode("\n", $skus),
         ]);
 
-        RunSkuCheckJob::dispatch($session->id)->onQueue('skucheck');
+        RunSkuCheckJob::dispatch($session->id)->onQueue(Queues::SKU_CHECK);
 
         return redirect()->route('sku-checker.show', $session);
     }
@@ -272,7 +273,7 @@ class SkuCheckerController extends Controller
             'variant_export_error'   => null,
         ]);
 
-        BuildVariantBreakdownCsvJob::dispatch($skuCheckSession->id)->onQueue('bulkupload');
+        BuildVariantBreakdownCsvJob::dispatch($skuCheckSession->id)->onQueue(Queues::SKU_CHECK);
 
         return response()->json(['status' => 'pending']);
     }
@@ -319,7 +320,7 @@ class SkuCheckerController extends Controller
         }
         $request->file('shopify_csv')->move($dir, "shopify_{$session->id}.csv");
 
-        RunCsvCompareJob::dispatch($session->id)->onQueue('bulkupload');
+        RunCsvCompareJob::dispatch($session->id)->onQueue(Queues::SKU_CHECK);
 
         return redirect()->route('sku-checker.show', $session);
     }

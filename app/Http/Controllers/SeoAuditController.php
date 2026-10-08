@@ -10,6 +10,7 @@ use App\Models\SeoAuditSession;
 use App\Models\Store;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use App\Support\Queues;
 
 class SeoAuditController extends Controller
 {
@@ -58,7 +59,7 @@ class SeoAuditController extends Controller
             'status'   => 'pending',
         ]);
 
-        RunSeoAuditJob::dispatch($session->id)->onQueue('bulkupload');
+        RunSeoAuditJob::dispatch($session->id)->onQueue(Queues::AUDITS);
 
         return redirect()->route('seo-audit.show', $session)
             ->with('success', 'SEO audit started. A large catalogue can take several minutes.');
@@ -399,7 +400,7 @@ class SeoAuditController extends Controller
             'total_items' => $skus->count(),
         ]);
 
-        GenerateAiContentJob::dispatch($session->id)->onQueue('bulkupload');
+        GenerateAiContentJob::dispatch($session->id)->onQueue(Queues::AI);
 
         $message = sprintf(
             'Generating content for %s product(s) from the SEO audit. Review it here, then push to Shopify.',

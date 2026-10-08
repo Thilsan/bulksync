@@ -10,6 +10,7 @@ use App\Services\ProductImageScraper;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
+use App\Support\Queues;
 
 /**
  * Barcode Image Grabber: a list of internal barcodes and a website, and back
@@ -105,7 +106,7 @@ class BarcodeImageController extends Controller
             'raw_barcodes'   => implode("\n", $barcodes),
         ]);
 
-        RunBarcodeImageDownloadJob::dispatch($session->id)->onQueue('bulkupload');
+        RunBarcodeImageDownloadJob::dispatch($session->id)->onQueue(Queues::AUDITS);
 
         return redirect()->route('barcode-images.show', $session);
     }
@@ -224,7 +225,7 @@ class BarcodeImageController extends Controller
             'push_error'         => null,
         ]);
 
-        PushBarcodeImagesJob::dispatch($barcodeImageSession->id)->onQueue('bulkupload');
+        PushBarcodeImagesJob::dispatch($barcodeImageSession->id)->onQueue(Queues::AUDITS);
 
         return back()->with('success', "Pushing to {$store->name}. It continues in the background.");
     }

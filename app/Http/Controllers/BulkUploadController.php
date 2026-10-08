@@ -11,6 +11,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
+use App\Support\Queues;
 
 class BulkUploadController extends Controller
 {
@@ -247,7 +248,7 @@ class BulkUploadController extends Controller
         // The scan queues a ProcessUploadItemJob per file; each asks Shopify for
         // its own SKU. No cache is warmed first — there isn't one.
         ScanOneDriveFolderJob::dispatch($session->id)
-            ->onQueue('bulkupload');
+            ->onQueue(Queues::UPLOADS);
 
         return redirect()->route('upload.show', $session)
             ->with('info', 'Scan started! Watching for images in your OneDrive folder…');

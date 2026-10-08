@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 use Illuminate\View\View;
+use App\Support\Queues;
 
 /**
  * Operational view of the queues.
@@ -27,12 +28,12 @@ use Illuminate\View\View;
 class QueueController extends Controller
 {
     /**
-     * Queues worth showing. Only 'bulkupload' is dispatched to by the app, but a
-     * worker also runs on 'maintenance', and 'default' catches anything queued
-     * without an explicit name — a job landing there is itself worth seeing,
-     * since nothing is listening to it.
+     * Queues worth showing: one per feature (see Queues), the pre-split
+     * 'bulkupload' while its backlog drains, and 'default', which catches
+     * anything queued without an explicit name — a job landing there is itself
+     * worth seeing, since nothing is listening to it.
      */
-    private const QUEUES = ['bulkupload', 'maintenance', 'default'];
+    private const QUEUES = [...Queues::ALL, Queues::LEGACY, 'default'];
 
     public function index(): View
     {

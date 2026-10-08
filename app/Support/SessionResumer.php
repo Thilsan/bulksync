@@ -17,6 +17,7 @@ use App\Models\StoreMigrationSession;
 use App\Models\UploadItem;
 use App\Models\UploadSession;
 use RuntimeException;
+use App\Support\Queues;
 
 /**
  * Picking up long-running work that stopped short, whatever kind it was.
@@ -145,7 +146,7 @@ class SessionResumer
     /** The job knows how to skip what it already generated, so one dispatch is enough. */
     private static function resumeAiContent(AiContentSession $session): string
     {
-        GenerateAiContentJob::dispatch($session->id)->onQueue('bulkupload');
+        GenerateAiContentJob::dispatch($session->id)->onQueue(Queues::AI);
 
         return "AI content session #{$session->id} queued. Finished SKUs are skipped.";
     }
@@ -163,7 +164,7 @@ class SessionResumer
             ->pluck('id');
 
         foreach ($items as $itemId) {
-            ProcessUploadItemJob::dispatch($itemId)->onQueue('bulkupload');
+            ProcessUploadItemJob::dispatch($itemId)->onQueue(Queues::UPLOADS);
         }
 
         $session->update(['status' => 'processing']);
@@ -188,7 +189,7 @@ class SessionResumer
             ->pluck('id');
 
         foreach ($items as $itemId) {
-            EditPhotoItemJob::dispatch($itemId)->onQueue('bulkupload');
+            EditPhotoItemJob::dispatch($itemId)->onQueue(Queues::PHOTOS);
         }
 
         $session->update(['status' => 'processing']);
@@ -199,7 +200,7 @@ class SessionResumer
     /** An audit only reads, so running it again from the top costs nothing but time. */
     private static function resumeImageAudit(ImageAuditSession $session): string
     {
-        RunImageAuditJob::dispatch($session->id)->onQueue('bulkupload');
+        RunImageAuditJob::dispatch($session->id)->onQueue(Queues::AUDITS);
 
         return "Image audit #{$session->id} queued again.";
     }
@@ -214,7 +215,7 @@ class SessionResumer
         $csv = storage_path("app/sku-checks/shopify_{$session->id}.csv");
 
         if (is_file($csv)) {
-            RunCsvCompareJob::dispatch($session->id)->onQueue('bulkupload');
+            RunCsvCompareJob::dispatch($session->id)->onQueue(Queues::SKU_CHECK);
 
             return "CSV comparison #{$session->id} queued again.";
         }
@@ -223,7 +224,7 @@ class SessionResumer
             throw new RuntimeException('This check has neither its SKU list nor its uploaded CSV left, so there is nothing to run again.');
         }
 
-        RunSkuCheckJob::dispatch($session->id)->onQueue('skucheck');
+        RunSkuCheckJob::dispatch($session->id)->onQueue(Queues::SKU_CHECK);
 
         return "SKU check #{$session->id} queued again.";
     }

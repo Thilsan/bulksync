@@ -7,6 +7,7 @@ use App\Models\Store;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
+use App\Support\Queues;
 
 class MetafieldUpdateController extends Controller
 {
@@ -41,7 +42,7 @@ class MetafieldUpdateController extends Controller
             'results'   => [],
         ], 3600);
 
-        MetafieldUpdateJob::dispatch($cacheKey, $store->id, $rows)->onQueue('bulkupload');
+        MetafieldUpdateJob::dispatch($cacheKey, $store->id, $rows)->onQueue(Queues::AUDITS);
 
         return redirect()->route('metafield-update.status', ['key' => $cacheKey]);
     }

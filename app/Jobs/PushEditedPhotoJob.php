@@ -13,6 +13,7 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
+use App\Support\Queues;
 
 /**
  * Send one approved edit to Shopify, matching it to a product the same way the
@@ -418,6 +419,6 @@ class PushEditedPhotoJob implements ShouldQueue
             return;
         }
 
-        SettleGalleryOrderJob::dispatch($sessionId)->onQueue('bulkupload');
+        SettleGalleryOrderJob::dispatch($sessionId)->onQueue(Queues::PHOTOS);
     }
 }

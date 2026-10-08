@@ -178,7 +178,7 @@ class PhotoEditorTest extends TestCase
     /** And it defaults to the one the worker is known to be listening to. */
     public function test_the_scan_queue_defaults_to_the_shared_one(): void
     {
-        $this->assertSame('bulkupload', config('services.photo_editor.scan_queue'));
+        $this->assertSame('photos', config('services.photo_editor.scan_queue'));
     }
 
     /**

@@ -9,6 +9,7 @@ use Illuminate\Notifications\Messages\MailMessage;
 use App\Notifications\Concerns\BuildsRequestEmail;
 use Illuminate\Notifications\Notification;
 use Illuminate\Support\Str;
+use App\Support\Queues;
 
 /**
  * A comment nobody is told about is a diary entry, not a conversation — and the
@@ -27,7 +28,7 @@ class ProductRequestCommented extends Notification implements ShouldQueue
         public readonly string $actorName,
         public readonly bool   $mentioned = false,
     ) {
-        $this->onQueue('bulkupload');
+        $this->onQueue(Queues::PRODUCT_REQUESTS);
     }
 
     public static function forRequest(ProductRequest $request, string $body, string $actorName, bool $mentioned = false): self

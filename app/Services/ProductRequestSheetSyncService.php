@@ -9,6 +9,7 @@ use App\Models\ProductRequestSheetSync;
 use App\Models\Store;
 use App\Models\User;
 use Illuminate\Support\Carbon;
+use App\Support\Queues;
 
 /**
  * Turns rows on the shared "PRODUCT LISTING REQUEST" tracking sheet into real
@@ -831,7 +832,7 @@ class ProductRequestSheetSyncService
         $this->workflow->staffFromCategory($productRequest, $syncUser, notify: false);
 
         ValidateProductRequestSkusJob::dispatch($productRequest->id, $requester->id, reconcile: !$published)
-            ->onQueue('bulkupload');
+            ->onQueue(Queues::PRODUCT_REQUESTS);
 
         return $productRequest;
     }
@@ -1164,7 +1165,7 @@ class ProductRequestSheetSyncService
 
         // The new ones have never been looked for in Shopify, and the stage this
         // request sits at depends on whether they are there.
-        ValidateProductRequestSkusJob::dispatch($request->id, null)->onQueue('bulkupload');
+        ValidateProductRequestSkusJob::dispatch($request->id, null)->onQueue(Queues::PRODUCT_REQUESTS);
 
         return count($new);
     }

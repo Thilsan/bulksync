@@ -7,6 +7,7 @@ use App\Models\ImageAuditItem;
 use App\Models\ImageAuditSession;
 use App\Models\Store;
 use Illuminate\Http\Request;
+use App\Support\Queues;
 
 class ImageAuditController extends Controller
 {
@@ -30,7 +31,7 @@ class ImageAuditController extends Controller
             'status'   => 'pending',
         ]);
 
-        RunImageAuditJob::dispatch($session->id)->onQueue('bulkupload');
+        RunImageAuditJob::dispatch($session->id)->onQueue(Queues::AUDITS);
 
         return redirect()->route('image-audit.show', $session)
             ->with('success', 'Image audit started. This may take a few minutes.');

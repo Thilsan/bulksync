@@ -8,6 +8,7 @@ use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
+use App\Support\Queues;
 
 /**
  * More of the balance has been mapped.
@@ -30,7 +31,7 @@ class ProductRequestBalanceMapped extends Notification implements ShouldQueue
         public readonly int    $remaining,
         public readonly string $stageLabel,
     ) {
-        $this->onQueue('bulkupload');
+        $this->onQueue(Queues::PRODUCT_REQUESTS);
     }
 
     public static function forRequest(ProductRequest $request, int $justMapped): self
