@@ -50,7 +50,7 @@ class PhotoroomAllowance
         $since = now()->subHours($hours);
 
         $items = PhotoEditItem::where('updated_at', '>=', $since)
-            ->get(['status', 'error_message', 'apparel_mode_applied', 'updated_at']);
+            ->get(['status', 'error_message', 'apparel_mode_applied', 'photoroom_requests', 'updated_at']);
 
         $succeeded = $items->whereIn('status', self::SUCCEEDED);
 
@@ -61,14 +61,36 @@ class PhotoroomAllowance
             ->reject(fn ($i) => $this->wasRefusedUncounted((string) $i->error_message));
 
         /*
-         * Mannequin removal was its own request, spent before the edit
-         * itself. No route produces either of these modes any more — the
-         * erase pass went when the classifier that chose it did — but rows
-         * carrying them are still in the table from before, and a historical
-         * report that stopped counting what was genuinely spent would be
-         * wrong about the past to tidy up the present.
+         * The second request some photographs need, counted exactly where the
+         * job recorded it and inferred from the mode where it did not.
+         *
+         * photoroom_requests is the job's own tally of the calls it made, so
+         * for anything edited since that column existed there is nothing to
+         * work out. Rows older than it carry only a mode name, and three of
+         * those modes mean two requests:
+         *
+         *   mannequin_removed   the erase pass, spent before the edit itself
+         *   ghost_photo_kept    the redraw, then a cutout of the blend
+         *   cutout_unnamed      the redraw, then the plain cutout that replaced it
+         *
+         * The last two were missing here and the report ran low by one request
+         * for every refused redraw — 140 of them on the account this was found
+         * on. The first two modes are no longer produced by any route, but
+         * rows carrying them are still in the table, and a report that stopped
+         * counting what was genuinely spent would be wrong about the past in
+         * order to tidy up the present.
          */
-        $extraCalls = $succeeded->whereIn('apparel_mode_applied', ['mannequin_removed', 'mannequin_removed_unverified'])->count();
+        $twoCallModes = ['mannequin_removed', 'mannequin_removed_unverified', 'ghost_photo_kept', 'cutout_unnamed'];
+
+        $extraCalls = $succeeded->sum(function ($i) use ($twoCallModes) {
+            $counted = (int) ($i->photoroom_requests ?? 0);
+
+            if ($counted > 0) {
+                return max(0, $counted - 1);
+            }
+
+            return in_array($i->apparel_mode_applied, $twoCallModes, true) ? 1 : 0;
+        });
 
         $spent = $succeeded->count() + $chargedFailures->count() + $extraCalls;
         $quota = $sandbox

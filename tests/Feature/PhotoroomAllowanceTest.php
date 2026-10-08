@@ -257,4 +257,42 @@ class PhotoroomAllowanceTest extends TestCase
         $this->artisan('photoroom:usage')
             ->assertExitCode(0);
     }
+
+    /*
+     * A refused redraw costs two requests, and the report used to say one.
+     *
+     * ghost_photo_kept is the redraw plus a cutout of the blend;
+     * cutout_unnamed is the redraw plus the plain cutout that replaced it.
+     * Only the old erase pass was being counted as two, so every refused
+     * redraw was a request the report never saw — 140 of them on the account
+     * this was found on.
+     */
+    public function test_a_refused_redraw_counts_as_two_requests(): void
+    {
+        config(['services.photoroom.api_key' => 'live_sk_test']);
+
+        $this->item('edited', null, 'cutout_unnamed');
+        $this->item('edited', null, 'ghost_photo_kept');
+
+        $r = app(PhotoroomAllowance::class)->report();
+
+        $this->assertSame(2, $r['succeeded']);
+        $this->assertSame(2, $r['extra_calls'], 'both redraws were charged twice and counted once');
+        $this->assertSame(4, $r['spent']);
+    }
+
+    /** And where the job counted its own calls, that number wins over the rule. */
+    public function test_a_recorded_count_beats_the_mode(): void
+    {
+        config(['services.photoroom.api_key' => 'live_sk_test']);
+
+        // The mode says two; the job recorded one, because the operator
+        // accepted the redraw and no second call was ever made.
+        $this->item('edited', null, 'cutout_unnamed')->update(['photoroom_requests' => 1]);
+
+        $r = app(PhotoroomAllowance::class)->report();
+
+        $this->assertSame(0, $r['extra_calls']);
+        $this->assertSame(1, $r['spent']);
+    }
 }
