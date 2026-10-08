@@ -2095,5 +2095,340 @@ return [
 
             ],
         ],
+
+        'Fashion Accessories' => [
+
+            /*
+            | Nothing is shared by every product: women's jewellery is tagged
+            | Women/Womens, men's bracelets, watches and cufflinks Men/Mens, and
+            | scarves and glasses carry GCC. Everything therefore lives on the
+            | type, so "Men" is never pushed onto a ring.
+            |
+            | Left out: season and campaign tags (new-season-2025/2026,
+            | departure-to-desk, EID2023, EID2026, Eid2 SS26, swarovski-ss26,
+            | PROMOCEGID, FYFL, Gift Box, Who: For Her / For Him, Valentine,
+            | Spring Festival, Mother's Day 22, ramadan21/24, AW22, QND 23, Sale,
+            | New Prices, Special Price(s), Our Exclusives), and product-name or
+            | SKU tags (LCB128 ..., MGI128 ..., SWK128 ..., ASLD617 ...).
+            |
+            | Kept as they are in Shopify even where misspelt (Braceletes,
+            | Chocker, Fashion Accessories & Jewrllery), because collections
+            | already filter on them. The Fashion Accessories & Jewellery
+            | duplicates of the same pair are left out.
+            */
+            'base' => [],
+
+            'types' => [
+
+                'Earrings' => [
+                    'Accessories',
+                    'Earring',
+                    'Earrings',
+                    'Fashion Jewellery',
+                    'scat: Earrings',
+                    'scat: Fashion Jewellery',
+                    'Scat: New In Women Jewellery',
+                    'Women',
+                    'Women Earrings',
+                    'Women Watches & jewellery',
+                    'Womens',
+                ],
+
+                'Rings' => [
+                    'Accessories',
+                    'Fashion Jewellery',
+                    'Ring',
+                    'Rings',
+                    'scat: Fashion Jewellery',
+                    'scat: Rings',
+                    'Scat: New In Women Jewellery',
+                    'Women',
+                    'Women Rings',
+                    'Women Watches & jewellery',
+                    'Womens',
+                ],
+
+                'Necklaces' => [
+                    'Accessories',
+                    'Choker',
+                    'Fashion Jewellery',
+                    'Necklace',
+                    'Necklace With Pendant',
+                    'scat: Fashion Jewellery',
+                    'scat: Necklaces',
+                    'Scat: New In Women Jewellery',
+                    'Women',
+                    'Women Necklaces',
+                    'Women Watches & jewellery',
+                    'Womens',
+                ],
+
+                'Pendants & Charms' => [
+                    'Accessories',
+                    'Charm',
+                    'Charm necklace',
+                    'Fashion Jewellery',
+                    'Necklace With Pendant',
+                    'Pendant',
+                    'scat: Fashion Jewellery',
+                    'Scat: New In Women Jewellery',
+                    'Women',
+                    'Women Necklaces',
+                    'Women Watches & jewellery',
+                    'Womens',
+                ],
+
+                'Jewellery Sets' => [
+                    'Accessories',
+                    'Fashion Jewellery',
+                    'Necklace',
+                    'Necklace With Pendant',
+                    'scat: Fashion Jewellery',
+                    'scat: Necklaces',
+                    'Scat: New In Women Jewellery',
+                    'Set (Necklace+Earring)',
+                    'Sets (Necklace + Earrings)',
+                    'Women',
+                    'Women Necklace Set',
+                    'Women Necklaces',
+                    'Women Watches & jewellery',
+                    'Womens',
+                ],
+
+                'Bracelets' => [
+                    'Accessories',
+                    'Bracelet',
+                    'Braceletes',
+                    'Cat-Ladies Bracelet',
+                    'Fashion Jewellery',
+                    'Ladies bracelet',
+                    'scat: Bracelets',
+                    'scat: Fashion Jewellery',
+                    'Scat: New In Women Jewellery',
+                    'Women',
+                    'Women Watches & jewellery',
+                    'Womens',
+                ],
+
+                'Bangles' => [
+                    'Accessories',
+                    'Bangle',
+                    'Bracelet',
+                    'Braceletes',
+                    'Cat-Ladies Bracelet',
+                    'Fashion Jewellery',
+                    'Ladies bracelet',
+                    'scat: Bracelets',
+                    'scat: Fashion Jewellery',
+                    'Scat: New In Women Jewellery',
+                    'Women',
+                    'Women Watches & jewellery',
+                    'Womens',
+                ],
+
+                "Men's Bracelets" => [
+                    'All Accessories',
+                    'Bracelet',
+                    'Gents Bracelets',
+                    'Men',
+                    'Men All Accessories',
+                    "Men's All Accessories",
+                    'Mens',
+                    'scat: Bracelets',
+                ],
+
+                'Anklets' => [
+                    'Accessories',
+                    'Anklet',
+                    'Anklets',
+                    'Fashion Jewellery',
+                    'Ladies Anklet',
+                    'scat: Fashion Jewellery',
+                    'Women',
+                    'Women Watches & jewellery',
+                    'Womens',
+                ],
+
+                'Brooches' => [
+                    'Accessories',
+                    'Brooch',
+                    'Fashion Jewellery',
+                    'scat: Fashion Jewellery',
+                    'Scat: New In Women Jewellery',
+                    'Women',
+                    'Women All Accessories',
+                    'Women Watches & jewellery',
+                    'Womens',
+                ],
+
+                'Cufflinks' => [
+                    'All Accessories',
+                    'Cufflink',
+                    'Cufflinks',
+                    'Men',
+                    'Mens',
+                    'Mf Accessories',
+                ],
+
+                "Women's Watches" => [
+                    'Accessories',
+                    'Collection: Watches',
+                    'Fashion Watches',
+                    'Scat: New In Women Watches',
+                    'Watch',
+                    'Watches',
+                    'Women',
+                    'Women Watches & jewellery',
+                    'Womens',
+                    'Womens Watches',
+                ],
+
+                "Men's Watches" => [
+                    'Accessories',
+                    'All Accessories',
+                    'Collection: Watches',
+                    'Fashion Watches',
+                    'Men',
+                    'Mens',
+                    'Mens Watches',
+                    'scat: Fashion Timepieces',
+                    'Scat: New In Mens Watches',
+                    'Watch',
+                    'Watches',
+                ],
+
+                'Pens' => [
+                    'Accessories',
+                    'Lifestyle Accessories',
+                    'Pen',
+                    'scat: Pens',
+                    'Women',
+                    'Women All Accessories',
+                    'Womens',
+                ],
+
+                'Sunglasses' => [
+                    'Accessories',
+                    'All Accessories',
+                    'Men',
+                    'Men All Accessories',
+                    'Men Sunglasses',
+                    "Men's All Accessories",
+                    'Mens',
+                    'scat: Sunglasses',
+                    'Women',
+                    'Women All Accessories',
+                    'women-sunglasses',
+                    'Womens',
+                ],
+
+                'Eyeglasses' => [
+                    'Accessories',
+                    'All Accessories',
+                    'Eye glasses',
+                    'GCC',
+                    'Men',
+                    'Mens',
+                    'Optical Glasses',
+                    'Women',
+                    'Women All Accessories',
+                    'Womens',
+                ],
+
+                'Scarves' => [
+                    'GCC',
+                    'Ladies Scarf',
+                    'Scarf',
+                    'Scarves',
+                    'Women',
+                    'Womenall Accessories Scarves',
+                    'Womens',
+                ],
+
+                'Caps & Hats' => [
+                    'All Accessories',
+                    'Cap',
+                    'Men',
+                    'Men Caps and Hats',
+                    'Mens',
+                    'Mens Fashion',
+                    'scat: Caps & hats',
+                ],
+
+                'Keychains' => [
+                    'Accessories',
+                    'Fashion Jewellery',
+                    'Key Rings',
+                    'Keychain',
+                    'scat: Fashion Jewellery',
+                    'Women',
+                    'Women All Accessories',
+                    'Women Watches & jewellery',
+                    'Womens',
+                ],
+
+                'Phone Cases' => [
+                    'Accessories',
+                    'I Phone Case',
+                    'Iphone Case',
+                    'Mobile Accessories',
+                    'Phone Accessories',
+                    'Phone Case',
+                    'scat: Phone Cases',
+                    'Women',
+                    'Women All Accessories',
+                    'Womens',
+                ],
+
+                'Hair Accessories' => [
+                    'Accessories',
+                    'GCC',
+                    'Hair Accessories',
+                    'Hair Brush',
+                    'Hair Clip',
+                    'Hairband',
+                    'Personal Care',
+                    'scat: Hair Accessories',
+                    'Women',
+                    'Women All Accessories',
+                    'Womens',
+                ],
+
+                'Cosmetic Bags & Mirrors' => [
+                    'Accessories',
+                    'Cosmetic Bag',
+                    'Mirror',
+                    'Personal Care',
+                    'Pocket Mirror',
+                    'Women',
+                    'Women All Bags',
+                    'Womens',
+                ],
+
+                'Figurines & Home Decor' => [
+                    'Accessories',
+                    'Figurine',
+                    'Figurrine',
+                    'Home',
+                    'Home Decor',
+                    'Ornament',
+                    'scat: Figurine & Collectables',
+                    'Women',
+                    'Women All Accessories',
+                ],
+
+                "Kids' Jewellery" => [
+                    'Kids and Teens',
+                    'Kids and Teens Girl Accessories',
+                    'Kids and Teens Girl Bracelets',
+                    'Kids and Teens Girl Earrings',
+                    'Kids and Teens Girl Necklace',
+                    'Kids and Teens Girl Rings',
+                    'Kids Girls (3 YRS -16 YRS)',
+                    'scat: Bags & accessories',
+                ],
+
+            ],
+        ],
     ],
 ];
