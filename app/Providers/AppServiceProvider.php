@@ -2,9 +2,11 @@
 
 namespace App\Providers;
 
+use App\Console\PooledWorkCommand;
 use App\Listeners\BccEveryMessage;
 use Illuminate\Mail\Events\MessageSending;
 use Illuminate\Pagination\Paginator;
+use Illuminate\Queue\Console\WorkCommand;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\View;
@@ -17,7 +19,10 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        // Workers started on one queue also help with the others once their own
+        // is empty — see Queues::HELPS for why this lives here, not in Cloudways.
+        $this->app->extend(WorkCommand::class, fn ($command, $app) =>
+            new PooledWorkCommand($app['queue.worker'], $app['cache.store']));
     }
 
     /**
