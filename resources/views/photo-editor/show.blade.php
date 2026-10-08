@@ -466,6 +466,19 @@
                     <template x-if="item.edited_kb > 0">
                         <p class="text-[11px] tabular-nums text-gray-400">
                             <span x-text="item.original_kb"></span> KB → <span x-text="item.edited_kb"></span> KB
+                            {{-- What it cost, counted at the time rather than
+                                 guessed from the badge. Most photos are one
+                                 request; a redraw that was refused and fell
+                                 back to a cutout is two, and so is an ironing
+                                 pass retried without the ironing. Rows edited
+                                 before this was recorded have nothing to show,
+                                 so they show nothing. --}}
+                            <template x-if="item.credits > 0">
+                                <span>
+                                    &middot; <span x-text="item.credits"></span>
+                                    <span x-text="item.credits === 1 ? 'image' : 'images'"></span>
+                                </span>
+                            </template>
                         </p>
                     </template>
                 </div>

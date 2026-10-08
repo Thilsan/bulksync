@@ -44,6 +44,14 @@ class GenerateLifestyleImageJob implements ShouldQueue
      */
     private const CANVAS_EDGE = 2000;
 
+    /**
+     * Photoroom calls made for this one shot.
+     *
+     * Normally one. The upscale retry below makes it two, and an on-model
+     * image that cost two should not be reported as having cost one.
+     */
+    private int $requests = 0;
+
     public function __construct(
         public readonly int $itemId,
         /** Which of the group's requested shots this is, so each varies. */
@@ -134,6 +142,7 @@ class GenerateLifestyleImageJob implements ShouldQueue
                 'edited_size_kb'       => (int) round(strlen($edited) / 1024),
                 'error_message'        => null,
                 'apparel_mode_applied' => 'on_model',
+                'photoroom_requests'   => $this->requests,
                 'uncertainty_score'    => $photoroom->lastUncertaintyScore(),
             ]);
 
@@ -252,6 +261,7 @@ class GenerateLifestyleImageJob implements ShouldQueue
      */
     private function generate(PhotoroomService $photoroom, string $input, array $edits, string $filename, ?string $sku = null): string
     {
+        $this->requests++;
         $wanted = $this->onModelEdits($edits, $sku);
 
         try {
@@ -260,6 +270,9 @@ class GenerateLifestyleImageJob implements ShouldQueue
             if (!str_contains(strtolower($e->getMessage()), 'upscale')) {
                 throw $e;
             }
+
+            // The retry is a second billed request, not a free one.
+            $this->requests++;
 
             Log::info('Photoroom refused the upscale; retrying at the size generation chooses.', [
                 'item'  => $this->itemId,

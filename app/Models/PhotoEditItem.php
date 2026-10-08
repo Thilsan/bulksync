@@ -15,6 +15,7 @@ class PhotoEditItem extends Model
         'sku_detected',
         'position',
         'skip_edit',
+        'photoroom_requests',
         'keep_background',
         'remove_handle',
         'onedrive_drive_id',
@@ -46,6 +47,7 @@ class PhotoEditItem extends Model
         return [
             'sandbox' => 'boolean',
             'position'          => 'integer',
+            'photoroom_requests' => 'integer',
             'skip_edit'         => 'boolean',
             'keep_background'   => 'boolean',
             'remove_handle'     => 'boolean',

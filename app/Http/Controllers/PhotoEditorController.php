@@ -760,6 +760,7 @@ class PhotoEditorController extends Controller implements HasMiddleware
             'pushable'              => $i->isPushable(),
             'edited_kb'             => $i->edited_size_kb,
             'original_kb'           => $i->original_size_kb,
+            'credits'               => (int) ($i->photoroom_requests ?? 0),
             'product_title'         => $i->product_title,
             'error'                 => $i->error_message,
             'before_url'            => $i->original_thumb_path ? route('photo-editor.preview', [$session, $i, 'before']) : null,

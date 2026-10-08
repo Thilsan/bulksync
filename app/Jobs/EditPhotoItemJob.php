@@ -188,6 +188,17 @@ class EditPhotoItemJob implements ShouldQueue
             $itemEdits   = $edits;
             $appliedMode = 'none';
 
+            /*
+             * What this photograph costs, counted rather than inferred.
+             *
+             * The mode says which route was taken and most routes are one
+             * request, but a refused redraw falling back to a cutout is two,
+             * and an ironing pass retried without the ironing is another —
+             * and no mode name carries either. Every call below adds one, and
+             * the total is filed on the item so a card can say what it spent.
+             */
+            $requests = 0;
+
             // Set when a redraw changed the garment rather than merely lifting
             // it off the stand, so the screen can say which way it went wrong.
             $redrawNote  = null;
@@ -337,6 +348,7 @@ class EditPhotoItemJob implements ShouldQueue
             }
 
             $edited = $photoroom->edit($input, $itemEdits, $item->filename);
+            $requests++;
 
             /*
              * Ironing has no prompt of its own to be told "keep the colour
@@ -373,6 +385,7 @@ class EditPhotoItemJob implements ShouldQueue
                         $unironed['ironing'] = false;
 
                         $edited = $photoroom->edit($input, $unironed, $item->filename);
+                        $requests++;
 
                         $redrawNote = sprintf(
                             'Ironing was skipped: pressing the garment shifted its own colour by %.1f%% '
@@ -523,6 +536,7 @@ class EditPhotoItemJob implements ShouldQueue
                             $cut = $this->plainCutoutEdits($itemEdits);
 
                             $edited      = $photoroom->edit($whole['image'], $cut, $item->filename);
+                            $requests++;
                             $itemEdits   = $cut;
                             $appliedMode = 'ghost_photo_kept';
                         } catch (\Throwable $e) {
@@ -623,6 +637,7 @@ class EditPhotoItemJob implements ShouldQueue
 
                     try {
                         $edited      = $photoroom->edit($input, $plain, $item->filename);
+                        $requests++;
                         $itemEdits   = $plain;
                         $appliedMode = 'cutout_unnamed';
                     } catch (\Throwable $e) {
@@ -823,6 +838,7 @@ class EditPhotoItemJob implements ShouldQueue
                 'edited_size_kb'       => (int) round(strlen($edited) / 1024),
 
                 'apparel_mode_applied' => $appliedMode,
+                'photoroom_requests'   => $requests,
 
                 /*
                  * Which key made this picture, recorded with the picture.
