@@ -21,7 +21,7 @@ final class Queues
     public const SHARED      = 'bulkupload';
     public const SKU_CHECK   = 'skucheck';
     public const PHOTOS      = 'photos';
-    public const AI          = 'ai';
+    public const AI          = 'aicontent';
     public const MAINTENANCE = 'maintenance';
 
     public const UPLOADS          = self::SHARED;
