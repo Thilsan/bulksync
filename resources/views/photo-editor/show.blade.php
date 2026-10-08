@@ -356,7 +356,7 @@
                          photo, which is the half worth showing anyway. --}}
                     <template x-if="item.apparel_mode_applied && item.apparel_mode_applied !== 'none'">
                         <span class="pointer-events-none absolute bottom-2 left-2 rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
-                              :class="['cutout_unnamed', 'ghost_redraw_kept'].includes(item.apparel_mode_applied) ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'"
+                              :class="['cutout_unnamed', 'ghost_redraw_kept', 'ghost_recut_accepted'].includes(item.apparel_mode_applied) ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'"
                               x-text="({
                                   segmented:         'mannequin segmented out',
                                   kept_background:   'background kept',
@@ -384,6 +384,19 @@
                                        picture is Photoroom's drawing of it, and
                                        the print is the thing to look at. --}}
                                   ghost_redraw_kept: 'redrawn · check the print',
+
+                                  {{-- The verifier refused the redraw on shape
+                                       and the operator published it anyway.
+                                       Amber, and worded as a claim about the
+                                       garment rather than the stand: the stand
+                                       is certainly gone, and the thing nobody
+                                       should have to dig for is that this
+                                       garment was drawn rather than
+                                       photographed. It had no entry here at
+                                       all until a photograph that cost one
+                                       request was read off the screen as
+                                       having cost two. --}}
+                                  ghost_recut_accepted: 'redrawn · accepted',
                               }[item.apparel_mode_applied] || 'cutout only')"></span>
                     </template>
 
