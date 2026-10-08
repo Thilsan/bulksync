@@ -28,12 +28,11 @@ use App\Support\Queues;
 class QueueController extends Controller
 {
     /**
-     * Queues worth showing: one per feature (see Queues), the pre-split
-     * 'bulkupload' while its backlog drains, and 'default', which catches
-     * anything queued without an explicit name — a job landing there is itself
-     * worth seeing, since nothing is listening to it.
+     * Queues worth showing: every one with a worker (see Queues), plus
+     * 'default', which catches anything queued without an explicit name — a job
+     * landing there is itself worth seeing, since nothing is listening to it.
      */
-    private const QUEUES = [...Queues::ALL, Queues::LEGACY, 'default'];
+    private const QUEUES = [...Queues::WORKERS, 'default'];
 
     public function index(): View
     {
