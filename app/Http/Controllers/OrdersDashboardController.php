@@ -120,11 +120,11 @@ class OrdersDashboardController extends Controller
         'orders'    => 'Ecom Delivery',
         'analytics' => 'Ecom Order Analytics',
         'sessions'  => 'Visitor Sessions',
-        'studio'    => 'AI Studio',
         'google_ads' => 'Google Ads',
         'meta_ads'   => 'Meta Ads',
         'crm'        => 'CRM',
         'email'      => 'Email Campaigns',
+        'studio'     => 'AI Studio',
     ];
 
     /**
