@@ -1711,8 +1711,25 @@ class ImageProcessingService
         }
 
         try {
-            $refRatio    = $this->channelRatios($original, opaqueOnly: false);
-            $targetRatio = $this->channelRatios($redraw, opaqueOnly: true);
+            /*
+             * One decode each, not three.
+             *
+             * This runs on a box with under a gigabyte free and PHP's memory
+             * limit unset, so a worker that overruns is killed by the kernel
+             * rather than failing cleanly — no exception, no log, the job left
+             * reserved and the photograph stuck on "editing" for three hours.
+             * Asking separately for ratios and for luma decoded the redraw
+             * twice over, at full size, for numbers already in hand.
+             */
+            $refMeans    = $this->channelMeans($original, opaqueOnly: false);
+            $targetMeans = $this->channelMeans($redraw, opaqueOnly: true);
+
+            if ($refMeans === null || $targetMeans === null) {
+                return $redraw;
+            }
+
+            $refRatio    = $this->toRatios($refMeans);
+            $targetRatio = $this->toRatios($targetMeans);
 
             if ($refRatio === null || $targetRatio === null) {
                 return $redraw;
@@ -1730,9 +1747,9 @@ class ImageProcessingService
                 return $redraw;
             }
 
-            $luma = $this->meanLuma($redraw, opaqueOnly: true);
+            $luma = ($targetMeans[0] + $targetMeans[1] + $targetMeans[2]) / 3;
 
-            if ($luma === null || $luma <= 0) {
+            if ($luma <= 0) {
                 return $redraw;
             }
 
@@ -1781,14 +1798,15 @@ class ImageProcessingService
      *
      * @return array{0:float,1:float,2:float}|null
      */
-    private function channelRatios(string $imageContent, bool $opaqueOnly): ?array
+    /**
+     * Means divided by their own average, so brightness falls out and only
+     * balance is left.
+     *
+     * @param  array{0:float,1:float,2:float}  $means
+     * @return array{0:float,1:float,2:float}|null
+     */
+    private function toRatios(array $means): ?array
     {
-        $means = $this->channelMeans($imageContent, $opaqueOnly);
-
-        if ($means === null) {
-            return null;
-        }
-
         $overall = ($means[0] + $means[1] + $means[2]) / 3;
 
         if ($overall <= 0) {
@@ -1796,13 +1814,6 @@ class ImageProcessingService
         }
 
         return [$means[0] / $overall, $means[1] / $overall, $means[2] / $overall];
-    }
-
-    private function meanLuma(string $imageContent, bool $opaqueOnly): ?float
-    {
-        $means = $this->channelMeans($imageContent, $opaqueOnly);
-
-        return $means === null ? null : ($means[0] + $means[1] + $means[2]) / 3;
     }
 
     /**

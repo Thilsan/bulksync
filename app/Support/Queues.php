@@ -7,10 +7,22 @@ namespace App\Support;
  * worker in Cloudways → Application Settings → Supervisord Jobs.
  *
  * Everything used to share 'bulkupload', so one person's photo-editor run held
- * a colleague's one-SKU check on Pending until it finished. The photo editor,
- * SKU checker and AI content now have workers of their own; uploads, audits
- * and product requests still share 'bulkupload' (two processes) to keep the
- * worker count down.
+ * a colleague's one-SKU check on Pending until it finished. The SKU checker
+ * and AI content have workers of their own; uploads, audits, product requests
+ * and the photo editor share 'bulkupload' to keep the worker count down.
+ *
+ * The photo editor had its own queue for a while and gave it back. The server
+ * it runs on has under two gigabytes of memory and was already into swap, and
+ * a worker parked on a queue that is empty most of the day costs the same
+ * memory as one doing work. Sharing puts those processes where the work is:
+ * when nothing is uploading, every one of them is free for photographs.
+ *
+ * What that costs is the thing the split was for. 'bulkupload' also carries
+ * image and SEO audits, which run long, so a photo edit can now queue behind
+ * one. The staggered release in PhotoEditorController keeps the ready list
+ * short, which limits the wait to whatever is already running rather than a
+ * whole batch — but it is a real trade, and the way back is to add the worker
+ * in Cloudways first and then point PHOTOS at its own name again.
  *
  * To give a shared feature its own worker later: add the worker in Cloudways
  * first, then point its constant at the new name and add it to WORKERS. The
@@ -20,13 +32,13 @@ final class Queues
 {
     public const SHARED      = 'bulkupload';
     public const SKU_CHECK   = 'skucheck';
-    public const PHOTOS      = 'photos';
     public const AI          = 'aicontent';
     public const MAINTENANCE = 'maintenance';
 
     public const UPLOADS          = self::SHARED;
     public const AUDITS           = self::SHARED;
     public const PRODUCT_REQUESTS = self::SHARED;
+    public const PHOTOS           = self::SHARED;
 
     /**
      * What each worker picks up once its own queue is empty, in order.
@@ -38,16 +50,15 @@ final class Queues
      * worker is idle, not queued behind the first.
      *
      * The dedicated workers don't help with SHARED: it carries image and SEO
-     * audits that run for a long time, and a photos worker stuck on one would
-     * leave the photo editor waiting — the thing the split exists to prevent.
-     * A worker checks its own queue again before every job, so helping only
-     * ever delays its own feature by one job.
+     * audits that run long, and a skucheck worker stuck on one would leave a
+     * colleague's check waiting — the thing the split exists to prevent. A
+     * worker checks its own queue again before every job, so helping only ever
+     * delays its own feature by one job.
      */
     public const HELPS = [
-        self::SHARED    => [self::SKU_CHECK, self::AI, self::PHOTOS],
-        self::SKU_CHECK => [self::AI, self::PHOTOS],
-        self::AI        => [self::SKU_CHECK, self::PHOTOS],
-        self::PHOTOS    => [self::SKU_CHECK, self::AI],
+        self::SHARED    => [self::SKU_CHECK, self::AI],
+        self::SKU_CHECK => [self::AI],
+        self::AI        => [self::SKU_CHECK],
     ];
 
     /**
@@ -68,7 +79,6 @@ final class Queues
     public const WORKERS = [
         self::SHARED,
         self::SKU_CHECK,
-        self::PHOTOS,
         self::AI,
         self::MAINTENANCE,
     ];
