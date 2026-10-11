@@ -613,6 +613,26 @@ class EditPhotoItemJob implements ShouldQueue
                     && in_array($whole['verdict'] ?? '', $overridable, true)) {
                     $verified    = true;
                     $appliedMode = 'ghost_recut_accepted';
+
+                    /*
+                     * Put the photograph's own colour back on it.
+                     *
+                     * Ghost Mannequin re-renders the garment under its own
+                     * neutral lighting rather than editing the picture, so a
+                     * kept redraw arrives without whatever cast the studio had
+                     * that day — and the plain cutouts it will sit beside
+                     * still carry it. One grey satin robe came back with red
+                     * and blue equal where every surface in the original,
+                     * backdrop and mannequin included, sat nine points warmer
+                     * in red. Published as it was, that SKU would show the
+                     * robe mauve in one frame and grey in the next.
+                     *
+                     * Only on this path. A kept photograph already has its own
+                     * colour, and a plain cutout never lost it.
+                     */
+                    if (config('services.photoroom.match_redraw_colour', true)) {
+                        $edited = $imageService->matchColourCast($edited, $input);
+                    }
                     $redrawNote  = 'The stand was removed by redrawing the garment, which you have '
                         . 'chosen to accept for this run. The garment in this photo is drawn, not '
                         . 'photographed, and differs from the original: ' . $whole['reason'];

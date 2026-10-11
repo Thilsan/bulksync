@@ -161,6 +161,18 @@ return [
         'cycle_day' => (int) env('PHOTOROOM_CYCLE_DAY', 8),
 
         /*
+         * Give a kept redraw the photograph's own colour cast.
+         *
+         * Ghost Mannequin renders under neutral light; a plain cutout of the
+         * same garment keeps whatever the studio had. Without this, one SKU
+         * can show a robe mauve in one frame and grey in the next.
+         * PHOTOROOM_MATCH_REDRAW_COLOUR=false publishes the redraw as it
+         * arrives, which is the comparison to run on a batch before trusting
+         * this one.
+         */
+        'match_redraw_colour' => (bool) env('PHOTOROOM_MATCH_REDRAW_COLOUR', true),
+
+        /*
          * Off: let Photoroom choose the canvas for a redraw.
          *
          * Measured on the six files Photoroom's own support could not

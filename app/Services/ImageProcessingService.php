@@ -1671,6 +1671,204 @@ class ImageProcessingService
         ];
     }
 
+    /**
+     * Put the photograph's own colour cast back onto a redraw.
+     *
+     * Ghost Mannequin does not edit the photograph, it re-renders the garment,
+     * and it renders under its own neutral lighting. Measured on a grey satin
+     * robe: every surface in the original sat about nine points warmer in red
+     * than in blue — the backdrop, the white mannequin and the garment alike,
+     * which is a studio white balance rather than a mauve fabric — and the
+     * redraw came back with red and blue equal. The same garment cut out
+     * rather than redrawn keeps the cast, because that one really is the
+     * photograph, so a SKU could show the robe mauve in one frame and grey in
+     * the next with nothing in the system calling either wrong.
+     *
+     * This closes that gap. It does not try to decide which rendering is
+     * truer; it makes the redraw agree with the photographs it will sit beside.
+     *
+     * Balance only, never brightness. Each image's channels are measured as a
+     * ratio of its own mean, so a redraw that is lighter or darker than the
+     * original stays that way and only its colour balance moves. Matching
+     * absolute levels would drag a correctly exposed redraw towards whatever
+     * the studio did that day.
+     *
+     * The reference is the whole original frame rather than the garment in it.
+     * A cast is global — the backdrop carries it as plainly as the fabric, and
+     * a white wall is the better reference precisely because nobody expects a
+     * wall to have a colour of its own.
+     *
+     * Returns the image unchanged when there is nothing worth doing: no cast
+     * to speak of, an unreadable file, or a correction large enough to suggest
+     * the measurement rather than the lighting is at fault.
+     */
+    public function matchColourCast(string $redraw, string $original, float $maxOffset = 25.0): string
+    {
+        $target = @imagecreatefromstring($redraw);
+
+        if (!$target) {
+            return $redraw;
+        }
+
+        try {
+            $refRatio    = $this->channelRatios($original, opaqueOnly: false);
+            $targetRatio = $this->channelRatios($redraw, opaqueOnly: true);
+
+            if ($refRatio === null || $targetRatio === null) {
+                return $redraw;
+            }
+
+            // How far the original's own balance sits from neutral. Under one
+            // per cent is a camera doing its job, and correcting it would be
+            // noise chasing noise.
+            $cast = max(
+                abs($refRatio[0] - 1.0),
+                abs($refRatio[2] - 1.0),
+            );
+
+            if ($cast < 0.01) {
+                return $redraw;
+            }
+
+            $luma = $this->meanLuma($redraw, opaqueOnly: true);
+
+            if ($luma === null || $luma <= 0) {
+                return $redraw;
+            }
+
+            $offsets = [];
+
+            foreach ([0, 1, 2] as $c) {
+                $offsets[$c] = (int) round($luma * ($refRatio[$c] - $targetRatio[$c]));
+
+                if (abs($offsets[$c]) > $maxOffset) {
+                    Log::warning('Colour cast correction refused: the shift was too large to trust', [
+                        'channel' => $c,
+                        'offset'  => $offsets[$c],
+                    ]);
+
+                    return $redraw;
+                }
+            }
+
+            if ($offsets === [0, 0, 0]) {
+                return $redraw;
+            }
+
+            imagealphablending($target, false);
+            imagesavealpha($target, true);
+            imagefilter($target, IMG_FILTER_COLORIZE, $offsets[0], $offsets[1], $offsets[2]);
+
+            ob_start();
+            imagepng($target, null, 6);
+            $out = (string) ob_get_clean();
+
+            return $out !== '' ? $out : $redraw;
+        } catch (\Throwable $e) {
+            Log::warning('Colour cast correction could not run: ' . $e->getMessage());
+
+            return $redraw;
+        } finally {
+            imagedestroy($target);
+        }
+    }
+
+    /**
+     * Each channel's mean as a fraction of the image's own overall mean.
+     *
+     * A pure measure of balance with brightness divided out, so a dark image
+     * and a light one with the same cast read the same.
+     *
+     * @return array{0:float,1:float,2:float}|null
+     */
+    private function channelRatios(string $imageContent, bool $opaqueOnly): ?array
+    {
+        $means = $this->channelMeans($imageContent, $opaqueOnly);
+
+        if ($means === null) {
+            return null;
+        }
+
+        $overall = ($means[0] + $means[1] + $means[2]) / 3;
+
+        if ($overall <= 0) {
+            return null;
+        }
+
+        return [$means[0] / $overall, $means[1] / $overall, $means[2] / $overall];
+    }
+
+    private function meanLuma(string $imageContent, bool $opaqueOnly): ?float
+    {
+        $means = $this->channelMeans($imageContent, $opaqueOnly);
+
+        return $means === null ? null : ($means[0] + $means[1] + $means[2]) / 3;
+    }
+
+    /**
+     * Mean red, green and blue, measured on a small proxy.
+     *
+     * Transparent pixels are skipped when asked for, because a cutout is mostly
+     * nothing and averaging nothing in would flatten every reading towards the
+     * same number.
+     *
+     * @return array{0:float,1:float,2:float}|null
+     */
+    private function channelMeans(string $imageContent, bool $opaqueOnly, int $edge = 160): ?array
+    {
+        $img = @imagecreatefromstring($imageContent);
+
+        if (!$img) {
+            return null;
+        }
+
+        try {
+            $w = imagesx($img);
+            $h = imagesy($img);
+
+            if ($w < 1 || $h < 1) {
+                return null;
+            }
+
+            $scale = min(1.0, $edge / max($w, $h));
+            $pw    = max(1, (int) round($w * $scale));
+            $ph    = max(1, (int) round($h * $scale));
+
+            $proxy = imagecreatetruecolor($pw, $ph);
+            imagealphablending($proxy, false);
+            imagesavealpha($proxy, true);
+            imagecopyresampled($proxy, $img, 0, 0, 0, 0, $pw, $ph, $w, $h);
+
+            $sum   = [0.0, 0.0, 0.0];
+            $count = 0;
+
+            for ($y = 0; $y < $ph; $y++) {
+                for ($x = 0; $x < $pw; $x++) {
+                    $rgba = imagecolorat($proxy, $x, $y);
+
+                    if ($opaqueOnly && (($rgba >> 24) & 0x7F) > 40) {
+                        continue;
+                    }
+
+                    $sum[0] += ($rgba >> 16) & 0xFF;
+                    $sum[1] += ($rgba >> 8) & 0xFF;
+                    $sum[2] += $rgba & 0xFF;
+                    $count++;
+                }
+            }
+
+            imagedestroy($proxy);
+
+            if ($count < 100) {
+                return null;
+            }
+
+            return [$sum[0] / $count, $sum[1] / $count, $sum[2] / $count];
+        } finally {
+            imagedestroy($img);
+        }
+    }
+
     public function outputFilename(string $originalFilename): string
     {
         return pathinfo($originalFilename, PATHINFO_FILENAME) . '.jpg';
