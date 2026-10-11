@@ -310,6 +310,8 @@ class PhotoEditorController extends Controller implements HasMiddleware
             'groups.*.order.*'         => ['integer'],
             'groups.*.as_is'           => ['nullable', 'array'],
             'groups.*.as_is.*'         => ['integer'],
+            'groups.*.back_view'       => ['nullable', 'array'],
+            'groups.*.back_view.*'     => ['integer'],
             'groups.*.pendant_closeup' => ['nullable', 'boolean'],
             'groups.*.case_height_cm'  => ['nullable', 'integer', 'min:10', 'max:120'],
             'groups.*.keep_bg'         => ['nullable', 'array'],
@@ -351,6 +353,7 @@ class PhotoEditorController extends Controller implements HasMiddleware
 
             $this->saveOrder($session, (array) ($input['order'] ?? []));
             $this->saveUntouched($session, $group->sku, (array) ($input['as_is'] ?? []));
+            $this->saveBackViews($session, $group->sku, (array) ($input['back_view'] ?? []));
             $this->saveKeptBackgrounds($session, $group->sku, (array) ($input['keep_bg'] ?? []), (array) ($input['as_is'] ?? []));
             $this->saveRemovedHandles($session, $group->sku, (array) ($input['no_handle'] ?? []));
             $group->update([
@@ -650,6 +653,36 @@ class PhotoEditorController extends Controller implements HasMiddleware
      * ids come from a form, and a doctored one must not be able to reach into
      * another run and quietly stop its photos being edited.
      */
+    /**
+     * Which of a SKU's photos show the back of the garment.
+     *
+     * Ghost Mannequin turns back views into fronts, and the prompt can hold it
+     * only if something says which way round the photo is. The scan sets this
+     * from the filename where the shoot names it; this is the other half, for
+     * the shoots that don't.
+     *
+     * Written for the whole SKU rather than only the ticked ones, so unticking
+     * a photo takes the flag off again — the same reason saveUntouched is
+     * written that way. A list of additions alone can only ever add.
+     *
+     * It deliberately overwrites what the filename found. The filename is a
+     * good guess and the person looking at the photograph is better, so the
+     * box starts ticked where the name said "back" and whatever they leave it
+     * at is what runs.
+     */
+    private function saveBackViews(PhotoEditSession $session, string $sku, array $itemIds): void
+    {
+        $scope = fn () => PhotoEditItem::where('photo_edit_session_id', $session->id)
+            ->where('sku_detected', $sku)
+            ->where('kind', 'cutout');
+
+        $scope()->update(['back_view' => false]);
+
+        if ($itemIds) {
+            $scope()->whereIn('id', $itemIds)->update(['back_view' => true]);
+        }
+    }
+
     private function saveUntouched(PhotoEditSession $session, string $sku, array $itemIds): void
     {
         $scope = fn () => PhotoEditItem::where('photo_edit_session_id', $session->id)

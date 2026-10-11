@@ -134,6 +134,7 @@
                             'asIs'     => (bool) $p->skip_edit,
                             'keepBg'   => (bool) $p->keep_background,
                             'noHandle' => (bool) $p->remove_handle,
+                            'backView' => (bool) $p->back_view,
                         ],
                     ])->all();
                 @endphp
@@ -327,6 +328,17 @@
                                             No handle
                                         </button>
 
+                                        {{-- Ticked already where the filename said "back".
+                                             Photoroom turns an unmarked back view into a front. --}}
+                                        <button type="button" @click.prevent="toggleBackView(id)"
+                                                :title="backView[id] ? 'Marked as the back of the garment — Photoroom will be told to keep it that way' : 'Mark this as the back of the garment'"
+                                                :class="backView[id]
+                                                    ? 'bg-violet-500 text-white ring-violet-500'
+                                                    : 'bg-white text-gray-500 ring-gray-200 hover:ring-gray-300'"
+                                                class="rounded-lg px-2 py-1 text-[11px] font-semibold ring-1 transition-colors">
+                                            Back
+                                        </button>
+
                                         <button type="button" @click.prevent="toggleKeepBg(id)"
                                                 :title="keepBg[id] ? 'Keeping its background — click to cut it out instead' : 'Will be cut out — click to keep its background and only reframe it'"
                                                 :class="keepBg[id]
@@ -343,6 +355,10 @@
 
                                     <template x-if="keepBg[id]">
                                         <input type="hidden" :name="`groups[{{ $group->id }}][keep_bg][]`" :value="id">
+                                    </template>
+
+                                    <template x-if="backView[id]">
+                                        <input type="hidden" :name="`groups[{{ $group->id }}][back_view][]`" :value="id">
                                     </template>
 
                                     <template x-if="noHandle[id]">
@@ -426,6 +442,7 @@
             // same answer it was left with.
             asIs: Object.fromEntries(ids.map(id => [id, !! (photos[id] || {}).asIs])),
             keepBg: Object.fromEntries(ids.map(id => [id, !! (photos[id] || {}).keepBg])),
+            backView: Object.fromEntries(ids.map(id => [id, !! (photos[id] || {}).backView])),
             noHandle: Object.fromEntries(ids.map(id => [id, !! (photos[id] || {}).noHandle])),
 
             get asIsCount() {
@@ -463,6 +480,22 @@
                 if (this.noHandle[id]) {
                     this.asIs[id] = false;
                 }
+            },
+
+            /*
+             * Which way round the garment is in this photograph.
+             *
+             * Ghost Mannequin turns back views into fronts, and the prompt can
+             * hold it only if something says the photo is a back. The scan
+             * ticks this where the filename says so; this is for the shoots
+             * that don't name it.
+             *
+             * Nothing else is cleared when it is ticked. A back view can still
+             * be sent as is, or keep its background — this says what the
+             * photograph shows, not what should be done with it.
+             */
+            toggleBackView(id) {
+                this.backView[id] = ! this.backView[id];
             },
 
             toggleKeepBg(id) {

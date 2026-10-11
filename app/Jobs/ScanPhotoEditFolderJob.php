@@ -80,6 +80,31 @@ class ScanPhotoEditFolderJob implements ShouldQueue
                         'onedrive_item_id'      => $file['item_id'],
                         'onedrive_download_url' => $file['download_url'] ?? '',
                         'original_size_kb'      => (int) round(($file['size_bytes'] ?? 0) / 1024),
+
+                        /*
+                         * The photographer saying which way round it is.
+                         *
+                         * Ghost Mannequin turns back views into fronts, and
+                         * the prompt can hold it only if something says the
+                         * photo is a back. Nothing did: Gemini used to
+                         * classify this and was removed for labelling one
+                         * dress's two views front and back on one run and
+                         * front and front on the next.
+                         *
+                         * A filename is not a guess. Where the shoot names it
+                         * — "…-sandal-back.webp" — that is a person who had
+                         * the garment in their hands, and it costs nothing to
+                         * read. Where it doesn't, the box on the configure
+                         * screen is ticked by hand and this stays false.
+                         *
+                         * Matched on a word boundary so a "backless" slip or a
+                         * "backpack" is not swept up by it.
+                         */
+                        'back_view'             => (bool) preg_match(
+                            '/\bback\b/i',
+                            str_replace(['-', '_', '.'], ' ', (string) $file['filename']),
+                        ),
+
                         'status'                => 'pending',
                         'selected'              => true,
                         'created_at'            => now(),
