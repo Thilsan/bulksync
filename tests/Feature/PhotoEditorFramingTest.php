@@ -866,17 +866,31 @@ class PhotoEditorFramingTest extends TestCase
             {
                 $this->attempts[] = array_key_exists('upscale', $edits);
 
-                if (!empty($edits['upscale'])) {
-                    throw new \RuntimeException('Photoroom returned 400: upscale/mode must be equal to one of the allowed values');
+                // The first ask is refused; the separate one afterwards is not.
+                if (!empty($edits['upscale']) && count($this->attempts) === 1) {
+                    throw new \RuntimeException('Photoroom returned 400: The image you are trying to upscale is too big.');
                 }
 
                 return 'generated-bytes';
             }
         };
 
-        $this->assertSame('generated-bytes', $method->invoke($job, $fussy, 'in', [], 'a.jpg'));
-        $this->assertSame([true, false], $fussy->attempts,
-            'the upscale was not asked for first, or not given up on second');
+        $images = app(\App\Services\ImageProcessingService::class);
+
+        /*
+         * Three calls now, not two. The refusal names a size — Photoroom's own
+         * generation comes back seven per cent over its own upscaler's
+         * one-megapixel input limit — so the picture has to return before it
+         * can be shrunk, and the upscale happens on its own afterwards.
+         *
+         * 'generated-bytes' is not a readable image, so the shrink leaves it
+         * alone and the third call carries it through unchanged. What this
+         * pins is the shape of the attempts: asked with, retried without,
+         * then upscaled separately.
+         */
+        $this->assertSame('generated-bytes', $method->invoke($job, $fussy, $images, 'in', [], 'a.jpg'));
+        $this->assertSame([true, false, true], $fussy->attempts,
+            'the upscale was not asked for first, given up on second, and retried alone third');
 
         // A failure that has nothing to do with upscale is not swallowed.
         $broken = new class extends PhotoroomService {
@@ -887,7 +901,7 @@ class PhotoEditorFramingTest extends TestCase
         };
 
         $this->expectException(\RuntimeException::class);
-        $method->invoke($job, $broken, 'in', [], 'a.jpg');
+        $method->invoke($job, $broken, $images, 'in', [], 'a.jpg');
     }
 
     /**

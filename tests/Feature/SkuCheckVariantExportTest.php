@@ -126,12 +126,13 @@ class SkuCheckVariantExportTest extends TestCase
             'SKU Checked', 'Status', 'Product ID', 'Product Name', 'Published',
             'Colour', 'Size', 'Variant SKU', 'Variant ID',
             'Has Image', 'Image Count', 'Sizes In Colour', 'Sizes With Image', 'Gallery Images',
+            'Duplicate Title',
         ], $rows[0]);
 
         $this->assertCount(4, $rows); // header + three variants
 
         $this->assertSame(
-            ['AAA', 'Available', '77', 'A Dress', 'TRUE', 'Red', 'M', 'SKU-M', '51', 'YES', '2', '2', '1', '9'],
+            ['AAA', 'Available', '77', 'A Dress', 'TRUE', 'Red', 'M', 'SKU-M', '51', 'YES', '2', '2', '1', '9', ''],
             $rows[1]
         );
         $this->assertSame('NO', $rows[2][9]);
@@ -185,6 +186,26 @@ class SkuCheckVariantExportTest extends TestCase
         $session->refresh();
         $this->assertSame(1, $session->variant_export_total);
         $this->assertSame(1, $session->variant_export_scanned);
+    }
+
+    public function test_one_title_created_as_two_products_is_flagged_on_both(): void
+    {
+        $session = $this->checkSession([
+            ['AAA', 'Available', '77', 'A Dress',   'TRUE'],
+            ['BBB', 'Available', '88', ' a  dress', 'TRUE'],
+            ['CCC', 'Available', '99', 'A Skirt',   'TRUE'],
+        ]);
+
+        $one = fn () => $this->breakdown('x', [$this->colour('Red', [$this->variantSize('M', true)])]);
+        $this->fake(['AAA' => $one(), 'BBB' => $one(), 'CCC' => $one()]);
+
+        (new BuildVariantBreakdownCsvJob($session->id))->handle();
+
+        $note = array_column(array_slice($this->exportRows($session->id), 1), 14, 0);
+
+        $this->assertSame('DUPLICATE · also BBB (88)', $note['AAA']);
+        $this->assertSame('DUPLICATE · also AAA (77)', $note['BBB']);
+        $this->assertSame('', $note['CCC']);
     }
 
     public function test_skus_with_no_product_id_are_not_merged_into_one_block(): void

@@ -32,6 +32,10 @@ use Illuminate\Support\Facades\Log;
  * of the product's variants under each would repeat six rows as twelve and pay
  * for the same lookup twice. The product is written once instead, with every
  * pasted SKU that reached it named in the first column.
+ *
+ * The last column flags the opposite mistake: one style created in Shopify
+ * more than once, so the same title sits on two product ids. It only sees the
+ * products this check reached, which is the list the buyer is working from.
  */
 class BuildVariantBreakdownCsvJob implements ShouldQueue
 {
@@ -81,9 +85,11 @@ class BuildVariantBreakdownCsvJob implements ShouldQueue
                 'Colour', 'Size', 'Variant SKU', 'Variant ID',
                 'Has Image', 'Image Count',
                 'Sizes In Colour', 'Sizes With Image', 'Gallery Images',
+                'Duplicate Title',
             ]);
 
-            $grouped = $this->groupSkusByProduct($sourcePath);
+            $grouped    = $this->groupSkusByProduct($sourcePath);
+            $duplicates = $this->duplicateTitles($sourcePath);
 
             $scanned     = 0;
             $failed      = 0;
@@ -99,7 +105,7 @@ class BuildVariantBreakdownCsvJob implements ShouldQueue
                 if (strtolower($row[1] ?? '') !== 'available') {
                     // Kept in the file rather than dropped: a SKU missing from
                     // the export would read as "no colours", not "not in Shopify".
-                    fputcsv($out, [$sku, 'Not Available', '', '', '', '', '', '', '', '', '', '', '', '']);
+                    fputcsv($out, [$sku, 'Not Available', '', '', '', '', '', '', '', '', '', '', '', '', '']);
                     $scanned++;
                     continue;
                 }
@@ -117,6 +123,7 @@ class BuildVariantBreakdownCsvJob implements ShouldQueue
                 // Every pasted SKU that landed on this product, so a search for
                 // any one of them finds these rows.
                 $checked = implode(', ', $grouped[$key] ?? [$sku]);
+                $dupe    = $duplicates[$key] ?? '';
 
                 try {
                     $breakdown = $shopify->getSkuVariantBreakdown($sku, true);
@@ -129,14 +136,14 @@ class BuildVariantBreakdownCsvJob implements ShouldQueue
                     // query Shopify refuses, a scope, a throttle — is one fact,
                     // and reading it off the page beats hunting the log.
                     $firstFailure ??= $e->getMessage();
-                    fputcsv($out, [$checked, 'Lookup Failed', $row[2] ?? '', $row[3] ?? '', '', '', '', '', '', '', '', '', '', '']);
+                    fputcsv($out, [$checked, 'Lookup Failed', $row[2] ?? '', $row[3] ?? '', '', '', '', '', '', '', '', '', '', '', $dupe]);
                     $failed++;
                     $scanned++;
                     continue;
                 }
 
                 if ($breakdown === null) {
-                    fputcsv($out, [$checked, 'No Variants Found', $row[2] ?? '', $row[3] ?? '', '', '', '', '', '', '', '', '', '', '']);
+                    fputcsv($out, [$checked, 'No Variants Found', $row[2] ?? '', $row[3] ?? '', '', '', '', '', '', '', '', '', '', '', $dupe]);
                     $scanned++;
                     continue;
                 }
@@ -158,6 +165,7 @@ class BuildVariantBreakdownCsvJob implements ShouldQueue
                             $colour['variant_count'],
                             $colour['with_image_count'],
                             $breakdown['gallery_count'],
+                            $dupe,
                         ]);
                     }
                 }
@@ -217,6 +225,56 @@ class BuildVariantBreakdownCsvJob implements ShouldQueue
         fclose($handle);
 
         return $grouped;
+    }
+
+    /**
+     * For each product whose title another product in the check also carries,
+     * a short note naming the other product's SKUs and id — "DUPLICATE · also
+     * BBB (88)" — so the buyer sees which pasted SKU went to the second copy.
+     * Titles are compared trimmed and case-blind, since a re-created product
+     * rarely differs by more than that.
+     *
+     * @return array<string, string>  keyed by productKey()
+     */
+    private function duplicateTitles(string $path): array
+    {
+        $handle = fopen($path, 'r');
+        fgetcsv($handle); // header
+
+        $byTitle = [];
+
+        while (($row = fgetcsv($handle)) !== false) {
+            $productId = trim($row[2] ?? '');
+            $title     = mb_strtolower(trim(preg_replace('/\s+/', ' ', $row[3] ?? '')));
+
+            if (strtolower($row[1] ?? '') === 'available' && $productId !== '' && $title !== '') {
+                $byTitle[$title][$productId][] = $row[0] ?? '';
+            }
+        }
+
+        fclose($handle);
+
+        $notes = [];
+
+        foreach ($byTitle as $products) {
+            if (count($products) < 2) {
+                continue;
+            }
+
+            foreach ($products as $id => $skus) {
+                $others = [];
+
+                foreach ($products as $otherId => $otherSkus) {
+                    if ((string) $otherId !== (string) $id) {
+                        $others[] = implode(', ', $otherSkus) . " ({$otherId})";
+                    }
+                }
+
+                $notes["product:{$id}"] = 'DUPLICATE · also ' . implode('; ', $others);
+            }
+        }
+
+        return $notes;
     }
 
     /**

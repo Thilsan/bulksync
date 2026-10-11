@@ -1195,6 +1195,39 @@ class ImageProcessingService
     }
 
     /**
+     * Bring the longest side down to an edge, keeping the shape.
+     *
+     * Photoroom's upscaler scales by a factor rather than to a target: ask it
+     * for 2000 from an 810 x 1207 on-model shot and it returns 3240 x 4828,
+     * four times up and fifteen megapixels. That then meets a one-megabyte
+     * ceiling enforced by lowering JPEG quality and never by scaling, so the
+     * picture would be crushed into artefacts — an upscale undone by the
+     * compression that follows it, and a worse face than the small version
+     * it replaced.
+     *
+     * Never enlarges, and returns the original bytes when they already fit.
+     */
+    public function capLongEdge(string $imageContent, int $maxEdge): string
+    {
+        $info = @getimagesizefromstring($imageContent);
+
+        if (!$info || max($info[0], $info[1]) <= $maxEdge) {
+            return $imageContent;
+        }
+
+        try {
+            $img = $this->decode($imageContent);
+            $img->scaleDown($maxEdge, $maxEdge);
+
+            return $img->encode(new PngEncoder())->toString();
+        } catch (\Throwable $e) {
+            Log::warning('capLongEdge could not shrink: ' . $e->getMessage());
+
+            return $imageContent;
+        }
+    }
+
+    /**
      * Shrink an image until it fits inside a pixel budget, losslessly.
      *
      * For Photoroom's upscaler, which takes a million pixels at ai.fast and

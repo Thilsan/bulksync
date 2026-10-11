@@ -70,4 +70,32 @@ class UpscaleBudgetTest extends TestCase
     {
         $this->assertSame('nonsense', app(ImageProcessingService::class)->scaleToPixelBudget('nonsense', 980_000));
     }
+
+    /*
+     * And the upscaled result is brought back to the catalogue edge.
+     *
+     * Photoroom's upscaler scales by a factor rather than to a target: asked
+     * for 2000 from an 810 x 1207 generation it returns 3240 x 4828, fifteen
+     * megapixels. The one-megabyte ceiling that follows is held by lowering
+     * JPEG quality and never by scaling, so without this the upscale would be
+     * undone by its own compression — a worse face than the 848 px version it
+     * replaced.
+     */
+    public function test_the_upscaled_shot_comes_back_to_the_catalogue_edge(): void
+    {
+        $out = app(ImageProcessingService::class)->capLongEdge($this->png(3240, 4828), 2000);
+
+        [$w, $h] = getimagesizefromstring($out);
+
+        $this->assertSame(2000, max($w, $h));
+        $this->assertEqualsWithDelta(3240 / 4828, $w / $h, 0.01, 'the model came back stretched');
+    }
+
+    /** Never enlarges: a generation that was refused the upscale stays as it is. */
+    public function test_a_small_shot_is_not_blown_up_to_fill_the_edge(): void
+    {
+        $png = $this->png(848, 1264);
+
+        $this->assertSame($png, app(ImageProcessingService::class)->capLongEdge($png, 2000));
+    }
 }

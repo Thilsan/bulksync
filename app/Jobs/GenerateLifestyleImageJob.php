@@ -126,6 +126,22 @@ class GenerateLifestyleImageJob implements ShouldQueue
              * true, at the best quality that fits and without ever trading
              * pixels for bytes.
              */
+            /*
+             * Down to the catalogue edge before the bytes are counted.
+             *
+             * Photoroom's upscaler scales by a factor, not to a target: asked
+             * for 2000 from an 810 x 1207 generation it returns 3240 x 4828 —
+             * fifteen megapixels. toJpegUnderLimit below holds one megabyte by
+             * lowering quality and never by scaling, which on fifteen
+             * megapixels means artefacts everywhere and a worse face than the
+             * 848 px version this was meant to improve on.
+             *
+             * Capped rather than framed: an on-model shot keeps its own shape
+             * because frameToStandard would read the model and the room as
+             * subject and crop to them.
+             */
+            $edited = $imageService->capLongEdge($edited, self::CANVAS_EDGE);
+
             $edited = $imageService->toJpegUnderLimit($edited, self::MAX_OUTPUT_BYTES);
 
             $editedRel = $session->storageDir() . "/{$item->id}-after.jpg";
