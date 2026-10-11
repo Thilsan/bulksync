@@ -213,6 +213,63 @@ $prunePhotoEditorFiles = function () {
 
 Schedule::call($prunePhotoEditorFiles)->daily()->name('prune-photo-editor-files')->withoutOverlapping();
 
+/*
+ * Photographs left mid-edit by a worker that died under them.
+ *
+ * A job that throws marks its own item failed. A worker killed outright — a
+ * supervisor restart landing mid-batch, the box reclaiming memory — does not,
+ * because failed() never runs. The job then sits reserved in Redis for
+ * retry_after, which is three hours here, and the item reads "editing" on the
+ * screen the whole time with nothing coming to collect it. Four photographs
+ * sat like that for a quarter of an hour before anybody thought to ask, and
+ * the honest answer was that nothing in the system was ever going to notice.
+ *
+ * Fifteen minutes is past any real edit: the job's own timeout is five, and a
+ * redraw that has not finished in three times that is not going to.
+ *
+ * Marked failed rather than re-queued, deliberately. A re-queue spends a
+ * credit on a photograph that may well have been edited already — the worker
+ * could have died after the API call and before the save — and spending money
+ * is not a thing to do quietly on somebody's behalf. Failed items are
+ * selectable and retryable on the review screen, so this puts the decision in
+ * front of whoever is watching.
+ */
+$failStalledEdits = function (): void {
+    $stalled = PhotoEditItem::where('status', 'editing')
+        ->where('updated_at', '<', now()->subMinutes(15))
+        ->get();
+
+    if ($stalled->isEmpty()) {
+        return;
+    }
+
+    foreach ($stalled as $item) {
+        $item->update([
+            'status'        => 'failed',
+            'error_message' => 'The worker editing this photo stopped before it finished — '
+                . 'usually a restart landing mid-batch. Nothing was lost; select it and run it again.',
+        ]);
+    }
+
+    foreach ($stalled->pluck('photo_edit_session_id')->unique() as $sessionId) {
+        if ($session = PhotoEditSession::find($sessionId)) {
+            $session->update([
+                'edited_files' => PhotoEditItem::where('photo_edit_session_id', $sessionId)
+                    ->whereIn('status', ['edited', 'pushed'])->count(),
+                'failed_files' => PhotoEditItem::where('photo_edit_session_id', $sessionId)
+                    ->where('status', 'failed')->count(),
+            ]);
+        }
+    }
+
+    \Illuminate\Support\Facades\Log::warning('Photo edits abandoned by a stopped worker', [
+        'items'    => $stalled->count(),
+        'sessions' => $stalled->pluck('photo_edit_session_id')->unique()->values()->all(),
+    ]);
+};
+
+Schedule::call($failStalledEdits)->everyFiveMinutes()->name('fail-stalled-photo-edits')->withoutOverlapping();
+
 // Downloaded product images. This module writes somebody else's whole product
 // gallery per barcode and nothing in the app ever deletes it — a run of two
 // thousand barcodes is several gigabytes, and the disk has filled twice before.
