@@ -234,6 +234,7 @@ class EditPhotoItemJob implements ShouldQueue
                         $itemEdits,
                         (int) ($rawInfo[0] ?? 0),
                         (int) ($rawInfo[1] ?? 0),
+                        (string) ($item->view_type ?? ''),
                     );
 
                 }
@@ -1004,6 +1005,7 @@ class EditPhotoItemJob implements ShouldQueue
         array $edits,
         int $photoWidth = 0,
         int $photoHeight = 0,
+        string $viewType = '',
     ): array {
         $itemEdits   = $edits;
         $named       = filled($edits['segmentation_prompt'] ?? null);
@@ -1077,7 +1079,35 @@ class EditPhotoItemJob implements ShouldQueue
             if (config('services.photoroom.ghost_size', false)) {
                 $itemEdits['apparel_size'] ??= PhotoroomService::closestApparelSize($photoWidth, $photoHeight);
             }
-            $itemEdits['apparel_prompt']   = (string) ($edits['apparel_prompt'] ?? '');
+            /*
+             * Say which way round the garment is, when we know.
+             *
+             * Gemini already classifies every photo as front, back, side or
+             * flat lay, and until now that reading went into the database and
+             * no further. Ghost Mannequin was left to work it out, and on a
+             * back view it often does not: a pink slip photographed from
+             * behind — straight neckline, wide straps over the shoulders —
+             * came back as a front, V-neck and lace at the bust, on a prompt
+             * that says in as many words to keep the same orientation.
+             *
+             * A back is the case worth naming. Fronts are what the model
+             * expects anyway, and side and flat lay are rarer and vaguer; this
+             * stays quiet about all three rather than spending words on
+             * guesses. Photoroom's own advice is to add guidance only where
+             * something specific drifts, and this is the specific thing.
+             *
+             * Appended to whatever the operator typed rather than replacing
+             * it, because their wording is a choice they made about the
+             * garment and this is a fact about the photograph.
+             */
+            $prompt = trim((string) ($edits['apparel_prompt'] ?? ''));
+
+            if ($viewType === 'back') {
+                $prompt = trim($prompt . ' This is the back of the garment. Keep the back view — '
+                    . 'do not turn it round or show the front.');
+            }
+
+            $itemEdits['apparel_prompt']   = $prompt;
             $itemEdits['remove_background'] = true;
 
             return ['ghost_mannequin', $itemEdits];
