@@ -115,7 +115,7 @@ class GenerateLifestyleImageJob implements ShouldQueue
             $beforeRel = $session->storageDir() . "/{$item->id}-before.jpg";
             file_put_contents(storage_path('app/' . $beforeRel), $imageService->thumbnail($input, 420));
 
-            $edited = $this->generate($photoroom, $input, $edits, $item->filename, $item->sku_detected);
+            $edited = $this->generate($photoroom, $imageService, $input, $edits, $item->filename, $item->sku_detected);
             unset($input);
 
             /*
@@ -259,7 +259,7 @@ class GenerateLifestyleImageJob implements ShouldQueue
      * only once — a 429 or a credit problem is not something a second identical
      * request improves, and it would cost another credit to find that out.
      */
-    private function generate(PhotoroomService $photoroom, string $input, array $edits, string $filename, ?string $sku = null): string
+    private function generate(PhotoroomService $photoroom, ImageProcessingService $imageService, string $input, array $edits, string $filename, ?string $sku = null): string
     {
         $this->requests++;
         $wanted = $this->onModelEdits($edits, $sku);
@@ -281,8 +281,68 @@ class GenerateLifestyleImageJob implements ShouldQueue
 
             unset($wanted['upscale'], $wanted['upscale_resolution']);
 
-            return $photoroom->edit($input, $wanted, $filename);
+            $generated = $photoroom->edit($input, $wanted, $filename);
+
+            /*
+             * Upscale it on its own, which is the only way it can happen.
+             *
+             * The refusal is not about combining the two. It names a size:
+             * "Maximum allowed size: width * height = 1000000 pixels. Current
+             * image size: 1071872 pixels." — and 1071872 is 848 x 1264, the
+             * image Photoroom had just generated. Its own output is seven per
+             * cent over its own upscaler's input limit, and nothing in the
+             * request can make it generate something smaller, because the
+             * sizes are named by aspect rather than by pixels.
+             *
+             * So the picture has to come back before it can be shrunk, and
+             * that takes a second call. Four per cent off the long edge is
+             * enough to get under the ceiling, and the upscaler then redraws
+             * from there to the catalogue canvas. The alternative is what was
+             * happening until now: every on-model shot filed at 848 px and
+             * stretched by the page, which is where the soft faces came from.
+             *
+             * A failure here is not fatal. The generated image is already in
+             * hand and publishing it slightly soft beats losing it.
+             */
+            try {
+                return $this->upscaleSeparately($photoroom, $imageService, $generated, $filename);
+            } catch (\Throwable $up) {
+                Log::warning('On-model upscale failed; keeping the generated size.', [
+                    'item'  => $this->itemId,
+                    'error' => $up->getMessage(),
+                ]);
+
+                return $generated;
+            }
         }
+    }
+
+    /**
+     * Shrink just under the upscaler's input ceiling, then upscale.
+     *
+     * UPSCALE_MAX_PIXELS is what Photoroom accepts; the shrink aims a little
+     * below it rather than exactly at it, because a rounded dimension that
+     * lands one pixel over spends a request to be told so.
+     */
+    private function upscaleSeparately(
+        PhotoroomService $photoroom,
+        ImageProcessingService $imageService,
+        string $generated,
+        string $filename,
+    ): string {
+        $generated = $imageService->scaleToPixelBudget(
+            $generated,
+            (int) (PhotoroomService::UPSCALE_MAX_PIXELS[PhotoroomService::UPSCALE_FAST] * 0.98),
+        );
+
+        $this->requests++;
+
+        return $photoroom->edit($generated, [
+            'remove_background'  => false,
+            'upscale'            => true,
+            'upscale_mode'       => PhotoroomService::UPSCALE_FAST,
+            'upscale_resolution' => self::CANVAS_EDGE,
+        ], $filename);
     }
 
     /**

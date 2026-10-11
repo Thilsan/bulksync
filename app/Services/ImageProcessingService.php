@@ -1195,6 +1195,54 @@ class ImageProcessingService
     }
 
     /**
+     * Shrink an image until it fits inside a pixel budget, losslessly.
+     *
+     * For Photoroom's upscaler, which takes a million pixels at ai.fast and
+     * refuses anything larger — including, as it turns out, Photoroom's own
+     * generated on-model shots, which arrive at 848 x 1264 and are seven per
+     * cent over. Four per cent off each edge is enough, and the upscaler then
+     * redraws from there.
+     *
+     * PNG rather than JPEG, unlike scaleDownForAnalysis: that one is feeding a
+     * vision model which only has to recognise things, while this is feeding
+     * an upscaler which has to reconstruct them. Handing it JPEG artefacts to
+     * magnify would be a strange way to ask for detail.
+     *
+     * Never upscales, and returns the original bytes when they already fit.
+     */
+    public function scaleToPixelBudget(string $imageContent, int $maxPixels): string
+    {
+        $info = @getimagesizefromstring($imageContent);
+
+        if (!$info || $info[0] < 1 || $info[1] < 1) {
+            return $imageContent;
+        }
+
+        $pixels = $info[0] * $info[1];
+
+        if ($pixels <= $maxPixels) {
+            return $imageContent;
+        }
+
+        try {
+            $scale = sqrt($maxPixels / $pixels);
+            $img   = $this->decode($imageContent);
+
+            $img->scaleDown(
+                max(1, (int) floor($info[0] * $scale)),
+                max(1, (int) floor($info[1] * $scale)),
+            );
+
+            return $img->encode(new PngEncoder())->toString();
+        } catch (\Throwable $e) {
+            // The caller still has a picture; it simply will not be upscaled.
+            Log::warning('scaleToPixelBudget could not shrink: ' . $e->getMessage());
+
+            return $imageContent;
+        }
+    }
+
+    /**
      * Shrink an image for sending to a vision AI API — vision models don't need
      * full resolution to identify colors/textures/details, and smaller images
      * mean fewer tokens and faster uploads. Never upscales. Does not touch the
