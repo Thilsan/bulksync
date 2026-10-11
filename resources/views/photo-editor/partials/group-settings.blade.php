@@ -179,6 +179,7 @@
                 @foreach ([
                     'General'          => \App\Services\PhotoroomService::GHOST_MANNEQUIN_HINT,
                     'Lace / lingerie'  => \App\Services\PhotoroomService::GHOST_MANNEQUIN_HINT_FINE,
+                    'Collarless'       => \App\Services\PhotoroomService::GHOST_MANNEQUIN_HINT_COLLARLESS,
                 ] as $preset => $wording)
                     <button type="button" title="{{ $wording }}"
                             @click="document.getElementById('ghost-prompt-{{ $uid }}').value = @js($wording)"

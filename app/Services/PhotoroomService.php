@@ -936,6 +936,23 @@ class PhotoroomService
      * GHOST_MANNEQUIN_HINT, and on garments that already work, more words is
      * not the same as better.
      */
+    /*
+     * For a neckline the stand was standing in.
+     *
+     * A collarless nightdress came back with a collar — invented exactly where
+     * the mannequin's neck post had been. It is the same failure as the lace
+     * hem returning as plain satin and the cap sleeves returning as straps:
+     * where the stand covers the garment, the model draws something rather
+     * than nothing, and a neckline is the part a stand always covers.
+     *
+     * Its own option rather than part of the general wording, because the
+     * sentence is a claim about the garment. On a shirt with a collar it would
+     * be an instruction to remove one, which is a worse failure than the one
+     * it fixes.
+     */
+    public const GHOST_MANNEQUIN_HINT_COLLARLESS = 'Remove mannequin and keep the same orientation. '
+        . 'The garment is collarless — do not add a collar, neckband or any trim at the neckline';
+
     public const GHOST_MANNEQUIN_HINT_FINE = 'Remove the mannequin completely, including visible legs, '
         . 'while keeping the exact garment shape, orientation, lace, sleeves, hem, fabric details, '
         . 'and proportions unchanged';

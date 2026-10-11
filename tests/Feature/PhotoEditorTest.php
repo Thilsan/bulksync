@@ -1481,6 +1481,17 @@ class PhotoEditorTest extends TestCase
         );
 
         $this->assertStringContainsString('including visible legs', PhotoroomService::GHOST_MANNEQUIN_HINT_FINE);
+
+        // And a third, for the neckline a stand always covers. Its own option
+        // rather than part of the general wording: on a shirt with a collar,
+        // "the garment is collarless" is an instruction to remove one.
+        $this->actingAs($this->editor())
+            ->get(route('photo-editor.index'))
+            ->assertOk()
+            ->assertSee('Collarless');
+
+        $this->assertStringContainsString('do not add a collar', PhotoroomService::GHOST_MANNEQUIN_HINT_COLLARLESS);
+        $this->assertStringNotContainsString('collarless', PhotoroomService::GHOST_MANNEQUIN_HINT);
     }
 
     /** Output colour is pinned so one product looks the same on every listing. */
