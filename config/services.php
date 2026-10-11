@@ -161,16 +161,24 @@ return [
         'cycle_day' => (int) env('PHOTOROOM_CYCLE_DAY', 8),
 
         /*
-         * Give a kept redraw the photograph's own colour cast.
+         * Off: publish a kept redraw with whatever colour Photoroom gave it.
          *
-         * Ghost Mannequin renders under neutral light; a plain cutout of the
-         * same garment keeps whatever the studio had. Without this, one SKU
-         * can show a robe mauve in one frame and grey in the next.
-         * PHOTOROOM_MATCH_REDRAW_COLOUR=false publishes the redraw as it
-         * arrives, which is the comparison to run on a batch before trusting
-         * this one.
+         * It was on for a while. Ghost Mannequin renders under its own neutral
+         * light while a plain cutout keeps the studio's cast, so one SKU could
+         * show a robe mauve in one frame and grey in the next, and this put the
+         * photograph's cast back onto the redraw.
+         *
+         * Measured, it worked: on a grey satin robe the photograph's garment
+         * read +8.2 red-over-blue and the corrected redraw +7.98, against −0.7
+         * uncorrected. Turned off anyway, because the person looking at the
+         * finished pictures still judged them wrong — and a colour nobody who
+         * sells the garment accepts is wrong whatever the measurement says.
+         *
+         * The code is tested and intact. PHOTOROOM_MATCH_REDRAW_COLOUR=true
+         * brings it back, which is worth trying again if cutouts and redraws
+         * of one product ever start disagreeing on a page.
          */
-        'match_redraw_colour' => (bool) env('PHOTOROOM_MATCH_REDRAW_COLOUR', true),
+        'match_redraw_colour' => (bool) env('PHOTOROOM_MATCH_REDRAW_COLOUR', false),
 
         /*
          * Off: let Photoroom choose the canvas for a redraw.
