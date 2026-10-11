@@ -1491,6 +1491,23 @@ class PhotoEditorTest extends TestCase
             ->assertSee('Collarless');
 
         $this->assertStringContainsString('do not add a collar', PhotoroomService::GHOST_MANNEQUIN_HINT_COLLARLESS);
+        $this->assertStringContainsString('do not add a train', PhotoroomService::GHOST_MANNEQUIN_HINT_HEM);
+
+        /*
+         * The two extras are clauses, not whole prompts.
+         *
+         * They are added to a base and to each other — a garment can be both
+         * collarless and floor-length — so neither may carry an opening
+         * instruction of its own, or combining them would ask Photoroom to
+         * remove the mannequin twice.
+         */
+        foreach ([
+            PhotoroomService::GHOST_MANNEQUIN_HINT_COLLARLESS,
+            PhotoroomService::GHOST_MANNEQUIN_HINT_HEM,
+        ] as $clause) {
+            $this->assertStringNotContainsString('Remove mannequin', $clause);
+            $this->assertStringNotContainsString('Remove the mannequin', $clause);
+        }
         $this->assertStringNotContainsString('collarless', PhotoroomService::GHOST_MANNEQUIN_HINT);
     }
 

@@ -949,9 +949,27 @@ class PhotoroomService
      * sentence is a claim about the garment. On a shirt with a collar it would
      * be an instruction to remove one, which is a worse failure than the one
      * it fixes.
+     *
+     * A clause rather than a whole prompt, so it can be added to either base
+     * wording and to the hem one. A garment can be both collarless and
+     * floor-length, and before this the chips overwrote each other.
      */
-    public const GHOST_MANNEQUIN_HINT_COLLARLESS = 'Remove mannequin and keep the same orientation. '
-        . 'The garment is collarless — do not add a collar, neckband or any trim at the neckline';
+    public const GHOST_MANNEQUIN_HINT_COLLARLESS =
+        'The garment is collarless — do not add a collar, neckband or any trim at the neckline';
+
+    /*
+     * For a hem the stand was standing under.
+     *
+     * A floor-length nightdress came back with its hem sweeping backwards into
+     * a train. The mannequin's pole and round base sat directly beneath it, so
+     * that is the stretch of fabric the model had to invent — the same failure
+     * as the collar at the neck post, moved to the other end of the garment.
+     *
+     * Long nightwear on a floor stand will meet this every time, because the
+     * base is always under the hem.
+     */
+    public const GHOST_MANNEQUIN_HINT_HEM =
+        'The hem hangs straight and level — do not add a train, sweep or trailing hem';
 
     public const GHOST_MANNEQUIN_HINT_FINE = 'Remove the mannequin completely, including visible legs, '
         . 'while keeping the exact garment shape, orientation, lace, sleeves, hem, fabric details, '

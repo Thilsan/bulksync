@@ -169,22 +169,48 @@
                 this field tells the model what to make, not what to avoid. Clear it to send no hint at all.
             </p>
 
-            {{-- Two wordings Photoroom's own support arrived at, rather than a
-                 free-text box and a guess. The second is longer because it
-                 names what the model keeps reconstructing on lace and
-                 nightwear; on garments that already work, more words is not
-                 the same as better, which is why it is a choice and not the
-                 default. --}}
-            <div class="mt-1.5 flex flex-wrap gap-1.5">
+            {{-- Two wordings to start from, and clauses to add to them.
+
+                 The bases are Photoroom's own: the short one their support
+                 recommended, and the longer one they sent after seeing a
+                 nightwear batch fail. They replace each other, because a
+                 prompt has one opening instruction.
+
+                 The clauses are things we have watched the model invent where
+                 the stand was covering the garment — a collar at the neck
+                 post, a trailing hem where the base stood. They add and remove,
+                 because a garment can be both collarless and floor-length and
+                 the chips used to overwrite each other.
+
+                 The field stays free text underneath: these are a way in, not
+                 a menu of everything that can be said. --}}
+            <div class="mt-1.5 flex flex-wrap items-center gap-1.5"
+                 x-data="ghostHint('ghost-prompt-{{ $uid }}')">
                 @foreach ([
-                    'General'          => \App\Services\PhotoroomService::GHOST_MANNEQUIN_HINT,
-                    'Lace / lingerie'  => \App\Services\PhotoroomService::GHOST_MANNEQUIN_HINT_FINE,
-                    'Collarless'       => \App\Services\PhotoroomService::GHOST_MANNEQUIN_HINT_COLLARLESS,
-                ] as $preset => $wording)
-                    <button type="button" title="{{ $wording }}"
-                            @click="document.getElementById('ghost-prompt-{{ $uid }}').value = @js($wording)"
-                            class="rounded-full border border-gray-300 px-2.5 py-0.5 text-[11px] text-gray-600 hover:border-brand-500 hover:text-brand-600">
-                        {{ $preset }}
+                    'General'         => \App\Services\PhotoroomService::GHOST_MANNEQUIN_HINT,
+                    'Lace / lingerie' => \App\Services\PhotoroomService::GHOST_MANNEQUIN_HINT_FINE,
+                ] as $label => $wording)
+                    <button type="button" title="{{ $wording }}" @click="setBase(@js($wording))"
+                            :class="base === @js($wording)
+                                ? 'border-brand-500 bg-brand-50 text-brand-700'
+                                : 'border-gray-300 text-gray-600 hover:border-brand-500 hover:text-brand-600'"
+                            class="rounded-full border px-2.5 py-0.5 text-[11px] transition-colors">
+                        {{ $label }}
+                    </button>
+                @endforeach
+
+                <span class="px-0.5 text-[11px] text-gray-300">+</span>
+
+                @foreach ([
+                    'Collarless'   => \App\Services\PhotoroomService::GHOST_MANNEQUIN_HINT_COLLARLESS,
+                    'Straight hem' => \App\Services\PhotoroomService::GHOST_MANNEQUIN_HINT_HEM,
+                ] as $label => $clause)
+                    <button type="button" title="{{ $clause }}" @click="toggle(@js($clause))"
+                            :class="has(@js($clause))
+                                ? 'border-brand-500 bg-brand-50 text-brand-700'
+                                : 'border-gray-300 text-gray-600 hover:border-brand-500 hover:text-brand-600'"
+                            class="rounded-full border px-2.5 py-0.5 text-[11px] transition-colors">
+                        {{ $label }}
                     </button>
                 @endforeach
             </div>
@@ -684,3 +710,79 @@
     </div>
     <p class="mt-1 text-xs text-gray-500">A fraction of the photo, e.g. 0.1 for 10%. Crops a stand out of shot before the cutout runs.</p>
 </details>
+
+@once
+<script>
+    /*
+     * The style-hint chips.
+     *
+     * Two bases that replace each other — a prompt has one opening
+     * instruction — and clauses that add and remove, because a garment can be
+     * both collarless and floor-length. Before this each chip overwrote the
+     * whole field, so the second one you clicked threw away the first.
+     *
+     * The field stays the source of truth rather than this component: an
+     * operator can type anything, and the chips read the current value back
+     * to decide which of them look active. That way a wording typed by hand
+     * is never silently replaced by a chip's idea of what should be there.
+     */
+    function ghostHint(fieldId) {
+        return {
+            get field() {
+                return document.getElementById(fieldId);
+            },
+
+            get value() {
+                return (this.field?.value || '').trim();
+            },
+
+            // Whichever base the current text opens with, if any.
+            get base() {
+                const v = this.value;
+
+                for (const b of window.ghostHintBases || []) {
+                    if (v.startsWith(b)) {
+                        return b;
+                    }
+                }
+
+                return '';
+            },
+
+            has(clause) {
+                return this.value.includes(clause);
+            },
+
+            write(text) {
+                this.field.value = text;
+                this.field.dispatchEvent(new Event('input'));
+            },
+
+            setBase(wording) {
+                const rest = this.base ? this.value.slice(this.base.length) : '';
+
+                this.write((wording + rest).replace(/\s+/g, ' ').trim());
+            },
+
+            toggle(clause) {
+                if (this.has(clause)) {
+                    this.write(
+                        this.value.replace(clause, '').replace(/\.\s*\./g, '.').replace(/\s+/g, ' ').trim()
+                    );
+
+                    return;
+                }
+
+                const base = this.value.replace(/[.\s]+$/, '');
+
+                this.write(base ? `${base}. ${clause}` : clause);
+            },
+        };
+    }
+
+    window.ghostHintBases = @json([
+        \App\Services\PhotoroomService::GHOST_MANNEQUIN_HINT,
+        \App\Services\PhotoroomService::GHOST_MANNEQUIN_HINT_FINE,
+    ]);
+</script>
+@endonce
