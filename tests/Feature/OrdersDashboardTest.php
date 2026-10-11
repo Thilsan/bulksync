@@ -918,6 +918,24 @@ class OrdersDashboardTest extends TestCase
         Http::assertNothingSent();
     }
 
+    /** The tabs not built yet open a holding page and call nothing. */
+    public function test_the_coming_soon_tabs_show_a_holding_page_without_calling_the_api(): void
+    {
+        $this->fakeOk();
+
+        foreach (['google_ads' => 'Google Ads', 'meta_ads' => 'Meta Ads', 'crm' => 'CRM', 'email' => 'Email Campaigns'] as $key => $label) {
+            $this->actingAs($this->admin)
+                ->get(route('orders.dashboard', ['tab' => $key]))
+                ->assertOk()
+                ->assertSee('data-tab="'.$key.'"', false)
+                ->assertSee('We are working on this.')
+                ->assertSee($label)
+                ->assertDontSee('Daily orders');
+        }
+
+        Http::assertNothingSent();
+    }
+
     /** Both tabs are reachable and neither is rendered on top of the other. */
     public function test_an_unknown_tab_falls_back_to_orders(): void
     {

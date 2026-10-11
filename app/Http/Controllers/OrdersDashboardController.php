@@ -121,7 +121,17 @@ class OrdersDashboardController extends Controller
         'analytics' => 'Ecom Order Analytics',
         'sessions'  => 'Visitor Sessions',
         'studio'    => 'AI Studio',
+        'google_ads' => 'Google Ads',
+        'meta_ads'   => 'Meta Ads',
+        'crm'        => 'CRM',
+        'email'      => 'Email Campaigns',
     ];
+
+    /**
+     * Tabs that are on the bar but not built yet. They open a holding page and
+     * call nothing, and like Studio they ignore the date range.
+     */
+    public const COMING_SOON = ['google_ads', 'meta_ads', 'crm', 'email'];
 
     public function index(Request $request, OrdersSummaryService $orders, ShopifyAnalyticsService $analytics, Ga4AnalyticsService $sessions, #[CurrentUser] User $user): View
     {
@@ -135,7 +145,7 @@ class OrdersDashboardController extends Controller
         // The studio tab is the workspace picture on its own fortnightly clock,
         // so the orders endpoint is not called for it at all — no point paying
         // for two API round trips to render a page that shows neither.
-        if ($tab === 'studio') {
+        if ($tab === 'studio' || \in_array($tab, self::COMING_SOON, true)) {
             return view('orders.dashboard', [
                 'tab'       => $tab,
                 'tabs'      => self::TABS,
@@ -146,7 +156,7 @@ class OrdersDashboardController extends Controller
                 'summary'   => null,
                 'platforms' => $this->platformList(null, $filters['platforms']),
                 'fallback'  => null,
-                'workspace' => WorkspaceSummary::for($user),
+                'workspace' => $tab === 'studio' ? WorkspaceSummary::for($user) : null,
                 'analytics' => null,
                 'analyticsTotals' => null,
                 'sessions'        => null,

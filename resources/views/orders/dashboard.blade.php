@@ -46,9 +46,9 @@
          arrives. --}}
     <div class="border-b border-gray-200 flex items-center gap-1" role="tablist">
         @foreach($tabs as $key => $label)
-            {{-- Every tab but Studio shares the date range, so switching keeps
-                 it; Studio runs on its own clock and ignores it. --}}
-            <a href="{{ route('orders.dashboard', $key === 'studio' ? ['tab' => $key] : array_merge(request()->query(), ['tab' => $key])) }}"
+            {{-- Every tab but Studio and the not-yet-built ones shares the date
+                 range, so switching keeps it; the others ignore it. --}}
+            <a href="{{ route('orders.dashboard', $key === 'studio' || in_array($key, \App\Http\Controllers\OrdersDashboardController::COMING_SOON, true) ? ['tab' => $key] : array_merge(request()->query(), ['tab' => $key])) }}"
                role="tab" @if($tab === $key) aria-selected="true" @endif
                @if($tab !== $key) @click="busy = true; going = '{{ $key }}'" @endif
                class="px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors inline-flex items-center gap-1.5
@@ -76,6 +76,15 @@
         </template>
         <div data-tab="studio" x-show="!busy">
             @include('orders.studio', $workspace)
+        </div>
+    @elseif(in_array($tab, \App\Http\Controllers\OrdersDashboardController::COMING_SOON, true))
+        <template x-if="busy">
+            @include('orders.loading')
+        </template>
+        <div data-tab="{{ $tab }}" x-show="!busy"
+             class="bg-white rounded-xl border border-gray-200 shadow-sm py-24 text-center">
+            <p class="text-lg font-medium text-gray-800">{{ $tabs[$tab] }}</p>
+            <p class="mt-2 text-sm text-gray-500">We are working on this.</p>
         </div>
     @elseif($tab === 'analytics')
         {{-- space-y here, not on the partial: its filter bar and its content
