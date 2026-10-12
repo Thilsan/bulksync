@@ -34,8 +34,8 @@ use Illuminate\Support\Facades\Log;
  * pasted SKU that reached it named in the first column.
  *
  * The last column flags the opposite mistake: one style created in Shopify
- * more than once, so the same title sits on two product ids. It only sees the
- * products this check reached, which is the list the buyer is working from.
+ * more than once, so its sizes are split across two product ids. It only sees
+ * the products this check reached, which is the list the buyer is working from.
  */
 class BuildVariantBreakdownCsvJob implements ShouldQueue
 {
@@ -228,11 +228,16 @@ class BuildVariantBreakdownCsvJob implements ShouldQueue
     }
 
     /**
-     * For each product whose title another product in the check also carries,
-     * a short note naming the other product's SKUs and id — "DUPLICATE · also
-     * BBB (88)" — so the buyer sees which pasted SKU went to the second copy.
-     * Titles are compared trimmed and case-blind, since a re-created product
-     * rarely differs by more than that.
+     * For each product that shares its style with another product in the
+     * check, a short note naming the other product's SKUs and id — "DUPLICATE ·
+     * also BBB (88)" — so the buyer sees which pasted SKU went to the second
+     * copy.
+     *
+     * The style is the code that starts the title, as the style-code matching
+     * elsewhere reads it: "100296 CUPIDO TOP 0101BLACK M SS26" and "100296
+     * CUPIDO Embellished top 0202 S SS26" are one style created twice, though
+     * the rest of the title drifted. A title with no code in front falls back
+     * to the whole title, compared trimmed and case-blind.
      *
      * @return array<string, string>  keyed by productKey()
      */
@@ -245,10 +250,10 @@ class BuildVariantBreakdownCsvJob implements ShouldQueue
 
         while (($row = fgetcsv($handle)) !== false) {
             $productId = trim($row[2] ?? '');
-            $title     = mb_strtolower(trim(preg_replace('/\s+/', ' ', $row[3] ?? '')));
+            $style     = $this->styleKey($row[3] ?? '');
 
-            if (strtolower($row[1] ?? '') === 'available' && $productId !== '' && $title !== '') {
-                $byTitle[$title][$productId][] = $row[0] ?? '';
+            if (strtolower($row[1] ?? '') === 'available' && $productId !== '' && $style !== '') {
+                $byTitle[$style][$productId][] = $row[0] ?? '';
             }
         }
 
@@ -275,6 +280,19 @@ class BuildVariantBreakdownCsvJob implements ShouldQueue
         }
 
         return $notes;
+    }
+
+    /**
+     * The title's leading style code, or the whole title when it has none. A
+     * code must carry a digit: titles that open with a brand — "AMERICAN
+     * TOURISTER TRAILON" — would otherwise group every product of that brand.
+     */
+    private function styleKey(string $title): string
+    {
+        $title = mb_strtolower(trim(preg_replace('/\s+/', ' ', $title)));
+        $first = explode(' ', $title)[0];
+
+        return preg_match('/\d/', $first) ? "style:{$first}" : $title;
     }
 
     /**

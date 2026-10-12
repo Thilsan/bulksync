@@ -208,6 +208,30 @@ class SkuCheckVariantExportTest extends TestCase
         $this->assertSame('', $note['CCC']);
     }
 
+    public function test_one_style_code_created_as_two_products_is_flagged_though_titles_differ(): void
+    {
+        $session = $this->checkSession([
+            ['LUI204TOP01804', 'Available', '77', '100296 CUPIDO TOP 0101BLACK M SS26',       'FALSE'],
+            ['LUI204TOP01803', 'Available', '88', '100296 CUPIDO Embellished top 0202 S SS26', 'FALSE'],
+            ['GAT207LUG00323', 'Available', '91', 'AMERICAN TOURISTER TRAILON',               'TRUE'],
+            ['GAT207LUG00999', 'Available', '92', 'AMERICAN TOURISTER BON AIR',               'TRUE'],
+        ]);
+
+        $one = fn () => $this->breakdown('x', [$this->colour('Red', [$this->variantSize('M', true)])]);
+        $this->fake(array_fill_keys(['LUI204TOP01804', 'LUI204TOP01803', 'GAT207LUG00323', 'GAT207LUG00999'], $one()));
+
+        (new BuildVariantBreakdownCsvJob($session->id))->handle();
+
+        $note = array_column(array_slice($this->exportRows($session->id), 1), 14, 0);
+
+        $this->assertSame('DUPLICATE · also LUI204TOP01803 (88)', $note['LUI204TOP01804']);
+        $this->assertSame('DUPLICATE · also LUI204TOP01804 (77)', $note['LUI204TOP01803']);
+
+        // Same brand word up front is not the same style.
+        $this->assertSame('', $note['GAT207LUG00323']);
+        $this->assertSame('', $note['GAT207LUG00999']);
+    }
+
     public function test_skus_with_no_product_id_are_not_merged_into_one_block(): void
     {
         // An empty product id is not a product they share — grouping on it
