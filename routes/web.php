@@ -157,6 +157,7 @@ Route::middleware('auth')->group(function () {
      */
     Route::get('/photo-editor',                  [PhotoEditorController::class, 'index'])->name('photo-editor.index');
     Route::post('/photo-editor',                 [PhotoEditorController::class, 'store'])->name('photo-editor.store');
+    Route::post('/photo-editor/from-shopify',     [PhotoEditorController::class, 'storeFromShopify'])->name('photo-editor.store-shopify');
     Route::get('/photo-editor/history',          [PhotoEditorController::class, 'history'])->name('photo-editor.history');
     Route::get('/photo-editor/{session}',        [PhotoEditorController::class, 'show'])->name('photo-editor.show');
     Route::get('/photo-editor/{session}/status', [PhotoEditorController::class, 'status'])->name('photo-editor.status');

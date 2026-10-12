@@ -137,7 +137,23 @@ class PushEditedPhotoJob implements ShouldQueue
             $variantId = $matchingMode === 'style_code' ? null : ($variant['variant_id'] ?? null);
 
             // Read before the update below overwrites it.
-            $previousImageId = $item->isRepush() ? $item->shopify_image_id : null;
+            /*
+             * Which image this one is taking the place of.
+             *
+             * Two cases, one behaviour. A re-push replaces what this run put
+             * there last time. A photograph fetched from Shopify in the first
+             * place replaces the image it was fetched from — the run exists to
+             * redo a picture that is already live, so leaving the original
+             * behind would double the gallery rather than improve it.
+             *
+             * Not folded into isRepush(): that asks whether we have pushed
+             * this row before, which is false here and should stay false. The
+             * row has never been pushed; it simply arrived knowing what it
+             * came from.
+             */
+            $previousImageId = $item->isRepush()
+                ? $item->shopify_image_id
+                : ($item->replaces_image_id ?: null);
 
             $imageId = $shopify->uploadImageToProduct(
                 $variant['product_id'],
@@ -316,6 +332,21 @@ class PushEditedPhotoJob implements ShouldQueue
          * end of the gallery, and the order within each product is what
          * survives, which is the thing being fixed.
          */
+        /*
+         * A photograph that came from Shopify already has a slot.
+         *
+         * Counting is for a folder of shoot files, where nothing on Shopify
+         * corresponds to them yet and the run decides the order. A picture
+         * fetched from a product's own gallery is going back where it came
+         * from, and its neighbours — images this run never touched — are still
+         * sitting either side of it. Counting across the run would send the
+         * fifth SKU's photograph to position five of its own product, which
+         * has nothing to do with where its original was.
+         */
+        if (filled($item->replaces_image_id)) {
+            return max(1, (int) $item->position);
+        }
+
         $ahead = PhotoEditItem::where('photo_edit_session_id', $item->photo_edit_session_id)
             ->where('selected', true)
             ->whereKeyNot($item->getKey())

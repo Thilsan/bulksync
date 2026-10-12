@@ -15,6 +15,7 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -84,11 +85,26 @@ class EditPhotoItemJob implements ShouldQueue
         $edits = $item->resolvedEdits();
 
         try {
-            $raw = $oneDrive->downloadFileById(
-                $item->onedrive_drive_id,
-                $item->onedrive_item_id,
-                $item->onedrive_download_url ?? '',
-            );
+            /*
+             * Two ways a photograph gets here.
+             *
+             * A shoot file comes from OneDrive by drive and item id. A picture
+             * already live on Shopify comes from its own CDN URL — the run was
+             * started from a pasted list of SKUs rather than a folder, and
+             * there is no OneDrive item behind it to ask for.
+             *
+             * Decided by what the row carries rather than by the session's
+             * source, so a row is self-describing: anything with a URL is
+             * fetched from it, and the OneDrive path is untouched for
+             * everything else.
+             */
+            $raw = filled($item->source_url)
+                ? $this->downloadFromUrl($item->source_url)
+                : $oneDrive->downloadFileById(
+                    $item->onedrive_drive_id,
+                    $item->onedrive_item_id,
+                    $item->onedrive_download_url ?? '',
+                );
 
             // Straighten first, before anything decodes the pixels. Studio
             // cameras record rotation as an EXIF flag rather than rotating the
@@ -907,6 +923,35 @@ class EditPhotoItemJob implements ShouldQueue
         }
 
         $this->syncSessionCounts($item->photo_edit_session_id);
+    }
+
+    /**
+     * Fetch a picture that already lives on a CDN.
+     *
+     * Shopify's image URLs are public and unsigned, so there is no token to
+     * carry and nothing to refresh — but they can 404 once an image has been
+     * replaced, which is exactly what this feature does to them. A failure
+     * here says so plainly rather than arriving later as "Photoroom returned
+     * nothing".
+     */
+    private function downloadFromUrl(string $url): string
+    {
+        $response = Http::timeout(60)->get($url);
+
+        if (!$response->successful()) {
+            throw new \RuntimeException(
+                "Could not fetch the image from Shopify (HTTP {$response->status()}). "
+                . 'It may have been replaced or deleted since this run was started.'
+            );
+        }
+
+        $body = (string) $response->body();
+
+        if ($body === '' || @getimagesizefromstring($body) === false) {
+            throw new \RuntimeException('Shopify returned something that is not an image for this SKU.');
+        }
+
+        return $body;
     }
 
     public function failed(\Throwable $e): void

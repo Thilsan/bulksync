@@ -22,6 +22,7 @@ class PhotoEditItem extends Model
         'onedrive_drive_id',
         'onedrive_item_id',
         'onedrive_download_url',
+        'source_url',
         'original_thumb_path',
         'edited_thumb_path',
         'edited_path',
@@ -40,6 +41,7 @@ class PhotoEditItem extends Model
         'variant_id',
         'variant_sku',
         'shopify_image_id',
+        'replaces_image_id',
         'error_message',
     ];
 

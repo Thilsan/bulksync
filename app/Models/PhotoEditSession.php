@@ -16,6 +16,7 @@ class PhotoEditSession extends Model
         'store_id',
         'name',
         'onedrive_link',
+        'source',
         'matching_mode',
         'edits',
         'status',

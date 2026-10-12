@@ -67,7 +67,14 @@
 
     @include('photo-editor.partials.usage')
 
-    <form method="POST" action="{{ route('photo-editor.store') }}" @submit="loading = true">
+    {{-- A real action as well as the bound one: the OneDrive route is where
+         this posts before Alpine has said otherwise, so the form is a form
+         with or without JavaScript rather than one that submits to the page
+         it is on. --}}
+    <form method="POST" action="{{ route('photo-editor.store') }}" @submit="loading = true"
+          :action="source === 'shopify'
+              ? '{{ route('photo-editor.store-shopify') }}'
+              : '{{ route('photo-editor.store') }}'">
         @csrf
 
         <div class="space-y-6">
@@ -79,10 +86,58 @@
                     <h2 class="font-display text-lg leading-none text-gray-900">Where are the photos?</h2>
                 </div>
 
-                <div class="space-y-4">
+                {{-- Two ways in, picked before anything else is asked.
+
+                     The OneDrive side wants a folder link and a way to read
+                     SKUs out of filenames. The Shopify side wants neither:
+                     the operator has already said which products they mean,
+                     and a picture on a product page has been named and
+                     straightened once already. So the blocks swap rather than
+                     sitting side by side with half of each greyed out. --}}
+                <div class="mb-4 inline-flex rounded-lg border border-gray-200 p-0.5">
+                    @foreach ([
+                        'onedrive' => 'A OneDrive folder',
+                        'shopify'  => 'SKUs already on Shopify',
+                    ] as $key => $label)
+                        <button type="button" @click="source = '{{ $key }}'"
+                                :class="source === '{{ $key }}'
+                                    ? 'bg-brand-600 text-white'
+                                    : 'text-gray-600 hover:text-brand-700'"
+                                class="rounded-md px-3 py-1.5 text-xs font-semibold transition-colors">
+                            {{ $label }}
+                        </button>
+                    @endforeach
+                </div>
+
+                <input type="hidden" name="source" :value="source">
+
+                {{-- Paste a list, fetch each product's first image, edit it,
+                     and the edited version goes back into the slot it came
+                     from. One image per SKU: that is the one a shopper sees in
+                     a collection grid, and a product with five images should
+                     not quietly cost five credits. --}}
+                <div x-show="source === 'shopify'" x-cloak class="space-y-4">
+                    <div>
+                        <textarea id="skus" name="skus" rows="6"
+                                  :required="source === 'shopify'"
+                                  placeholder="One SKU per line&#10;LLE122NIG04116&#10;RGN122NIG00432"
+                                  class="w-full rounded-lg border px-4 py-3 font-mono text-sm transition focus:border-brand-500 focus:outline-none focus:ring-4 focus:ring-brand-500/15 {{ $errors->has('skus') ? 'border-red-400' : 'border-gray-300' }}">{{ old('skus') }}</textarea>
+                        <p class="mt-1.5 text-xs text-gray-400">
+                            Up to 200 at a time. Each product's <strong>first</strong> image is fetched; the edited
+                            version replaces it in the same gallery position, and the original is deleted once the
+                            new one is in place.
+                        </p>
+                        @error('skus')
+                            <p class="mt-1 text-xs text-red-600">{{ $message }}</p>
+                        @enderror
+                    </div>
+                </div>
+
+                <div class="space-y-4" x-show="source === 'onedrive'" x-cloak>
                     <div class="grid gap-4 2xl:grid-cols-2">
                         <div>
-                            <input id="onedrive_link" name="onedrive_link" type="url" required
+                            <input id="onedrive_link" name="onedrive_link" type="url"
+                                   :required="source === 'onedrive'"
                                    value="{{ old('onedrive_link') }}"
                                    placeholder="Paste the OneDrive folder link"
                                    class="w-full rounded-lg border px-4 py-3 text-sm transition focus:border-brand-500 focus:outline-none focus:ring-4 focus:ring-brand-500/15 {{ $errors->has('onedrive_link') ? 'border-red-400' : 'border-gray-300' }}">
@@ -212,6 +267,16 @@
 function photoEditForm() {
     return {
         loading: false,
+
+        /*
+         * Where this run's photographs come from.
+         *
+         * A folder of shoot files, or products already on Shopify. The two
+         * share everything after the pictures arrive — the same settings, the
+         * same configure screen, the same push — so they share a form and swap
+         * only the block that asks where to look and the action it posts to.
+         */
+        source: '{{ old('source', 'onedrive') }}',
 
         matchingMode: '{{ old('matching_mode', 'sku_barcode') }}',
 

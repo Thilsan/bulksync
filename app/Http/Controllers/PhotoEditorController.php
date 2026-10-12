@@ -7,6 +7,7 @@ use App\Jobs\EditPhotoItemJob;
 use App\Jobs\PushEditedPhotoJob;
 use App\Jobs\GenerateLifestyleImageJob;
 use App\Jobs\ScanPhotoEditFolderJob;
+use App\Jobs\ScanShopifySkusJob;
 use App\Models\PhotoEditGroup;
 use App\Models\PhotoEditItem;
 use App\Models\PhotoEditSession;
@@ -38,6 +39,17 @@ use App\Support\Queues;
  */
 class PhotoEditorController extends Controller implements HasMiddleware
 {
+    /**
+     * How many SKUs one Shopify run may ask for.
+     *
+     * Each is two Shopify calls at scan time and a credit at edit time, and
+     * the scan runs in one job — a thousand pasted at once would hold a worker
+     * for the better part of an hour before a single picture appeared on the
+     * screen. Two hundred is a morning's work and finishes its scan in a
+     * minute or two.
+     */
+    private const MAX_SHOPIFY_SKUS = 200;
+
     public function __construct(
         private PhotoroomService $photoroom,
     ) {}
@@ -165,6 +177,83 @@ class PhotoEditorController extends Controller implements HasMiddleware
      * still be set to differ against the actual photos, and nothing reaches
      * Photoroom until it is started from there.
      */
+    /**
+     * Start a run from SKUs that are already on Shopify.
+     *
+     * The other way in. store() above takes a OneDrive folder of shoot files;
+     * this takes a pasted list of SKUs and fetches each product's first image
+     * from the storefront, so a picture that is already live can be redone and
+     * put back in the slot it came from.
+     *
+     * Deliberately a second action rather than a mode of the first. They share
+     * a session, a configure screen and a push, but almost nothing about
+     * getting the photographs in: no folder link, no SKU matching to do — the
+     * operator has already said which products they mean — and no orientation
+     * to correct, because a picture on a product page has been through all of
+     * that once already.
+     */
+    public function storeFromShopify(Request $request): RedirectResponse
+    {
+        $validated = $request->validate([
+            'skus'  => ['required', 'string', 'max:60000'],
+            'name'  => ['nullable', 'string', 'max:120'],
+            'edits' => ['nullable', 'array'],
+        ], [
+            'skus.required' => 'Paste the SKUs, one per line.',
+        ]);
+
+        /*
+         * Split on anything a paste might carry: a column out of a spreadsheet
+         * arrives newline-separated, a copied cell range can be tab- or
+         * comma-separated, and a list typed by hand is whatever the typist
+         * felt like. Duplicates are dropped — the same SKU twice would fetch
+         * one picture, edit it twice and push both into one slot.
+         */
+        $skus = collect(preg_split('/[\r\n,;\t]+/', $validated['skus']))
+            ->map(fn ($s) => trim((string) $s))
+            ->filter()
+            ->unique()
+            ->values();
+
+        if ($skus->isEmpty()) {
+            return back()->withErrors(['skus' => 'No SKUs could be read from that.'])->withInput();
+        }
+
+        if ($skus->count() > self::MAX_SHOPIFY_SKUS) {
+            return back()->withErrors([
+                'skus' => 'That is ' . $skus->count() . ' SKUs. Please do at most '
+                    . self::MAX_SHOPIFY_SKUS . ' at a time.',
+            ])->withInput();
+        }
+
+        $edits = PhotoroomService::defaultEdits();
+
+        if (!empty($validated['edits'])) {
+            $edits = $this->editsFromRequest($validated['edits'], $edits);
+        }
+
+        $session = PhotoEditSession::create([
+            'user_id'       => auth()->id(),
+            'store_id'      => Store::getActive()?->id,
+            'name'          => ($validated['name'] ?? null) ?: 'Shopify ' . now()->format('Y-m-d H:i'),
+            'source'        => 'shopify',
+            'onedrive_link' => '',
+            'matching_mode' => 'sku_barcode',
+            'edits'         => $edits,
+            'status'        => 'processing',
+            'scan_status'   => 'pending',
+        ]);
+
+        ScanShopifySkusJob::dispatch($session->id, $skus->all())
+            ->onQueue(config('services.photo_editor.scan_queue', Queues::PHOTOS));
+
+        return redirect()->route('photo-editor.configure', $session)->with(
+            'info',
+            'Fetching ' . $skus->count() . ' ' . Str::plural('product', $skus->count())
+            . ' from Shopify. Nothing is sent to Photoroom until you start the run.',
+        );
+    }
+
     public function store(Request $request): RedirectResponse
     {
         $validated = $request->validate([
@@ -397,6 +486,19 @@ class PhotoEditorController extends Controller implements HasMiddleware
         $this->authorizeSession($session);
 
         abort_unless($item->photo_edit_session_id === $session->id, 404);
+
+        /*
+         * A picture already on Shopify is served from where it is.
+         *
+         * Its URL is public and unsigned, so the browser could fetch it
+         * directly — but then the configure screen would have two ways of
+         * naming a thumbnail and every template would have to know which kind
+         * of row it was looking at. Redirecting keeps one route for both and
+         * costs nothing: Shopify's CDN serves the bytes either way.
+         */
+        if (filled($item->source_url)) {
+            return redirect()->away($item->source_url);
+        }
 
         if ($session->user_id && ($user = User::find($session->user_id))) {
             $oneDrive->setUser($user);
