@@ -168,8 +168,13 @@ class OrdersDashboardController extends Controller
         // Each website's own Shopify, not the ecommerce-server endpoint the
         // Orders tab reads — so this tab is answered without that call either.
         if ($tab === 'analytics') {
-            $stores = Store::accessibleBy($user)->orderBy('name')->get();
-            $rows   = $analytics->forStores($stores, $filters['from'], $filters['to']);
+            // Narrowed by the same platform picker as the Ecom Delivery tab,
+            // matched to stores the way the cancellations card does it.
+            [$stores, $unmatched] = $this->storesForPlatforms(
+                Store::accessibleBy($user)->orderBy('name')->get(),
+                $filters['platforms'],
+            );
+            $rows = $analytics->forStores($stores, $filters['from'], $filters['to']);
 
             // Connected stores lead, sorted by revenue; a not-connected or
             // unavailable store has no revenue to sort by and falls to the end.
@@ -191,6 +196,7 @@ class OrdersDashboardController extends Controller
                 'workspace'       => null,
                 'analytics'       => $rows,
                 'analyticsTotals' => $this->analyticsTotals($rows),
+                'unmatched'       => $unmatched,
                 'sessions'        => null,
                 'sessionsTotals'  => null,
                 'integrating'     => self::INTEGRATING,
@@ -403,27 +409,16 @@ class OrdersDashboardController extends Controller
         $basis = $request->string('basis')->toString();
         $basis = \array_key_exists($basis, OrdersSummaryService::BASES) ? $basis : 'created';
 
-        $stores    = Store::accessibleBy($user)->orderBy('name')->get();
         $platforms = collect($request->input('platforms', []))
             ->filter(fn ($p) => \is_string($p) && $p !== '')
             ->values();
 
         // Narrowed to the platforms the filter bar picked, like the rest of
-        // the tab. A picked platform with no store recognised as it is named
-        // back, so an empty card is not read as "nothing was cancelled".
-        $unmatched = [];
-
-        if ($platforms->isNotEmpty()) {
-            $matches = fn (Store $s, string $p) => OrdersSummary::storeIsPlatform($s->name, $s->shopify_domain, $p);
-
-            $unmatched = $platforms
-                ->reject(fn ($p) => $stores->contains(fn ($s) => $matches($s, $p)))
-                ->map(fn ($p) => OrdersSummary::platform($p))
-                ->values()
-                ->all();
-
-            $stores = $stores->filter(fn ($s) => $platforms->contains(fn ($p) => $matches($s, $p)))->values();
-        }
+        // the tab.
+        [$stores, $unmatched] = $this->storesForPlatforms(
+            Store::accessibleBy($user)->orderBy('name')->get(),
+            $platforms->all(),
+        );
 
         $shopify  = $cancellations->forStores($stores, $from, $to, $basis);
         $delivery = $this->deliveryCancellations($orders, $from, $to, $basis, $platforms->all());
@@ -442,6 +437,35 @@ class OrdersDashboardController extends Controller
         }
 
         return response()->json(['ok' => true, 'source' => 'shopify', 'unmatched' => $unmatched] + $shopify);
+    }
+
+    /**
+     * The stores behind the platforms the filter bar picked.
+     *
+     * No pick means every store. A picked platform with no store recognised
+     * as it is named back, so an empty result is not read as "nothing sold".
+     *
+     * @param  \Illuminate\Support\Collection<int, Store>  $stores
+     * @param  list<string>  $platforms
+     * @return array{0: \Illuminate\Support\Collection<int, Store>, 1: list<string>}
+     */
+    private function storesForPlatforms($stores, array $platforms): array
+    {
+        if (! $platforms) {
+            return [$stores, []];
+        }
+
+        $matches = fn (Store $s, string $p) => OrdersSummary::storeIsPlatform($s->name, $s->shopify_domain, $p);
+
+        $unmatched = collect($platforms)
+            ->reject(fn ($p) => $stores->contains(fn ($s) => $matches($s, $p)))
+            ->map(fn ($p) => OrdersSummary::platform($p))
+            ->values()
+            ->all();
+
+        $picked = $stores->filter(fn ($s) => collect($platforms)->contains(fn ($p) => $matches($s, $p)))->values();
+
+        return [$picked, $unmatched];
     }
 
     /**

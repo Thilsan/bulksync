@@ -133,35 +133,7 @@
                 @endforeach
             </select>
 
-            {{-- Platform picker. Twenty-three storefronts is too many for a row
-                 of checkboxes and too few to need a search. --}}
-            <div class="relative" x-data="{ open: false }" @click.outside="open = false">
-                <button type="button" @click="open = !open"
-                        class="rounded-lg border border-gray-300 px-2.5 py-1.5 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-1.5">
-                    {{ $filters['platforms'] ? count($filters['platforms']) . ' platforms' : 'All platforms' }}
-                    <svg class="w-3 h-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
-                    </svg>
-                </button>
-
-                <div x-show="open" x-cloak x-transition.opacity
-                     class="absolute right-0 mt-1 w-56 max-h-72 overflow-y-auto bg-white rounded-lg border border-gray-200 shadow-lg z-20 p-2">
-                    <div class="flex gap-2 px-1 pb-2 border-b border-gray-100 mb-1">
-                        <button type="button" class="text-xs text-brand-600 hover:underline"
-                                @click="$el.closest('div').parentElement.querySelectorAll('input[type=checkbox]').forEach(c => c.checked = true)">All</button>
-                        <button type="button" class="text-xs text-gray-500 hover:underline"
-                                @click="$el.closest('div').parentElement.querySelectorAll('input[type=checkbox]').forEach(c => c.checked = false)">None</button>
-                    </div>
-                    @foreach($platforms as $slug)
-                        <label class="flex items-center gap-2 px-1 py-1 rounded hover:bg-gray-50 cursor-pointer">
-                            <input type="checkbox" name="platforms[]" value="{{ $slug }}"
-                                   @checked(in_array($slug, $filters['platforms'], true))
-                                   class="w-3.5 h-3.5 rounded border-gray-300 text-brand-600 focus:ring-brand-500">
-                            <span class="text-xs text-gray-700">{{ $slug }}</span>
-                        </label>
-                    @endforeach
-                </div>
-            </div>
+            @include('orders._platform-picker')
 
             <button type="submit" name="preset" value="custom"
                     class="px-3 py-1.5 text-xs font-medium text-white rounded-lg bg-brand-600 hover:bg-brand-700 transition-colors">
@@ -360,6 +332,14 @@
                          .finally(() => { this.loading = false; });
                  },
                  get shown() { return this.showAll ? this.orders : this.orders.slice(0, 10); },
+                 get reasons() {
+                     const counts = {};
+                     this.orders.forEach(o => { const r = o.reason_label || 'Other'; counts[r] = (counts[r] || 0) + 1; });
+                     const top = Math.max(0, ...Object.values(counts));
+                     return Object.entries(counts)
+                         .map(([label, count]) => ({ label, count, pct: count / this.orders.length * 100, width: top ? Math.max(1.5, count / top * 100) : 0 }))
+                         .sort((a, b) => b.count - a.count);
+                 },
                  when(iso) { return new Date(iso).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Qatar' }); },
                  money(o) { return o.total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ' + (o.currency || ''); },
              }"
@@ -391,6 +371,28 @@
             <p x-show="!loading && !failed && orders.length > 0 && source === 'shopify'" x-cloak class="px-5 pt-3 text-xs text-gray-400">
                 From each store's Shopify, so it can include orders cancelled before they reached the delivery system — the Cancelled tile counts only those that did.
             </p>
+
+            {{-- Share of the listed orders by the reason chosen in Shopify's
+                 cancel dialog, so the pattern is readable without counting
+                 badges down the table. The figure sits beside the bar, so
+                 the chart never carries meaning in length alone. --}}
+            <div x-show="!loading && !failed && orders.length > 0" x-cloak class="px-5 pt-3 pb-4 border-b border-gray-100">
+                <p class="text-[11px] font-semibold uppercase tracking-wide text-gray-400">By reason</p>
+                <div class="mt-2 space-y-1.5">
+                    <template x-for="r in reasons" :key="r.label">
+                        <div class="grid grid-cols-[minmax(8rem,16rem)_1fr_auto] items-center gap-3">
+                            <span class="text-xs text-gray-700 truncate" :title="r.label" x-text="r.label"></span>
+                            <span class="h-2 rounded-full bg-rose-50 overflow-hidden" role="presentation">
+                                <span class="block h-full rounded-full bg-rose-400" :style="'width: ' + r.width + '%'"></span>
+                            </span>
+                            <span class="text-xs tabular-nums whitespace-nowrap text-right min-w-[5.5rem]">
+                                <span class="font-semibold text-gray-800" x-text="r.pct.toFixed(1) + '%'"></span>
+                                <span class="text-gray-400" x-text="'· ' + r.count"></span>
+                            </span>
+                        </div>
+                    </template>
+                </div>
+            </div>
 
             <div x-show="!loading && !failed && orders.length > 0" x-cloak class="overflow-x-auto">
                 <table class="w-full text-sm min-w-[640px]">

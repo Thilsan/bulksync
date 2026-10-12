@@ -52,10 +52,10 @@
 @endphp
 
 {{-- ── Filters ──────────────────────────────────────────────────────────────
-     The same GET-form-in-the-URL idea as the Orders tab, minus two controls
-     that would be lies here: the platform picker (each card is already one
-     storefront) and the date basis (Shopify only filters these on order
-     date). The hidden tab field is what keeps Apply on this tab. --}}
+     The same GET-form-in-the-URL idea as the Orders tab, with its platform
+     picker narrowing which websites get a card. No date basis: Shopify only
+     filters these on order date. The hidden tab field is what keeps Apply on
+     this tab. --}}
 <form method="GET" action="{{ route('orders.dashboard') }}" @submit="busy = true"
       class="bg-white rounded-xl border border-gray-200 shadow-sm p-3 flex flex-wrap items-center gap-2">
     <input type="hidden" name="tab" value="analytics">
@@ -81,6 +81,8 @@
                aria-label="To date"
                class="rounded-lg border border-gray-300 px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500">
 
+        @include('orders._platform-picker')
+
         <button type="submit" name="preset" value="custom"
                 class="px-3 py-1.5 text-xs font-medium text-white rounded-lg bg-brand-600 hover:bg-brand-700 transition-colors">
             <span x-show="!busy">Apply</span>
@@ -98,6 +100,14 @@
 </template>
 
 <div x-show="!busy" class="space-y-5">
+
+{{-- A picked platform with no Shopify store behind it would otherwise just
+     be missing from the cards, which reads as "it sold nothing". --}}
+@if(!empty($unmatched))
+    <div class="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-xs text-gray-600">
+        No Shopify store connected for: {{ implode(', ', $unmatched) }}
+    </div>
+@endif
 
 {{-- A store whose token lacks read_all_orders gets nothing older than 60 days
      back from Shopify, and no error says so — the totals below would read as

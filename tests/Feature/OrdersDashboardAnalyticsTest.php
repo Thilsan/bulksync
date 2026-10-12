@@ -233,6 +233,50 @@ class OrdersDashboardAnalyticsTest extends TestCase
         $this->assertSame(1, substr_count($cards, 'title="Samsonite"'));
     }
 
+    /**
+     * The platform picker from the Ecom Delivery tab narrows which websites
+     * get a card, and a picked platform with no store behind it is named
+     * rather than silently missing.
+     */
+    public function test_platform_picker_narrows_the_websites(): void
+    {
+        Store::create(['name' => 'Blue Salon', 'shopify_domain' => 'bs.myshopify.com', 'shopify_access_token' => 't1']);
+        Store::create(['name' => 'Pari Gallery', 'shopify_domain' => 'ch.myshopify.com', 'shopify_access_token' => 't2']);
+
+        $asked = [];
+
+        $this->app->instance(ShopifyAnalyticsService::class, new ShopifyAnalyticsService(
+            function ($store) use (&$asked) {
+                $asked[] = $store->name;
+
+                return new class {
+                    public function getOrderAnalytics($from, $to): array
+                    {
+                        return [
+                            'orders' => 10, 'revenue' => 1000.0, 'currency' => 'QAR',
+                            'top_products' => [], 'by_channel' => [], 'by_product_type' => [],
+                            'by_vendor' => [], 'capped' => false,
+                        ];
+                    }
+                };
+            },
+        ));
+
+        $html = $this->actingAs($this->admin)
+            ->get('/management-dashboard?tab=analytics&platforms[]=bluesalon&platforms[]=nosuchshop')
+            ->assertOk()->getContent();
+
+        $this->assertSame(['Blue Salon'], $asked);
+        $this->assertStringContainsString('name="platforms[]" value="bluesalon"', $html);
+        $this->assertStringContainsString('2 platforms', $html);
+        $this->assertStringContainsString('No Shopify store connected for:', $html);
+        // The sidebar's store switcher names every store, so only the tab's
+        // own markup is searched.
+        $tab = substr($html, strpos($html, 'data-tab="analytics"'));
+        $this->assertStringNotContainsString('Pari Gallery', $tab);
+        $this->assertStringContainsString('Blue Salon', $tab);
+    }
+
     /** One card's markup, so an assertion cannot pass against a different card. */
     private function slice(string $html, string $from, string $to): string
     {
