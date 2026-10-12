@@ -112,6 +112,9 @@ class ProductRequestController extends Controller implements HasMiddleware
             'total'             => $base()->count(),
             'pending'           => $base()->pending()->count(),
             'waiting_mapping'   => $base()->where('status', ProductRequest::WAITING_MAPPING)->count(),
+            // The tile counts requests; this is the SKUs inside them still to map.
+            'waiting_mapping_skus' => (int) $base()->where('status', ProductRequest::WAITING_MAPPING)->sum('total_skus')
+                                    - (int) $base()->where('status', ProductRequest::WAITING_MAPPING)->sum('mapped_skus'),
             'in_progress'       => $base()->inProgress()->count(),
             'waiting_photoshoot'=> $base()->whereIn('status', [ProductRequest::WAITING_IMAGES, ProductRequest::PHOTOSHOOT_SCHEDULED])->count(),
             'qa_review'         => $base()->where('status', ProductRequest::QA_REVIEW)->count(),
