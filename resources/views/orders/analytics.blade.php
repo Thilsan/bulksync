@@ -156,41 +156,77 @@
     </div>
 @endif
 
-{{-- ── Brands and divisions ─────────────────────────────────────────────────
-     Pooled across every website, which is the only place these two questions
-     have an answer: a brand sells through its own site and through the
-     department stores, and no single card below knows about the others.
+{{-- ── Top brands, one small card per website ──────────────────────────────
+     Each shop's own ranking side by side rather than one pooled list: a
+     department store and a brand's own site sell very different mixes, and
+     the pooled total hid which shop each brand's orders came from.
 
-     Ranked by orders, not money. These add up across stores billing in
-     different currencies, and an order is an order wherever it was placed —
-     a sum of money across that mix would not be one number. --}}
-@if($totals['brands'] || $totals['divisions'])
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        @foreach([['Top brands', $totals['brands'], 'bg-brand-500'], ['Top divisions', $totals['divisions'], 'bg-violet-500']] as [$title, $groups, $fill])
-            @php $biggest = (int) (collect($groups)->max('orders') ?? 0); @endphp
-            <div class="bg-white rounded-xl border border-gray-200 shadow-sm">
-                <div class="px-5 py-3.5 border-b border-gray-100 flex items-baseline justify-between gap-3">
-                    <h3 class="text-sm font-semibold text-gray-800">{{ $title }}</h3>
-                    <span class="text-xs text-gray-400">by orders · all websites</span>
-                </div>
-                <div class="px-5 py-4 space-y-2.5">
-                    @forelse($groups as $group)
-                        <div class="grid grid-cols-[minmax(7rem,11rem)_1fr_auto] items-center gap-3">
-                            <span class="text-xs font-medium text-gray-700 truncate" title="{{ $group['label'] }}">{{ $group['label'] }}</span>
-                            <span class="h-2.5 rounded-full bg-gray-100 overflow-hidden" role="presentation">
-                                <span class="block h-full rounded-full {{ $fill }}"
-                                      style="width: {{ $share($group['orders'], $biggest) }}%"></span>
-                            </span>
-                            {{-- The figure sits beside the bar, so the chart
-                                 never carries meaning in length alone. --}}
-                            <span class="text-xs tabular-nums text-gray-600 whitespace-nowrap">{{ $num($group['orders']) }}</span>
+     Ranked by orders, like the divisions below, so every card reads on the
+     same scale whatever currency the shop bills in. --}}
+@if($selling->isNotEmpty())
+    <div class="bg-white rounded-xl border border-gray-200 shadow-sm">
+        <div class="px-5 py-3.5 border-b border-gray-100 flex items-baseline justify-between gap-3">
+            <h3 class="text-sm font-semibold text-gray-800">Top brands</h3>
+            <span class="text-xs text-gray-400">by orders · per website</span>
+        </div>
+        <div class="p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-3">
+            @foreach($selling as $row)
+                @php
+                    $storeBrands = \array_slice($row['by_vendor'] ?? [], 0, 5);
+                    $topBrand    = (int) (collect($storeBrands)->max('orders') ?? 0);
+                @endphp
+                <div class="rounded-lg border border-gray-100 bg-gray-50/60 px-4 py-3">
+                    <div class="flex items-baseline justify-between gap-2">
+                        <p class="text-xs font-semibold text-gray-800 truncate" title="{{ $row['store'] }}">{{ $row['store'] }}</p>
+                        <span class="text-[11px] tabular-nums text-gray-400 whitespace-nowrap">{{ $num($row['orders']) }} orders</span>
+                    </div>
+                    @if(count($storeBrands))
+                        <div class="mt-2.5 space-y-1.5">
+                            @foreach($storeBrands as $brand)
+                                <div class="grid grid-cols-[minmax(4.5rem,7rem)_1fr_auto] items-center gap-2">
+                                    <span class="text-xs text-gray-600 truncate" title="{{ $brand['label'] }}">{{ $brand['label'] }}</span>
+                                    <span class="h-1.5 rounded-full bg-gray-200/70 overflow-hidden" role="presentation">
+                                        <span class="block h-full rounded-full bg-brand-500"
+                                              style="width: {{ $share($brand['orders'], $topBrand) }}%"></span>
+                                    </span>
+                                    <span class="text-xs tabular-nums text-gray-600 whitespace-nowrap">{{ $num($brand['orders']) }}</span>
+                                </div>
+                            @endforeach
                         </div>
-                    @empty
-                        <p class="text-xs text-gray-300">Nothing recorded in this range.</p>
-                    @endforelse
+                    @else
+                        <p class="mt-2.5 text-xs text-gray-300">No brands recorded in this range.</p>
+                    @endif
                 </div>
-            </div>
-        @endforeach
+            @endforeach
+        </div>
+    </div>
+@endif
+
+{{-- ── Divisions ────────────────────────────────────────────────────────────
+     Pooled across every website. Ranked by orders, not money: these add up
+     across stores billing in different currencies, and an order is an order
+     wherever it was placed. --}}
+@if($totals['divisions'])
+    @php $biggest = (int) (collect($totals['divisions'])->max('orders') ?? 0); @endphp
+    <div class="bg-white rounded-xl border border-gray-200 shadow-sm">
+        <div class="px-5 py-3.5 border-b border-gray-100 flex items-baseline justify-between gap-3">
+            <h3 class="text-sm font-semibold text-gray-800">Top divisions</h3>
+            <span class="text-xs text-gray-400">by orders · all websites</span>
+        </div>
+        <div class="px-5 py-4 grid grid-cols-1 lg:grid-cols-2 gap-x-10 gap-y-2.5">
+            @foreach($totals['divisions'] as $group)
+                <div class="grid grid-cols-[minmax(7rem,11rem)_1fr_auto] items-center gap-3">
+                    <span class="text-xs font-medium text-gray-700 truncate" title="{{ $group['label'] }}">{{ $group['label'] }}</span>
+                    <span class="h-2.5 rounded-full bg-gray-100 overflow-hidden" role="presentation">
+                        <span class="block h-full rounded-full bg-violet-500"
+                              style="width: {{ $share($group['orders'], $biggest) }}%"></span>
+                    </span>
+                    {{-- The figure sits beside the bar, so the chart never
+                         carries meaning in length alone. --}}
+                    <span class="text-xs tabular-nums text-gray-600 whitespace-nowrap">{{ $num($group['orders']) }}</span>
+                </div>
+            @endforeach
+        </div>
     </div>
 @endif
 
@@ -203,11 +239,9 @@
             $products = $row['top_products'] ?? [];
             $channels = $row['by_channel'] ?? [];
 
-            // This shop's own brands, not the pooled list above: the card at
-            // the top answers "which brands carry the business", this answers
-            // "what does this shop actually sell", and on a department store
-            // those are different lists. Five is what fits beside the other
-            // panels without the card growing a scroll of its own.
+            // This shop's own brands, with revenue beside the order count —
+            // the small cards up top only rank by orders. Five is what fits
+            // beside the other panels without the card growing a scroll.
             $brands   = \array_slice($row['by_vendor'] ?? [], 0, 5);
 
             $maxProd  = (float) (collect($products)->max('revenue') ?? 0);

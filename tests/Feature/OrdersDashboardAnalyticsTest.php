@@ -112,15 +112,13 @@ class OrdersDashboardAnalyticsTest extends TestCase
     }
 
     /**
-     * Brands and divisions are pooled across every website, not read off one.
+     * Top brands are one small card per website; divisions stay pooled.
      *
-     * That is the whole point of putting them at the top of the tab: Cole Haan
-     * sells through its own site and through Blue Salon, and the question
-     * "which brands are carrying the quarter" has no answer on either card
-     * alone. Order counts add up cleanly across stores in a way revenue does
-     * not, which is why these rank on orders.
+     * A brand sold on two sites shows on each site's card with that site's
+     * own count, never the sum — the pooled total hid which shop the orders
+     * came from. Divisions still add up across every website.
      */
-    public function test_brands_and_divisions_are_pooled_across_every_website(): void
+    public function test_top_brands_are_per_website_and_divisions_are_pooled(): void
     {
         // Store names deliberately unlike any brand below: "Cole Haan" is both
         // a storefront and a brand sold in the others, and a page-wide search
@@ -167,10 +165,15 @@ class OrdersDashboardAnalyticsTest extends TestCase
         $brands    = $this->slice($html, 'Top brands', 'Top divisions');
         $divisions = $this->slice($html, 'Top divisions', 'xl:grid-cols-3');
 
-        // Cole Haan: 4 orders on one site and 7 on the other. 11 is a number
-        // that appears on neither website's own card — that sum is the test.
-        $this->assertMatchesRegularExpression('/Cole Haan.*?>11</s', $brands);
-        $this->assertStringContainsString('Luca Barra', $brands);
+        // Cole Haan: 4 orders on one site and 7 on the other, each under its
+        // own store's name, and never the pooled 11.
+        $blueSalon = $this->slice($brands, 'Blue Salon', 'Pari Gallery');
+        $pari      = substr($brands, strpos($brands, 'Pari Gallery'));
+        $this->assertMatchesRegularExpression('/Cole Haan.*?>4</s', $blueSalon);
+        $this->assertStringContainsString('Luca Barra', $blueSalon);
+        $this->assertMatchesRegularExpression('/Cole Haan.*?>7</s', $pari);
+        $this->assertStringNotContainsString('Luca Barra', $pari);
+        $this->assertDoesNotMatchRegularExpression('/>11</', $brands);
 
         // Watches likewise, 6 + 1, against Mens Fashion's 5 from one site.
         $this->assertMatchesRegularExpression('/Watches.*?>7</s', $divisions);
@@ -213,11 +216,11 @@ class OrdersDashboardAnalyticsTest extends TestCase
         $html = $this->actingAs($this->admin)
             ->get('/management-dashboard?tab=analytics')->assertOk()->getContent();
 
-        // From the per-website grid onward. Anchored past the pooled card,
-        // because the loading skeleton uses the same grid classes and a plain
-        // search for them lands there — which would drag the pooled rows into
-        // the slice and double every count below.
-        $cards = substr($html, strpos($html, 'xl:grid-cols-3', strpos($html, 'Top divisions')));
+        // From the per-website grid onward. Anchored past the Top brands
+        // cards, because the loading skeleton uses the same grid classes and
+        // a plain search for them lands there — which would drag the small
+        // brand cards into the slice and double every count below.
+        $cards = substr($html, strpos($html, 'xl:grid-cols-3', strpos($html, 'Top brands')));
 
         $this->assertStringContainsString('By brand', $cards);
 

@@ -304,7 +304,7 @@ class OrdersDashboardController extends Controller
         if ($selling->isEmpty()) {
             return ['currency' => 'QAR', 'revenue' => 0.0, 'orders' => 0, 'aov' => 0.0,
                     'selling' => 0, 'connected' => 0, 'other_currencies' => 0,
-                    'brands' => [], 'divisions' => []];
+                    'divisions' => []];
         }
 
         $currency = $selling->groupBy('currency')
@@ -326,15 +326,13 @@ class OrdersDashboardController extends Controller
             'connected'        => $selling->count(),
             'other_currencies' => $selling->count() - $counted->count(),
 
-            // Pooled across every website, which is the only place these
-            // questions have an answer: Cole Haan sells through its own site
-            // and through Blue Salon, and neither card knows about the other.
-            'brands'    => $this->pool($selling, 'by_vendor'),
+            // Pooled across every website. Brands are not: the page shows
+            // each shop's own brand ranking in a small card of its own.
             'divisions' => $this->pool($selling, 'by_product_type'),
         ];
     }
 
-    /** How many brands and divisions a card has room to show. */
+    /** How many divisions the pooled card has room to show. */
     private const ANALYTICS_TOP_GROUPS = 10;
 
     /**
