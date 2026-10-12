@@ -159,4 +159,106 @@ class PhotoEditorFromShopifyTest extends TestCase
 
         $this->assertSame(4, $method->invoke(new \App\Jobs\PushEditedPhotoJob($item->id), $item));
     }
+
+    /*
+     * The scan leaves a run the configure screen can actually render.
+     *
+     * Items alone are not enough. That screen is built out of groups, one per
+     * SKU, because its settings are chosen per SKU — and it waits for
+     * scan_status to be the exact word "scanned". A first attempt here wrote
+     * "done" and created no groups, so a run whose photographs were sitting in
+     * the table showed "Still reading the folder" until somebody asked.
+     */
+    public function test_the_scan_leaves_a_run_the_configure_screen_can_render(): void
+    {
+        $user = $this->editor();
+
+        $session = PhotoEditSession::create([
+            'user_id' => $user->id, 'name' => 'Run', 'onedrive_link' => '',
+            'source' => 'shopify', 'edits' => ['remove_background' => true],
+            'status' => 'processing', 'scan_status' => 'pending',
+        ]);
+
+        $this->fakeShopify();
+
+        (new ScanShopifySkusJob($session->id, ['A-1', 'NOPE']))->handle();
+
+        $session->refresh();
+
+        $this->assertSame('scanned', $session->scan_status, 'the screen waits on this exact word');
+        $this->assertSame(2, $session->total_files);
+        $this->assertSame(1, $session->failed_files);
+
+        $this->assertSame(
+            ['A-1', 'NOPE'],
+            \App\Models\PhotoEditGroup::where('photo_edit_session_id', $session->id)
+                ->orderBy('sku')->pluck('sku')->all(),
+            'the configure screen renders groups, and a run with none renders nothing',
+        );
+
+        $found = PhotoEditItem::where('sku_detected', 'A-1')->sole();
+
+        $this->assertSame('https://cdn.example.com/first.jpg', $found->source_url);
+        $this->assertSame('991', $found->replaces_image_id, 'it must know which image it replaces');
+        $this->assertSame(1, $found->position, 'and which slot that image was in');
+
+        $missing = PhotoEditItem::where('sku_detected', 'NOPE')->sole();
+
+        $this->assertSame('failed', $missing->status);
+        $this->assertStringContainsString('not found', $missing->error_message);
+    }
+
+    /**
+     * Only the first image, and one row per product.
+     *
+     * A size run of eight variants shares one gallery, so eight rows would
+     * spend eight credits overwriting the same slot — and a product with five
+     * images should not quietly cost five.
+     */
+    public function test_it_takes_one_image_per_sku_and_only_the_first(): void
+    {
+        $session = PhotoEditSession::create([
+            'user_id' => $this->editor()->id, 'name' => 'Run', 'onedrive_link' => '',
+            'source' => 'shopify', 'edits' => [], 'scan_status' => 'pending',
+        ]);
+
+        $this->fakeShopify();
+
+        (new ScanShopifySkusJob($session->id, ['A-1']))->handle();
+
+        $this->assertSame(1, PhotoEditItem::where('photo_edit_session_id', $session->id)->count());
+        $this->assertSame('991', PhotoEditItem::sole()->replaces_image_id, 'it took a later image');
+    }
+
+    /**
+     * Stand in for Shopify.
+     *
+     * findVariantsBySkus and getProductImages are the two calls the scan makes;
+     * everything else on the service is irrelevant here, and a fake that only
+     * answers those two says so.
+     */
+    private function fakeShopify(): void
+    {
+        $this->app->bind(\App\Services\ShopifyService::class, fn () => new class extends \App\Services\ShopifyService {
+            public function __construct() {}
+
+            public function findVariantsBySkus(array $skus, bool $throwOnFailure = false): array
+            {
+                return in_array('A-1', $skus, true) ? ['A-1' => [[
+                    'product_id'    => '7001',
+                    'product_title' => 'A top',
+                    'variant_id'    => '8001',
+                    'variant_sku'   => 'A-1',
+                ]]] : [];
+            }
+
+            public function getProductImages(string $productId): array
+            {
+                return [
+                    ['id' => '991', 'src' => 'https://cdn.example.com/first.jpg', 'position' => 1],
+                    ['id' => '992', 'src' => 'https://cdn.example.com/second.jpg', 'position' => 2],
+                ];
+            }
+        });
+    }
 }

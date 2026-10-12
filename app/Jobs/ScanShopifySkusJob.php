@@ -2,6 +2,7 @@
 
 namespace App\Jobs;
 
+use App\Models\PhotoEditGroup;
 use App\Models\PhotoEditItem;
 use App\Models\PhotoEditSession;
 use App\Models\Store;
@@ -62,7 +63,9 @@ class ScanShopifySkusJob implements ShouldQueue
              * into a Diamantaire run whenever somebody switched tabs while it
              * was queued. The push job constructs its client the same way.
              */
-            $shopify = new ShopifyService(Store::find($session->store_id));
+            $shopify = app()->makeWith(ShopifyService::class, [
+                'store' => Store::find($session->store_id),
+            ]);
 
             $found = $shopify->findVariantsBySkus($this->skus);
             $rows  = [];
@@ -93,29 +96,48 @@ class ScanShopifySkusJob implements ShouldQueue
 
                 $image = $images[0];
 
-                $rows[] = [
-                    'photo_edit_session_id' => $session->id,
-                    'kind'                  => 'cutout',
-                    'filename'              => $sku . '.jpg',
-                    'sku_detected'          => $sku,
-                    'source_url'            => (string) ($image['src'] ?? ''),
-                    'replaces_image_id'     => (string) ($image['id'] ?? ''),
-                    'position'              => (int) ($image['position'] ?? 1),
-                    'product_id'            => (string) $variant['product_id'],
-                    'product_title'         => (string) ($variant['product_title'] ?? ''),
-                    'variant_id'            => (string) $variant['variant_id'],
-                    'variant_sku'           => (string) ($variant['variant_sku'] ?? $sku),
-                    'status'                => 'pending',
-                    'selected'              => true,
-                    'created_at'            => now(),
-                    'updated_at'            => now(),
-                ];
+                $rows[] = $this->row($session, $sku, $variant, [
+                    'source_url'        => (string) ($image['src'] ?? ''),
+                    'replaces_image_id' => (string) ($image['id'] ?? ''),
+                    'position'          => (int) ($image['position'] ?? 1),
+                    'status'            => 'pending',
+                    'selected'          => true,
+                ]);
             }
 
             PhotoEditItem::insert($rows);
 
+            /*
+             * A group per SKU, which the configure screen is built out of.
+             *
+             * Items alone are not enough: the settings on that screen are
+             * chosen per SKU, so a run with no groups renders nothing and sits
+             * on its loading panel forever with the photographs already in the
+             * table behind it. The folder scan creates these too — this is the
+             * same thing, from a list rather than from filenames.
+             *
+             * Null edits: the group follows the run. A copy here would pin
+             * every SKU to the settings as they stood at scan time.
+             */
+            PhotoEditGroup::insert(
+                collect($rows)->pluck('sku_detected')->unique()->values()
+                    ->map(fn ($sku) => [
+                        'photo_edit_session_id' => $session->id,
+                        'sku'                   => $sku,
+                        'edits'                 => null,
+                        'lifestyle_count'       => 0,
+                        'created_at'            => now(),
+                        'updated_at'            => now(),
+                    ])->all()
+            );
+
+            /*
+             * 'scanned', not 'done'. The configure screen waits on that exact
+             * word, and a scan that finished under a different name is a scan
+             * that never finished as far as the page is concerned.
+             */
             $session->update([
-                'scan_status'   => 'done',
+                'scan_status'   => 'scanned',
                 'total_files'   => count($rows),
                 'scanned_files' => count($rows),
                 'failed_files'  => collect($rows)->where('status', 'failed')->count(),
@@ -140,20 +162,45 @@ class ScanShopifySkusJob implements ShouldQueue
      */
     private function missing(PhotoEditSession $session, string $sku, string $why, array $variant = []): array
     {
-        return [
+        return $this->row($session, $sku, $variant, [
+            'status'        => 'failed',
+            'selected'      => false,
+            'error_message' => $why,
+        ]);
+    }
+
+    /**
+     * One row, with every column the batch will carry.
+     *
+     * insert() sends one statement for the whole list, and a row missing a
+     * column the others have is rejected by MySQL rather than defaulted — so
+     * the found and the not-found rows have to agree on their shape even where
+     * half the values are empty. Building both here is what makes that true by
+     * construction instead of by remembering.
+     *
+     * @param  array<string, mixed>  $variant
+     * @param  array<string, mixed>  $own
+     * @return array<string, mixed>
+     */
+    private function row(PhotoEditSession $session, string $sku, array $variant, array $own): array
+    {
+        return array_merge([
             'photo_edit_session_id' => $session->id,
             'kind'                  => 'cutout',
             'filename'              => $sku . '.jpg',
             'sku_detected'          => $sku,
+            'source_url'            => null,
+            'replaces_image_id'     => null,
+            'position'              => 0,
             'product_id'            => (string) ($variant['product_id'] ?? ''),
             'product_title'         => (string) ($variant['product_title'] ?? ''),
             'variant_id'            => (string) ($variant['variant_id'] ?? ''),
             'variant_sku'           => (string) ($variant['variant_sku'] ?? $sku),
-            'status'                => 'failed',
-            'selected'              => false,
-            'error_message'         => $why,
+            'status'                => 'pending',
+            'selected'              => true,
+            'error_message'         => null,
             'created_at'            => now(),
             'updated_at'            => now(),
-        ];
+        ], $own);
     }
 }

@@ -45,7 +45,13 @@
     @elseif ($session->scan_status !== 'scanned')
         <div class="rounded-xl border border-gray-200 bg-white p-8 text-center"
              x-init="setTimeout(() => window.location.reload(), 4000)">
-            <p class="text-sm font-medium text-gray-800">Still reading the folder…</p>
+            {{-- Two sources, two sentences. A run started from a pasted list
+                 of SKUs has no folder to read, and telling somebody you are
+                 reading one is the kind of small wrongness that makes a person
+                 doubt the rest of the screen. --}}
+            <p class="text-sm font-medium text-gray-800">
+                {{ $session->source === 'shopify' ? 'Still fetching from Shopify…' : 'Still reading the folder…' }}
+            </p>
             <p class="mt-1 text-xs text-gray-500">
                 {{ number_format($session->scanned_files) }} found so far. This page refreshes itself.
             </p>
