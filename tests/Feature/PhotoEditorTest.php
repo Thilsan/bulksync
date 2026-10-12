@@ -1501,9 +1501,14 @@ class PhotoEditorTest extends TestCase
          * instruction of its own, or combining them would ask Photoroom to
          * remove the mannequin twice.
          */
+        $this->assertStringContainsString('do not lighten it', PhotoroomService::GHOST_MANNEQUIN_HINT_COLOUR);
+        $this->assertStringContainsString('sheen and texture', PhotoroomService::GHOST_MANNEQUIN_HINT_FABRIC);
+
         foreach ([
             PhotoroomService::GHOST_MANNEQUIN_HINT_COLLARLESS,
             PhotoroomService::GHOST_MANNEQUIN_HINT_HEM,
+            PhotoroomService::GHOST_MANNEQUIN_HINT_COLOUR,
+            PhotoroomService::GHOST_MANNEQUIN_HINT_FABRIC,
         ] as $clause) {
             $this->assertStringNotContainsString('Remove mannequin', $clause);
             $this->assertStringNotContainsString('Remove the mannequin', $clause);

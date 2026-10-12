@@ -968,6 +968,48 @@ class PhotoroomService
      * Long nightwear on a floor stand will meet this every time, because the
      * base is always under the hem.
      */
+    /*
+     * For a colour the redraw washes out.
+     *
+     * Measured on a blush satin robe: the skirt went from 29.3% saturation to
+     * 24.7% and the bodice from 22.4% to 15.8%, lighter with it — about a
+     * third of the colour gone from the chest. Ghost Mannequin renders the
+     * garment rather than editing the photograph, and it renders under its own
+     * neutral light, so a saturated fabric can come back paler than it was.
+     *
+     * Not every garment needs it. A grey satin robe measured within half a
+     * point of its photograph, so on anything near-neutral this is words spent
+     * on a problem that is not there — which is why it is a clause to add
+     * rather than part of the opening instruction.
+     *
+     * There is a second lever for the same problem, turned off: the colour
+     * cast correction in ImageProcessingService::matchColourCast, behind
+     * PHOTOROOM_MATCH_REDRAW_COLOUR. That one matches balance and deliberately
+     * leaves brightness alone, so it would not have caught this. Asking
+     * Photoroom not to do it in the first place is the cheaper attempt.
+     */
+    /*
+     * For the material itself, which is the thing being sold.
+     *
+     * The redraw reconstructs the garment, and what it reconstructs is a
+     * garment of roughly that shape rather than that garment: satin loses its
+     * sheen and reads matte, a scalloped lace border comes back as a printed
+     * edge, an eyelash lace returns smooth. On a nightwear range where the
+     * fabric is most of the price, that is the detail a customer is buying and
+     * the one hardest to see in a thumbnail.
+     *
+     * Named separately from colour because they fail separately — the blush
+     * robe lost a third of its saturation with its lace intact, and the mint
+     * chemise kept its colour while its hem lace turned to plain satin.
+     */
+    public const GHOST_MANNEQUIN_HINT_FABRIC =
+        'Keep the fabric exactly as photographed — the same material, weave, sheen and texture, '
+        . 'and the same lace, embroidery and print';
+
+    public const GHOST_MANNEQUIN_HINT_COLOUR =
+        'Keep the garment\'s exact colour and depth of shade — do not lighten it, wash it out or '
+        . 'reduce its saturation';
+
     public const GHOST_MANNEQUIN_HINT_HEM =
         'The hem hangs straight and level — do not add a train, sweep or trailing hem';
 

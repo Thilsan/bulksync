@@ -204,6 +204,8 @@
                 @foreach ([
                     'Collarless'   => \App\Services\PhotoroomService::GHOST_MANNEQUIN_HINT_COLLARLESS,
                     'Straight hem' => \App\Services\PhotoroomService::GHOST_MANNEQUIN_HINT_HEM,
+                    'Keep colour'  => \App\Services\PhotoroomService::GHOST_MANNEQUIN_HINT_COLOUR,
+                    'Keep fabric'  => \App\Services\PhotoroomService::GHOST_MANNEQUIN_HINT_FABRIC,
                 ] as $label => $clause)
                     <button type="button" title="{{ $clause }}" @click="toggle(@js($clause))"
                             :class="has(@js($clause))
