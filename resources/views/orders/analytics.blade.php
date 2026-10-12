@@ -31,6 +31,24 @@
         'missing_scope' => ['dot' => 'bg-amber-400',  'text' => 'text-amber-700', 'label' => 'Needs read_orders permission'],
         'unavailable'   => ['dot' => 'bg-rose-400',   'text' => 'text-rose-600',  'label' => 'Unavailable'],
     ];
+
+    // One accent per website for the small brand and division cards, keyed
+    // by position so a shop wears the same colour in both sections. Spelled
+    // out in full for the same JIT reason as above.
+    $accents = [
+        ['card' => 'bg-sky-50/70 border-sky-100',         'top' => 'border-t-sky-400',     'bar' => 'bg-sky-500',     'track' => 'bg-sky-100',     'name' => 'text-sky-900',     'dot' => 'bg-sky-500'],
+        ['card' => 'bg-violet-50/70 border-violet-100',   'top' => 'border-t-violet-400',  'bar' => 'bg-violet-500',  'track' => 'bg-violet-100',  'name' => 'text-violet-900',  'dot' => 'bg-violet-500'],
+        ['card' => 'bg-emerald-50/70 border-emerald-100', 'top' => 'border-t-emerald-400', 'bar' => 'bg-emerald-500', 'track' => 'bg-emerald-100', 'name' => 'text-emerald-900', 'dot' => 'bg-emerald-500'],
+        ['card' => 'bg-amber-50/70 border-amber-100',     'top' => 'border-t-amber-400',   'bar' => 'bg-amber-500',   'track' => 'bg-amber-100',   'name' => 'text-amber-900',   'dot' => 'bg-amber-500'],
+        ['card' => 'bg-rose-50/70 border-rose-100',       'top' => 'border-t-rose-400',    'bar' => 'bg-rose-500',    'track' => 'bg-rose-100',    'name' => 'text-rose-900',    'dot' => 'bg-rose-500'],
+        ['card' => 'bg-indigo-50/70 border-indigo-100',   'top' => 'border-t-indigo-400',  'bar' => 'bg-indigo-500',  'track' => 'bg-indigo-100',  'name' => 'text-indigo-900',  'dot' => 'bg-indigo-500'],
+        ['card' => 'bg-teal-50/70 border-teal-100',       'top' => 'border-t-teal-400',    'bar' => 'bg-teal-500',    'track' => 'bg-teal-100',    'name' => 'text-teal-900',    'dot' => 'bg-teal-500'],
+        ['card' => 'bg-fuchsia-50/70 border-fuchsia-100', 'top' => 'border-t-fuchsia-400', 'bar' => 'bg-fuchsia-500', 'track' => 'bg-fuchsia-100', 'name' => 'text-fuchsia-900', 'dot' => 'bg-fuchsia-500'],
+        ['card' => 'bg-orange-50/70 border-orange-100',   'top' => 'border-t-orange-400',  'bar' => 'bg-orange-500',  'track' => 'bg-orange-100',  'name' => 'text-orange-900',  'dot' => 'bg-orange-500'],
+        ['card' => 'bg-cyan-50/70 border-cyan-100',       'top' => 'border-t-cyan-400',    'bar' => 'bg-cyan-500',    'track' => 'bg-cyan-100',    'name' => 'text-cyan-900',    'dot' => 'bg-cyan-500'],
+        ['card' => 'bg-lime-50/70 border-lime-100',       'top' => 'border-t-lime-500',    'bar' => 'bg-lime-600',    'track' => 'bg-lime-100',    'name' => 'text-lime-900',    'dot' => 'bg-lime-600'],
+        ['card' => 'bg-pink-50/70 border-pink-100',       'top' => 'border-t-pink-400',    'bar' => 'bg-pink-500',    'track' => 'bg-pink-100',    'name' => 'text-pink-900',    'dot' => 'bg-pink-500'],
+    ];
 @endphp
 
 {{-- ── Filters ──────────────────────────────────────────────────────────────
@@ -164,21 +182,25 @@
      Ranked by orders, so every card reads on the same scale whatever
      currency the shop bills in. --}}
 @if($selling->isNotEmpty())
-    @foreach([['Top brands', 'by_vendor', 'bg-brand-500', 'brands'], ['Top divisions', 'by_product_type', 'bg-violet-500', 'divisions']] as [$title, $key, $fill, $noun])
+    @foreach([['Top brands', 'by_vendor', 'brands'], ['Top divisions', 'by_product_type', 'divisions']] as [$title, $key, $noun])
         <div class="bg-white rounded-xl border border-gray-200 shadow-sm">
             <div class="px-5 py-3.5 border-b border-gray-100 flex items-baseline justify-between gap-3">
                 <h3 class="text-sm font-semibold text-gray-800">{{ $title }}</h3>
                 <span class="text-xs text-gray-400">by orders · per website</span>
             </div>
             <div class="p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-3">
-                @foreach($selling as $row)
+                @foreach($selling->values() as $i => $row)
                     @php
                         $groups  = \array_slice($row[$key] ?? [], 0, 5);
                         $biggest = (int) (collect($groups)->max('orders') ?? 0);
+                        $accent  = $accents[$i % count($accents)];
                     @endphp
-                    <div class="rounded-lg border border-gray-100 bg-gray-50/60 px-4 py-3">
+                    <div class="rounded-lg border border-t-4 {{ $accent['card'] }} {{ $accent['top'] }} px-4 py-3">
                         <div class="flex items-baseline justify-between gap-2">
-                            <p class="text-xs font-semibold text-gray-800 truncate" title="{{ $row['store'] }}">{{ $row['store'] }}</p>
+                            <p class="flex items-center gap-1.5 text-xs font-semibold {{ $accent['name'] }} min-w-0">
+                                <span class="h-2 w-2 shrink-0 rounded-full {{ $accent['dot'] }}"></span>
+                                <span class="truncate" title="{{ $row['store'] }}">{{ $row['store'] }}</span>
+                            </p>
                             <span class="text-[11px] tabular-nums text-gray-400 whitespace-nowrap">{{ $num($row['orders']) }} orders</span>
                         </div>
                         @if(count($groups))
@@ -186,8 +208,8 @@
                                 @foreach($groups as $group)
                                     <div class="grid grid-cols-[minmax(4.5rem,7rem)_1fr_auto] items-center gap-2">
                                         <span class="text-xs text-gray-600 truncate" title="{{ $group['label'] }}">{{ $group['label'] }}</span>
-                                        <span class="h-1.5 rounded-full bg-gray-200/70 overflow-hidden" role="presentation">
-                                            <span class="block h-full rounded-full {{ $fill }}"
+                                        <span class="h-1.5 rounded-full {{ $accent['track'] }} overflow-hidden" role="presentation">
+                                            <span class="block h-full rounded-full {{ $accent['bar'] }}"
                                                   style="width: {{ $share($group['orders'], $biggest) }}%"></span>
                                         </span>
                                         {{-- The figure sits beside the bar, so the chart
