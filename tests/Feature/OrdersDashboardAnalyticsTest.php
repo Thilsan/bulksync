@@ -112,13 +112,13 @@ class OrdersDashboardAnalyticsTest extends TestCase
     }
 
     /**
-     * Top brands are one small card per website; divisions stay pooled.
+     * Top brands and divisions are one small card per website.
      *
-     * A brand sold on two sites shows on each site's card with that site's
-     * own count, never the sum — the pooled total hid which shop the orders
-     * came from. Divisions still add up across every website.
+     * A brand or division sold on two sites shows on each site's card with
+     * that site's own count, never the sum — a pooled total hid which shop
+     * the orders came from.
      */
-    public function test_top_brands_are_per_website_and_divisions_are_pooled(): void
+    public function test_top_brands_and_divisions_are_per_website(): void
     {
         // Store names deliberately unlike any brand below: "Cole Haan" is both
         // a storefront and a brand sold in the others, and a page-wide search
@@ -175,9 +175,13 @@ class OrdersDashboardAnalyticsTest extends TestCase
         $this->assertStringNotContainsString('Luca Barra', $pari);
         $this->assertDoesNotMatchRegularExpression('/>11</', $brands);
 
-        // Watches likewise, 6 + 1, against Mens Fashion's 5 from one site.
-        $this->assertMatchesRegularExpression('/Watches.*?>7</s', $divisions);
-        $this->assertMatchesRegularExpression('/Mens Fashion.*?>5</s', $divisions);
+        // Watches likewise: 6 on one site and 1 on the other, never 7.
+        $blueSalon = $this->slice($divisions, 'Blue Salon', 'Pari Gallery');
+        $pari      = substr($divisions, strpos($divisions, 'Pari Gallery'));
+        $this->assertMatchesRegularExpression('/Watches.*?>6</s', $blueSalon);
+        $this->assertStringNotContainsString('Mens Fashion', $blueSalon);
+        $this->assertMatchesRegularExpression('/Mens Fashion.*?>5<.*?Watches.*?>1</s', $pari);
+        $this->assertDoesNotMatchRegularExpression('/>7</', $divisions);
     }
 
     /**
