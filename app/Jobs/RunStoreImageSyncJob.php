@@ -2,6 +2,7 @@
 
 namespace App\Jobs;
 
+use App\Jobs\Concerns\RunsInSlices;
 use App\Models\Store;
 use App\Models\StoreMigrationSession;
 use App\Services\ShopifyService;
@@ -15,26 +16,41 @@ use Illuminate\Support\Facades\Log;
 
 class RunStoreImageSyncJob implements ShouldQueue
 {
-    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
+    use Dispatchable, InteractsWithQueue, Queueable, RunsInSlices, SerializesModels;
 
-    public int $timeout = 10800;
+    // One slice: a couple of minutes of SKUs, plus room for the product in
+    // hand to finish (see RunsInSlices).
+    public int $timeout = 1800;
     public int $tries   = 1;
 
+    /**
+     * @param array|null $resume where the previous slice of this run stopped:
+     *                           phase, offset, running counts and, in Full
+     *                           Product mode, the SKUs resolved so far. Null
+     *                           starts the run.
+     */
     public function __construct(
         public readonly string $token,
         public readonly int    $fromStoreId,
         public readonly int    $toStoreId,
         public readonly array  $skus,
         public readonly string $migrationType = 'images_only', // 'images_only' or 'full_product'
+        public readonly ?array $resume = null,
     ) {}
+
+    /** Counts and position, carried from slice to slice. */
+    private array $state;
 
     public function handle(): void
     {
+        $this->startSlice();
+
         $fromStore = Store::findOrFail($this->fromStoreId);
         $toStore   = Store::findOrFail($this->toStoreId);
 
-        $source = new ShopifyService($fromStore);
-        $target = new ShopifyService($toStore);
+        // Through the container so tests can stand in for each store.
+        $source = app()->makeWith(ShopifyService::class, ['store' => $fromStore]);
+        $target = app()->makeWith(ShopifyService::class, ['store' => $toStore]);
 
         $dir = storage_path('app/store-sync');
         if (!is_dir($dir)) {
@@ -42,25 +58,35 @@ class RunStoreImageSyncJob implements ShouldQueue
         }
 
         $filePath = "{$dir}/{$this->token}.csv";
-        $handle   = fopen($filePath, 'w');
-        fputcsv($handle, ['SKU', 'Product Name', 'Images Found', 'Images Copied', 'Status']);
+        $total    = count($this->skus);
 
-        $total     = count($this->skus);
-        $processed = 0;
-        $success   = 0;
-        $failed    = 0;
+        if ($this->resume === null) {
+            $handle = fopen($filePath, 'w');
+            fputcsv($handle, ['SKU', 'Product Name', 'Images Found', 'Images Copied', 'Status']);
 
-        $this->updateProgress('running', $total, 0, 0, 0);
+            $this->state = ['phase' => 'resolve', 'offset' => 0, 'processed' => 0, 'success' => 0, 'failed' => 0, 'resolved' => []];
+            $this->updateProgress('running', $total, 0, 0, 0);
 
-        Log::info("RunStoreImageSyncJob: syncing {$total} SKUs from store {$this->fromStoreId} to {$this->toStoreId}");
-
-        if ($this->migrationType === 'full_product') {
-            $this->runFullProductMode($source, $target, $handle, $total, $processed, $success, $failed);
+            Log::info("RunStoreImageSyncJob: syncing {$total} SKUs from store {$this->fromStoreId} to {$this->toStoreId}");
         } else {
-            $this->runImagesOnlyMode($source, $target, $handle, $total, $processed, $success, $failed);
+            $handle      = fopen($filePath, 'a');
+            $this->state = $this->resume;
         }
 
+        $finished = $this->migrationType === 'full_product'
+            ? $this->runFullProductMode($source, $target, $handle, $total)
+            : $this->runImagesOnlyMode($source, $target, $handle, $total);
+
         fclose($handle);
+
+        if (!$finished) {
+            $this->handOver(new static($this->token, $this->fromStoreId, $this->toStoreId, $this->skus, $this->migrationType, $this->state));
+
+            return;
+        }
+
+        ['processed' => $processed, 'success' => $success, 'failed' => $failed] = $this->state;
+
         $this->updateProgress('completed', $total, $processed, $success, $failed);
 
         StoreMigrationSession::where('token', $this->token)->update([
@@ -72,95 +98,112 @@ class RunStoreImageSyncJob implements ShouldQueue
         Log::info("RunStoreImageSyncJob: done — {$success} succeeded, {$failed} failed.");
     }
 
+    /** Count one SKU's outcome and publish the progress. */
+    private function tally(int $total, bool $ok): void
+    {
+        $this->state['processed']++;
+        $ok ? $this->state['success']++ : $this->state['failed']++;
+
+        $this->updateProgress('running', $total, $this->state['processed'], $this->state['success'], $this->state['failed']);
+    }
+
     /**
      * Images Only mode — for each SKU, sync only that variant's own photos
      * (same resolution as Full Product mode), not the whole product's gallery
      * across every colour/size. Requires the SKU to already exist in the
      * target store.
+     *
+     * @return bool true when every SKU is done, false when the slice ran out first
      */
-    private function runImagesOnlyMode(ShopifyService $source, ShopifyService $target, $handle, int $total, int &$processed, int &$success, int &$failed): void
+    private function runImagesOnlyMode(ShopifyService $source, ShopifyService $target, $handle, int $total): bool
     {
-        foreach ($this->skus as $sku) {
-            $sourceVariants = $source->findVariantsBySku($sku);
+        for ($i = $this->state['offset']; $i < $total; $i++) {
+            $this->syncImagesOnly($source, $target, $handle, $total, $this->skus[$i]);
 
-            if (empty($sourceVariants)) {
-                fputcsv($handle, [$sku, '', 0, 0, 'SKU not found in source store']);
-                $processed++; $failed++;
-                $this->updateProgress('running', $total, $processed, $success, $failed);
-                continue;
+            $this->state['offset'] = $i + 1;
+
+            if ($this->sliceIsUp() && $i < $total - 1) {
+                return false;
             }
-
-            $sourceProductId = $sourceVariants[0]['product_id'];
-            $sourceVariantId = $sourceVariants[0]['variant_id'];
-            $productTitle    = $sourceVariants[0]['product_title'] ?? '';
-
-            $images = $this->resolveVariantImages($source, $sourceProductId, $sourceVariantId);
-
-            if (empty($images)) {
-                fputcsv($handle, [$sku, $productTitle, 0, 0, 'No images in source store']);
-                $processed++; $failed++;
-                $this->updateProgress('running', $total, $processed, $success, $failed);
-                continue;
-            }
-
-            $targetVariants = $target->findVariantsBySku($sku);
-
-            if (empty($targetVariants)) {
-                fputcsv($handle, [$sku, $productTitle, count($images), 0, 'SKU not found in target store']);
-                $processed++; $failed++;
-                $this->updateProgress('running', $total, $processed, $success, $failed);
-                continue;
-            }
-
-            $targetProductId = $targetVariants[0]['product_id'];
-            $targetVariantId = $targetVariants[0]['variant_id'];
-
-            $copied    = 0;
-            $primaryId = null;
-            foreach ($images as $image) {
-                try {
-                    $imgUrl = $image['src'] ?? '';
-                    if (!$imgUrl) continue;
-
-                    $cleanUrl = strtok($imgUrl, '?');
-                    $filename = basename(parse_url($cleanUrl, PHP_URL_PATH));
-
-                    $imageContent = @file_get_contents($imgUrl);
-                    if ($imageContent === false || $imageContent === '') continue;
-
-                    // uploadImageToProduct() tags the new image with $targetVariantId itself,
-                    // so every uploaded photo is already linked to this variant on upload.
-                    $newImageId = $target->uploadImageToProduct($targetProductId, $imageContent, $filename, $image['alt'] ?? '', $targetVariantId);
-
-                    if ($newImageId) {
-                        $primaryId ??= $newImageId;
-                        $copied++;
-                    }
-                } catch (\Throwable $e) {
-                    Log::error("RunStoreImageSyncJob: failed to copy image for SKU {$sku}: " . $e->getMessage());
-                }
-            }
-
-            if ($primaryId) {
-                $target->setVariantImage($targetVariantId, $primaryId);
-            }
-
-            $totalImages = count($images);
-            if ($copied === $totalImages) {
-                $statusMsg = 'Success';
-                $success++;
-            } elseif ($copied > 0) {
-                $statusMsg = "Partial ({$copied}/{$totalImages})";
-                $success++;
-            } else {
-                $statusMsg = 'Failed to copy images';
-                $failed++;
-            }
-
-            fputcsv($handle, [$sku, $productTitle, $totalImages, $copied, $statusMsg]);
-            $processed++;
-            $this->updateProgress('running', $total, $processed, $success, $failed);
         }
+
+        return true;
+    }
+
+    private function syncImagesOnly(ShopifyService $source, ShopifyService $target, $handle, int $total, string $sku): void
+    {
+        $sourceVariants = $source->findVariantsBySku($sku);
+
+        if (empty($sourceVariants)) {
+            fputcsv($handle, [$sku, '', 0, 0, 'SKU not found in source store']);
+            $this->tally($total, false);
+            return;
+        }
+
+        $sourceProductId = $sourceVariants[0]['product_id'];
+        $sourceVariantId = $sourceVariants[0]['variant_id'];
+        $productTitle    = $sourceVariants[0]['product_title'] ?? '';
+
+        $images = $this->resolveVariantImages($source, $sourceProductId, $sourceVariantId);
+
+        if (empty($images)) {
+            fputcsv($handle, [$sku, $productTitle, 0, 0, 'No images in source store']);
+            $this->tally($total, false);
+            return;
+        }
+
+        $targetVariants = $target->findVariantsBySku($sku);
+
+        if (empty($targetVariants)) {
+            fputcsv($handle, [$sku, $productTitle, count($images), 0, 'SKU not found in target store']);
+            $this->tally($total, false);
+            return;
+        }
+
+        $targetProductId = $targetVariants[0]['product_id'];
+        $targetVariantId = $targetVariants[0]['variant_id'];
+
+        $copied    = 0;
+        $primaryId = null;
+        foreach ($images as $image) {
+            try {
+                $imgUrl = $image['src'] ?? '';
+                if (!$imgUrl) continue;
+
+                $cleanUrl = strtok($imgUrl, '?');
+                $filename = basename(parse_url($cleanUrl, PHP_URL_PATH));
+
+                $imageContent = @file_get_contents($imgUrl);
+                if ($imageContent === false || $imageContent === '') continue;
+
+                // uploadImageToProduct() tags the new image with $targetVariantId itself,
+                // so every uploaded photo is already linked to this variant on upload.
+                $newImageId = $target->uploadImageToProduct($targetProductId, $imageContent, $filename, $image['alt'] ?? '', $targetVariantId);
+
+                if ($newImageId) {
+                    $primaryId ??= $newImageId;
+                    $copied++;
+                }
+            } catch (\Throwable $e) {
+                Log::error("RunStoreImageSyncJob: failed to copy image for SKU {$sku}: " . $e->getMessage());
+            }
+        }
+
+        if ($primaryId) {
+            $target->setVariantImage($targetVariantId, $primaryId);
+        }
+
+        $totalImages = count($images);
+        if ($copied === $totalImages) {
+            $statusMsg = 'Success';
+        } elseif ($copied > 0) {
+            $statusMsg = "Partial ({$copied}/{$totalImages})";
+        } else {
+            $statusMsg = 'Failed to copy images';
+        }
+
+        fputcsv($handle, [$sku, $productTitle, $totalImages, $copied, $statusMsg]);
+        $this->tally($total, $copied > 0);
     }
 
     /**
@@ -169,89 +212,130 @@ class RunStoreImageSyncJob implements ShouldQueue
      * you actually listed, never the sibling colors/sizes you didn't ask for.
      * SKUs that already exist in the target store are just image-synced
      * (same as Images Only), scoped to that one variant's own photo.
+     *
+     * Two phases, each sliced: resolve every SKU against the source store,
+     * then work through the products. The grouping has to be complete before
+     * anything is created — siblings that landed in different slices would
+     * otherwise each create the product, because Shopify's search does not
+     * see a product the moment it is made.
+     *
+     * @return bool true when every SKU is done, false when the slice ran out first
      */
-    private function runFullProductMode(ShopifyService $source, ShopifyService $target, $handle, int $total, int &$processed, int &$success, int &$failed): void
+    private function runFullProductMode(ShopifyService $source, ShopifyService $target, $handle, int $total): bool
     {
-        $targetCollections = $target->getAllCollectionTitles();
+        if ($this->state['phase'] === 'resolve') {
+            for ($i = $this->state['offset']; $i < $total; $i++) {
+                $sku            = $this->skus[$i];
+                $sourceVariants = $source->findVariantsBySku($sku);
 
-        // Resolve every SKU against the source store up front and group by
-        // product, so we know — before creating anything — exactly which
-        // sibling SKUs of the same product were also requested in this batch.
-        $skuToSourceVariant = [];
-        $skusByProduct      = []; // sourceProductId => [sku, sku, ...] (only ones actually requested)
+                if (empty($sourceVariants)) {
+                    fputcsv($handle, [$sku, '', 0, 0, 'SKU not found in source store']);
+                    $this->tally($total, false);
+                } else {
+                    // Only what the second phase reads, since this rides along
+                    // in every slice's payload.
+                    $this->state['resolved'][$sku] = [
+                        'product_id'    => $sourceVariants[0]['product_id'],
+                        'variant_id'    => $sourceVariants[0]['variant_id'],
+                        'product_title' => $sourceVariants[0]['product_title'] ?? '',
+                        'collections'   => array_values($sourceVariants[0]['collections'] ?? []),
+                    ];
+                }
 
-        foreach ($this->skus as $sku) {
-            $sourceVariants = $source->findVariantsBySku($sku);
+                $this->state['offset'] = $i + 1;
 
-            if (empty($sourceVariants)) {
-                fputcsv($handle, [$sku, '', 0, 0, 'SKU not found in source store']);
-                $processed++; $failed++;
-                $this->updateProgress('running', $total, $processed, $success, $failed);
-                continue;
+                if ($this->sliceIsUp() && $i < $total - 1) {
+                    return false;
+                }
             }
 
-            $skuToSourceVariant[$sku] = $sourceVariants[0];
-            $skusByProduct[$sourceVariants[0]['product_id']][] = $sku;
+            $this->state['phase']  = 'migrate';
+            $this->state['offset'] = 0;
         }
 
-        foreach ($skusByProduct as $sourceProductId => $requestedSkus) {
-            $productTitle      = $skuToSourceVariant[$requestedSkus[0]]['product_title'] ?? '';
-            $sourceCollections = $skuToSourceVariant[$requestedSkus[0]]['collections'] ?? [];
+        // sourceProductId => [sku, sku, ...] (only ones actually requested), in
+        // the order the SKUs were listed — the same every slice.
+        $skusByProduct = [];
+        foreach ($this->state['resolved'] as $sku => $variant) {
+            $skusByProduct[$variant['product_id']][] = (string) $sku;
+        }
 
-            $missingSkus = [];
+        $groups = array_keys($skusByProduct);
 
-            foreach ($requestedSkus as $sku) {
-                $targetVariants = $target->findVariantsBySku($sku);
+        if ($this->state['offset'] >= count($groups)) {
+            return true;
+        }
 
-                if (empty($targetVariants)) {
-                    $missingSkus[] = $sku;
-                    continue;
-                }
+        $targetCollections = $target->getAllCollectionTitles();
 
-                // Already exists in target — sync just this variant's own gallery photos, not the whole product
-                $this->syncSingleVariantImage($source, $target, $sku, $skuToSourceVariant[$sku], $targetVariants[0], $handle, $productTitle);
-                $processed++; $success++;
-                $this->updateProgress('running', $total, $processed, $success, $failed);
+        for ($g = $this->state['offset']; $g < count($groups); $g++) {
+            // Numeric product IDs come back from array_keys() as ints.
+            $this->migrateProductGroup($source, $target, $handle, $total, (string) $groups[$g], $skusByProduct[$groups[$g]], $targetCollections);
+
+            $this->state['offset'] = $g + 1;
+
+            if ($this->sliceIsUp() && $g < count($groups) - 1) {
+                return false;
             }
+        }
 
-            if (empty($missingSkus)) {
+        return true;
+    }
+
+    /** Every requested SKU of one source product: image-sync the ones the target has, create or extend for the rest. */
+    private function migrateProductGroup(ShopifyService $source, ShopifyService $target, $handle, int $total, string $sourceProductId, array $requestedSkus, array $targetCollections): void
+    {
+        $resolved          = $this->state['resolved'];
+        $productTitle      = $resolved[$requestedSkus[0]]['product_title'] ?? '';
+        $sourceCollections = $resolved[$requestedSkus[0]]['collections'] ?? [];
+
+        $missingSkus = [];
+
+        foreach ($requestedSkus as $sku) {
+            $targetVariants = $target->findVariantsBySku($sku);
+
+            if (empty($targetVariants)) {
+                $missingSkus[] = $sku;
                 continue;
             }
 
-            $sourceProduct = $source->getFullProduct($sourceProductId);
+            // Already exists in target — sync just this variant's own gallery photos, not the whole product
+            $this->syncSingleVariantImage($source, $target, $sku, $resolved[$sku], $targetVariants[0], $handle, $productTitle);
+            $this->tally($total, true);
+        }
 
-            if (!$sourceProduct) {
-                foreach ($missingSkus as $sku) {
-                    fputcsv($handle, [$sku, $productTitle, 0, 0, 'Failed to fetch full product from source store']);
-                    $processed++; $failed++;
-                    $this->updateProgress('running', $total, $processed, $success, $failed);
-                }
-                continue;
+        if (empty($missingSkus)) {
+            return;
+        }
+
+        $sourceProduct = $source->getFullProduct($sourceProductId);
+
+        if (!$sourceProduct) {
+            foreach ($missingSkus as $sku) {
+                fputcsv($handle, [$sku, $productTitle, 0, 0, 'Failed to fetch full product from source store']);
+                $this->tally($total, false);
             }
+            return;
+        }
 
-            // A sibling SKU of this same source product may already have been
-            // migrated in an earlier run — its target product already exists,
-            // so add this variant there instead of creating a duplicate product.
-            $existingTargetProductId = $this->findExistingTargetProduct($target, $sourceProduct, $missingSkus);
+        // A sibling SKU of this same source product may already have been
+        // migrated in an earlier run — its target product already exists,
+        // so add this variant there instead of creating a duplicate product.
+        $existingTargetProductId = $this->findExistingTargetProduct($target, $sourceProduct, $missingSkus);
 
-            if ($existingTargetProductId) {
-                $results = $this->addVariantsToExistingProduct($source, $target, $missingSkus, $sourceProduct, $existingTargetProductId, $handle, $productTitle);
-
-                foreach ($missingSkus as $sku) {
-                    $processed++;
-                    ($results[$sku] ?? false) ? $success++ : $failed++;
-                    $this->updateProgress('running', $total, $processed, $success, $failed);
-                }
-                continue;
-            }
-
-            [$ok, $newProductId] = $this->migrateFullProduct($source, $target, $missingSkus, $sourceProduct, $productTitle, $sourceCollections, $targetCollections, $handle);
+        if ($existingTargetProductId) {
+            $results = $this->addVariantsToExistingProduct($source, $target, $missingSkus, $sourceProduct, $existingTargetProductId, $handle, $productTitle);
 
             foreach ($missingSkus as $sku) {
-                $processed++;
-                $ok ? $success++ : $failed++;
-                $this->updateProgress('running', $total, $processed, $success, $failed);
+                $this->tally($total, $results[$sku] ?? false);
             }
+            return;
+        }
+
+        [$ok, $newProductId] = $this->migrateFullProduct($source, $target, $missingSkus, $sourceProduct, $productTitle, $sourceCollections, $targetCollections, $handle);
+
+        foreach ($missingSkus as $sku) {
+            $this->tally($total, $ok);
         }
     }
 

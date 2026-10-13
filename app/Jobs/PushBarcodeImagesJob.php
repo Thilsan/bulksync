@@ -2,6 +2,7 @@
 
 namespace App\Jobs;
 
+use App\Jobs\Concerns\RunsInSlices;
 use App\Models\BarcodeImageItem;
 use App\Models\BarcodeImageSession;
 use App\Models\Store;
@@ -28,15 +29,26 @@ use Illuminate\Support\Facades\Log;
  */
 class PushBarcodeImagesJob implements ShouldQueue
 {
-    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
+    use Dispatchable, InteractsWithQueue, Queueable, RunsInSlices, SerializesModels;
 
-    public int $timeout = 10800;
+    // One slice: a couple of minutes of barcodes, plus room for the barcode in
+    // hand to finish (see RunsInSlices).
+    public int $timeout = 1800;
     public int $tries   = 1;
 
-    public function __construct(public readonly int $sessionId) {}
+    /**
+     * @param int $afterId the last item a previous slice of this push finished;
+     *                     0 starts the push from the beginning
+     */
+    public function __construct(
+        public readonly int $sessionId,
+        public readonly int $afterId = 0,
+    ) {}
 
     public function handle(): void
     {
+        $this->startSlice();
+
         $session = BarcodeImageSession::find($this->sessionId);
 
         if (!$session) {
@@ -56,25 +68,28 @@ class PushBarcodeImagesJob implements ShouldQueue
 
         // Only barcodes that actually have pictures — the rest have nothing to
         // send, and counting them would make the progress bar lie.
-        $items = $session->items()->where('image_count', '>', 0)->orderBy('id')->get();
+        $items = $session->items()->where('image_count', '>', 0)->where('id', '>', $this->afterId)->orderBy('id')->get();
 
-        $session->update([
-            'push_status' => 'pushing',
-            'push_total'  => $items->count(),
-            'push_done'   => 0,
-            'push_pushed' => 0,
-            'push_failed' => 0,
-            'push_error'  => null,
-        ]);
+        if ($this->afterId === 0) {
+            $session->update([
+                'push_status' => 'pushing',
+                'push_total'  => $items->count(),
+                'push_done'   => 0,
+                'push_pushed' => 0,
+                'push_failed' => 0,
+                'push_error'  => null,
+            ]);
+        }
 
         $shopify = $this->shopifyFor($store);
         $mode    = $session->push_matching_mode === 'style_code' ? 'style_code' : 'sku_barcode';
 
-        $done = 0;
-        $ok   = 0;
-        $bad  = 0;
+        // Carried on from the slices before this one.
+        $done = (int) $session->push_done;
+        $ok   = (int) $session->push_pushed;
+        $bad  = (int) $session->push_failed;
 
-        foreach ($items as $item) {
+        foreach ($items as $i => $item) {
             try {
                 $sent = $this->pushOne($session, $item, $shopify, $mode);
 
@@ -89,6 +104,12 @@ class PushBarcodeImagesJob implements ShouldQueue
             $done++;
 
             $session->update(['push_done' => $done, 'push_pushed' => $ok, 'push_failed' => $bad]);
+
+            if ($this->sliceIsUp() && $i < $items->count() - 1) {
+                $this->handOver(new static($this->sessionId, $item->id));
+
+                return;
+            }
         }
 
         $session->update(['push_status' => 'completed']);
@@ -202,7 +223,7 @@ class PushBarcodeImagesJob implements ShouldQueue
     /** Seam for tests: the live client is built from the store's own credentials. */
     protected function shopifyFor(Store $store): ShopifyService
     {
-        return new ShopifyService($store);
+        return app()->makeWith(ShopifyService::class, ['store' => $store]);
     }
 
     /** This barcode's files, in the order they were numbered when downloaded. */

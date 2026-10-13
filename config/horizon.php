@@ -213,6 +213,11 @@ return [
     | "maintenance" stays apart with exactly one process so cleanup and sweeps
     | always run, whatever the users have queued.
     |
+    | 'nice' 10 runs every worker at a lower CPU priority than the website.
+    | The server has one small CPU, and a photo-editor batch pinned it at 100%
+    | (seen 2026-10-13); at equal priority every page load queued behind the
+    | image work. Jobs still get all the CPU nobody browsing needs.
+    |
     | 'timeout' is only the fallback: every long job declares its own $timeout,
     | which wins. Keep it below the redis connection's retry_after (10800).
     |
@@ -237,7 +242,7 @@ return [
             'tries' => 1,
             'timeout' => 3600,
             'sleep' => 3,
-            'nice' => 0,
+            'nice' => 10,
         ],
         'maintenance' => [
             'connection' => 'redis',
@@ -251,7 +256,7 @@ return [
             'tries' => 1,
             'timeout' => 3600,
             'sleep' => 3,
-            'nice' => 0,
+            'nice' => 10,
         ],
     ],
 

@@ -2,6 +2,7 @@
 
 namespace App\Jobs;
 
+use App\Jobs\Concerns\RunsInSlices;
 use App\Models\BarcodeImageItem;
 use App\Models\BarcodeImageSession;
 use App\Services\ProductImageScraper;
@@ -34,9 +35,11 @@ use Illuminate\Support\Facades\Log;
  */
 class RunBarcodeImageDownloadJob implements ShouldQueue
 {
-    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
+    use Dispatchable, InteractsWithQueue, Queueable, RunsInSlices, SerializesModels;
 
-    public int $timeout = 10800;
+    // One slice: a couple of minutes of barcodes, plus room for the barcode in
+    // hand to finish (see RunsInSlices).
+    public int $timeout = 1800;
     public int $tries   = 1;
 
     /** The least this waits between requests to one site, where it asks for nothing more. */
@@ -49,15 +52,31 @@ class RunBarcodeImageDownloadJob implements ShouldQueue
      */
     private const BLOCKS_BEFORE_GIVING_UP = 3;
 
-    public function __construct(public readonly int $sessionId) {}
+    /**
+     * @param array|null $resume where the previous slice of this run stopped:
+     *                           offset, usable sites, refused sites and strikes.
+     *                           Null starts the run, site checks and all.
+     */
+    public function __construct(
+        public readonly int $sessionId,
+        public readonly ?array $resume = null,
+    ) {}
 
     public function handle(ProductImageScraper $scraper): void
     {
+        $this->startSlice();
+
         $session = BarcodeImageSession::findOrFail($this->sessionId);
 
         $barcodes = array_values(array_unique(array_filter(
             array_map('trim', preg_split('/[\r\n,;\t]+/', (string) $session->raw_barcodes) ?: [])
         )));
+
+        if ($this->resume !== null) {
+            $this->work($scraper, $session, $barcodes, $this->resume['offset'], $this->resume['usable'], $this->resume['refused'], $this->resume['strikes']);
+
+            return;
+        }
 
         $sites = array_values(array_filter(array_map(
             fn (string $site) => $scraper->normaliseSite($site),
@@ -133,26 +152,56 @@ class RunBarcodeImageDownloadJob implements ShouldQueue
             'site_issues'    => $refused ?: null,
             'total_barcodes' => count($barcodes),
             'error_message'  => $refused === [] ? null : $this->whySomeWereSkipped($refused),
+
+            // Every later slice adds to these, so the run starts them at zero.
+            'processed'         => 0,
+            'found_count'       => 0,
+            'missing_count'     => 0,
+            'blocked_count'     => 0,
+            'images_downloaded' => 0,
         ]);
 
         Log::info("RunBarcodeImageDownloadJob: {$session->total_barcodes} barcodes against "
             . implode(', ', array_keys($usable)) . ' for session ' . $this->sessionId);
 
-        $processed  = 0;
-        $found      = 0;
-        $missing    = 0;
-        $blocked    = 0;
-        $downloaded = 0;
+        $this->work($scraper, $session, $barcodes, 0, $usable, $refused, array_fill_keys(array_keys($usable), 0));
+    }
+
+    /**
+     * Look up barcodes from $offset until the list is done or the slice is up.
+     *
+     * Counts are carried on the session, so a slice picks up from what the
+     * last one wrote. The per-site pause is not carried: a slice boundary puts
+     * the rest of the run behind other work, which is a longer wait than any
+     * site asks for.
+     *
+     * @param array<string,int>   $usable  site => microseconds it asks between requests
+     * @param array<string,array> $refused site => why it was left out
+     * @param array<string,int>   $strikes site => barcodes in a row it has refused
+     */
+    private function work(
+        ProductImageScraper $scraper,
+        BarcodeImageSession $session,
+        array $barcodes,
+        int $offset,
+        array $usable,
+        array $refused,
+        array $strikes,
+    ): void {
+        $processed  = (int) $session->processed;
+        $found      = (int) $session->found_count;
+        $missing    = (int) $session->missing_count;
+        $blocked    = (int) $session->blocked_count;
+        $downloaded = (int) $session->images_downloaded;
 
         // When each site may next be asked, so the wait one site requests does
         // not hold up the others.
         $nextTurn = array_fill_keys(array_keys($usable), 0.0);
 
-        // How many barcodes in a row each site has answered with a block page.
-        $strikes = array_fill_keys(array_keys($usable), 0);
-
         try {
-            foreach ($barcodes as $barcode) {
+            for ($i = $offset; $i < count($barcodes); $i++) {
+                $barcode = $barcodes[$i];
+
                 $item = BarcodeImageItem::create([
                     'barcode_image_session_id' => $session->id,
                     'barcode'                  => $barcode,
@@ -209,6 +258,17 @@ class RunBarcodeImageDownloadJob implements ShouldQueue
                 }
 
                 $session->update($update);
+
+                if ($this->sliceIsUp() && $i < count($barcodes) - 1) {
+                    $this->handOver(new static($this->sessionId, [
+                        'offset'  => $i + 1,
+                        'usable'  => $usable,
+                        'refused' => $refused,
+                        'strikes' => $strikes,
+                    ]));
+
+                    return;
+                }
             }
 
             $session->update([

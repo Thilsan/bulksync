@@ -108,6 +108,13 @@ return [
     ],
 
     /*
+    | How long a long-running job works before queueing the rest of its run
+    | behind everyone else's (see App\Jobs\Concerns\RunsInSlices).
+    */
+
+    'slice_seconds' => (int) env('QUEUE_SLICE_SECONDS', 120),
+
+    /*
     |--------------------------------------------------------------------------
     | Failed Queue Jobs
     |--------------------------------------------------------------------------
