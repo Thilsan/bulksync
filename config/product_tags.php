@@ -1946,6 +1946,13 @@ return [
             | 'Beauty' is the one tag this export puts on nearly every row, so
             | it is the base; everything else splits between cosmetics, skin
             | care and hair care, which share nothing else.
+            |
+            | Left out of the body-care types, from the products export: Curated,
+            | Rare to find, Gift Box, Who: For Her, Summer 2026, New In, Scat: New
+            | In Beauty & fragrance, PROMOCEGID, EID2026, 200-back-voucher and
+            | new-season-2025, which are campaign tags. Men/Mens/Women/Womens sit on
+            | only a few lotions, so pre-checking them everywhere would mislabel
+            | the rest.
             */
             'base' => [
                 'Beauty',
@@ -2040,21 +2047,94 @@ return [
                 ],
 
                 'Body Lotion' => [
+                    'Bathline',
                     'Beauty Selfcare',
                     'Beauty Selfcare Bodycare',
                     'Beauty Selfcare Skincare',
+                    'Body Care',
+                    'Body Cream',
                     'Body Lotion',
+                    'Body moisturizers',
+                    'Bodycare',
+                    'Lotion',
+                    'Make Up & Skin Care',
+                    'Moisturizer',
+                    'Moisturizing Cream',
+                    'scat: Bodycare',
                     'scat: Skincare',
                     'Selfcare',
                     'Skincare',
                 ],
 
                 'Hand Cream' => [
+                    'Bathline',
                     'Beauty Niche Fragrances',
+                    'Beauty Selfcare',
+                    'Beauty Selfcare Bodycare',
                     'Hand Cream',
+                    'Make Up & Skin Care',
                     'Niche fragrances',
+                    'scat: Bodycare',
                     'scat: Handcare',
                     'scat: Niche Fragrances',
+                    'Selfcare',
+                ],
+
+                'Body Cream' => [
+                    'Bathline',
+                    'Beauty Selfcare',
+                    'Beauty Selfcare Bodycare',
+                    'Body Care',
+                    'Body Cream',
+                    'Body moisturizers',
+                    'Bodycare',
+                    'Moisturizer',
+                    'Moisturizing Cream',
+                    'scat: Bodycare',
+                    'Selfcare',
+                ],
+
+                'Soaps & Shower Gels' => [
+                    'Bathline',
+                    'Beauty Selfcare',
+                    'Beauty Selfcare Bodycare',
+                    'scat: Bodycare',
+                    'Selfcare',
+                    'Shower Gel',
+                    'Soap',
+                    'Soaps',
+                ],
+
+                'Body Powder' => [
+                    'Beauty Selfcare',
+                    'Beauty Selfcare Bodycare',
+                    'scat: Bodycare',
+                    'Selfcare',
+                ],
+
+                'Sun Care & Self Tan' => [
+                    'Beauty Selfcare',
+                    'Beauty Selfcare Bodycare',
+                    'Body Cream',
+                    'Body Lotion',
+                    'Lotion',
+                    'scat: Bodycare',
+                    'Selfcare',
+                ],
+
+                'Face Cleansers' => [
+                    'Beauty Cosmetics',
+                    'Beauty Cosmetics Face',
+                    'Beauty Face',
+                    'Beauty Selfcare',
+                    'Beauty Selfcare Skincare',
+                    'Cleanser',
+                    'Face',
+                    'Facial Cleanser',
+                    'Make Up & Skin Care',
+                    'scat: Skincare',
+                    'Skin Care',
+                    'Skincare',
                 ],
 
                 'Shampoo' => [
