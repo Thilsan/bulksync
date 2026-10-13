@@ -82,25 +82,53 @@
                 </div>
             </div>
 
-            {{-- A worker keeps the code it started with in memory, so one older
-                 than the last deploy is still running the old version. --}}
-            <div x-show="workers.some(w => w.stale)" x-cloak
-                 class="mb-2 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-800">
-                A worker has been up for over a day. Workers hold the code they started with, so if you have deployed since, it is still running the old version — restart them.
-            </div>
-
+            {{-- Read from Horizon's records in Redis (see QueueController::horizon). --}}
             <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
-                <template x-if="!workersAvailable">
-                    <p class="px-4 py-3 text-sm text-gray-500">Process listing is not available on this host, so worker ages cannot be shown.</p>
-                </template>
-                <template x-if="workersAvailable && workers.length === 0">
-                    <p class="px-4 py-3 text-sm text-red-600">No workers are running. Nothing queued will be processed.</p>
-                </template>
-                <template x-for="(w,i) in workers" :key="i">
-                    <div class="px-4 py-2.5 flex items-center justify-between border-b border-gray-100 last:border-0">
-                        <span class="text-sm text-gray-700" x-text="w.queue"></span>
-                        <span class="text-sm" :class="w.stale ? 'text-amber-600 font-medium' : 'text-gray-500'" x-text="'up ' + w.age"></span>
+                <div class="px-4 py-3 flex items-center justify-between border-b border-gray-100">
+                    <div class="flex items-center gap-2">
+                        <span class="inline-block w-2.5 h-2.5 rounded-full"
+                              :class="{ 'bg-green-500': horizon.status === 'running', 'bg-amber-500': horizon.status === 'paused', 'bg-red-500': horizon.status === 'inactive', 'bg-gray-400': horizon.status === 'unknown' }"></span>
+                        <span class="text-sm font-medium text-gray-800"
+                              x-text="{ running: 'Horizon is running', paused: 'Horizon is paused', inactive: 'Horizon is not running', unknown: 'Horizon status unavailable' }[horizon.status]"></span>
                     </div>
+                    <div class="flex items-center gap-3 text-xs text-gray-500">
+                        <template x-for="s in horizon.supervisors" :key="s.name">
+                            <span><span class="font-medium text-gray-700" x-text="s.name"></span> <span x-text="s.processes + ' of ' + s.max + ' workers'"></span></span>
+                        </template>
+                    </div>
+                </div>
+
+                <template x-if="horizon.status === 'inactive'">
+                    <p class="px-4 py-3 text-sm text-red-600">Nothing queued will be processed. The cron job restarts Horizon within a minute — if this stays red for longer, check the Horizon line in Cloudways → Cron Job Management.</p>
+                </template>
+                <template x-if="horizon.status === 'paused'">
+                    <p class="px-4 py-3 text-sm text-amber-700">Workers are paused and will not pick up jobs until Horizon is continued.</p>
+                </template>
+                <template x-if="horizon.status === 'unknown'">
+                    <p class="px-4 py-3 text-sm text-gray-500" x-text="horizon.error"></p>
+                </template>
+
+                <template x-if="horizon.queues.length > 0">
+                    <table class="w-full text-sm">
+                        <thead>
+                            <tr class="text-left text-xs text-gray-500 bg-gray-50">
+                                <th class="px-4 py-2 font-medium">Queue</th>
+                                <th class="px-4 py-2 font-medium">Workers</th>
+                                <th class="px-4 py-2 font-medium">Waiting</th>
+                                <th class="px-4 py-2 font-medium">Est. wait</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <template x-for="q in horizon.queues" :key="q.name">
+                                <tr class="border-t border-gray-100">
+                                    <td class="px-4 py-2.5 text-gray-700" x-text="q.name"></td>
+                                    <td class="px-4 py-2.5 text-gray-700" x-text="q.workers"></td>
+                                    <td class="px-4 py-2.5 text-gray-700" x-text="q.waiting"></td>
+                                    <td class="px-4 py-2.5" :class="q.wait > 300 ? 'text-amber-600 font-medium' : 'text-gray-500'" x-text="humanWait(q.wait)"></td>
+                                </tr>
+                            </template>
+                        </tbody>
+                    </table>
                 </template>
             </div>
         </div>
@@ -338,8 +366,7 @@ function queueDashboard() {
     return {
         tab:              'overview',
         queues:           @json($queues),
-        workers:          @json($workers['list']),
-        workersAvailable: @json($workers['available']),
+        horizon:          @json($horizon),
         failed:           @json($failed),
         failedRows:       @json($failed),
         failedTotal:      @json($failedTotal),
@@ -353,6 +380,13 @@ function queueDashboard() {
         history: [], hPage: 1, hPages: 1, hTotal: 0, hName: '', hStatus: '', hQueue: '',
         logs: [], logQ: '', logError: null,
         openTrace: null, trace: '',
+
+        humanWait(s) {
+            if (s <= 0) return '—';
+            if (s < 60) return s + 's';
+            if (s < 3600) return Math.round(s / 60) + ' min';
+            return Math.floor(s / 3600) + 'h ' + Math.round((s % 3600) / 60) + 'm';
+        },
 
         get totalWaiting() {
             return this.queues.reduce((sum, q) => sum + (q.size || 0), 0);
@@ -377,8 +411,7 @@ function queueDashboard() {
                 if (!res.ok) return;
 
                 const d = await res.json();
-                this.queues = d.queues; this.workers = d.workers.list;
-                this.workersAvailable = d.workers.available;
+                this.queues = d.queues; this.horizon = d.horizon;
                 this.failed = d.failed; this.failedTotal = d.failedTotal; this.sessions = d.sessions;
                 if (this.tab !== 'failed') this.failedRows = d.failed;
                 this.running = d.running; this.today = d.today; this.driver = d.driver;

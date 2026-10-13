@@ -14,6 +14,9 @@ use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 use Illuminate\View\View;
 use App\Support\Queues;
+use Laravel\Horizon\Contracts\MasterSupervisorRepository;
+use Laravel\Horizon\Contracts\SupervisorRepository;
+use Laravel\Horizon\Contracts\WorkloadRepository;
 
 /**
  * Operational view of the queues.
@@ -49,7 +52,7 @@ class QueueController extends Controller
     {
         return [
             'queues'   => $this->queueDepths(),
-            'workers'  => $this->workers(),
+            'horizon'  => $this->horizon(),
             'failed'      => $this->failedJobs(),
             'failedTotal' => DB::table('failed_jobs')->count(),
             'sessions' => $this->resumableSessions(),
@@ -239,54 +242,57 @@ class QueueController extends Controller
     }
 
     /**
-     * The worker processes, with how long each has been alive.
+     * What Horizon is doing: whether it is up, and per queue how many workers
+     * it has given it, how much is waiting and how long that will take.
      *
-     * Age is the point of this, not presence. A worker loads the code once and
-     * keeps it in memory for its whole life, so one that has been up since before
-     * the last deploy is still running the old code no matter what is on disk —
-     * which is exactly how a fixed bug went on being reported as broken.
+     * Read from Horizon's own records in Redis rather than `ps`. The web server
+     * has shell_exec disabled, so a process listing never worked here, and
+     * Horizon already knows everything the listing was trying to show.
+     *
+     * Worker age no longer matters the way it did: Horizon replaces each worker
+     * every hour (maxTime) and a fresh one loads the code from disk, so stale
+     * code lasts an hour at most — Restart workers still makes it immediate.
      */
-    private function workers(): array
+    private function horizon(): array
     {
-        if (!function_exists('shell_exec') || in_array('shell_exec', explode(',', (string) ini_get('disable_functions')), true)) {
-            return ['available' => false, 'list' => []];
+        try {
+            $masters     = app(MasterSupervisorRepository::class)->all();
+            $supervisors = app(SupervisorRepository::class)->all();
+            $workload    = app(WorkloadRepository::class)->get();
+        } catch (\Throwable $e) {
+            return ['status' => 'unknown', 'error' => Str::limit($e->getMessage(), 120), 'supervisors' => [], 'queues' => []];
         }
 
-        $output = (string) @shell_exec('ps -eo etimes,args 2>/dev/null');
-        $list   = [];
-
-        foreach (explode("\n", $output) as $line) {
-            // Horizon's workers are `horizon:work`; its master and supervisor
-            // processes are left out because they live for weeks by design and
-            // would keep the stale-code warning on permanently.
-            if (!preg_match('/\b(queue|horizon):work\b/', $line) || str_contains($line, 'grep')) {
-                continue;
-            }
-
-            $line    = trim($line);
-            $seconds = (int) strtok($line, ' ');
-
-            preg_match('/--queue=([\w,-]+)/', $line, $q);
-
-            $list[] = [
-                'queue'   => $q[1] ?? 'default',
-                'seconds' => $seconds,
-                'age'     => $this->humanAge($seconds),
-                'stale'   => $seconds > 86400,
-            ];
-        }
-
-        return ['available' => true, 'list' => $list];
-    }
-
-    private function humanAge(int $seconds): string
-    {
-        return match (true) {
-            $seconds < 60    => $seconds . 's',
-            $seconds < 3600  => intdiv($seconds, 60) . 'm',
-            $seconds < 86400 => intdiv($seconds, 3600) . 'h ' . intdiv($seconds % 3600, 60) . 'm',
-            default          => intdiv($seconds, 86400) . 'd ' . intdiv($seconds % 86400, 3600) . 'h',
+        $status = match (true) {
+            empty($masters)                                              => 'inactive',
+            collect($masters)->every(fn ($m) => $m->status === 'paused') => 'paused',
+            default                                                      => 'running',
         };
+
+        return [
+            'status'      => $status,
+            'error'       => null,
+            'supervisors' => collect($supervisors)
+                ->map(fn ($s) => [
+                    'name'      => Str::afterLast($s->name, ':'),
+                    'status'    => $s->status,
+                    'processes' => (int) collect($s->processes)->sum(),
+                    'max'       => (int) ($s->options['maxProcesses'] ?? 0),
+                ])
+                ->sortBy('name')
+                ->values()
+                ->all(),
+            'queues' => collect($workload)
+                ->map(fn ($q) => [
+                    'name'      => $q['name'],
+                    'workers'   => (int) $q['processes'],
+                    'waiting'   => (int) $q['length'],
+                    'wait'      => (int) $q['wait'],
+                ])
+                ->sortBy('name')
+                ->values()
+                ->all(),
+        ];
     }
 
     /**
@@ -354,14 +360,14 @@ class QueueController extends Controller
      */
     public function restartWorkers(): RedirectResponse
     {
-        // horizon:terminate stops the Horizon master, which Cloudways' supervisor
-        // starts again on the new code. queue:restart still covers any plain
+        // horizon:terminate stops the Horizon master once its workers finish
+        // their jobs; the Cloudways cron line starts it again on the new code. queue:restart still covers any plain
         // queue:work worker, e.g. while switching over or after a rollback.
         Artisan::call('horizon:terminate');
         Artisan::call('queue:restart');
         Log::info('Queue dashboard: workers signalled to restart', ['by' => auth()->id()]);
 
-        return back()->with('success', 'Workers signalled to restart. They finish the job in hand first, so give them a few seconds — then check the ages below have reset.');
+        return back()->with('success', 'Workers signalled to restart. They finish the job in hand first, then Horizon starts again on the new code within a minute — watch the status below go back to Running.');
     }
 
     public function retryFailed(Request $request): RedirectResponse

@@ -12,10 +12,13 @@ use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
+use Laravel\Horizon\Contracts\MasterSupervisorRepository;
+use Laravel\Horizon\Contracts\SupervisorRepository;
+use Laravel\Horizon\Contracts\WorkloadRepository;
 use Tests\TestCase;
 
 /**
- * The operational page: queue depth, worker age, failed jobs, and the two
+ * The operational page: queue depth, Horizon's workers, failed jobs, and the two
  * actions that previously needed SSH and a hand-typed tinker line — restarting
  * workers after a deploy, and resuming a session that stopped short.
  */
@@ -73,7 +76,62 @@ class QueueDashboardTest extends TestCase
         $this->actingAs($this->admin)
             ->getJson(route('super-admin.queues.status'))
             ->assertOk()
-            ->assertJsonStructure(['queues', 'workers' => ['available', 'list'], 'failed', 'sessions', 'driver']);
+            ->assertJsonStructure(['queues', 'horizon' => ['status', 'supervisors', 'queues'], 'failed', 'sessions', 'driver']);
+    }
+
+    /** Stand in for Horizon's Redis records, which the test environment has none of. */
+    private function fakeHorizon(array $masters, array $supervisors, array $workload): void
+    {
+        $this->mock(MasterSupervisorRepository::class)->shouldReceive('all')->andReturn($masters);
+        $this->mock(SupervisorRepository::class)->shouldReceive('all')->andReturn($supervisors);
+        $this->mock(WorkloadRepository::class)->shouldReceive('get')->andReturn($workload);
+    }
+
+    public function test_horizon_status_shows_workers_and_wait_per_queue(): void
+    {
+        $this->fakeHorizon(
+            [(object) ['name' => 'host-abc', 'status' => 'running']],
+            [
+                (object) ['name' => 'host-abc:main', 'status' => 'running', 'processes' => ['redis:bulkupload' => 2, 'redis:skucheck' => 1], 'options' => ['maxProcesses' => 4]],
+                (object) ['name' => 'host-abc:maintenance', 'status' => 'running', 'processes' => ['redis:maintenance' => 1], 'options' => ['maxProcesses' => 1]],
+            ],
+            [
+                ['name' => 'skucheck', 'length' => 0, 'wait' => 0, 'processes' => 1, 'split_queues' => null],
+                ['name' => 'bulkupload', 'length' => 40, 'wait' => 420, 'processes' => 2, 'split_queues' => null],
+            ],
+        );
+
+        $horizon = $this->actingAs($this->admin)
+            ->getJson(route('super-admin.queues.status'))
+            ->assertOk()
+            ->json('horizon');
+
+        $this->assertSame('running', $horizon['status']);
+        $this->assertSame(['name' => 'main', 'status' => 'running', 'processes' => 3, 'max' => 4], $horizon['supervisors'][0]);
+        $this->assertSame(['name' => 'bulkupload', 'workers' => 2, 'waiting' => 40, 'wait' => 420], $horizon['queues'][0]);
+    }
+
+    /** No master in Redis means nothing is processing — the page must say so, not show an empty table. */
+    public function test_horizon_not_running_is_reported(): void
+    {
+        $this->fakeHorizon([], [], []);
+
+        $this->actingAs($this->admin)
+            ->getJson(route('super-admin.queues.status'))
+            ->assertOk()
+            ->assertJsonPath('horizon.status', 'inactive');
+    }
+
+    /** Redis being down must not take the whole page down with it. */
+    public function test_an_unreachable_horizon_is_reported_not_thrown(): void
+    {
+        $this->mock(MasterSupervisorRepository::class)->shouldReceive('all')->andThrow(new \RuntimeException('Connection refused'));
+
+        $this->actingAs($this->admin)
+            ->getJson(route('super-admin.queues.status'))
+            ->assertOk()
+            ->assertJsonPath('horizon.status', 'unknown')
+            ->assertJsonPath('horizon.error', 'Connection refused');
     }
 
     public function test_failed_jobs_are_listed_with_a_readable_reason(): void
