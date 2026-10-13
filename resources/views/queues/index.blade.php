@@ -71,11 +71,15 @@
         <div>
             <div class="flex items-center justify-between mb-2">
                 <h2 class="text-sm font-semibold text-gray-800">Workers</h2>
-                <form method="POST" action="{{ route('super-admin.queues.restart') }}"
-                      onsubmit="return confirm('Restart all queue workers? Each finishes the job it is holding first, so nothing in flight is lost.')">
-                    @csrf
-                    <button type="submit" class="text-sm bg-brand-600 hover:bg-brand-700 text-white px-3 py-1.5 rounded-lg font-medium transition-colors">Restart workers</button>
-                </form>
+                <div class="flex items-center gap-2">
+                    <a href="{{ url(config('horizon.path', 'horizon')) }}" target="_blank"
+                       class="text-sm border border-gray-300 hover:bg-gray-50 text-gray-700 px-3 py-1.5 rounded-lg font-medium transition-colors">Horizon dashboard</a>
+                    <form method="POST" action="{{ route('super-admin.queues.restart') }}"
+                          onsubmit="return confirm('Restart all queue workers? Each finishes the job it is holding first, so nothing in flight is lost.')">
+                        @csrf
+                        <button type="submit" class="text-sm bg-brand-600 hover:bg-brand-700 text-white px-3 py-1.5 rounded-lg font-medium transition-colors">Restart workers</button>
+                    </form>
+                </div>
             </div>
 
             {{-- A worker keeps the code it started with in memory, so one older

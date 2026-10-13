@@ -256,7 +256,10 @@ class QueueController extends Controller
         $list   = [];
 
         foreach (explode("\n", $output) as $line) {
-            if (!str_contains($line, 'queue:work') || str_contains($line, 'grep')) {
+            // Horizon's workers are `horizon:work`; its master and supervisor
+            // processes are left out because they live for weeks by design and
+            // would keep the stale-code warning on permanently.
+            if (!preg_match('/\b(queue|horizon):work\b/', $line) || str_contains($line, 'grep')) {
                 continue;
             }
 
@@ -351,6 +354,10 @@ class QueueController extends Controller
      */
     public function restartWorkers(): RedirectResponse
     {
+        // horizon:terminate stops the Horizon master, which Cloudways' supervisor
+        // starts again on the new code. queue:restart still covers any plain
+        // queue:work worker, e.g. while switching over or after a rollback.
+        Artisan::call('horizon:terminate');
         Artisan::call('queue:restart');
         Log::info('Queue dashboard: workers signalled to restart', ['by' => auth()->id()]);
 

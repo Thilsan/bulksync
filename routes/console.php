@@ -484,3 +484,7 @@ $pruneProductSales = function () {
 };
 
 Schedule::call($pruneProductSales)->daily()->name('prune-product-sales')->withoutOverlapping();
+
+// Horizon's wait-time and throughput graphs are built from these snapshots.
+// Bounded: config('horizon.metrics.trim_snapshots') keeps only the last 24.
+Schedule::command('horizon:snapshot')->everyFiveMinutes();

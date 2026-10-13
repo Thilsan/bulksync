@@ -3,8 +3,13 @@
 namespace App\Support;
 
 /**
- * Which queue each feature's jobs go on. Every queue in WORKERS has its own
- * worker in Cloudways → Application Settings → Supervisord Jobs.
+ * Which queue each feature's jobs go on. Every queue in WORKERS is listened to
+ * by a Horizon supervisor (config/horizon.php), which Cloudways runs as one
+ * Supervisord job: `php8.4 artisan horizon`. Horizon gives each queue a process
+ * of its own and moves the spare ones to whichever queue is waiting longest.
+ *
+ * Before Horizon, Cloudways ran one worker per queue; what follows describes
+ * that setup. HELPS and PooledWorkCommand still serve it as the rollback path.
  *
  * Everything used to share 'bulkupload', so one person's photo-editor run held
  * a colleague's one-SKU check on Pending until it finished. The SKU checker
@@ -24,9 +29,10 @@ namespace App\Support;
  * whole batch — but it is a real trade, and the way back is to add the worker
  * in Cloudways first and then point PHOTOS at its own name again.
  *
- * To give a shared feature its own worker later: add the worker in Cloudways
- * first, then point its constant at the new name and add it to WORKERS. The
- * other way round leaves its jobs on Pending with nothing listening.
+ * To give a shared feature its own queue later: point its constant at the new
+ * name, add it to WORKERS and to the 'main' supervisor's queue list in
+ * config/horizon.php, then `horizon:terminate`. HorizonSetupTest fails if a
+ * queue in WORKERS has no supervisor, since its jobs would sit on Pending.
  */
 final class Queues
 {
