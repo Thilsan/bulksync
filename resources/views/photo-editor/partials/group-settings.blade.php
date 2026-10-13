@@ -48,10 +48,27 @@
     // The tree lays the buttons out; the flat map, handed to the browser whole,
     // is what a click reads — so it sets the same values the server will write
     // when the form comes back.
-    $framingTree  = \App\Services\PhotoroomService::FRAMING_PRESETS;
+    /*
+     * Only the storefront's own categories.
+     *
+     * Every entry here was measured off bluesalon.com until Samsonite arrived
+     * with its own canvas and base line. Offering both brands' categories at
+     * once is how a Samsonite case gets framed to Blue Salon's 2000 square —
+     * "Luggage" is a plausible thing to click on either site, and nothing on
+     * screen would say which one you were framing for.
+     */
+    $activeStore  = \App\Models\Store::getActive();
+    $framingTree  = \App\Services\PhotoroomService::framingPresetsForStore(
+        trim(($activeStore?->name ?? '') . ' ' . ($activeStore?->shopify_domain ?? '')),
+    );
     $productNouns = \App\Services\PhotoroomService::PRODUCT_NOUNS;
 
+    $visibleKeys = collect($framingTree)->flatMap(fn ($main, $key) => isset($main['subcategories'])
+        ? collect($main['subcategories'])->keys()->map(fn ($sub) => "{$key}/{$sub}")->all()
+        : [$key])->all();
+
     $framingPresets = collect(\App\Services\PhotoroomService::framingPresetsFlat())
+        ->only($visibleKeys)
         ->map(fn (array $preset) => [
             'label' => $preset['full'],
             'note'  => $preset['note'],

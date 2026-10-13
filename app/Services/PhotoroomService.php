@@ -1508,6 +1508,26 @@ class PhotoroomService
      * back with the garment reshaped or turned. A category has already been
      * told what the product is, so there is no reason to make anyone type it.
      */
+    /**
+     * Which storefront a framing category belongs to.
+     *
+     * Every entry in FRAMING_PRESETS was measured off bluesalon.com until
+     * Samsonite arrived with its own canvas and its own base line. Showing one
+     * brand's categories while the header says the other is how a Samsonite
+     * case ends up framed to Blue Salon's 2000 square — and the operator has
+     * no way to know, because "Luggage" is a plausible thing to click on
+     * either site.
+     *
+     * Keyed on a word to look for in the store's name or its myshopify
+     * domain, because a Store has no slug. Listed stores see only their own
+     * categories; anything unlisted sees everything that no other store has
+     * claimed, which is what keeps Blue Salon — and a single-store install —
+     * working without naming them.
+     */
+    public const PRESETS_BY_STORE = [
+        'samsonite' => ['samsonite'],
+    ];
+
     public const PRODUCT_NOUNS = [
         'women/dresses'   => 'the dress',
         'women/gown'      => 'the gown',
@@ -1570,6 +1590,26 @@ class PhotoroomService
      * addresses it, so a stored run holds one string and does not care that
      * the table above ever gained or lost a level.
      */
+    /**
+     * The categories a given storefront should be offered.
+     *
+     * @return array<string, array<string, mixed>>  the FRAMING_PRESETS tree, filtered
+     */
+    public static function framingPresetsForStore(?string $storeIdentity): array
+    {
+        $claimed = array_merge(...array_values(self::PRESETS_BY_STORE));
+        $needle  = mb_strtolower((string) $storeIdentity);
+
+        foreach (self::PRESETS_BY_STORE as $word => $keys) {
+            if ($needle !== '' && str_contains($needle, $word)) {
+                return array_intersect_key(self::FRAMING_PRESETS, array_flip($keys));
+            }
+        }
+
+        // Everything another store has not claimed.
+        return array_diff_key(self::FRAMING_PRESETS, array_flip($claimed));
+    }
+
     public static function framingPresetsFlat(): array
     {
         $flat = [];
