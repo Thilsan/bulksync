@@ -145,6 +145,179 @@ class ImageProcessingService
      * costs a resample and a resample costs a little sharpness — there is no
      * sense spending that to move a product by half a percent.
      */
+    /**
+     * Put the product on a canvas at a fixed base line, without resizing it.
+     *
+     * The opposite of frameToStandard, which fits a product into a padded box
+     * and so decides how big it is. Samsonite's supplier files arrive at
+     * 1600x2400 with the case already the size the brand wants it; the only
+     * thing inconsistent is how high it sits. Fitting them would resize
+     * pictures that need no resizing, and a row of cases all scaled to the
+     * same fill is not what that catalogue looks like.
+     *
+     * So this moves and nothing else. The product keeps its pixels, keeps its
+     * horizontal position when the source is already the canvas size, and its
+     * lowest pixel lands $baseline of the way up from the bottom.
+     *
+     * The one case where it does resize is a product that will not fit at all
+     * — taller or wider than the canvas. Shrinking to fit is the only
+     * alternative to cropping the thing being sold.
+     */
+    public function placeOnBaseline(
+        string $imageContent,
+        int $canvasWidth,
+        int $canvasHeight,
+        float $baseline,
+        string $background = 'FFFFFF',
+    ): string {
+        try {
+            if ($canvasWidth < 50 || $canvasHeight < 50 || $baseline < 0 || $baseline >= 1) {
+                return $imageContent;
+            }
+
+            $info = @getimagesizefromstring($imageContent);
+            $box  = $info ? $this->subjectBox($imageContent, (int) $info[0], (int) $info[1]) : null;
+
+            if (!$info || $box === null) {
+                return $imageContent;
+            }
+
+            [$minX, $minY, $maxX, $maxY] = $box;
+
+            $src = @imagecreatefromstring($imageContent);
+
+            if (!$src) {
+                return $imageContent;
+            }
+
+            try {
+                $sw = imagesx($src);
+                $sh = imagesy($src);
+
+                // Only if it genuinely cannot fit. Never to make it fit better.
+                $scale = min(1.0, $canvasWidth / max(1, $maxX - $minX + 1), $canvasHeight / max(1, $maxY - $minY + 1));
+
+                if ($scale < 1.0) {
+                    $scaled = imagecreatetruecolor((int) round($sw * $scale), (int) round($sh * $scale));
+                    imagealphablending($scaled, false);
+                    imagesavealpha($scaled, true);
+                    imagecopyresampled($scaled, $src, 0, 0, 0, 0, imagesx($scaled), imagesy($scaled), $sw, $sh);
+                    imagedestroy($src);
+
+                    $src = $scaled;
+                    $sw  = imagesx($src);
+                    $sh  = imagesy($src);
+
+                    foreach ([&$minX, &$minY, &$maxX, &$maxY] as &$v) {
+                        $v = (int) round($v * $scale);
+                    }
+                    unset($v);
+                }
+
+                $canvas = imagecreatetruecolor($canvasWidth, $canvasHeight);
+                imagealphablending($canvas, false);
+                imagesavealpha($canvas, true);
+                imagefilledrectangle($canvas, 0, 0, $canvasWidth, $canvasHeight, $this->canvasColour($canvas, $background));
+
+                /*
+                 * Horizontal: left where it was when the source is already the
+                 * canvas's width, which is the Samsonite case — the brand put
+                 * it there. Centred on the subject otherwise, since a source
+                 * of a different width has no position worth preserving.
+                 */
+                $dx = $sw === $canvasWidth
+                    ? 0
+                    : (int) round(($canvasWidth - ($minX + $maxX)) / 2);
+
+                /*
+                 * The bottom edge, measured on the real pixels.
+                 *
+                 * subjectBox works on a 240px proxy, which on a 2400px file is
+                 * ten real pixels per proxy pixel. That is fine when the box is
+                 * only deciding how to fit inside a padded frame, and not fine
+                 * when the line it lands on is the entire point — a product ten
+                 * pixels off its baseline is exactly the thing this preset
+                 * exists to stop.
+                 *
+                 * Scanned upward from the bottom and stopped at the first row
+                 * holding anything, so it reads a hundred-odd rows rather than
+                 * the whole picture.
+                 */
+                $bottom = $this->lowestSubjectRow($src, $sw, $sh) ?? $maxY;
+
+                // Vertical: whatever puts the lowest pixel on the line.
+                $dy = (int) round($canvasHeight * (1 - $baseline)) - $bottom - 1;
+
+                imagealphablending($canvas, true);
+                imagecopy($canvas, $src, $dx, $dy, 0, 0, $sw, $sh);
+
+                ob_start();
+                imagepng($canvas, null, 6);
+                $out = (string) ob_get_clean();
+
+                imagedestroy($canvas);
+
+                return $out !== '' ? $out : $imageContent;
+            } finally {
+                if (is_object($src)) {
+                    imagedestroy($src);
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::warning('placeOnBaseline failed: ' . $e->getMessage());
+
+            return $imageContent;
+        }
+    }
+
+    /**
+     * The lowest row holding anything but background, at full resolution.
+     *
+     * Bottom-up with an early exit: a product standing near the foot of the
+     * frame is found in a few dozen rows, and one floating high is the rare
+     * case that pays for the whole scan.
+     */
+    private function lowestSubjectRow(\GdImage $img, int $w, int $h): ?int
+    {
+        for ($y = $h - 1; $y >= 0; $y--) {
+            for ($x = 0; $x < $w; $x++) {
+                $rgba = imagecolorat($img, $x, $y);
+
+                if ((($rgba >> 24) & 0x7F) > 100) {
+                    continue;
+                }
+
+                if ((($rgba >> 16) & 0xFF) >= self::BACKGROUND_WHITE
+                    && (($rgba >> 8) & 0xFF) >= self::BACKGROUND_WHITE
+                    && ($rgba & 0xFF) >= self::BACKGROUND_WHITE) {
+                    continue;
+                }
+
+                return $y;
+            }
+        }
+
+        return null;
+    }
+
+    /** The canvas fill, as a GD colour. "transparent" leaves it clear. */
+    private function canvasColour(\GdImage $canvas, string $background): int
+    {
+        if (strtolower($background) === 'transparent') {
+            return imagecolorallocatealpha($canvas, 0, 0, 0, 127);
+        }
+
+        $hex = ltrim($background, '#');
+        $hex = strlen($hex) === 6 ? $hex : 'FFFFFF';
+
+        return imagecolorallocate(
+            $canvas,
+            (int) hexdec(substr($hex, 0, 2)),
+            (int) hexdec(substr($hex, 2, 2)),
+            (int) hexdec(substr($hex, 4, 2)),
+        );
+    }
+
     public function frameToStandard(
         string $imageContent,
         int $canvasEdge,

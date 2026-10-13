@@ -51,13 +51,28 @@ class PhotoEditorPerEdgeTest extends TestCase
         $this->assertNotEmpty($withBaseline, 'no preset has a base line, so this proves nothing');
 
         foreach ($withBaseline as $key => $preset) {
+            /*
+             * The canvas the fraction is a fraction of.
+             *
+             * Nearly every preset sends its canvas to Photoroom as width and
+             * height. Samsonite does not: it places the case on somebody
+             * else's 1600x2400 without resizing it, so its canvas is named
+             * separately and only the local placement step reads it. The
+             * arithmetic below is the same either way — a fraction of a height
+             * — and taking the height from wherever the preset keeps it is
+             * what lets this check cover both.
+             */
+            $height = $preset['edits']['height'] ?? $preset['edits']['canvas_height'] ?? null;
+
+            $this->assertNotNull($height, "{$key} has a base line but no canvas to measure it against");
+
             $edits    = PhotoroomService::applyFramingPreset(PhotoroomService::defaultEdits(), $key);
-            $expected = (string) (int) round($preset['edits']['padding_bottom'] * $preset['edits']['height']);
+            $expected = (string) (int) round($preset['edits']['padding_bottom'] * $height);
 
             preg_match('/padBottom:\s*([^,\s]+)/', $this->render($edits), $m);
 
             $this->assertSame($expected, $m[1] ?? null,
-                "{$key}: {$preset['edits']['padding_bottom']} of {$preset['edits']['height']} should reach the box "
+                "{$key}: {$preset['edits']['padding_bottom']} of {$height} should reach the box "
                 . "as {$expected} pixels, not as a fraction");
         }
     }

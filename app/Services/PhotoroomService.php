@@ -304,6 +304,24 @@ class PhotoroomService
          * widest row.
          */
         'body_fill'          => null,
+
+        /*
+         * A canvas the product is placed on rather than fitted to.
+         *
+         * Every other preset asks Photoroom for a canvas and lets padding
+         * decide how much of it the product fills. Samsonite's supplier files
+         * arrive already at 1600x2400 with the case already the right size —
+         * the only thing wrong with them is where the case sits — so fitting
+         * would resize a picture that needs no resizing.
+         *
+         * So these three travel together and apart from width/height:
+         * width/height would be sent to Photoroom as outputSize and bring the
+         * fitting back, while these are read only by the local placement step,
+         * which moves the product vertically and touches nothing else.
+         */
+        'canvas_width'       => null,
+        'canvas_height'      => null,
+        'baseline_only'      => false,
     ];
 
     /**
@@ -602,6 +620,50 @@ class PhotoroomService
                  */
                 'padding'        => 0.10,
                 'padding_bottom' => 0.20,
+                'v_align'        => 'bottom',
+            ],
+        ],
+
+        /*
+         * Samsonite's own website, which is not Blue Salon's.
+         *
+         * Everything else in this list frames for bluesalon.com: a 2000 square,
+         * padding that decides how large the product sits, measured off that
+         * catalogue. Samsonite publishes at 1600x2400 and sizes its own cases,
+         * so this preset does one thing — puts the case on the line — and
+         * leaves the rest of the picture exactly as the brand supplied it.
+         */
+        'samsonite' => [
+            'label' => 'Samsonite (1600×2400)',
+            'note'  => 'Samsonite\'s own canvas, 1600 wide by 2400 tall, with the case standing on a line 4.6% up from the bottom. Nothing is resized: the supplier\'s files already have the case at the size the brand wants it, and the only thing this corrects is how high it sits. Measured off 156523_1830_hi-res_FRONT34_1, where the case fills 55% of the height with the space above it.',
+            'edits' => [
+                /*
+                 * No width or height, deliberately.
+                 *
+                 * Those two are sent to Photoroom as outputSize, and an
+                 * outputSize brings the fitting back — the case would be
+                 * scaled to the canvas and the brand's own sizing lost. The
+                 * canvas is named below instead, where only the local
+                 * placement step reads it.
+                 */
+                'output_size_mode' => 'originalImage',
+
+                'canvas_width'   => 1600,
+                'canvas_height'  => 2400,
+                'baseline_only'  => true,
+
+                /*
+                 * 4.58% on the one sample there is, rounded to 4.6%.
+                 *
+                 * One reading, and the perfume entry is the warning about
+                 * that: two revisions were set from a single image on the
+                 * wrong canvas and both were wrong. This one at least measures
+                 * a file already on the target canvas, which is the trap
+                 * perfume fell into — but it is still one case, and a second
+                 * supplier file is worth measuring before this is trusted
+                 * across a catalogue.
+                 */
+                'padding_bottom' => 0.046,
                 'v_align'        => 'bottom',
             ],
         ],
@@ -1473,6 +1535,7 @@ class PhotoroomService
         'kids/trousers'   => 'the trousers',
 
         'footwear'                    => 'the shoes',
+        'samsonite'                   => 'the suitcase',
         'perfume'                     => 'the perfume bottle',
 
         'luggage'                     => 'the suitcase',

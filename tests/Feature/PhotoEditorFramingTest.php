@@ -482,6 +482,8 @@ class PhotoEditorFramingTest extends TestCase
             'luggage'    => ['verticalAlignment' => 'bottom', 'paddingBottom' => '0.1'],
             // five shots of one sandal, 19.80% to 20.00%, 31% to 70% of the frame tall
             'footwear'   => ['verticalAlignment' => 'bottom', 'paddingBottom' => '0.2'],
+            // Samsonite's own 1600x2400 canvas; the case stands on 4.6%
+            'samsonite'  => ['verticalAlignment' => 'bottom', 'paddingBottom' => '0.046'],
             // two catalogue shots, both with the chain running off the top
             'watches_jewellery/necklaces' => [
                 'verticalAlignment' => 'top',
@@ -566,7 +568,24 @@ class PhotoEditorFramingTest extends TestCase
      */
     public function test_every_category_shares_one_canvas_and_fits_the_product(): void
     {
-        foreach (array_keys(PhotoroomService::framingPresetsFlat()) as $key) {
+        foreach (PhotoroomService::framingPresetsFlat() as $key => $preset) {
+            /*
+             * A preset that frames for somebody else's website is not on this
+             * canvas and should not be.
+             *
+             * Samsonite publishes at 1600x2400 and sizes its own cases, so its
+             * preset places the product on a line and resizes nothing. "One
+             * canvas" is a rule about the Blue Salon catalogue, which is what
+             * every other entry here is for, and the exception is named rather
+             * than the rule quietly weakened.
+             */
+            if (!empty($preset['edits']['baseline_only'])) {
+                $this->assertArrayNotHasKey('width', $preset['edits'],
+                    "{$key} places rather than fits, so it must not send a canvas to Photoroom");
+
+                continue;
+            }
+
             $fields = $this->layoutFields(PhotoroomService::applyFramingPreset([], $key));
 
             $this->assertSame('2000x2000', $fields['outputSize'], "{$key} is not on the standard canvas");

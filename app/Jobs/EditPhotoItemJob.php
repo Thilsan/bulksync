@@ -725,7 +725,33 @@ class EditPhotoItemJob implements ShouldQueue
              * kept redraw ends the run on the same canvas its own SKU's
              * other photos do.
              */
+            /*
+             * A canvas the product is placed on, rather than fitted to.
+             *
+             * Samsonite's supplier files arrive at 1600x2400 with the case
+             * already the size the brand wants it, and only the height it
+             * sits at is inconsistent. Fitting would resize a picture that
+             * needs no resizing, so this moves it and nothing else.
+             *
+             * Checked before the fitting branch because the two are
+             * alternatives: a preset asking for placement has no width to
+             * fit to, by design, so the condition below would skip it and the
+             * product would come back wherever Photoroom left it.
+             */
             if (!empty($itemEdits['framing_preset'])
+                && !empty($itemEdits['baseline_only'])
+                && !empty($itemEdits['canvas_width'])
+                && !empty($itemEdits['canvas_height'])) {
+                $edited = $imageService->placeOnBaseline(
+                    $edited,
+                    (int) $itemEdits['canvas_width'],
+                    (int) $itemEdits['canvas_height'],
+                    (float) ($itemEdits['padding_bottom'] ?? 0.0),
+                    ($itemEdits['background_mode'] ?? 'white') === 'transparent'
+                        ? 'transparent'
+                        : (string) ($itemEdits['background_color'] ?? 'FFFFFF'),
+                );
+            } elseif (!empty($itemEdits['framing_preset'])
                 && empty($itemEdits['flat_lay'])
                 && empty($itemEdits['virtual_model'])
                 && !empty($itemEdits['width'])) {

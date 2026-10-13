@@ -41,7 +41,7 @@
         $fraction = (float) $stored;
 
         return $fraction > 0 && $fraction <= 1
-            ? (int) round($fraction * (int) ($val('height') ?: 2000))
+            ? (int) round($fraction * (int) ($val('height') ?: $val('canvas_height') ?: 2000))
             : (int) round($fraction);
     };
 
@@ -378,7 +378,15 @@
             // unsubmittable with no visible error.
             const px = (v) => v === null || v === undefined || v === ''
                 ? null
-                : (v > 0 && v <= 1 ? Math.round(v * (e.height || 2000)) : Math.round(v));
+                /*
+                 * Against whichever canvas the preset keeps.
+                 *
+                 * Most send height to Photoroom; Samsonite places onto its own
+                 * 1600x2400 without resizing and names the canvas separately,
+                 * so a fraction read against the 2000 default showed its base
+                 * line as 92 pixels where it is 110.
+                 */
+                : (v > 0 && v <= 1 ? Math.round(v * (e.height || e.canvas_height || 2000)) : Math.round(v));
 
             this.padTop = px(e.padding_top);   this.padBottom = px(e.padding_bottom);
             this.padLeft = px(e.padding_left); this.padRight = px(e.padding_right);
