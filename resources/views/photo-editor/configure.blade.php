@@ -87,7 +87,13 @@
                 <template x-if="untouched">
                     <span class="text-gray-400">&minus; <span x-text="untouched"></span> untouched</span>
                 </template>
-                <span class="ml-2 text-xs text-gray-500">of {{ number_format($monthlyQuota) }} this month</span>
+                {{-- No "of N this month" here any more. N was
+                     PHOTOROOM_MONTHLY_QUOTA, a figure typed into an env var by
+                     hand, and Photoroom's API does not report the plan — so it
+                     went stale the moment the plan changed and said 2,000 on a
+                     5,000 account. The real number is on the Photo Editor
+                     screen, asked of Photoroom itself. What belongs here is
+                     what this run costs. --}}
             </div>
             <button type="submit" :disabled="starting"
                     class="rounded-lg bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-60">

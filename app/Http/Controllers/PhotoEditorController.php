@@ -368,7 +368,6 @@ class PhotoEditorController extends Controller implements HasMiddleware
                 array_flip(['', 'ai.auto']),
             ),
             'maxLifestyle'  => PhotoEditGroup::MAX_LIFESTYLE,
-            'monthlyQuota'  => (int) config('services.photoroom.monthly_quota', 1000),
         ]);
     }
 
