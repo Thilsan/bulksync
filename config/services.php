@@ -215,7 +215,17 @@ return [
          * that need a mannequin erased spend two requests, so 300 images could
          * mean 600. 120 keeps any one run recoverable.
          */
-        'max_images' => (int) env('PHOTOROOM_MAX_IMAGES', 120),
+        /*
+         * The most photographs one run may edit.
+         *
+         * A backstop against a folder link pasted a level too high, not a
+         * limit on ordinary work — which is why it is a thousand rather than
+         * the hundred and twenty it used to be, and why it is checked when a
+         * run is started rather than when a folder is read. Reading a folder
+         * costs nothing and refusing to read one told an operator their batch
+         * was too big before they could see what was in it.
+         */
+        'max_images' => (int) env('PHOTOROOM_MAX_IMAGES', 1000),
 
         /*
          * Images included in the plan each month. Only used to show how much of

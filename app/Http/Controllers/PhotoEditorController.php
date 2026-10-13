@@ -468,6 +468,40 @@ class PhotoEditorController extends Controller implements HasMiddleware
             $group->save();
         }
 
+
+        /*
+         * The one place a run can cost money, and so the one place to stop a
+         * folder pasted a level too high.
+         *
+         * This used to live in the scan, which refused to read a large folder
+         * at all — a guard that fired before anybody had asked to spend
+         * anything, and left them unable to see what was in there. Reading is
+         * free; starting is not. Here the photographs are already on the
+         * screen with a credit count beside them, so the number below is a
+         * backstop against a slip rather than a limit on ordinary work, and is
+         * set high enough that a real batch never meets it.
+         *
+         * Counted on what will actually be billed, and counted after the
+         * group settings have been written — a photo marked "as is" is filed
+         * without reaching Photoroom and costs nothing, and those ticks are
+         * saved in the loop above.
+         */
+        $cap = max(1, (int) config('services.photoroom.max_images', 1000));
+
+        $billable = PhotoEditItem::where('photo_edit_session_id', $session->id)
+            ->where('kind', 'cutout')
+            ->where('skip_edit', false)
+            ->count();
+
+        if ($billable > $cap) {
+            return back()->with(
+                'error',
+                "This run would edit {$billable} photographs, and the limit is {$cap}. "
+                . 'Photoroom charges for every one, so nothing has been sent. Deselect some, '
+                . 'or raise PHOTOROOM_MAX_IMAGES if this is genuinely the batch you want.',
+            );
+        }
+
         $this->queueRun($session, $groups->keys()->all());
 
         return redirect()->route('photo-editor.show', $session)
@@ -870,14 +904,26 @@ class PhotoEditorController extends Controller implements HasMiddleware
         $done  = (int) ($counts->edited ?? 0) + (int) ($counts->pushed ?? 0)
                + (int) ($counts->failed ?? 0) + (int) ($counts->skipped ?? 0);
 
-        // Grouped by SKU and then in the order the thumbnails were arranged, so
-        // the review grid reads the same way the product page will.
-        $paginator = PhotoEditItem::where('photo_edit_session_id', $session->id)
+        /*
+         * Every photograph in the run, on one page.
+         *
+         * This used to come back sixty at a time. Reviewing is the one part of
+         * this job that cannot be hurried — somebody is looking at each
+         * picture and deciding — and paging broke it in two ways: a selection
+         * made on page one was invisible from page two, and "which of these
+         * went wrong" is a question about the whole batch rather than about
+         * sixty of it.
+         *
+         * The cost is a long page. Thumbnails are a few tens of kilobytes and
+         * load lazily, so a three-hundred-image run is a long scroll rather
+         * than a slow one.
+         */
+        $all = PhotoEditItem::where('photo_edit_session_id', $session->id)
             ->orderBy('sku_detected')
             ->inDisplayOrder()
-            ->paginate(60, ['*'], 'page', max(1, (int) $request->get('page', 1)));
+            ->get();
 
-        $items = $paginator->getCollection()->map(fn (PhotoEditItem $i) => [
+        $items = $all->map(fn (PhotoEditItem $i) => [
             'id'                    => $i->id,
             'filename'              => $i->filename,
             'sku'                   => $i->sku_detected,
@@ -921,9 +967,15 @@ class PhotoEditorController extends Controller implements HasMiddleware
             ],
             'items'      => $items,
             'pagination' => [
-                'current_page' => $paginator->currentPage(),
-                'last_page'    => $paginator->lastPage(),
-                'total'        => $paginator->total(),
+                /*
+                 * Kept, and always one page. The grid reads these to decide
+                 * whether to show its pager, and reporting a single page is
+                 * what tells it there is nothing to show — simpler than
+                 * teaching every caller that the shape changed.
+                 */
+                'current_page' => 1,
+                'last_page'    => 1,
+                'total'        => $all->count(),
             ],
         ]);
     }

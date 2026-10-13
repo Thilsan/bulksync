@@ -319,12 +319,12 @@
                      way to judge whether the edit actually worked. --}}
                 <div class="group relative aspect-square checkerboard">
                     <template x-if="item.after_url">
-                        <img :src="item.after_url" :alt="item.filename"
+                        <img :src="item.after_url" :alt="item.filename" loading="lazy" decoding="async"
                              class="absolute inset-0 h-full w-full object-contain">
                     </template>
 
                     <template x-if="item.before_url">
-                        <img :src="item.before_url" :alt="'Original ' + item.filename"
+                        <img :src="item.before_url" :alt="'Original ' + item.filename" loading="lazy" decoding="async"
                              class="absolute inset-0 h-full w-full bg-white object-contain opacity-0 transition-opacity group-hover:opacity-100">
                     </template>
 
@@ -499,19 +499,6 @@
         </template>
     </div>
 
-    {{-- Pagination — only earns its space once there is more than one page. --}}
-    <div class="flex items-center justify-center gap-2" x-show="pagination.last_page > 1" x-cloak>
-        <button @click="goToPage(pagination.current_page - 1)" :disabled="pagination.current_page <= 1"
-            class="rounded border border-gray-200 px-3 py-1.5 text-xs text-gray-600 transition-colors hover:bg-gray-50 disabled:opacity-30">
-            ← Prev
-        </button>
-        <span class="px-3 py-1.5 text-xs font-medium tabular-nums text-gray-600"
-              x-text="pagination.current_page + ' / ' + pagination.last_page"></span>
-        <button @click="goToPage(pagination.current_page + 1)" :disabled="pagination.current_page >= pagination.last_page"
-            class="rounded border border-gray-200 px-3 py-1.5 text-xs text-gray-600 transition-colors hover:bg-gray-50 disabled:opacity-30">
-            Next →
-        </button>
-    </div>
 
     <p class="text-center text-xs text-gray-400">
         Edited files are kept for {{ $retentionDays }} days, then cleared automatically.

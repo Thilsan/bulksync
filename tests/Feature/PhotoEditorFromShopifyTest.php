@@ -230,6 +230,110 @@ class PhotoEditorFromShopifyTest extends TestCase
         $this->assertSame('991', PhotoEditItem::sole()->replaces_image_id, 'it took a later image');
     }
 
+    /*
+     * A big folder is read, and stopped at the point it would cost something.
+     *
+     * The ceiling used to refuse the scan: a folder over PHOTOROOM_MAX_IMAGES
+     * would not be read at all, so an operator was told their batch was too
+     * large before they could see what was in it — and reading a folder costs
+     * nothing. It moved to start(), which is the click that queues the edits
+     * and the only place Photoroom is billed.
+     */
+    public function test_a_large_run_is_stopped_when_it_would_be_billed_not_when_it_is_read(): void
+    {
+        config(['services.photoroom.max_images' => 2]);
+
+        $user    = $this->editor();
+        $session = PhotoEditSession::create([
+            'user_id' => $user->id, 'name' => 'Run', 'onedrive_link' => '',
+            'source' => 'shopify', 'edits' => [], 'status' => 'configuring', 'scan_status' => 'scanned',
+        ]);
+
+        $group = \App\Models\PhotoEditGroup::create([
+            'photo_edit_session_id' => $session->id, 'sku' => 'A-1', 'edits' => null,
+        ]);
+
+        foreach (range(1, 3) as $n) {
+            PhotoEditItem::create([
+                'photo_edit_session_id' => $session->id, 'kind' => 'cutout',
+                'filename' => "{$n}.jpg", 'sku_detected' => 'A-1', 'status' => 'pending',
+                'onedrive_drive_id' => 'd', 'onedrive_item_id' => "i{$n}",
+            ]);
+        }
+
+        $this->actingAs($user)
+            ->post(route('photo-editor.start', $session), [
+                'groups' => [$group->id => ['lifestyle_count' => 0]],
+            ])
+            ->assertSessionHas('error');
+
+        $this->assertSame('configuring', $session->fresh()->status, 'the run started anyway');
+    }
+
+    /** And a photo marked "as is" never reaches Photoroom, so it is not counted. */
+    public function test_pass_through_photos_do_not_count_towards_the_ceiling(): void
+    {
+        config(['services.photoroom.max_images' => 2]);
+
+        $user    = $this->editor();
+        $session = PhotoEditSession::create([
+            'user_id' => $user->id, 'name' => 'Run', 'onedrive_link' => '',
+            'source' => 'shopify', 'edits' => [], 'status' => 'configuring', 'scan_status' => 'scanned',
+        ]);
+
+        $group = \App\Models\PhotoEditGroup::create([
+            'photo_edit_session_id' => $session->id, 'sku' => 'A-1', 'edits' => null,
+        ]);
+
+        $ids = collect(range(1, 3))->map(fn ($n) => PhotoEditItem::create([
+            'photo_edit_session_id' => $session->id, 'kind' => 'cutout',
+            'filename' => "{$n}.jpg", 'sku_detected' => 'A-1', 'status' => 'pending',
+            'onedrive_drive_id' => 'd', 'onedrive_item_id' => "i{$n}",
+        ])->id);
+
+        $this->actingAs($user)
+            ->post(route('photo-editor.start', $session), [
+                'groups' => [$group->id => ['lifestyle_count' => 0, 'as_is' => [$ids->last()]]],
+            ])
+            ->assertSessionMissing('error');
+    }
+
+    /*
+     * The review grid shows the whole run, not sixty of it.
+     *
+     * It used to page. Reviewing is the one part of this job that cannot be
+     * hurried — somebody looks at each picture and decides — and paging broke
+     * it twice over: a selection made on page one was invisible from page two,
+     * and "which of these went wrong" is a question about the batch rather
+     * than about a slice of it.
+     */
+    public function test_the_review_grid_returns_every_photo_at_once(): void
+    {
+        $user    = $this->editor();
+        $session = PhotoEditSession::create([
+            'user_id' => $user->id, 'name' => 'Run', 'onedrive_link' => '',
+            'source' => 'shopify', 'edits' => [], 'status' => 'processing', 'scan_status' => 'scanned',
+        ]);
+
+        foreach (range(1, 75) as $n) {
+            PhotoEditItem::create([
+                'photo_edit_session_id' => $session->id, 'kind' => 'cutout',
+                'filename' => sprintf('%03d.jpg', $n), 'sku_detected' => 'A-1',
+                'status' => 'edited', 'edited_path' => "e/{$n}.jpg",
+                'onedrive_drive_id' => 'd', 'onedrive_item_id' => "i{$n}",
+            ]);
+        }
+
+        $body = $this->actingAs($user)
+            ->getJson(route('photo-editor.status', $session))
+            ->assertOk()
+            ->json();
+
+        $this->assertCount(75, $body['items'], 'the grid is still paging');
+        $this->assertSame(1, $body['pagination']['last_page'], 'the pager would still be drawn');
+        $this->assertSame(75, $body['pagination']['total']);
+    }
+
     /**
      * Stand in for Shopify.
      *

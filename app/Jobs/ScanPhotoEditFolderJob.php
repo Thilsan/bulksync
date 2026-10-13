@@ -45,29 +45,29 @@ class ScanPhotoEditFolderJob implements ShouldQueue
             $oneDrive->setUser($user);
         }
 
-        $cap = max(1, (int) config('services.photoroom.max_images', 120));
-
         try {
             $total  = 0;
             $buffer = [];
 
             $oneDrive->streamFolderImages(
                 $session->onedrive_link,
-                function (array $file) use ($session, &$buffer, &$total, $cap) {
-                    /*
-                     * Photoroom bills per image. A link pasted one folder too
-                     * high can hold thousands, and by the time anyone notices
-                     * the money is already spent — so refuse the whole run
-                     * before a single edit is queued, rather than editing the
-                     * first $cap and leaving someone to guess what was skipped.
-                     */
-                    if ($total >= $cap) {
-                        throw new \RuntimeException(
-                            "This folder holds more than {$cap} images. Photoroom charges for every image it edits, "
-                            . "so nothing was sent — point at a smaller folder, or raise PHOTOROOM_MAX_IMAGES."
-                        );
-                    }
-
+                /*
+                 * No ceiling here any more.
+                 *
+                 * This used to refuse a folder over PHOTOROOM_MAX_IMAGES, on
+                 * the grounds that Photoroom bills per image and a link pasted
+                 * one folder too high can hold thousands. The instinct was
+                 * right and the place was wrong: reading a folder costs
+                 * nothing, and the refusal landed on an operator who had not
+                 * yet asked to spend anything — they could not even see what
+                 * was in there before being told it was too much.
+                 *
+                 * The guard moved to where the money is: start(), which is the
+                 * click that queues the edits. By then the photographs are on
+                 * the screen with a credit count beside them, so a mis-pasted
+                 * link is obvious rather than theoretical.
+                 */
+                function (array $file) use ($session, &$buffer, &$total) {
                     $identifier = !empty($file['folder_name'])
                         ? $file['folder_name']
                         : pathinfo($file['filename'], PATHINFO_FILENAME);
