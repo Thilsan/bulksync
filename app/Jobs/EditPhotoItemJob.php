@@ -750,6 +750,8 @@ class EditPhotoItemJob implements ShouldQueue
                     ($itemEdits['background_mode'] ?? 'white') === 'transparent'
                         ? 'transparent'
                         : (string) ($itemEdits['background_color'] ?? 'FFFFFF'),
+                    isset($itemEdits['fit_width']) ? (float) $itemEdits['fit_width'] : null,
+                    isset($itemEdits['fit_height']) ? (float) $itemEdits['fit_height'] : null,
                 );
             } elseif (!empty($itemEdits['framing_preset'])
                 && empty($itemEdits['flat_lay'])

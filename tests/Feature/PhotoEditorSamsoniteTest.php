@@ -78,7 +78,8 @@ class PhotoEditorSamsoniteTest extends TestCase
         $this->assertSame('originalImage', $edits['output_size_mode']);
     }
 
-    public function test_the_product_lands_on_the_line_at_its_own_size(): void
+    /** Nothing but the base line, when no target box is given. */
+    public function test_without_a_target_box_it_only_moves_the_product(): void
     {
         // A case 600 wide and 1000 tall, sitting too high in a 1600x2400 file.
         $png = $this->png(1600, 2400, 500, 200, 600, 1000);
@@ -91,17 +92,65 @@ class PhotoEditorSamsoniteTest extends TestCase
         $this->assertEqualsWithDelta(1000, $maxY - $minY, 2, 'the case was resized');
     }
 
-    /** The source is already the canvas width, so the brand's own position is kept. */
-    public function test_horizontal_position_is_left_alone(): void
+    /*
+     * A small picture is brought up to the brand's own size.
+     *
+     * This preset began with no sizing: the supplier's files arrive with the
+     * case already right. Then the same category met images fetched from
+     * Shopify — whatever was uploaded there — and a small cutout kept at its
+     * own size landed as a thumbnail in the middle of a 2400-tall canvas.
+     */
+    public function test_a_small_source_is_scaled_up_to_the_brands_size(): void
     {
-        $png = $this->png(1600, 2400, 300, 900, 600, 1000);
+        $edits = PhotoroomService::framingPreset('samsonite')['edits'];
 
-        $out = app(ImageProcessingService::class)->placeOnBaseline($png, 1600, 2400, 0.046);
+        // A 400x600 cutout: a quarter of the size the brand publishes at.
+        $png = $this->png(400, 600, 50, 50, 300, 400);
 
-        [$minX, , $maxX] = $this->box($out);
+        $out = app(ImageProcessingService::class)->placeOnBaseline(
+            $png, 1600, 2400, $edits['padding_bottom'], 'FFFFFF',
+            $edits['fit_width'], $edits['fit_height'],
+        );
 
-        $this->assertEqualsWithDelta(300, $minX, 2);
-        $this->assertEqualsWithDelta(900, $maxX, 2);
+        [$minX, $minY, $maxX, $maxY] = $this->box($out);
+
+        $this->assertSame([1600, 2400], array_slice(getimagesizefromstring($out), 0, 2));
+        $this->assertEqualsWithDelta(2400 * (1 - $edits['padding_bottom']), $maxY, 3, 'not on the line');
+
+        // Fitted to whichever edge binds, and centred.
+        $this->assertLessThanOrEqual((int) round(1600 * $edits['fit_width']) + 2, $maxX - $minX + 1);
+        $this->assertLessThanOrEqual((int) round(2400 * $edits['fit_height']) + 2, $maxY - $minY + 1);
+        // Centred to within the proxy's own precision: subjectBox measures on
+        // a 240px proxy, so the horizontal extents carry about ten pixels of
+        // slop on a 1600-wide canvas. The base line is measured at full
+        // resolution because it is the thing that must be exact; a case ten
+        // pixels off centre is not visible beside one ten pixels off its line.
+        $this->assertEqualsWithDelta(1600 - $maxX, $minX, 14, 'the case is off centre');
+    }
+
+    /**
+     * And a file already at the brand's size comes through unchanged.
+     *
+     * Not as a special case — the scale simply works out to 1.0, which is the
+     * original no-resize behaviour arrived at by arithmetic.
+     */
+    public function test_a_supplier_file_already_the_right_size_is_not_resized(): void
+    {
+        $edits = PhotoroomService::framingPreset('samsonite')['edits'];
+
+        // The reference: 967 x 1326 on 1600 x 2400, sitting too high.
+        $png = $this->png(1600, 2400, 316, 200, 966, 1325);
+
+        $out = app(ImageProcessingService::class)->placeOnBaseline(
+            $png, 1600, 2400, $edits['padding_bottom'], 'FFFFFF',
+            $edits['fit_width'], $edits['fit_height'],
+        );
+
+        [$minX, $minY, $maxX, $maxY] = $this->box($out);
+
+        $this->assertEqualsWithDelta(967, $maxX - $minX + 1, 4, 'the case was resized');
+        $this->assertEqualsWithDelta(1326, $maxY - $minY + 1, 4, 'the case was resized');
+        $this->assertEqualsWithDelta(2400 * (1 - $edits['padding_bottom']), $maxY, 3);
     }
 
     /**

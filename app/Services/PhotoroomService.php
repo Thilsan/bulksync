@@ -322,6 +322,8 @@ class PhotoroomService
         'canvas_width'       => null,
         'canvas_height'      => null,
         'baseline_only'      => false,
+        'fit_width'          => null,
+        'fit_height'         => null,
     ];
 
     /**
@@ -634,7 +636,16 @@ class PhotoroomService
          * leaves the rest of the picture exactly as the brand supplied it.
          */
         'samsonite' => [
-            'label' => 'Samsonite (1600×2400)',
+            /*
+             * Just "Luggage". The header already says which storefront this
+             * is, and the categories are filtered to it — so naming the brand
+             * again here would be the only label on the row that announces
+             * what every other one takes for granted.
+             *
+             * The key stays 'samsonite': it is what runs already in the
+             * database carry, and what PRESETS_BY_STORE matches on.
+             */
+            'label' => 'Luggage',
             'note'  => 'Samsonite\'s own canvas, 1600 wide by 2400 tall, with the case standing on a line 4.6% up from the bottom. Nothing is resized: the supplier\'s files already have the case at the size the brand wants it, and the only thing this corrects is how high it sits. Measured off 156523_1830_hi-res_FRONT34_1, where the case fills 55% of the height with the space above it.',
             'edits' => [
                 /*
@@ -651,6 +662,29 @@ class PhotoroomService
                 'canvas_width'   => 1600,
                 'canvas_height'  => 2400,
                 'baseline_only'  => true,
+
+                /*
+                 * How large the case sits, measured off the reference: 967 by
+                 * 1326 on a 1600x2400 canvas.
+                 *
+                 * This preset began with no sizing at all, because the
+                 * supplier's files arrive with the case already right and
+                 * resizing something already right is how you make it wrong.
+                 * Then the same category met images fetched from Shopify —
+                 * whatever was uploaded there, at whatever size — and a small
+                 * cutout kept at its own size landed as a thumbnail in the
+                 * middle of the frame.
+                 *
+                 * A supplier file still comes through untouched: it is already
+                 * this size, so the scale works out to 1.0. The sizing is what
+                 * makes everything else agree with it.
+                 *
+                 * Both edges, not the height alone. A duffel is wider than it
+                 * is tall and would overflow the frame reaching an upright
+                 * case's height.
+                 */
+                'fit_width'      => 0.6044,
+                'fit_height'     => 0.5525,
 
                 /*
                  * 4.58% on the one sample there is, rounded to 4.6%.

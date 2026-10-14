@@ -159,9 +159,9 @@ class ImageProcessingService
      * horizontal position when the source is already the canvas size, and its
      * lowest pixel lands $baseline of the way up from the bottom.
      *
-     * The one case where it does resize is a product that will not fit at all
-     * — taller or wider than the canvas. Shrinking to fit is the only
-     * alternative to cropping the thing being sold.
+     * $fitWidth and $fitHeight give it a target box to scale the product into,
+     * as fractions of the canvas. Without them it only ever shrinks, and only
+     * when the product would not otherwise fit at all.
      */
     public function placeOnBaseline(
         string $imageContent,
@@ -169,6 +169,8 @@ class ImageProcessingService
         int $canvasHeight,
         float $baseline,
         string $background = 'FFFFFF',
+        ?float $fitWidth = null,
+        ?float $fitHeight = null,
     ): string {
         try {
             if ($canvasWidth < 50 || $canvasHeight < 50 || $baseline < 0 || $baseline >= 1) {
@@ -194,10 +196,56 @@ class ImageProcessingService
                 $sw = imagesx($src);
                 $sh = imagesy($src);
 
-                // Only if it genuinely cannot fit. Never to make it fit better.
-                $scale = min(1.0, $canvasWidth / max(1, $maxX - $minX + 1), $canvasHeight / max(1, $maxY - $minY + 1));
+                /*
+                 * How big the product should be, when the caller says.
+                 *
+                 * The first version of this never scaled: Samsonite's supplier
+                 * files arrive at 1600x2400 with the case already the size the
+                 * brand wants, and resizing them would have been resizing
+                 * something already right. Then the same preset met images
+                 * fetched from Shopify, which are whatever was uploaded there,
+                 * and a small cutout kept at its own size landed as a thumbnail
+                 * in the middle of a 2400-tall canvas.
+                 *
+                 * So a target box can be given, and the product is fitted into
+                 * it: 60.44% by 55.25% on the Samsonite reference, which is the
+                 * case in 156523_1830_hi-res_FRONT34_1 measured exactly. A
+                 * file already at that size is scaled by 1.0 and comes through
+                 * untouched, which is the original behaviour arrived at by
+                 * arithmetic rather than by a special case.
+                 *
+                 * Fitted to both edges rather than driven by the height alone,
+                 * so a wide item — a duffel rather than an upright — does not
+                 * overflow the frame reaching the same height as a tall one.
+                 */
+                $boxW = $fitWidth !== null ? $canvasWidth * $fitWidth : $canvasWidth;
+                $boxH = $fitHeight !== null ? $canvasHeight * $fitHeight : $canvasHeight;
 
-                if ($scale < 1.0) {
+                $scale = min($boxW / max(1, $maxX - $minX + 1), $boxH / max(1, $maxY - $minY + 1));
+
+                // With no target box this only ever shrinks: never enlarge
+                // something merely because it would fit.
+                if ($fitWidth === null && $fitHeight === null) {
+                    $scale = min(1.0, $scale);
+                }
+
+                /*
+                 * Near enough is left alone.
+                 *
+                 * The box comes from subjectBox, which measures on a 240px
+                 * proxy — ten real pixels per proxy pixel on a 2400-tall file.
+                 * That slop lands in the scale, so a supplier file already at
+                 * the brand's size would be resized by a per cent or so every
+                 * time it passed through, and twice through would compound it.
+                 *
+                 * Two per cent either way is smaller than the measurement that
+                 * produced it, so it is not a difference worth acting on.
+                 */
+                if (abs($scale - 1.0) < 0.02) {
+                    $scale = 1.0;
+                }
+
+                if (abs($scale - 1.0) > 0.001) {
                     $scaled = imagecreatetruecolor((int) round($sw * $scale), (int) round($sh * $scale));
                     imagealphablending($scaled, false);
                     imagesavealpha($scaled, true);
@@ -225,7 +273,7 @@ class ImageProcessingService
                  * it there. Centred on the subject otherwise, since a source
                  * of a different width has no position worth preserving.
                  */
-                $dx = $sw === $canvasWidth
+                $dx = ($sw === $canvasWidth && $fitWidth === null && $fitHeight === null)
                     ? 0
                     : (int) round(($canvasWidth - ($minX + $maxX)) / 2);
 

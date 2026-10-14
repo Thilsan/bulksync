@@ -75,7 +75,9 @@ class PhotoEditorStoreCategoriesTest extends TestCase
 
         $html = $this->actingAs($user)->get(route('photo-editor.index'))->assertOk()->getContent();
 
-        $this->assertStringContainsString('Samsonite', $html);
+        // Labelled "Luggage": the header already names the storefront, and the
+        // categories are filtered to it.
+        $this->assertStringContainsString('Luggage', $html);
         $this->assertStringNotContainsString('Watches &amp; Jewellery', $html,
             "Blue Salon's categories are on Samsonite's screen");
     }
