@@ -3,7 +3,99 @@
 @section('page-title', 'Product Migration - Image')
 
 @section('content')
-<div class="space-y-6" x-data="{ loading: false, mode: 'text', migrationType: 'images_only', overwrite: false }">
+<div class="space-y-6" x-data="{
+        loading: false, mode: 'text', migrationType: 'images_only', overwrite: false,
+        confirmOpen: false, confirmed: false, fromName: '', toName: '', skuCount: 0,
+        /* Read off the form as it stands, so the dialog names what is about to happen. */
+        openConfirm() {
+            this.fromName = this.$refs.fromStore.selectedOptions[0]?.text.trim() || 'the source store';
+            this.toName   = this.$refs.toStore.selectedOptions[0]?.text.trim() || 'the target store';
+            this.skuCount = this.mode === 'text'
+                ? this.$refs.form.querySelector('textarea[name=skus]').value.split(/[\r\n,]+/).filter(s => s.trim()).length
+                : 0;
+            this.confirmOpen = true;
+        },
+        proceed() {
+            this.confirmed   = true;
+            this.confirmOpen = false;
+            this.$nextTick(() => this.$refs.form.requestSubmit());
+        },
+    }">
+
+    {{--
+        Confirm before overwriting. Says which store loses what, in the order
+        it matters, and what is kept — the browser's own confirm() could only
+        carry one grey paragraph and an "OK".
+    --}}
+    <div x-show="confirmOpen" x-cloak
+         class="fixed inset-0 z-50 flex items-center justify-center p-4"
+         @keydown.escape.window="confirmOpen = false"
+         role="dialog" aria-modal="true" aria-labelledby="overwrite-confirm-title">
+
+        <div class="absolute inset-0 bg-gray-900/50" @click="confirmOpen = false"></div>
+
+        <div class="relative w-full max-w-md overflow-hidden rounded-xl bg-white shadow-xl"
+             x-show="confirmOpen" x-transition.opacity.scale.95>
+            <div class="px-5 pt-5 pb-4">
+                <div class="flex items-start gap-3">
+                    <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-600">
+                        <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+                        </svg>
+                    </span>
+                    <div class="min-w-0">
+                        <h2 id="overwrite-confirm-title" class="text-sm font-semibold text-gray-900">
+                            Update existing products in <span x-text="toName"></span>?
+                        </h2>
+                        <p class="mt-1 text-xs text-gray-500">
+                            <span x-show="skuCount" x-text="skuCount + (skuCount === 1 ? ' SKU' : ' SKUs') + ' from '"></span><span x-show="!skuCount">SKUs from </span><span class="font-medium text-gray-700" x-text="fromName"></span>.
+                            Products <span x-text="toName"></span> doesn't have yet are created as drafts.
+                        </p>
+                    </div>
+                </div>
+
+                <div class="mt-4 grid gap-3 sm:grid-cols-2">
+                    <div class="rounded-lg bg-amber-50 px-3 py-2.5">
+                        <p class="text-[11px] font-semibold uppercase tracking-wide text-amber-700">Replaced</p>
+                        <ul class="mt-1.5 space-y-1 text-xs text-amber-900">
+                            <li>Title &amp; description</li>
+                            <li>Tags, vendor &amp; type</li>
+                            <li>SEO title &amp; description</li>
+                            <li>Prices &amp; variants</li>
+                            <li>All photos</li>
+                        </ul>
+                    </div>
+                    <div class="rounded-lg bg-gray-50 px-3 py-2.5">
+                        <p class="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Kept as is</p>
+                        <ul class="mt-1.5 space-y-1 text-xs text-gray-700">
+                            <li>Stock quantities</li>
+                            <li>Live / draft status</li>
+                            <li>Order history</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <p class="mt-3 flex gap-2 rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-700">
+                    <span aria-hidden="true">&bull;</span>
+                    <span>
+                        Variants <span x-text="fromName"></span> doesn't have are <strong class="font-semibold">deleted</strong>.
+                        This can't be undone — try one SKU first if you haven't yet.
+                    </span>
+                </p>
+            </div>
+
+            <div class="flex justify-end gap-2 border-t border-gray-100 bg-gray-50 px-5 py-3">
+                <button type="button" @click="confirmOpen = false"
+                        class="rounded-lg border border-gray-300 bg-white px-4 py-1.5 text-xs font-medium text-gray-700 transition-colors hover:border-gray-400">
+                    Cancel
+                </button>
+                <button type="button" @click="proceed()"
+                        class="rounded-lg bg-amber-600 px-4 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-amber-700">
+                    Yes, update products
+                </button>
+            </div>
+        </div>
+    </div>
 
     {{-- Loading overlay --}}
     <div x-show="loading" x-cloak
@@ -51,7 +143,8 @@
             <div class="overflow-hidden rounded-xl border border-gray-200 bg-white">
                 <form method="POST" action="{{ route('store-image-sync.start') }}" enctype="multipart/form-data"
                       class="space-y-5 p-5"
-                      @submit="if (migrationType === 'full_product' && overwrite && !confirm('Products that already exist in the target store will be overwritten with the source store\'s title, description, variants and photos. Variants the source doesn\'t have will be deleted. Continue?')) { $event.preventDefault(); return; } loading = true">
+                      x-ref="form"
+                      @submit="if (migrationType === 'full_product' && overwrite && !confirmed) { $event.preventDefault(); openConfirm(); return; } loading = true">
                     @csrf
 
                     {{-- What is being moved --}}
@@ -98,7 +191,7 @@
                     <div class="grid items-end gap-3 sm:grid-cols-[1fr_auto_1fr]">
                         <div>
                             <label class="mb-1.5 block text-[11px] font-medium uppercase tracking-[.12em] text-gray-400">From</label>
-                            <select name="from_store" required
+                            <select name="from_store" required x-ref="fromStore"
                                 class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
                                 <option value="">Source store</option>
                                 @foreach($stores as $store)
@@ -115,7 +208,7 @@
 
                         <div>
                             <label class="mb-1.5 block text-[11px] font-medium uppercase tracking-[.12em] text-gray-400">To</label>
-                            <select name="to_store" required
+                            <select name="to_store" required x-ref="toStore"
                                 class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
                                 <option value="">Target store</option>
                                 @foreach($stores as $store)
