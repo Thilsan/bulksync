@@ -3,7 +3,7 @@
 @section('page-title', 'Product Migration - Image')
 
 @section('content')
-<div class="space-y-6" x-data="{ loading: false, mode: 'text', migrationType: 'images_only' }">
+<div class="space-y-6" x-data="{ loading: false, mode: 'text', migrationType: 'images_only', overwrite: false }">
 
     {{-- Loading overlay --}}
     <div x-show="loading" x-cloak
@@ -50,7 +50,8 @@
             --}}
             <div class="overflow-hidden rounded-xl border border-gray-200 bg-white">
                 <form method="POST" action="{{ route('store-image-sync.start') }}" enctype="multipart/form-data"
-                      class="space-y-5 p-5" @submit="loading = true">
+                      class="space-y-5 p-5"
+                      @submit="if (migrationType === 'full_product' && overwrite && !confirm('Products that already exist in the target store will be overwritten with the source store\'s title, description, variants and photos. Variants the source doesn\'t have will be deleted. Continue?')) { $event.preventDefault(); return; } loading = true">
                     @csrf
 
                     {{-- What is being moved --}}
@@ -72,6 +73,25 @@
                                 Missing products are created in the target store as <strong class="font-semibold text-gray-700">drafts</strong>. Never published automatically.
                             </span>
                         </p>
+
+                        {{--
+                            Off by default: it overwrites live products. The
+                            warning names what is lost, since none of it can
+                            be undone from here.
+                        --}}
+                        <label x-show="migrationType === 'full_product'" x-cloak
+                               class="mt-3 flex items-start gap-2 rounded-lg border border-gray-200 px-3 py-2.5 text-xs text-gray-600"
+                               :class="overwrite ? 'border-amber-300 bg-amber-50' : ''">
+                            <input type="checkbox" name="overwrite_existing" value="1" x-model="overwrite"
+                                   class="mt-0.5 rounded border-gray-300">
+                            <span>
+                                <strong class="font-semibold text-gray-800">Update products the target store already has</strong>
+                                <span class="block mt-0.5">Title, description, tags, SEO, variants and photos are replaced with the source store's.</span>
+                                <span x-show="overwrite" class="block mt-1 text-amber-700">
+                                    Variants the source doesn't have are deleted, and the current photos are removed. Stock and live/draft status are kept. This can't be undone.
+                                </span>
+                            </span>
+                        </label>
                     </div>
 
                     {{-- Source → target, drawn --}}

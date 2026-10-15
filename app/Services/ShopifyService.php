@@ -1220,6 +1220,174 @@ class ShopifyService
         return ['product_id' => $newProductId, 'image_map' => $imageMap];
     }
 
+    /**
+     * Make a product that already exists in this store a copy of one fetched
+     * via getFullProduct() on another store, in a single REST update.
+     *
+     * The update names the whole variant list and the whole image list, and
+     * Shopify treats both as complete: a variant or image left out is deleted.
+     * That is what makes this a mirror — and why $variantIdsBySku matters: a
+     * variant sent with its existing ID is updated in place and keeps its
+     * stock and order history, one sent without is created.
+     *
+     * Deliberately left alone: stock counts and inventory tracking on existing
+     * variants, and the product's status. A live product stays live.
+     *
+     * @param  array<string,string>  $variantIdsBySku  this store's variant ID per upper-cased SKU
+     * @param  array{title: ?string, description: ?string}  $seo  only non-empty values are written
+     * @return array the product as Shopify returns it after the update
+     */
+    public function overwriteProduct(string $productId, array $sourceProduct, array $variantIdsBySku, array $seo): array
+    {
+        $this->throttle();
+
+        $variants = array_map(function ($v) use ($variantIdsBySku) {
+            $existingId = $variantIdsBySku[strtoupper($v['sku'] ?? '')] ?? null;
+
+            return array_filter([
+                'id'               => $existingId ? (int) $existingId : null,
+                'sku'              => $v['sku'] ?? null,
+                'price'            => $v['price'] ?? null,
+                'compare_at_price' => $v['compare_at_price'] ?? null,
+                'barcode'          => $v['barcode'] ?? null,
+                'weight'           => $v['weight'] ?? null,
+                'weight_unit'      => $v['weight_unit'] ?? null,
+                'option1'          => $v['option1'] ?? null,
+                'option2'          => $v['option2'] ?? null,
+                'option3'          => $v['option3'] ?? null,
+                // A new variant needs a tracking setting; an existing one keeps its own.
+                'inventory_management' => $existingId ? null : ($v['inventory_management'] ?? null),
+            ], fn ($val) => $val !== null);
+        }, $sourceProduct['variants'] ?? []);
+
+        $images = array_map(fn ($img) => array_filter([
+            'src' => $img['src'] ?? null,
+            'alt' => $img['alt'] ?? null,
+        ]), $sourceProduct['images'] ?? []);
+
+        $payload = [
+            'id'           => (int) $productId,
+            'title'        => $sourceProduct['title'] ?? '',
+            'body_html'    => $sourceProduct['body_html'] ?? '',
+            'vendor'       => $sourceProduct['vendor'] ?? '',
+            'product_type' => $sourceProduct['product_type'] ?? '',
+            'tags'         => $sourceProduct['tags'] ?? '',
+            'options'      => array_map(fn ($o) => ['name' => $o['name'] ?? '', 'values' => $o['values'] ?? []], $sourceProduct['options'] ?? []),
+            'variants'     => $variants,
+            'images'       => $images,
+        ];
+
+        // An empty source value is skipped rather than written: blanking the
+        // target's own SEO copy would leave it worse than before the mirror.
+        if (!empty($seo['title'])) {
+            $payload['metafields_global_title_tag'] = $seo['title'];
+        }
+        if (!empty($seo['description'])) {
+            $payload['metafields_global_description_tag'] = $seo['description'];
+        }
+
+        try {
+            // Shopify fetches every image src before it answers, as on create.
+            $response = $this->http->put("admin/api/{$this->apiVersion}/products/{$productId}.json", [
+                'json'    => ['product' => $payload],
+                'timeout' => 120,
+            ]);
+        } catch (ClientException $e) {
+            $this->handleClientException($e, "overwriteProduct({$productId})");
+            throw new \RuntimeException('Shopify product update failed: ' . $this->clientErrorDetail($e));
+        }
+
+        $updated = json_decode((string) $response->getBody(), true)['product'] ?? [];
+
+        $this->relinkVariantImages($productId, $sourceProduct, $updated);
+
+        return $updated;
+    }
+
+    /**
+     * After an update that re-uploaded the gallery, tag each new image with
+     * the variants its source image belonged to, and set each variant's own
+     * picture. Images are matched by position and variants by SKU — the
+     * target's IDs are all new or different.
+     */
+    private function relinkVariantImages(string $productId, array $sourceProduct, array $updated): void
+    {
+        $sourceImages = $sourceProduct['images'] ?? [];
+        usort($sourceImages, fn ($a, $b) => ($a['position'] ?? 0) <=> ($b['position'] ?? 0));
+
+        $newImages = $updated['images'] ?? [];
+        usort($newImages, fn ($a, $b) => ($a['position'] ?? 0) <=> ($b['position'] ?? 0));
+
+        $imageMap = [];
+        foreach ($sourceImages as $index => $sourceImage) {
+            if (isset($newImages[$index]['id'])) {
+                $imageMap[(string) $sourceImage['id']] = (string) $newImages[$index]['id'];
+            }
+        }
+
+        $newVariantIdBySku = [];
+        foreach ($updated['variants'] ?? [] as $variant) {
+            $newVariantIdBySku[strtoupper($variant['sku'] ?? '')] = (string) $variant['id'];
+        }
+
+        $variantIdMap = [];
+        foreach ($sourceProduct['variants'] ?? [] as $sourceVariant) {
+            $newId = $newVariantIdBySku[strtoupper($sourceVariant['sku'] ?? '')] ?? null;
+            if ($newId) {
+                $variantIdMap[(string) $sourceVariant['id']] = $newId;
+            }
+        }
+
+        foreach ($sourceImages as $sourceImage) {
+            $newImageId    = $imageMap[(string) ($sourceImage['id'] ?? '')] ?? null;
+            $newVariantIds = array_values(array_filter(array_map(
+                fn ($vid) => $variantIdMap[(string) $vid] ?? null,
+                $sourceImage['variant_ids'] ?? []
+            )));
+
+            if (!$newImageId || empty($newVariantIds)) continue;
+
+            try {
+                $this->setImageVariants($productId, $newImageId, $newVariantIds);
+            } catch (\Throwable $e) {
+                Log::warning("Shopify overwriteProduct: failed to tag image {$newImageId} to variants: " . $e->getMessage());
+            }
+        }
+
+        foreach ($sourceProduct['variants'] ?? [] as $sourceVariant) {
+            $sourceImageId = (string) ($sourceVariant['image_id'] ?? '');
+            $newVariantId  = $variantIdMap[(string) ($sourceVariant['id'] ?? '')] ?? null;
+
+            if ($sourceImageId !== '' && $newVariantId && isset($imageMap[$sourceImageId])) {
+                try {
+                    $this->setVariantImage($newVariantId, $imageMap[$sourceImageId]);
+                } catch (\Throwable $e) {
+                    Log::warning("Shopify overwriteProduct: failed to link variant {$newVariantId} image: " . $e->getMessage());
+                }
+            }
+        }
+    }
+
+    /**
+     * A product's search-engine title and description, as set — null where
+     * the store falls back to the product title or description.
+     *
+     * @return array{title: ?string, description: ?string}
+     */
+    public function getProductSeo(string $productId): array
+    {
+        $data = $this->graphql(
+            'query($id:ID!){product(id:$id){seo{title description}}}',
+            ['id' => "gid://shopify/Product/{$productId}"],
+            "getProductSeo({$productId})"
+        );
+
+        return [
+            'title'       => $data['product']['seo']['title'] ?? null,
+            'description' => $data['product']['seo']['description'] ?? null,
+        ];
+    }
+
     // ── Product count ──────────────────────────────────────────────────────
 
     /**

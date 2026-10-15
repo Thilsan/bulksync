@@ -36,6 +36,9 @@ class RunStoreImageSyncJob implements ShouldQueue
         public readonly array  $skus,
         public readonly string $migrationType = 'images_only', // 'images_only' or 'full_product'
         public readonly ?array $resume = null,
+        // Full Product only: make a product the target already has a copy of
+        // the source one, instead of just adding its photos.
+        public readonly bool   $overwriteExisting = false,
     ) {}
 
     /** Counts and position, carried from slice to slice. */
@@ -80,7 +83,7 @@ class RunStoreImageSyncJob implements ShouldQueue
         fclose($handle);
 
         if (!$finished) {
-            $this->handOver(new static($this->token, $this->fromStoreId, $this->toStoreId, $this->skus, $this->migrationType, $this->state));
+            $this->handOver(new static($this->token, $this->fromStoreId, $this->toStoreId, $this->skus, $this->migrationType, $this->state, $this->overwriteExisting));
 
             return;
         }
@@ -211,7 +214,8 @@ class RunStoreImageSyncJob implements ShouldQueue
      * FIRST, so a product with 5 variants only migrates the specific SKU(s)
      * you actually listed, never the sibling colors/sizes you didn't ask for.
      * SKUs that already exist in the target store are just image-synced
-     * (same as Images Only), scoped to that one variant's own photo.
+     * (same as Images Only), scoped to that one variant's own photo — or,
+     * with $overwriteExisting, their product is mirrored from the source.
      *
      * Two phases, each sliced: resolve every SKU against the source store,
      * then work through the products. The grouping has to be complete before
@@ -289,18 +293,29 @@ class RunStoreImageSyncJob implements ShouldQueue
         $productTitle      = $resolved[$requestedSkus[0]]['product_title'] ?? '';
         $sourceCollections = $resolved[$requestedSkus[0]]['collections'] ?? [];
 
-        $missingSkus = [];
+        $missingSkus  = [];
+        $existingSkus = [];
 
         foreach ($requestedSkus as $sku) {
             $targetVariants = $target->findVariantsBySku($sku);
 
             if (empty($targetVariants)) {
                 $missingSkus[] = $sku;
-                continue;
+            } else {
+                $existingSkus[$sku] = $targetVariants[0];
             }
+        }
 
+        // The mirror covers the whole product, so it takes the missing
+        // siblings with it rather than creating them separately.
+        if ($this->overwriteExisting && !empty($existingSkus)) {
+            $this->overwriteExistingProduct($source, $target, $handle, $total, $sourceProductId, $requestedSkus, $existingSkus, $targetCollections);
+            return;
+        }
+
+        foreach ($existingSkus as $sku => $targetVariant) {
             // Already exists in target — sync just this variant's own gallery photos, not the whole product
-            $this->syncSingleVariantImage($source, $target, $sku, $resolved[$sku], $targetVariants[0], $handle, $productTitle);
+            $this->syncSingleVariantImage($source, $target, (string) $sku, $resolved[$sku], $targetVariant, $handle, $productTitle);
             $this->tally($total, true);
         }
 
@@ -336,6 +351,129 @@ class RunStoreImageSyncJob implements ShouldQueue
 
         foreach ($missingSkus as $sku) {
             $this->tally($total, $ok);
+        }
+    }
+
+    /**
+     * Make the target's product a copy of the source product: text, SEO,
+     * options, every variant and the whole gallery. Variants the source does
+     * not have are deleted from the target; ones it lacks are added.
+     *
+     * Refuses, touching nothing, when the two stores do not hold the product
+     * the same way — mirroring a whole product onto one that holds only part
+     * of it would drag in SKUs that already live on other target products.
+     *
+     * @param array<string,array> $existingSkus requested SKU => its target variant
+     */
+    private function overwriteExistingProduct(
+        ShopifyService $source,
+        ShopifyService $target,
+        $handle,
+        int $total,
+        string $sourceProductId,
+        array $requestedSkus,
+        array $existingSkus,
+        array $targetCollections,
+    ): void {
+        $resolved     = $this->state['resolved'];
+        $productTitle = $resolved[$requestedSkus[0]]['product_title'] ?? '';
+
+        $fail = function (string $reason) use ($handle, $total, $requestedSkus, $productTitle) {
+            foreach ($requestedSkus as $sku) {
+                fputcsv($handle, [$sku, $productTitle, 0, 0, $reason]);
+                $this->tally($total, false);
+            }
+        };
+
+        $targetProductIds = array_values(array_unique(array_map(fn ($v) => (string) $v['product_id'], $existingSkus)));
+
+        if (count($targetProductIds) > 1) {
+            $fail('Not updated: these SKUs are on ' . count($targetProductIds) . ' separate products in the target store');
+            return;
+        }
+
+        $targetProductId = $targetProductIds[0];
+        $sourceProduct   = $source->getFullProduct($sourceProductId);
+        $targetProduct   = $target->getFullProduct($targetProductId);
+
+        if (!$sourceProduct || !$targetProduct) {
+            $fail('Failed to fetch the product from ' . (!$sourceProduct ? 'source' : 'target') . ' store');
+            return;
+        }
+
+        $variantIdsBySku = [];
+        $targetSkus      = [];
+        foreach ($targetProduct['variants'] ?? [] as $variant) {
+            $sku = (string) ($variant['sku'] ?? '');
+            $variantIdsBySku[strtoupper($sku)] = (string) $variant['id'];
+            $targetSkus[strtoupper($sku)]      = $sku;
+        }
+
+        $sourceSkus = [];
+        foreach ($sourceProduct['variants'] ?? [] as $variant) {
+            $sku = (string) ($variant['sku'] ?? '');
+
+            // Without a SKU a variant cannot be matched, so every run would
+            // delete and re-create it, losing its stock each time.
+            if ($sku === '') {
+                $fail('Not updated: a variant of the source product has no SKU');
+                return;
+            }
+
+            $sourceSkus[strtoupper($sku)] = true;
+
+            if (isset($variantIdsBySku[strtoupper($sku)])) {
+                continue;
+            }
+
+            foreach ($target->findVariantsBySku($sku) as $elsewhere) {
+                if ((string) $elsewhere['product_id'] !== $targetProductId) {
+                    $fail("Not updated: SKU {$sku} is already on another product in the target store");
+                    return;
+                }
+            }
+        }
+
+        try {
+            $seo = $source->getProductSeo($sourceProductId);
+            $target->overwriteProduct($targetProductId, $sourceProduct, $variantIdsBySku, $seo);
+        } catch (\Throwable $e) {
+            Log::error("RunStoreImageSyncJob: overwriting product {$targetProductId} from {$sourceProductId} failed: " . $e->getMessage());
+            $fail('Failed to update product: ' . $e->getMessage());
+            return;
+        }
+
+        try {
+            $sourceCollections = $resolved[$requestedSkus[0]]['collections'] ?? [];
+            if (!empty($sourceCollections) && !empty($targetCollections)) {
+                $target->addProductToCollections($targetProductId, $sourceCollections, $targetCollections);
+            }
+
+            $materialAndFeatures = $source->getProductMaterialAndFeatures($sourceProductId);
+            if ($materialAndFeatures['material'] || !empty($materialAndFeatures['features'])) {
+                $target->updateProductMetafields(
+                    $targetProductId,
+                    $materialAndFeatures['material'],
+                    implode(', ', $materialAndFeatures['features']),
+                );
+            }
+        } catch (\Throwable $e) {
+            // The product itself is already updated; say what is missing rather than failing it.
+            Log::warning("RunStoreImageSyncJob: collections/metafields for product {$targetProductId}: " . $e->getMessage());
+        }
+
+        $removed    = array_values(array_diff_key($targetSkus, $sourceSkus));
+        $imageCount = count($sourceProduct['images'] ?? []);
+        $note       = "Updated existing product (ID: {$targetProductId}): "
+                    . count($sourceProduct['variants'] ?? []) . " variant(s), {$imageCount} image(s) replaced";
+
+        if (!empty($removed)) {
+            $note .= '; removed variants: ' . implode(', ', array_map(fn ($s) => $s === '' ? '(no SKU)' : $s, $removed));
+        }
+
+        foreach ($requestedSkus as $sku) {
+            fputcsv($handle, [$sku, $productTitle, $imageCount, $imageCount, $note]);
+            $this->tally($total, true);
         }
     }
 

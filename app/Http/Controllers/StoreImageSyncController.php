@@ -45,6 +45,7 @@ class StoreImageSyncController extends Controller
             'skus'           => 'nullable|string',
             'csv_file'       => 'nullable|file|mimes:csv,txt|max:20480',
             'migration_type' => 'required|in:images_only,full_product',
+            'overwrite_existing' => 'nullable|boolean',
         ]);
 
         // Ensure both stores belong to the authenticated user
@@ -85,8 +86,10 @@ class StoreImageSyncController extends Controller
             'total_skus'     => count($skus),
         ]);
 
-        RunStoreImageSyncJob::dispatch($token, $fromStore->id, $toStore->id, $skus, $request->migration_type)
-            ->onQueue(Queues::UPLOADS);
+        RunStoreImageSyncJob::dispatch(
+            $token, $fromStore->id, $toStore->id, $skus, $request->migration_type,
+            overwriteExisting: $request->migration_type === 'full_product' && $request->boolean('overwrite_existing'),
+        )->onQueue(Queues::UPLOADS);
 
         return redirect()->route('store-image-sync.show', $token);
     }
