@@ -738,6 +738,18 @@ class EditPhotoItemJob implements ShouldQueue
              * fit to, by design, so the condition below would skip it and the
              * product would come back wherever Photoroom left it.
              */
+            /*
+             * What Photoroom actually returned, before we touch it.
+             *
+             * The resolution log further down used to run after the framing
+             * below, so it reported our own 2000 canvas and said nothing about
+             * the tier — which is the one thing it exists to answer. Photoroom
+             * generate Ghost Mannequin at 1K on the Plus plan and confirmed
+             * that asking for larger output upscales rather than generates,
+             * so the number worth recording is the one that arrives.
+             */
+            $asDelivered = $this->describeSize($edited);
+
             if (!empty($itemEdits['framing_preset'])
                 && !empty($itemEdits['baseline_only'])
                 && !empty($itemEdits['canvas_width'])
@@ -864,8 +876,9 @@ class EditPhotoItemJob implements ShouldQueue
              */
             if (in_array($appliedMode, ['ghost_mannequin', 'ghost_print_kept', 'ghost_recut_accepted'], true)) {
                 Log::info('Ghost mannequin resolution', [
-                    'item' => $this->itemId,
-                    'size' => $this->describeSize($edited),
+                    'item'      => $this->itemId,
+                    'delivered' => $asDelivered,
+                    'published' => $this->describeSize($edited),
                 ]);
             }
 

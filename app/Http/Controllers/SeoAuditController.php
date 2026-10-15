@@ -480,6 +480,9 @@ class SeoAuditController extends Controller
             });
         }
 
-        return $query->orderBy('score')->orderBy('product_title');
+        // id last so the order is total. Same-named products with the same
+        // score are common, and MySQL breaks such ties differently per
+        // LIMIT/OFFSET — page 2 then repeats rows from page 1.
+        return $query->orderBy('score')->orderBy('product_title')->orderBy('id');
     }
 }
