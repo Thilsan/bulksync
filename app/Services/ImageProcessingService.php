@@ -203,6 +203,19 @@ class ImageProcessingService
                 $sh = imagesy($src);
 
                 /*
+                 * The box again, at full resolution.
+                 *
+                 * subjectBox measures on a 240px proxy, and the error scales
+                 * with the fit: a 300px accessory fitted to 91% of 1600 came
+                 * out at 89% and 10px off centre. Each edge is a scan with an
+                 * early exit, so this reads the margins and not the picture.
+                 */
+                $minY = $this->highestSubjectRow($src, $sw, $sh) ?? $minY;
+                $maxY = $this->lowestSubjectRow($src, $sw, $sh) ?? $maxY;
+                $minX = $this->outermostSubjectColumn($src, $sw, $sh, fromLeft: true) ?? $minX;
+                $maxX = $this->outermostSubjectColumn($src, $sw, $sh, fromLeft: false) ?? $maxX;
+
+                /*
                  * How big the product should be, when the caller says.
                  *
                  * The first version of this never scaled: Samsonite's supplier
@@ -361,25 +374,43 @@ class ImageProcessingService
         return null;
     }
 
+    /** The leftmost or rightmost column holding anything but background. */
+    private function outermostSubjectColumn(\GdImage $img, int $w, int $h, bool $fromLeft): ?int
+    {
+        for ($i = 0; $i < $w; $i++) {
+            $x = $fromLeft ? $i : $w - 1 - $i;
+
+            for ($y = 0; $y < $h; $y++) {
+                if ($this->isSubjectPixel(imagecolorat($img, $x, $y))) {
+                    return $x;
+                }
+            }
+        }
+
+        return null;
+    }
+
     private function rowHasSubject(\GdImage $img, int $w, int $y): bool
     {
         for ($x = 0; $x < $w; $x++) {
-            $rgba = imagecolorat($img, $x, $y);
-
-            if ((($rgba >> 24) & 0x7F) > 100) {
-                continue;
+            if ($this->isSubjectPixel(imagecolorat($img, $x, $y))) {
+                return true;
             }
-
-            if ((($rgba >> 16) & 0xFF) >= self::BACKGROUND_WHITE
-                && (($rgba >> 8) & 0xFF) >= self::BACKGROUND_WHITE
-                && ($rgba & 0xFF) >= self::BACKGROUND_WHITE) {
-                continue;
-            }
-
-            return true;
         }
 
         return false;
+    }
+
+    /** Neither near-transparent nor near-white. */
+    private function isSubjectPixel(int $rgba): bool
+    {
+        if ((($rgba >> 24) & 0x7F) > 100) {
+            return false;
+        }
+
+        return (($rgba >> 16) & 0xFF) < self::BACKGROUND_WHITE
+            || (($rgba >> 8) & 0xFF) < self::BACKGROUND_WHITE
+            || ($rgba & 0xFF) < self::BACKGROUND_WHITE;
     }
 
     /** The canvas fill, as a GD colour. "transparent" leaves it clear. */

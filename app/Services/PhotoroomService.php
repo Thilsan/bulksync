@@ -703,22 +703,27 @@ class PhotoroomService
         ],
 
         /*
-         * Samsonite's accessories: the same canvas and the same size as its
-         * luggage, centred instead of stood on the line.
+         * Samsonite's accessories: the same canvas as its luggage, centred
+         * instead of stood on the line, and far larger in the frame.
          *
-         * A padlock, a neck pillow or a packing cube has no wheels, so a base
+         * A padlock, a neck pillow or a jewellery box has no wheels, so a base
          * line has nothing to land on — and a small thing pinned to the foot
          * of a 2400-tall frame reads as having fallen there. Centred is the
          * standard for these.
          *
-         * The size is borrowed from the luggage reference, not measured off an
-         * accessory: there is no Samsonite accessory sample yet. It keeps a row
-         * mixing cases and accessories at one scale. Measure a supplier
-         * accessory file before trusting it across the range.
+         * The size was first borrowed from the luggage, 60% of the width, and
+         * a jewellery box came out looking lost in the middle of the frame.
+         * Samsonite does not size accessories like cases: its own listing of
+         * the same box (251-2503-006992-1, 300x450 — the same 2:3 as this
+         * canvas) has it filling 91% of the width, 5.3% left and 3.7% right.
+         *
+         * That sample is bound by its width, so the height says nothing about
+         * a tall accessory. The same 4.5% margin is used top and bottom until
+         * an upright one — a bottle, a backpack — is measured.
          */
         'samsonite_accessories' => [
             'label' => 'Accessories',
-            'note'  => 'Samsonite\'s own canvas, 1600 wide by 2400 tall, with the product centred both ways. Fitted to the same box as the luggage — 60.4% of the width by 55.3% of the height — so cases and accessories share one scale. The size has not yet been measured off an accessory.',
+            'note'  => 'Samsonite\'s own canvas, 1600 wide by 2400 tall, with the product centred both ways and filling 91% of the width — a 4.5% margin either side. Measured off Samsonite\'s own listing of the Myles jewellery box, 251-2503-006992-1. The height limit uses the same margin and has not been measured off a tall accessory.',
             'edits' => [
                 'output_size_mode' => 'originalImage',
 
@@ -726,8 +731,8 @@ class PhotoroomService
                 'canvas_height'  => 2400,
                 'baseline_only'  => true,
 
-                'fit_width'      => 0.6044,
-                'fit_height'     => 0.5525,
+                'fit_width'      => 0.91,
+                'fit_height'     => 0.91,
 
                 'v_align'        => 'center',
             ],
