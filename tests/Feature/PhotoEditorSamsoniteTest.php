@@ -154,6 +154,52 @@ class PhotoEditorSamsoniteTest extends TestCase
     }
 
     /**
+     * Accessories: the luggage canvas and size, centred instead of on the line.
+     *
+     * A padlock or a pillow has no wheels to stand on, so it sits in the middle
+     * of the same 1600x2400 at the same scale as the cases beside it.
+     */
+    public function test_an_accessory_is_centred_on_the_samsonite_canvas(): void
+    {
+        $edits = PhotoroomService::framingPreset('samsonite_accessories')['edits'];
+
+        $this->assertSame(1600, $edits['canvas_width']);
+        $this->assertSame(2400, $edits['canvas_height']);
+        $this->assertSame('center', $edits['v_align']);
+        $this->assertArrayNotHasKey('width', $edits);
+
+        // A small accessory sitting low and to the left of its own file.
+        $png = $this->png(800, 800, 40, 500, 300, 200);
+
+        $out = app(ImageProcessingService::class)->placeOnBaseline(
+            $png, 1600, 2400, 0.0, 'FFFFFF',
+            $edits['fit_width'], $edits['fit_height'], $edits['v_align'],
+        );
+
+        [$minX, $minY, $maxX, $maxY] = $this->box($out);
+
+        $this->assertSame([1600, 2400], array_slice(getimagesizefromstring($out), 0, 2));
+
+        // Vertical is measured at full resolution, so it is exact.
+        $this->assertEqualsWithDelta(2400 - 1 - $maxY, $minY, 2, 'not centred vertically');
+        // Horizontal carries the proxy's slop, as it does for luggage.
+        $this->assertEqualsWithDelta(1600 - 1 - $maxX, $minX, 14, 'not centred horizontally');
+
+        // Wider than tall, so the width binds at the luggage box.
+        $this->assertEqualsWithDelta(1600 * $edits['fit_width'], $maxX - $minX + 1, 14);
+    }
+
+    /** And the job hands the alignment through, so the preset is not ignored. */
+    public function test_the_preset_reaches_the_job_with_its_alignment(): void
+    {
+        $edits = PhotoroomService::applyFramingPreset([], 'samsonite_accessories');
+
+        $this->assertTrue($edits['baseline_only']);
+        $this->assertSame('center', $edits['v_align']);
+        $this->assertNull($edits['padding_bottom'], 'a centred product has no base line');
+    }
+
+    /**
      * The one case where it does resize.
      *
      * A product that will not fit at all has to shrink; the alternative is

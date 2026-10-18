@@ -162,6 +162,11 @@ class ImageProcessingService
      * $fitWidth and $fitHeight give it a target box to scale the product into,
      * as fractions of the canvas. Without them it only ever shrinks, and only
      * when the product would not otherwise fit at all.
+     *
+     * $vAlign 'center' puts the product in the middle of the canvas instead,
+     * and $baseline is then ignored. Samsonite's accessories — a padlock, a
+     * pillow, a packing cube — have no wheels to stand on a line with, so on
+     * the same canvas and at the same size they sit centred.
      */
     public function placeOnBaseline(
         string $imageContent,
@@ -171,6 +176,7 @@ class ImageProcessingService
         string $background = 'FFFFFF',
         ?float $fitWidth = null,
         ?float $fitHeight = null,
+        string $vAlign = 'bottom',
     ): string {
         try {
             if ($canvasWidth < 50 || $canvasHeight < 50 || $baseline < 0 || $baseline >= 1) {
@@ -293,8 +299,15 @@ class ImageProcessingService
                  */
                 $bottom = $this->lowestSubjectRow($src, $sw, $sh) ?? $maxY;
 
-                // Vertical: whatever puts the lowest pixel on the line.
-                $dy = (int) round($canvasHeight * (1 - $baseline)) - $bottom - 1;
+                if ($vAlign === 'center') {
+                    // Both edges at full resolution, for the same reason the
+                    // base line is: equal space above and below is the point.
+                    $top = $this->highestSubjectRow($src, $sw, $sh) ?? $minY;
+                    $dy  = (int) round(($canvasHeight - ($top + $bottom + 1)) / 2);
+                } else {
+                    // Vertical: whatever puts the lowest pixel on the line.
+                    $dy = (int) round($canvasHeight * (1 - $baseline)) - $bottom - 1;
+                }
 
                 imagealphablending($canvas, true);
                 imagecopy($canvas, $src, $dx, $dy, 0, 0, $sw, $sh);
@@ -328,24 +341,45 @@ class ImageProcessingService
     private function lowestSubjectRow(\GdImage $img, int $w, int $h): ?int
     {
         for ($y = $h - 1; $y >= 0; $y--) {
-            for ($x = 0; $x < $w; $x++) {
-                $rgba = imagecolorat($img, $x, $y);
-
-                if ((($rgba >> 24) & 0x7F) > 100) {
-                    continue;
-                }
-
-                if ((($rgba >> 16) & 0xFF) >= self::BACKGROUND_WHITE
-                    && (($rgba >> 8) & 0xFF) >= self::BACKGROUND_WHITE
-                    && ($rgba & 0xFF) >= self::BACKGROUND_WHITE) {
-                    continue;
-                }
-
+            if ($this->rowHasSubject($img, $w, $y)) {
                 return $y;
             }
         }
 
         return null;
+    }
+
+    /** The highest row holding anything but background, at full resolution. */
+    private function highestSubjectRow(\GdImage $img, int $w, int $h): ?int
+    {
+        for ($y = 0; $y < $h; $y++) {
+            if ($this->rowHasSubject($img, $w, $y)) {
+                return $y;
+            }
+        }
+
+        return null;
+    }
+
+    private function rowHasSubject(\GdImage $img, int $w, int $y): bool
+    {
+        for ($x = 0; $x < $w; $x++) {
+            $rgba = imagecolorat($img, $x, $y);
+
+            if ((($rgba >> 24) & 0x7F) > 100) {
+                continue;
+            }
+
+            if ((($rgba >> 16) & 0xFF) >= self::BACKGROUND_WHITE
+                && (($rgba >> 8) & 0xFF) >= self::BACKGROUND_WHITE
+                && ($rgba & 0xFF) >= self::BACKGROUND_WHITE) {
+                continue;
+            }
+
+            return true;
+        }
+
+        return false;
     }
 
     /** The canvas fill, as a GD colour. "transparent" leaves it clear. */

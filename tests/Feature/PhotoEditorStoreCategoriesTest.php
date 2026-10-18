@@ -22,10 +22,10 @@ class PhotoEditorStoreCategoriesTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_samsonite_sees_only_its_own_category(): void
+    public function test_samsonite_sees_only_its_own_categories(): void
     {
         $this->assertSame(
-            ['samsonite'],
+            ['samsonite', 'samsonite_accessories'],
             array_keys(PhotoroomService::framingPresetsForStore('Samsonite Website')),
         );
     }
@@ -34,7 +34,7 @@ class PhotoEditorStoreCategoriesTest extends TestCase
     public function test_the_shopify_domain_identifies_it_too(): void
     {
         $this->assertSame(
-            ['samsonite'],
+            ['samsonite', 'samsonite_accessories'],
             array_keys(PhotoroomService::framingPresetsForStore('QA Store samsonite-qa.myshopify.com')),
         );
     }
@@ -54,6 +54,7 @@ class PhotoEditorStoreCategoriesTest extends TestCase
             $this->assertContains('women', $keys);
             $this->assertContains('luggage', $keys, 'Blue Salon has its own luggage, measured on its own canvas');
             $this->assertNotContains('samsonite', $keys, "'{$identity}' was offered another brand's canvas");
+            $this->assertNotContains('samsonite_accessories', $keys, "'{$identity}' was offered another brand's canvas");
         }
     }
 

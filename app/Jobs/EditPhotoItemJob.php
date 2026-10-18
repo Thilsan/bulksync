@@ -739,6 +739,7 @@ class EditPhotoItemJob implements ShouldQueue
                         : (string) ($itemEdits['background_color'] ?? 'FFFFFF'),
                     isset($itemEdits['fit_width']) ? (float) $itemEdits['fit_width'] : null,
                     isset($itemEdits['fit_height']) ? (float) $itemEdits['fit_height'] : null,
+                    (string) ($itemEdits['v_align'] ?? 'bottom'),
                 );
             } elseif (!empty($itemEdits['framing_preset'])
                 && empty($itemEdits['flat_lay'])
