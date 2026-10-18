@@ -169,4 +169,42 @@ class PhotoEditorAnglesTest extends TestCase
         $this->assertSame($first->id, $angle->source_item_id);
         Queue::assertPushed(GenerateAngleImageJob::class, 1);
     }
+
+    /*
+     * The number above the button counts them.
+     *
+     * An extra angle is two credits — one to draw the view, one to cut the
+     * drawing out — and the first version of this screen said "1 credit" with
+     * four angles ticked. That figure is the only thing between ticking four
+     * boxes and spending eight credits on them.
+     */
+    public function test_the_credit_line_counts_an_angle_as_two(): void
+    {
+        Http::fake(['*/v2/account' => Http::response('', 503)]);
+
+        $user    = User::factory()->create(['is_active' => true, 'perm_photo_editor' => true]);
+        $session = PhotoEditSession::create([
+            'user_id' => $user->id, 'name' => 'Run', 'onedrive_link' => 'https://example.com',
+            'edits' => [], 'status' => 'configuring', 'scan_status' => 'scanned',
+        ]);
+
+        PhotoEditGroup::create([
+            'photo_edit_session_id' => $session->id, 'sku' => 'SHOE-1', 'edits' => null,
+            'angles' => ['side', 'back', 'front', 'angle'],
+        ]);
+
+        PhotoEditItem::create([
+            'photo_edit_session_id' => $session->id, 'kind' => 'cutout',
+            'filename' => 'a.jpg', 'sku_detected' => 'SHOE-1', 'status' => 'pending',
+            'onedrive_drive_id' => 'd', 'onedrive_item_id' => 'i',
+        ]);
+
+        $html = $this->actingAs($user)
+            ->get(route('photo-editor.configure', $session))
+            ->assertOk()
+            ->getContent();
+
+        $this->assertStringContainsString('angleTotal: 4', $html, 'the angles are not counted');
+        $this->assertStringContainsString('this.angleTotal * 2', $html, 'an angle is being counted as one credit');
+    }
 }

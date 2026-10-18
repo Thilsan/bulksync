@@ -84,6 +84,14 @@
                 <span x-text="photoCount"></span> photos
                 <span class="text-gray-400">+</span>
                 <span x-text="lifestyleTotal"></span> on-model
+                <template x-if="angleTotal">
+                    <span>
+                        <span class="text-gray-400">+</span>
+                        <span x-text="angleTotal"></span> generated
+                        {{ Str::plural('angle', 2) }}
+                        <span class="text-gray-400">(&times;2)</span>
+                    </span>
+                </template>
                 <template x-if="untouched">
                     <span class="text-gray-400">&minus; <span x-text="untouched"></span> untouched</span>
                 </template>
@@ -442,6 +450,7 @@
                                 <input type="checkbox" value="{{ $angle }}"
                                        name="groups[{{ $group->id }}][angles][]"
                                        x-model="angles"
+                                       @change="window.dispatchEvent(new CustomEvent('photo-credits-changed'))"
                                        class="h-3.5 w-3.5 rounded border-gray-300 text-brand-600 focus:ring-brand-500">
                                 {{ $angle === 'angle' ? 'Three-quarter' : ucfirst($angle) }}
                             </label>
@@ -588,11 +597,18 @@
             runOpen: false,
             photoCount: {{ $photos->flatten()->count() }},
             lifestyleTotal: {{ $groups->sum('lifestyle_count') }},
+            angleTotal: {{ $groups->sum(fn ($g) => count((array) ($g->angles ?? []))) }},
 
             untouched: {{ $photos->flatten()->where('skip_edit', true)->count() }},
 
             get totalCredits() {
-                return this.photoCount - this.untouched + this.lifestyleTotal;
+                /*
+                 * An extra angle is two: one to draw the view, one to cut the
+                 * drawing out. Counted here because the number above the
+                 * button is the only thing standing between ticking four
+                 * boxes and spending eight credits on them.
+                 */
+                return this.photoCount - this.untouched + this.lifestyleTotal + (this.angleTotal * 2);
             },
 
             recount() {
@@ -608,6 +624,10 @@
                 ).reduce((sum, el) => sum + Number(el.value || 0), 0);
 
                 this.untouched = document.querySelectorAll('input[name$="[as_is][]"]').length;
+
+                this.angleTotal = document.querySelectorAll(
+                    'input[name$="[angles][]"]:checked'
+                ).length;
             },
         };
     }
