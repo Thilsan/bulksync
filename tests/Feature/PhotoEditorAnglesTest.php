@@ -119,9 +119,20 @@ class PhotoEditorAnglesTest extends TestCase
              * regenerates the whole picture rather than rotating a product in
              * it, so a frame with three objects produces three.
              */
-            $this->assertStringContainsString('Exactly one product in the frame', $prompt,
+            $expected = $angle === 'pair' ? 'Exactly two items in the frame' : 'Exactly one product in the frame';
+
+            $this->assertStringContainsString($expected, $prompt,
                 "the {$angle} prompt does not say how many products there should be");
-            $this->assertStringContainsString('no pair', $prompt);
+        }
+
+        // The pair is the one view that wants two, and says which two.
+        $pair = PhotoEditGroup::ANGLES['pair'];
+
+        $this->assertStringContainsString('a left shoe and a right shoe', $pair);
+        $this->assertStringContainsString('same markings on both', $pair);
+
+        foreach (array_diff_key(PhotoEditGroup::ANGLES, ['pair' => null]) as $angle => $prompt) {
+            $this->assertStringContainsString('no pair', $prompt, "the {$angle} prompt allows a second shoe");
         }
     }
 

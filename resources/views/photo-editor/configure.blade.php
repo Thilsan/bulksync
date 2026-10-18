@@ -452,7 +452,7 @@
                                        x-model="angles"
                                        @change="window.dispatchEvent(new CustomEvent('photo-credits-changed'))"
                                        class="h-3.5 w-3.5 rounded border-gray-300 text-brand-600 focus:ring-brand-500">
-                                {{ $angle === 'angle' ? 'Three-quarter' : ucfirst($angle) }}
+                                {{ ['angle' => 'Three-quarter', 'pair' => 'Pair'][$angle] ?? ucfirst($angle) }}
                             </label>
                         @endforeach
 

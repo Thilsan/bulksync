@@ -31,6 +31,21 @@ class PhotoEditGroup extends Model
         'back'  => self::ANGLE_PROMPT_PREFIX . 'from behind' . self::ANGLE_PROMPT_SUFFIX,
         'front' => self::ANGLE_PROMPT_PREFIX . 'from the front' . self::ANGLE_PROMPT_SUFFIX,
         'angle' => self::ANGLE_PROMPT_PREFIX . 'from a three-quarter angle' . self::ANGLE_PROMPT_SUFFIX,
+
+        /*
+         * The one view that wants two of them.
+         *
+         * Every other prompt here spends half its words insisting on a single
+         * product, because a supplier photograph holding three views of one
+         * shoe was being regenerated as three — or as a pair. This asks for
+         * the pair on purpose, so it says two as plainly as the others say
+         * one, and says which two: a left and a right rather than the same
+         * shoe printed twice.
+         */
+        'pair'  => 'Show a matching pair of this exact product, a left shoe and a right shoe together, '
+            . 'photographed from a three-quarter angle. Exactly two items in the frame and nothing else — '
+            . 'no additional views, no sole or top-down view beside them. Same product, same colour, '
+            . 'same materials and same markings on both, on a plain background',
     ];
 
     private const ANGLE_PROMPT_PREFIX = 'Show one single item of this exact product, photographed ';
