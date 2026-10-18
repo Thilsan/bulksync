@@ -1696,16 +1696,28 @@ class PhotoEditorTest extends TestCase
         return (string) ob_get_clean();
     }
 
-    /**
-     * Ironing has no prompt of its own to be told "keep the colour and the
-     * material" — Photoroom documents a single field for it, ironing.mode,
-     * and nothing else, unlike ghost mannequin or the price-tag erase pass,
-     * which both accept text. The only backstop available is measuring what
-     * came back: a request with ironing on that shifts the subject's own
-     * colour past the limit is retried once without ironing, and the photo
-     * that goes out is the un-ironed one.
+    /*
+     * Ironing is done when it is asked for, and not second-guessed.
+     *
+     * There was a guard: measure the colour before and after, and if it moved
+     * more than 12% spend a second request to redo the photo without ironing.
+     * It never worked, for two reasons both written down at the time.
+     *
+     * The limit was never measured — the constant's own comment said so, and
+     * said to revisit it "once a real ironed photo is caught by it". Two were:
+     * a kids' hoodie set read 33.5% and 30.0%.
+     *
+     * And it measured the wrong thing. The comparison was the input
+     * photograph against the finished cutout, and the input still has the
+     * studio in it while the cutout does not — so it was measuring background
+     * removal, not ironing. No amount of steaming moves a garment a third of
+     * the way across the spectrum. Measuring ironing properly needs an
+     * un-ironed cutout to compare against, which is a second request, which is
+     * what the guard was spending anyway.
+     *
+     * So one request goes out, ironed, and that is what is published.
      */
-    public function test_ironing_that_shifts_the_colour_is_retried_without_it(): void
+    public function test_ironing_is_sent_once_and_not_second_guessed(): void
     {
         $navy      = $this->solidColourPhoto([40, 90, 160]);
         $burgundy  = $this->solidColourPhoto([120, 20, 50]);
@@ -1741,9 +1753,9 @@ class PhotoEditorTest extends TestCase
             'image-api.photoroom.com/*' => function () use (&$calls, $navy, $burgundy) {
                 $calls++;
 
-                // First call: ironed and, in this fixture, recoloured. Second
-                // call — the retry without ironing — comes back faithful.
-                return \Illuminate\Support\Facades\Http::response($calls === 1 ? $burgundy : $navy, 200);
+                // Comes back a different colour entirely, which used to
+                // trigger the retry. It is published regardless now.
+                return \Illuminate\Support\Facades\Http::response($burgundy, 200);
             },
         ]);
 
@@ -1758,8 +1770,8 @@ class PhotoEditorTest extends TestCase
         $item = $item->fresh();
 
         $this->assertSame('edited', $item->status, (string) $item->error_message);
-        $this->assertSame(2, $calls, 'the un-ironed retry was never sent');
-        $this->assertStringContainsString('Ironing was skipped', (string) $item->error_message);
+        $this->assertSame(1, $calls, 'a second request went out for a check that cannot see ironing');
+        $this->assertStringNotContainsString('Ironing was skipped', (string) $item->error_message);
     }
 
     /** A solid-colour subject on a white background, filling most of the frame. */
