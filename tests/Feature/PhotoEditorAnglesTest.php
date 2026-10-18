@@ -131,4 +131,42 @@ class PhotoEditorAnglesTest extends TestCase
 
         Queue::assertNotPushed(GenerateAngleImageJob::class);
     }
+
+    /*
+     * Ticking an angle without picking a source still generates it.
+     *
+     * The source is chosen by clicking a thumbnail, which is obvious with four
+     * photos and invisible with one. The first version skipped the whole SKU
+     * without a word when nobody clicked — an instruction cancelled by a
+     * refinement nobody made.
+     */
+    public function test_an_angle_without_a_chosen_source_falls_back_to_the_first_photo(): void
+    {
+        Queue::fake();
+        Http::fake(['*/v2/account' => Http::response('', 503)]);
+
+        $user    = User::factory()->create(['is_active' => true, 'perm_photo_editor' => true]);
+        $session = PhotoEditSession::create([
+            'user_id' => $user->id, 'name' => 'Run', 'onedrive_link' => 'https://example.com',
+            'edits' => [], 'status' => 'configuring', 'scan_status' => 'scanned',
+        ]);
+        $group = PhotoEditGroup::create([
+            'photo_edit_session_id' => $session->id, 'sku' => 'SHOE-1', 'edits' => null,
+        ]);
+
+        $first = PhotoEditItem::create([
+            'photo_edit_session_id' => $session->id, 'kind' => 'cutout', 'position' => 0,
+            'filename' => 'a.jpg', 'sku_detected' => 'SHOE-1', 'status' => 'pending',
+            'onedrive_drive_id' => 'd', 'onedrive_item_id' => 'i1',
+        ]);
+
+        $this->actingAs($user)->post(route('photo-editor.start', $session), [
+            'groups' => [$group->id => ['lifestyle_count' => 0, 'angles' => ['side']]],
+        ])->assertRedirect();
+
+        $angle = PhotoEditItem::where('kind', 'angle')->sole();
+
+        $this->assertSame($first->id, $angle->source_item_id);
+        Queue::assertPushed(GenerateAngleImageJob::class, 1);
+    }
 }

@@ -690,9 +690,29 @@ class PhotoEditorController extends Controller implements HasMiddleware
          * shot: a drawing of a product is opted into, never out of.
          */
         foreach (PhotoEditGroup::whereIn('id', $groupIds)->whereNotNull('angles')->get() as $group) {
-            $source = PhotoEditItem::find($group->angle_source_item_id);
+            if (!$group->angles) {
+                continue;
+            }
 
-            if (!$source || !$group->angles) {
+            /*
+             * The SKU's first photo when nobody picked one.
+             *
+             * The source is chosen by clicking a thumbnail, which is obvious
+             * with four photos and invisible with one — there is nothing to
+             * choose between, so nobody clicks, and the first version of this
+             * skipped the whole SKU without a word. Ticking an angle is the
+             * instruction; which photo it is drawn from is a refinement, and a
+             * refinement nobody made should not silently cancel the
+             * instruction.
+             */
+            $source = PhotoEditItem::find($group->angle_source_item_id)
+                ?? PhotoEditItem::where('photo_edit_session_id', $session->id)
+                    ->where('sku_detected', $group->sku)
+                    ->where('kind', 'cutout')
+                    ->inDisplayOrder()
+                    ->first();
+
+            if (!$source) {
                 continue;
             }
 
