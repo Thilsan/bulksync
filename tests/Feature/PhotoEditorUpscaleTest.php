@@ -140,6 +140,22 @@ class PhotoEditorUpscaleTest extends TestCase
     }
 
     /**
+     * Samsonite's canvas counts as a canvas.
+     *
+     * Its presets name the canvas as canvas_width/canvas_height, not width and
+     * height, so the size check saw nothing to compare against and a small
+     * accessory was only ever stretched by a plain resample.
+     */
+    public function test_a_small_photo_on_the_samsonite_canvas_is_upscaled(): void
+    {
+        $this->edit(sourceEdge: 300, edits: PhotoroomService::applyFramingPreset([], 'samsonite_accessories'));
+
+        $this->assertSame(PhotoroomService::UPSCALE_SLOW, $this->sent['upscale.mode'] ?? null);
+        $this->assertSame('2400x2400', $this->sent['upscale.targetResolution'] ?? null);
+        $this->assertSame('originalImage', $this->sent['outputSize'] ?? null, 'the brand canvas is placed locally, not fitted');
+    }
+
+    /**
      * Ticking the box cannot make an oversized photo upscalable, and must not
      * cost the edit either — the refusal is predictable, so it is prevented
      * rather than recovered from.

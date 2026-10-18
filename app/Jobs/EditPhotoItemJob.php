@@ -1218,7 +1218,20 @@ class EditPhotoItemJob implements ShouldQueue
      */
     private function tuneUpscale(string $content, array $edits): array
     {
-        $canvas = max((int) ($edits['width'] ?? 0), (int) ($edits['height'] ?? 0));
+        /*
+         * Samsonite names its canvas apart from width/height, because those
+         * would be sent as outputSize and bring the fitting back. Read only
+         * width/height here, a Samsonite photo never had a canvas to compare
+         * against, so it was never upscaled: a 300x450 accessory was stretched
+         * five-fold by a plain resample in placeOnBaseline instead. Measured on
+         * that box, Photoroom's upscale kept 29% more detail at the same frame.
+         */
+        $canvas = max(
+            (int) ($edits['width'] ?? 0),
+            (int) ($edits['height'] ?? 0),
+            (int) ($edits['canvas_width'] ?? 0),
+            (int) ($edits['canvas_height'] ?? 0),
+        );
         $info   = @getimagesizefromstring($content);
 
         if (!$info) {
