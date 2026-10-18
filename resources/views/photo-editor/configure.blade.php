@@ -160,6 +160,8 @@
                         open: {{ $group->edits ? 'true' : 'false' }},
                         differs: {{ $group->edits ? 'true' : 'false' }},
                         lifestyle: {{ (int) $group->lifestyle_count }},
+                        angles: @js(array_values((array) ($group->angles ?? []))),
+                        lifestyleSource: {{ (int) ($group->lifestyle_source_item_id ?: $group->angle_source_item_id ?: 0) }},
                      }"
                      x-init="$watch('lifestyle', () => recount())">
 
@@ -272,9 +274,15 @@
                                     <input type="hidden" :name="`groups[{{ $group->id }}][order][]`" :value="id">
 
                                     <label class="relative block cursor-grab active:cursor-grabbing">
+                                        {{-- One pick, two uses: the photo the model
+                                             wears, and the photo an extra angle is
+                                             drawn from. Both are "which of these
+                                             shows the product best", so asking
+                                             twice would be asking the same
+                                             question in two places. --}}
                                         <input type="radio" class="peer sr-only"
                                                name="groups[{{ $group->id }}][lifestyle_source_item_id]"
-                                               :value="id" :checked="id === {{ (int) $group->lifestyle_source_item_id }}">
+                                               x-model.number="lifestyleSource" :value="id">
 
                                         {{-- object-contain, not cover: a crop can
                                              hide the very edge of a product that
@@ -412,6 +420,41 @@
                         <p x-show="lifestyle > 0" x-cloak class="text-xs text-amber-700">
                             Generated, not photographed — tick which photo the model wears above, and check every result.
                             Costs <span x-text="lifestyle"></span> extra {{ Str::plural('credit', 2) }}.
+                        </p>
+                    </div>
+
+                    {{-- Views of the product nobody photographed.
+
+                         Photoroom's Edit With AI takes a prompt naming a view,
+                         and their own documentation says it "generates new
+                         images rather than rotating existing ones". A sole
+                         pattern, a heel counter, a logo on a back panel: none
+                         of those are derivable from the view that was shot, so
+                         this is a judgement about the product rather than a
+                         setting for a folder — a plain shoe can carry a
+                         generated side view and a branded one cannot. --}}
+                    <div class="flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-gray-100 px-5 py-4">
+                        <span class="text-xs font-medium text-gray-700">Extra angles</span>
+
+                        @foreach (\App\Models\PhotoEditGroup::ANGLES as $angle => $prompt)
+                            <label class="flex cursor-pointer items-center gap-1.5 text-xs text-gray-600"
+                                   title="{{ $prompt }}">
+                                <input type="checkbox" value="{{ $angle }}"
+                                       name="groups[{{ $group->id }}][angles][]"
+                                       x-model="angles"
+                                       class="h-3.5 w-3.5 rounded border-gray-300 text-brand-600 focus:ring-brand-500">
+                                {{ $angle === 'angle' ? 'Three-quarter' : ucfirst($angle) }}
+                            </label>
+                        @endforeach
+
+                        <input type="hidden" name="groups[{{ $group->id }}][angle_source_item_id]"
+                               :value="lifestyleSource">
+
+                        <p x-show="angles.length" x-cloak class="w-full text-xs text-amber-700">
+                            <strong>Drawn, not photographed.</strong> Photoroom invents the side it was never shown —
+                            a sole pattern, a heel counter or a logo on a back panel will be its idea of one. Generated
+                            from the photo ticked above. Two credits each, and they arrive unselected so you have to
+                            look before any of them can go out.
                         </p>
                     </div>
 

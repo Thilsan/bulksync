@@ -18,12 +18,33 @@ class PhotoEditGroup extends Model
     /** Nobody needs forty on-model variations of one product, and each is billed. */
     public const MAX_LIFESTYLE = 6;
 
+    /**
+     * The views Edit With AI can be asked for, and the wording that asks.
+     *
+     * Every prompt insists on the same product, because that is the only thing
+     * standing between a new angle and a new product: the pass regenerates the
+     * whole picture, and on this account it has already reinvented a printed
+     * monogram on a job that only had to remove a stand.
+     */
+    public const ANGLES = [
+        'side'  => 'Show this exact product photographed from the side, same product, same colour, '
+            . 'same materials and same markings',
+        'back'  => 'Show this exact product photographed from behind, same product, same colour, '
+            . 'same materials and same markings',
+        'front' => 'Show this exact product photographed from the front, same product, same colour, '
+            . 'same materials and same markings',
+        'angle' => 'Show this exact product photographed from a three-quarter angle, same product, '
+            . 'same colour, same materials and same markings',
+    ];
+
     protected $fillable = [
         'photo_edit_session_id',
         'sku',
         'edits',
         'lifestyle_count',
         'lifestyle_source_item_id',
+        'angles',
+        'angle_source_item_id',
         'pendant_closeup',
         'case_height_cm',
         'redraw_refused',
@@ -34,6 +55,7 @@ class PhotoEditGroup extends Model
         return [
             'edits'           => 'array',
             'lifestyle_count' => 'integer',
+            'angles'          => 'array',
             'pendant_closeup' => 'boolean',
             'case_height_cm'  => 'integer',
             'redraw_refused'  => 'boolean',

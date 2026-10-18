@@ -1,0 +1,134 @@
+<?php
+
+namespace Tests\Feature;
+
+use App\Jobs\GenerateAngleImageJob;
+use App\Models\PhotoEditGroup;
+use App\Models\PhotoEditItem;
+use App\Models\PhotoEditSession;
+use App\Models\User;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Queue;
+use Tests\TestCase;
+
+/**
+ * Views of a product nobody photographed.
+ *
+ * Photoroom's Edit With AI takes a prompt naming a view, and their own
+ * documentation says it "generates new images rather than rotating existing
+ * ones". So an angle is the model's idea of that side: a sole pattern, a heel
+ * counter, a logo on a back panel are not derivable from the view that was
+ * shot, and the same pass has already reinvented a printed monogram on this
+ * account on a job that only had to remove a stand it could see.
+ *
+ * Which is why these arrive unselected and badged. The decision is per SKU
+ * rather than per run — a plain shoe can carry a generated side view and a
+ * branded one cannot, and nobody can make that call for a whole folder.
+ */
+class PhotoEditorAnglesTest extends TestCase
+{
+    use RefreshDatabase;
+
+    private function startRun(array $angles): array
+    {
+        $user    = User::factory()->create(['is_active' => true, 'perm_photo_editor' => true]);
+        $session = PhotoEditSession::create([
+            'user_id' => $user->id, 'name' => 'Run', 'onedrive_link' => 'https://example.com',
+            'edits' => ['remove_background' => true], 'status' => 'configuring', 'scan_status' => 'scanned',
+        ]);
+
+        $group = PhotoEditGroup::create([
+            'photo_edit_session_id' => $session->id, 'sku' => 'SHOE-1', 'edits' => null,
+        ]);
+
+        $photo = PhotoEditItem::create([
+            'photo_edit_session_id' => $session->id, 'kind' => 'cutout',
+            'filename' => 'top.jpg', 'sku_detected' => 'SHOE-1', 'status' => 'pending',
+            'onedrive_drive_id' => 'd', 'onedrive_item_id' => 'i',
+        ]);
+
+        $this->actingAs($user)->post(route('photo-editor.start', $session), [
+            'groups' => [$group->id => [
+                'lifestyle_count' => 0,
+                'angles' => $angles,
+                'angle_source_item_id' => $photo->id,
+            ]],
+        ])->assertRedirect();
+
+        return [$session, $photo];
+    }
+
+    public function test_a_ticked_angle_becomes_its_own_photograph_to_review(): void
+    {
+        Queue::fake();
+        Http::fake(['*/v2/account' => Http::response('', 503)]);
+
+        [$session, $photo] = $this->startRun(['side', 'back']);
+
+        $angles = PhotoEditItem::where('photo_edit_session_id', $session->id)
+            ->where('kind', 'angle')->orderBy('filename')->get();
+
+        $this->assertCount(2, $angles);
+        $this->assertSame(['top-back.jpg', 'top-side.jpg'], $angles->pluck('filename')->all());
+
+        foreach ($angles as $angle) {
+            $this->assertSame($photo->id, $angle->source_item_id, 'drawn from the photo that was picked');
+            $this->assertFalse((bool) $angle->selected, 'a drawing of a product is opted into, never out of');
+        }
+
+        Queue::assertPushed(GenerateAngleImageJob::class, 2);
+        Queue::assertPushed(GenerateAngleImageJob::class, fn ($job) => $job->angle === 'side');
+        Queue::assertPushed(GenerateAngleImageJob::class, fn ($job) => $job->angle === 'back');
+    }
+
+    /** Nothing ticked, nothing generated and nothing spent. */
+    public function test_no_angles_means_no_extra_work(): void
+    {
+        Queue::fake();
+        Http::fake(['*/v2/account' => Http::response('', 503)]);
+
+        [$session] = $this->startRun([]);
+
+        $this->assertSame(0, PhotoEditItem::where('photo_edit_session_id', $session->id)
+            ->where('kind', 'angle')->count());
+
+        Queue::assertNotPushed(GenerateAngleImageJob::class);
+    }
+
+    /**
+     * Every prompt insists it is the same product.
+     *
+     * That sentence is the only thing standing between a new angle and a new
+     * product: the pass regenerates the whole picture rather than rotating it.
+     */
+    public function test_every_prompt_holds_the_product_still(): void
+    {
+        foreach (PhotoEditGroup::ANGLES as $angle => $prompt) {
+            $this->assertStringContainsString('this exact product', $prompt, "the {$angle} prompt lets it drift");
+            $this->assertStringContainsString('same markings', $prompt);
+        }
+    }
+
+    /** An unknown view is dropped rather than sent as a prompt of its own. */
+    public function test_a_view_we_have_no_wording_for_is_ignored(): void
+    {
+        Queue::fake();
+        Http::fake(['*/v2/account' => Http::response('', 503)]);
+
+        $user    = User::factory()->create(['is_active' => true, 'perm_photo_editor' => true]);
+        $session = PhotoEditSession::create([
+            'user_id' => $user->id, 'name' => 'Run', 'onedrive_link' => 'https://example.com',
+            'edits' => [], 'status' => 'configuring', 'scan_status' => 'scanned',
+        ]);
+        $group = PhotoEditGroup::create([
+            'photo_edit_session_id' => $session->id, 'sku' => 'S', 'edits' => null,
+        ]);
+
+        $this->actingAs($user)->post(route('photo-editor.start', $session), [
+            'groups' => [$group->id => ['lifestyle_count' => 0, 'angles' => ['underneath']]],
+        ])->assertSessionHasErrors('groups.' . $group->id . '.angles.0');
+
+        Queue::assertNotPushed(GenerateAngleImageJob::class);
+    }
+}

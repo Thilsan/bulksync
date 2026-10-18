@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Jobs\CopyOriginalPhotoJob;
 use App\Jobs\EditPhotoItemJob;
 use App\Jobs\PushEditedPhotoJob;
+use App\Jobs\GenerateAngleImageJob;
 use App\Jobs\GenerateLifestyleImageJob;
 use App\Jobs\ScanPhotoEditFolderJob;
 use App\Jobs\ScanShopifySkusJob;
@@ -392,6 +393,9 @@ class PhotoEditorController extends Controller implements HasMiddleware
             'groups'                   => ['required', 'array'],
             'groups.*.lifestyle_count' => ['nullable', 'integer', 'min:0', 'max:' . PhotoEditGroup::MAX_LIFESTYLE],
             'groups.*.lifestyle_source_item_id' => ['nullable', 'integer'],
+            'groups.*.angles'          => ['nullable', 'array'],
+            'groups.*.angles.*'        => [Rule::in(array_keys(PhotoEditGroup::ANGLES))],
+            'groups.*.angle_source_item_id' => ['nullable', 'integer'],
             'groups.*.differs'         => ['nullable', 'boolean'],
             'groups.*.edits'           => ['nullable', 'array'],
             'groups.*.order'           => ['nullable', 'array'],
@@ -428,6 +432,8 @@ class PhotoEditorController extends Controller implements HasMiddleware
             $group->fill([
                 'lifestyle_count' => (int) ($input['lifestyle_count'] ?? 0),
                 'lifestyle_source_item_id' => $input['lifestyle_source_item_id'] ?? null,
+                'angles'                   => array_values((array) ($input['angles'] ?? [])) ?: null,
+                'angle_source_item_id'     => $input['angle_source_item_id'] ?? null,
             ]);
 
             /*
@@ -667,6 +673,45 @@ class PhotoEditorController extends Controller implements HasMiddleware
                 ]);
 
                 GenerateLifestyleImageJob::dispatch($item->id, $i)->onQueue(Queues::PHOTOS);
+            }
+        }
+
+        /*
+         * Views of the product nobody photographed.
+         *
+         * Photoroom's Edit With AI takes a prompt naming a view, and their own
+         * documentation says it "generates new images rather than rotating
+         * existing ones" — so what comes back is the model's idea of that
+         * side. A sole pattern, a heel counter, a logo on a back panel: none
+         * of those are derivable from the view that was shot.
+         *
+         * Two credits each, because the generated picture then needs cutting
+         * out like any other. Unselected on arrival, the same as an on-model
+         * shot: a drawing of a product is opted into, never out of.
+         */
+        foreach (PhotoEditGroup::whereIn('id', $groupIds)->whereNotNull('angles')->get() as $group) {
+            $source = PhotoEditItem::find($group->angle_source_item_id);
+
+            if (!$source || !$group->angles) {
+                continue;
+            }
+
+            foreach ($group->angles as $angle) {
+                if (!isset(PhotoEditGroup::ANGLES[$angle])) {
+                    continue;
+                }
+
+                $item = PhotoEditItem::create([
+                    'photo_edit_session_id' => $session->id,
+                    'kind'                  => 'angle',
+                    'source_item_id'        => $source->id,
+                    'filename'              => pathinfo($source->filename, PATHINFO_FILENAME) . "-{$angle}.jpg",
+                    'sku_detected'          => $group->sku,
+                    'status'                => 'pending',
+                    'selected'              => false,
+                ]);
+
+                GenerateAngleImageJob::dispatch($item->id, $angle)->onQueue(Queues::PHOTOS);
             }
         }
 
