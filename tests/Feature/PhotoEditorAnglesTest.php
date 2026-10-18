@@ -107,6 +107,21 @@ class PhotoEditorAnglesTest extends TestCase
         foreach (PhotoEditGroup::ANGLES as $angle => $prompt) {
             $this->assertStringContainsString('this exact product', $prompt, "the {$angle} prompt lets it drift");
             $this->assertStringContainsString('same markings', $prompt);
+
+            /*
+             * And says how many products there should be.
+             *
+             * The first wording left the count to the model. On a supplier
+             * photograph holding three views of one shoe — the side, the top
+             * and the sole in one frame — it regenerated all three: the side
+             * view came back with the sole still floating beside it, and "from
+             * behind" was read as a pair and drew two shoes. Edit With AI
+             * regenerates the whole picture rather than rotating a product in
+             * it, so a frame with three objects produces three.
+             */
+            $this->assertStringContainsString('Exactly one product in the frame', $prompt,
+                "the {$angle} prompt does not say how many products there should be");
+            $this->assertStringContainsString('no pair', $prompt);
         }
     }
 

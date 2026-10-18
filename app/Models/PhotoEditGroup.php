@@ -27,15 +27,30 @@ class PhotoEditGroup extends Model
      * monogram on a job that only had to remove a stand.
      */
     public const ANGLES = [
-        'side'  => 'Show this exact product photographed from the side, same product, same colour, '
-            . 'same materials and same markings',
-        'back'  => 'Show this exact product photographed from behind, same product, same colour, '
-            . 'same materials and same markings',
-        'front' => 'Show this exact product photographed from the front, same product, same colour, '
-            . 'same materials and same markings',
-        'angle' => 'Show this exact product photographed from a three-quarter angle, same product, '
-            . 'same colour, same materials and same markings',
+        'side'  => self::ANGLE_PROMPT_PREFIX . 'from the side' . self::ANGLE_PROMPT_SUFFIX,
+        'back'  => self::ANGLE_PROMPT_PREFIX . 'from behind' . self::ANGLE_PROMPT_SUFFIX,
+        'front' => self::ANGLE_PROMPT_PREFIX . 'from the front' . self::ANGLE_PROMPT_SUFFIX,
+        'angle' => self::ANGLE_PROMPT_PREFIX . 'from a three-quarter angle' . self::ANGLE_PROMPT_SUFFIX,
     ];
+
+    private const ANGLE_PROMPT_PREFIX = 'Show one single item of this exact product, photographed ';
+
+    /*
+     * How many products there should be, said out loud.
+     *
+     * The first wording named the view and left the count to the model. On a
+     * supplier photograph holding three views of one shoe — the side, the top
+     * and the sole in one frame — Edit With AI regenerated all three: the side
+     * view came back with the top and the sole still floating beside it, and
+     * "from behind" was read as a pair and drew two shoes.
+     *
+     * Which is the feature working as documented. It regenerates the whole
+     * picture rather than rotating a product in it, so everything in frame is
+     * in scope, and a frame with three objects in it produces three.
+     */
+    private const ANGLE_PROMPT_SUFFIX = '. Exactly one product in the frame and nothing else — '
+        . 'no second shoe, no pair, no additional views, no sole or top-down view beside it. '
+        . 'Same product, same colour, same materials and same markings, on a plain background';
 
     protected $fillable = [
         'photo_edit_session_id',
