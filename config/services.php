@@ -334,4 +334,26 @@ return [
         'timeout'     => (int) env('SEARCH_CONSOLE_TIMEOUT', 30),
     ],
 
+    /*
+     * AI SEO Support, run by easybits. The engine, scoring and AI rewrites all
+     * live on their side; this app only calls three webhooks and draws the
+     * screens. Called from the server rather than the browser: easybits will
+     * lock CORS to one domain before go-live, and a server call is unaffected.
+     *
+     * Each store is named by its Search Console property, exactly as the guide
+     * spells it. There is no "list properties" call, so a new store is added
+     * here once easybits has been given Search Console access to it.
+     */
+    'ai_seo' => [
+        'base_url'        => env('AI_SEO_BASE_URL', 'https://bisdev.dev.easybits.tech/webhook'),
+        'timeout'         => (int) env('AI_SEO_TIMEOUT', 20),
+        // The page analyzer fetches the live page, Search Console and the AI
+        // model in turn; the guide says to allow at least 30 seconds.
+        'analyze_timeout' => (int) env('AI_SEO_ANALYZE_TIMEOUT', 90),
+        'properties'      => [
+            'sc-domain:goldgourmet.qa'  => 'Gold Gourmet',
+            'sc-domain:outoftheblue.qa' => 'Out of the Blue',
+        ],
+    ],
+
 ];

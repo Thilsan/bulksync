@@ -172,6 +172,7 @@
                                     'barcode_images'   => 'Barcode Image Grabber',
                                     'seo_audit'        => 'SEO Audit',
                                     'product_performance' => 'Product Performance (sales by product)',
+                                    'ai_seo'           => 'AI SEO Support',
                                 ];
                             @endphp
                             @foreach($features as $key => $label)

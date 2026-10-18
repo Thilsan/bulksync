@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\AiSeoController;
 use App\Http\Controllers\Auth\LoginController;
 use App\Http\Controllers\BarcodeImageController;
 use App\Http\Controllers\BulkUploadController;
@@ -63,6 +64,14 @@ Route::middleware('auth')->group(function () {
     Route::get('/product-performance/divisions',          [ProductPerformanceController::class, 'divisions'])->name('product-performance.divisions');
     Route::get('/product-performance/divisions/download', [ProductPerformanceController::class, 'divisionsDownload'])->name('product-performance.divisions.download');
     Route::post('/product-performance/refresh', [ProductPerformanceController::class, 'refresh'])->middleware('super-admin')->name('product-performance.refresh');
+
+    // AI SEO Support: screens in front of the easybits SEO engine. Its own
+    // module, apart from SEO Audit — that one crawls our stores itself, this
+    // one asks easybits, which reads Search Console and writes the rewrites.
+    Route::get('/ai-seo',          [AiSeoController::class, 'index'])->name('ai-seo.index');
+    Route::get('/ai-seo/analyze',  [AiSeoController::class, 'analyze'])->name('ai-seo.analyze');
+    Route::post('/ai-seo/report',  [AiSeoController::class, 'report'])->name('ai-seo.report');
+    Route::post('/ai-seo/resolve', [AiSeoController::class, 'resolve'])->name('ai-seo.resolve');
 
     // Bulk upload
     Route::get('/upload',           [BulkUploadController::class, 'dashboard'])->name('upload.dashboard');
