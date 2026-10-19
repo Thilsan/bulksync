@@ -487,6 +487,30 @@ class PhotoroomService
                 't-shirt'  => ['label' => 'T-shirts',  'note' => 'Measured off a finished catalogue frame (CIN202TOP04225) on a 2048 square: the t-shirt sits 10.01% down, ends 9.86% up from the bottom, and fills 80.13% of the height — the same house rule again, on a third menswear category.', 'edits' => ['width' => 2000, 'height' => 2000, 'padding' => 0.10]],
                 'trousers' => ['label' => 'Trousers', 'note' => 'House rule, unmeasured: 10% around a 2000 square, centred.', 'edits' => ['width' => 2000, 'height' => 2000, 'padding' => 0.10]],
                 'jeans'    => ['label' => 'Jeans',     'note' => 'Measured off a finished catalogue frame (ZLI202BTM01870) on a 2000 square: the jeans sit 10.00% down, end 10.00% up from the bottom, and fill exactly 80.00% of the height. The same house rule five womenswear categories — tops, t-shirts, blazers, jeans and skirts — measured to independently, now confirmed on a menswear sample rather than only assumed for it.', 'edits' => ['width' => 2000, 'height' => 2000, 'padding' => 0.10]],
+                'shorts'   => [
+                    'label' => 'Shorts',
+                    'note'  => 'Measured off GRN202BTM00093_0 on a 2048 square: the shorts sit 9.96% down, end 9.81% up from the bottom, and fill 80.2% of the height. The same house rule as the jacket and the jeans, on a fourth menswear category — and the first measured one where the width is nowhere near binding, at 55.1% against the height\'s 80.2%.',
+                    'edits' => [
+                        'width'  => 2000,
+                        'height' => 2000,
+                        'padding' => 0.10,
+
+                        /*
+                         * The height is declared to bind, which the other
+                         * menswear entries leave to chance.
+                         *
+                         * Shorts are the one lower-body garment that can come
+                         * out wider than it is tall — a pair laid flat with
+                         * both legs spread is close to square, and a kids tee
+                         * under the same settings came back at 66.7% of the
+                         * height for exactly that reason. The sample here
+                         * fills 55.1% of the width against 80.2% of the
+                         * height, so its own shape happens to agree; a baggier
+                         * cut would not.
+                         */
+                        'height_fill' => 0.80,
+                    ],
+                ],
                 'bags'     => ['label' => 'Bags',     'note' => 'House rule, unmeasured: 10% around a 2000 square, centred.', 'edits' => ['width' => 2000, 'height' => 2000, 'padding' => 0.10]],
             ],
         ],
@@ -1688,6 +1712,7 @@ class PhotoroomService
         'men/jacket'      => 'the jacket',
         'men/t-shirt'     => 'the t-shirt',
         'men/trousers'    => 'the trousers',
+        'men/shorts'      => 'the shorts',
         'men/jeans'       => 'the jeans',
         'men/bags'        => 'the bag',
 
