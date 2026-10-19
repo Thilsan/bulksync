@@ -198,9 +198,17 @@ class PhotoEditorFromShopifyTest extends TestCase
 
         $found = PhotoEditItem::where('sku_detected', 'A-1')->sole();
 
-        $this->assertSame('https://cdn.example.com/first.jpg', $found->source_url);
-        $this->assertSame('991', $found->replaces_image_id, 'it must know which image it replaces');
-        $this->assertSame(1, $found->position, 'and which slot that image was in');
+        /*
+         * The variant's own picture, not the product's first.
+         *
+         * A SKU is a colour and a size; a product is every colour together.
+         * Taking images[0] fetched whichever colour sat first in the gallery,
+         * so a light green shirt came back as the night blue one — and the
+         * edited version would then have replaced the blue image.
+         */
+        $this->assertSame('https://cdn.example.com/second.jpg', $found->source_url);
+        $this->assertSame('992', $found->replaces_image_id, 'it must know which image it replaces');
+        $this->assertSame(2, $found->position, 'and which slot that image was in');
 
         $missing = PhotoEditItem::where('sku_detected', 'NOPE')->sole();
 
@@ -227,7 +235,7 @@ class PhotoEditorFromShopifyTest extends TestCase
         (new ScanShopifySkusJob($session->id, ['A-1']))->handle();
 
         $this->assertSame(1, PhotoEditItem::where('photo_edit_session_id', $session->id)->count());
-        $this->assertSame('991', PhotoEditItem::sole()->replaces_image_id, 'it took a later image');
+        $this->assertSame('992', PhotoEditItem::sole()->replaces_image_id, 'it took another colour\'s image');
     }
 
     /*
@@ -334,6 +342,45 @@ class PhotoEditorFromShopifyTest extends TestCase
         $this->assertSame(75, $body['pagination']['total']);
     }
 
+    /*
+     * A product with one colour assigns nothing, and still works.
+     *
+     * Shopify only records variant_ids where there is something to
+     * distinguish. Most products have one set of photographs for every size,
+     * so the fallback to the first image is the right answer for them — and it
+     * is the only case the old behaviour got right.
+     */
+    public function test_a_product_with_no_variant_assignments_uses_the_first_image(): void
+    {
+        $session = PhotoEditSession::create([
+            'user_id' => $this->editor()->id, 'name' => 'Run', 'onedrive_link' => '',
+            'source' => 'shopify', 'edits' => [], 'scan_status' => 'pending',
+        ]);
+
+        $this->app->bind(\App\Services\ShopifyService::class, fn () => new class extends \App\Services\ShopifyService {
+            public function __construct() {}
+
+            public function findVariantsBySkus(array $skus, bool $throwOnFailure = false): array
+            {
+                return ['A-1' => [[
+                    'product_id' => '7001', 'product_title' => 'A top',
+                    'variant_id' => '8001', 'variant_sku' => 'A-1',
+                ]]];
+            }
+
+            public function getProductImages(string $productId): array
+            {
+                return [
+                    ['id' => '991', 'src' => 'https://cdn.example.com/only.jpg', 'position' => 1, 'variant_ids' => []],
+                ];
+            }
+        });
+
+        (new ScanShopifySkusJob($session->id, ['A-1']))->handle();
+
+        $this->assertSame('991', PhotoEditItem::sole()->replaces_image_id);
+    }
+
     /**
      * Stand in for Shopify.
      *
@@ -358,9 +405,11 @@ class PhotoEditorFromShopifyTest extends TestCase
 
             public function getProductImages(string $productId): array
             {
+                // Two colours on one product: the first image belongs to
+                // another variant, the second to ours.
                 return [
-                    ['id' => '991', 'src' => 'https://cdn.example.com/first.jpg', 'position' => 1],
-                    ['id' => '992', 'src' => 'https://cdn.example.com/second.jpg', 'position' => 2],
+                    ['id' => '991', 'src' => 'https://cdn.example.com/first.jpg',  'position' => 1, 'variant_ids' => [9999]],
+                    ['id' => '992', 'src' => 'https://cdn.example.com/second.jpg', 'position' => 2, 'variant_ids' => [8001]],
                 ];
             }
         });

@@ -94,7 +94,7 @@ class ScanShopifySkusJob implements ShouldQueue
                     continue;
                 }
 
-                $image = $images[0];
+                $image = $this->imageFor($images, (string) $variant['variant_id']);
 
                 /*
                  * An image row with no URL is not an image.
@@ -172,6 +172,36 @@ class ScanShopifySkusJob implements ShouldQueue
                 'error_message' => 'Could not read the SKUs from Shopify: ' . $e->getMessage(),
             ]);
         }
+    }
+
+    /**
+     * The picture that belongs to this variant, not the product's first.
+     *
+     * A SKU is a colour and a size; a product is every colour together. Taking
+     * images[0] fetched whichever colour happened to sit first in the gallery,
+     * so a light green shirt came back as the night blue one — and the edited
+     * version would then have replaced the blue image, which is the same
+     * mistake twice over.
+     *
+     * Shopify records which variants an image belongs to, so the right one is
+     * simply the first image naming this variant. Products with one colour
+     * assign nothing, because there is nothing to distinguish, and those fall
+     * back to the first image as before — which for them is the right answer.
+     *
+     * @param  list<array<string, mixed>>  $images  in gallery order
+     * @return array<string, mixed>
+     */
+    private function imageFor(array $images, string $variantId): array
+    {
+        foreach ($images as $image) {
+            $assigned = array_map('strval', (array) ($image['variant_ids'] ?? []));
+
+            if (in_array($variantId, $assigned, true)) {
+                return $image;
+            }
+        }
+
+        return $images[0];
     }
 
     /**
