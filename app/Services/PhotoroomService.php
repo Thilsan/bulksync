@@ -1046,6 +1046,26 @@ class PhotoroomService
      * composite command. The mannequin survived it. This field is read as a
      * style hint, so it works by naming what to make.
      */
+    /**
+     * Pressing a garment through the one pass that accepts instructions.
+     *
+     * Photoroom's own ironing takes a single field — ironing.mode — and no
+     * text of any kind, so it cannot be told what to leave alone. On a printed
+     * or appliquéd garment that is the whole difficulty: the pass decides for
+     * itself what a crease is, and a logo is a thing with edges.
+     *
+     * Edit With AI does take a prompt, so this is the same job asked of the
+     * feature that can be instructed. Said plainly: it is also the pass that
+     * reinvented an Aigner horseshoe monogram as rings, on a job that only had
+     * to remove a stand from a photo it could see. Offered to be compared
+     * against plain ironing on a real garment rather than because it is
+     * expected to win.
+     */
+    public const IRONING_PROMPT = 'Press out the wrinkles and creases in this garment so the fabric '
+        . 'lies smooth. Change nothing else: keep the print, logo, embroidery, lettering, trim, '
+        . 'buttons and stitching exactly as they are, in the same places, and keep the garment\'s '
+        . 'colour, shape and material unchanged';
+
     public const GHOST_MANNEQUIN_HINT = 'Remove mannequin and keep the same orientation';
 
     /*
@@ -1530,6 +1550,15 @@ class PhotoroomService
             'flat_lay'        => false,
             'virtual_model'   => false,
             'ironing'         => false,
+
+            /*
+             * Which ironing. '' is Photoroom's own ironing.mode, which takes
+             * no instructions; 'guided' is Edit With AI carrying
+             * IRONING_PROMPT, which takes them and sometimes follows them.
+             * A second request either way, so it is a choice rather than an
+             * improvement.
+             */
+            'ironing_mode'    => '',
 
             /*
              * Segmentation is the preferred way to lose a mannequin: it cuts

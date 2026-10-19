@@ -382,6 +382,41 @@ class EditPhotoItemJob implements ShouldQueue
                 $itemEdits = $this->tuneUpscale($input, $itemEdits);
             }
 
+            /*
+             * Pressing the garment before anything else looks at it.
+             *
+             * Photoroom's own ironing takes a single field and no text, so it
+             * cannot be told to leave a print alone — which is the complaint
+             * it keeps earning on appliquéd and logo'd garments. Edit With AI
+             * does take a prompt, so "guided" asks the same job of the pass
+             * that can be instructed.
+             *
+             * Its own request, ahead of the edit, for the reason removeMannequin
+             * is: Photoroom warn that mixing editWithAI with removeBackground
+             * in one call gives unpredictable results. So this presses the
+             * photograph and the cutout happens to the result.
+             *
+             * A second credit, and the same pass that reinvented an Aigner
+             * monogram as rings. Worth comparing against plain ironing on a
+             * real garment; not worth assuming it wins.
+             */
+            if (!empty($itemEdits['ironing']) && ($itemEdits['ironing_mode'] ?? '') === 'guided') {
+                try {
+                    $input = $photoroom->eraseObject(
+                        $input,
+                        PhotoroomService::IRONING_PROMPT,
+                        $item->filename,
+                        $item->id,
+                    );
+                    $requests++;
+                } catch (\Throwable $e) {
+                    Log::warning("EditPhotoItemJob item {$this->itemId} guided ironing failed: " . $e->getMessage());
+                }
+
+                // Photoroom's own ironing would press it a second time.
+                $itemEdits['ironing'] = false;
+            }
+
             $edited = $photoroom->edit($input, $itemEdits, $item->filename);
             $requests++;
 

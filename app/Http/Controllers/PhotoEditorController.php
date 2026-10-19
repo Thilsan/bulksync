@@ -757,6 +757,18 @@ class PhotoEditorController extends Controller implements HasMiddleware
             $input[$key] = !empty($input[$key]);
         }
 
+        /*
+         * Which ironing, and nothing else accepted.
+         *
+         * A free-text value here would reach the job and be compared against
+         * 'guided', so anything unrecognised silently means Photoroom's own
+         * ironing. Narrowing it to the two that exist makes that explicit
+         * rather than accidental.
+         */
+        if (array_key_exists('ironing_mode', $input)) {
+            $input['ironing_mode'] = $input['ironing_mode'] === 'guided' ? 'guided' : '';
+        }
+
         foreach (['width', 'height', 'max_width', 'max_height', 'lifestyle_count'] as $key) {
             if (array_key_exists($key, $input)) {
                 $input[$key] = filled($input[$key]) ? (int) $input[$key] : null;

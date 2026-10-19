@@ -697,6 +697,28 @@
         </div>
     </div>
 
+    {{-- Which ironing, when ironing is ticked below.
+
+         Photoroom's own takes a single field and no text, so it cannot be told
+         to leave a print alone — which is the complaint it earns on appliquéd
+         and logo'd garments. Edit With AI does take a prompt, so "guided" asks
+         the same job of the pass that can be instructed. That pass also
+         reinvented an Aigner monogram as rings, so this is a comparison to run
+         on one garment, not an upgrade. --}}
+    <div class="mt-3">
+        <label for="ironing-mode-{{ $uid }}" class="mb-1 block text-xs text-gray-600">Ironing method</label>
+        <select id="ironing-mode-{{ $uid }}" name="{{ $name('ironing_mode') }}"
+                class="rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none">
+            <option value="" @selected($val('ironing_mode') !== 'guided')>Photoroom ironing — no instructions possible</option>
+            <option value="guided" @selected($val('ironing_mode') === 'guided')>Guided — asks it to keep the print and trim (one more credit)</option>
+        </select>
+        <p class="mt-1 text-xs text-gray-500">
+            Only applies when <em>Ironing</em> is ticked below. Guided uses the pass that accepts
+            instructions and sometimes follows them — it is also the one that once redrew a printed
+            monogram, so compare the two on one garment before running a folder either way.
+        </p>
+    </div>
+
     <div class="mt-3 flex flex-wrap gap-4">
         {{-- What each one is for, because two of the three are wrong on most
              folders and the label alone does not say so: ironing is an apparel
