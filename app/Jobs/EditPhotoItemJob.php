@@ -1366,6 +1366,41 @@ class EditPhotoItemJob implements ShouldQueue
          * for Photoroom to scale up. Cropped, both objections go: the pixel
          * count falls inside the quality model and the product fills its frame.
          */
+        /*
+         * Never alongside ironing.
+         *
+         * Ironing works at about a megapixel — measured here, a photograph
+         * came back 3333x5000 without it and 832x1248 with it — so enlarging
+         * the picture on the way in buys nothing it will not immediately throw
+         * away. Worse, it breaks: a 480x560 shirt with the upscale switched on
+         * below and a 2000 target came back "The image you are trying to
+         * upscale is too big. Maximum allowed size: width * height = 1000000
+         * pixels. Current image size: 1015104 pixels", and the whole edit was
+         * lost. The same photograph goes through untouched with ironing off.
+         *
+         * 1,015,104 is not the photograph and never was: it is what Photoroom
+         * made of it on the way to the size we asked for. Three attempts went
+         * looking for a big input that did not exist before the request log
+         * showed an upscale nobody had asked for.
+         *
+         * Dropped rather than skipped, because the operator may have ticked
+         * it: an upscale that cannot run is not an upscale, and losing the
+         * edit to it is the worse of the two outcomes.
+         */
+        if (!empty($edits['ironing'])) {
+            unset($edits['upscale'], $edits['upscale_mode'], $edits['upscale_resolution']);
+
+            return $edits;
+        }
+
+        /*
+         * Turned on by the picture when nobody ticked it.
+         *
+         * The docblock above said this decides "not whether" for a while after
+         * the behaviour came back, which is part of why the ironing failure
+         * took three goes to find: the one line that switches it on read as
+         * though it could not.
+         */
         if (empty($edits['upscale'])) {
             if ($canvas <= 0 || max((int) $info[0], (int) $info[1]) >= $canvas) {
                 return $edits;

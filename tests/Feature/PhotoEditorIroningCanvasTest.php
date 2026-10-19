@@ -105,6 +105,19 @@ class PhotoEditorIroningCanvasTest extends TestCase
         $this->assertSame('ai.auto', $sent[0]['ironing.mode'] ?? null, 'ironing was not asked for');
         $this->assertSame('originalImage', $sent[0]['outputSize'] ?? null,
             'the canvas went out with the ironing, which is what the model refuses');
+
+        /*
+         * And no upscale, which is what actually broke it.
+         *
+         * A 480x560 photo is smaller than the 2000 canvas, so tuneUpscale
+         * switched an upscale on that nobody ticked, and Photoroom enlarged
+         * the picture toward 2000 until the ironing model refused the result
+         * at 1,015,104 pixels. Ironing works at about a megapixel whatever it
+         * is given, so the enlargement was being thrown away even when it
+         * worked.
+         */
+        $this->assertArrayNotHasKey('upscale.mode', $sent[0], 'an upscale went out with the ironing');
+        $this->assertArrayNotHasKey('upscale.targetResolution', $sent[0]);
     }
 
     /** Without ironing the canvas goes as it always has. */
