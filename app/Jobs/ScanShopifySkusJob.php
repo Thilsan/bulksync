@@ -96,6 +96,26 @@ class ScanShopifySkusJob implements ShouldQueue
 
                 $image = $images[0];
 
+                /*
+                 * An image row with no URL is not an image.
+                 *
+                 * getProductImages asks for a src and usually returns one, but
+                 * a product whose first entry comes back without it used to be
+                 * written as a normal pending row with an empty source_url —
+                 * which then fell through to the OneDrive path and failed with
+                 * a null drive id. Caught here, it reads as what it is.
+                 */
+                if (blank($image['src'] ?? null)) {
+                    $rows[] = $this->missing(
+                        $session,
+                        $sku,
+                        'Shopify returned no usable image URL for this product.',
+                        $variant,
+                    );
+
+                    continue;
+                }
+
                 $rows[] = $this->row($session, $sku, $variant, [
                     'source_url'        => (string) ($image['src'] ?? ''),
                     'replaces_image_id' => (string) ($image['id'] ?? ''),

@@ -1288,6 +1288,27 @@ class PhotoroomService
             throw new \RuntimeException('Image is larger than Photoroom accepts (30 MB) even after downscaling.');
         }
 
+        /*
+         * An upscale the input is too big for, dropped before it is sent.
+         *
+         * UPSCALE_MAX_PIXELS is an input limit, and asking past it is a 400
+         * that loses the whole edit — not just the upscale. A caller already
+         * checks this (EditPhotoItemJob::tuneUpscale), and a real batch still
+         * produced "The image you are trying to upscale is too big. Maximum
+         * allowed size: width * height = 1000000 pixels. Current image size:
+         * 1015104 pixels" on 159 shirts, which means something downstream of
+         * that check puts the upscale back or routes around it.
+         *
+         * Rather than hunt for which, the limit is enforced where the request
+         * is built. It is the one place every caller passes through, and it is
+         * the only place that has both the settings and the actual bytes.
+         *
+         * Dropping the enhancement to keep the edit, which is the right way
+         * round: a cutout at the size it came in is a usable photograph, and
+         * a 400 is nothing at all.
+         */
+        $edits = $this->dropUnachievableUpscale($imageContent, $edits);
+
         $fields  = $this->buildFields($edits);
         $headers = $this->buildHeaders($edits);
 
@@ -2678,6 +2699,45 @@ class PhotoroomService
 
             return null;
         }
+    }
+
+    /**
+     * Take the upscale back off when the input is past what the mode accepts.
+     *
+     * @param  array<string, mixed>  $edits
+     * @return array<string, mixed>
+     */
+    private function dropUnachievableUpscale(string $imageContent, array $edits): array
+    {
+        if (empty($edits['upscale'])) {
+            return $edits;
+        }
+
+        $info = @getimagesizefromstring($imageContent);
+
+        if (!$info) {
+            return $edits;
+        }
+
+        $mode  = in_array($edits['upscale_mode'] ?? '', self::UPSCALE_MODES, true)
+            ? $edits['upscale_mode']
+            : self::UPSCALE_FAST;
+        $limit = self::UPSCALE_MAX_PIXELS[$mode];
+        $pixels = (int) $info[0] * (int) $info[1];
+
+        if ($pixels <= $limit) {
+            return $edits;
+        }
+
+        Log::info('Upscale dropped: the input is past what this mode accepts', [
+            'mode'   => $mode,
+            'pixels' => $pixels,
+            'limit'  => $limit,
+        ]);
+
+        unset($edits['upscale'], $edits['upscale_mode'], $edits['upscale_resolution']);
+
+        return $edits;
     }
 
     private function cacheKey(string $suffix): string

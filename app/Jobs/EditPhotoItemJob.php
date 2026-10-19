@@ -98,13 +98,31 @@ class EditPhotoItemJob implements ShouldQueue
              * fetched from it, and the OneDrive path is untouched for
              * everything else.
              */
-            $raw = filled($item->source_url)
-                ? $this->downloadFromUrl($item->source_url)
-                : $oneDrive->downloadFileById(
+            if (filled($item->source_url)) {
+                $raw = $this->downloadFromUrl($item->source_url);
+            } elseif (filled($item->onedrive_drive_id) && filled($item->onedrive_item_id)) {
+                $raw = $oneDrive->downloadFileById(
                     $item->onedrive_drive_id,
                     $item->onedrive_item_id,
                     $item->onedrive_download_url ?? '',
                 );
+            } else {
+                /*
+                 * Neither source, which is a scan that produced a row it could
+                 * not fetch from.
+                 *
+                 * It happens on the Shopify route when a product's first image
+                 * comes back without a usable src — the row is written with an
+                 * empty URL, and falling through to OneDrive then calls it with
+                 * a null drive id. A hundred and fifty-nine shirts failed that
+                 * way with "Argument #1 ($driveId) must be of type string, null
+                 * given", which says where it broke and nothing about why.
+                 */
+                throw new \RuntimeException(
+                    'This photo has no source to fetch from — Shopify returned no usable image URL '
+                    . 'for this product, and there is no OneDrive file behind it either.'
+                );
+            }
 
             // Straighten first, before anything decodes the pixels. Studio
             // cameras record rotation as an EXIF flag rather than rotating the
