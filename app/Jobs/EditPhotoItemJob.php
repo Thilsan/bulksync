@@ -418,39 +418,62 @@ class EditPhotoItemJob implements ShouldQueue
             }
 
             /*
-             * Ironing has a megapixel ceiling of its own, and says so in
-             * somebody else's words.
+             * Ironing works at about a megapixel, and the canvas is what
+             * pushes it past one.
              *
-             * A shirt at 1088x933 — 1,015,104 pixels — comes back with "The
-             * image you are trying to upscale is too big. Maximum allowed
-             * size: width * height = 1000000 pixels", on a request that asked
-             * for no upscale at all. Ironing upscales internally, and the
-             * refusal is reported as though the caller had asked for it. The
-             * same batch goes through untouched with ironing off.
+             * A 480x560 shirt — 268,800 pixels — came back with "The image you
+             * are trying to upscale is too big. Maximum allowed size: width *
+             * height = 1000000 pixels. Current image size: 1015104 pixels", on
+             * a request that asked for no upscale at all. 1,015,104 is not the
+             * photograph: it is what Photoroom made of it on the way to the
+             * 2000x2000 outputSize we asked for. Enlarging a small photo to
+             * fill a big canvas is itself an upscale, and the ironing model
+             * refuses to work on the result.
              *
-             * It fits what was already measured here: a photograph came back
-             * 3333x5000 without ironing and 832x1248 with it. The model works
-             * at about a megapixel whatever it is given, so trimming to its
-             * ceiling costs nothing that ironing was not going to cost anyway
-             * — and the alternative is losing the edit to a 400.
+             * The same picture goes through untouched with ironing off, which
+             * is what says the canvas is not the problem on its own.
+             *
+             * So ironing runs at the photograph's own size and the canvas
+             * happens here afterwards — frameToStandard already puts every
+             * image on the preset's canvas further down, so nothing is lost
+             * but the round trip.
+             *
+             * A first attempt shrank the input instead, on the theory that
+             * 1,015,104 was what we were sending. It never fired, because at
+             * 268,800 pixels there was nothing to shrink.
              */
-            if (!empty($itemEdits['ironing'])) {
-                $ceiling = (int) (PhotoroomService::UPSCALE_MAX_PIXELS[PhotoroomService::UPSCALE_FAST] * 0.98);
-                $before  = @getimagesizefromstring($input);
+            if (!empty($itemEdits['ironing'])
+                && !empty($itemEdits['width'])
+                && !empty($itemEdits['height'])) {
+                Log::info('Ironing at the photo\'s own size; the canvas is applied locally', [
+                    'item'   => $this->itemId,
+                    'canvas' => $itemEdits['width'] . 'x' . $itemEdits['height'],
+                    'photo'  => $this->describeSize($input),
+                ]);
 
-                $input = $imageService->scaleToPixelBudget($input, $ceiling);
+                $ironedCanvas = [(int) $itemEdits['width'], (int) $itemEdits['height']];
 
-                if ($before && ($before[0] * $before[1]) > $ceiling) {
-                    Log::info('Trimmed for ironing, which upscales internally and refuses past a megapixel', [
-                        'item'   => $this->itemId,
-                        'from'   => "{$before[0]}x{$before[1]}",
-                        'to'     => $this->describeSize($input),
-                    ]);
-                }
+                unset($itemEdits['width'], $itemEdits['height']);
+                $itemEdits['output_size_mode'] = 'originalImage';
             }
 
             $edited = $photoroom->edit($input, $itemEdits, $item->filename);
             $requests++;
+
+            /*
+             * The canvas, handed back now the request has gone.
+             *
+             * It was taken off above so the ironing model would work at the
+             * photograph's own size. Everything downstream — the framing, the
+             * logging, the per-edge padding — reads width and height from
+             * here, so putting them back is what keeps an ironed photo on the
+             * same canvas as every other one rather than at whatever size
+             * Photoroom handed it over at.
+             */
+            if (isset($ironedCanvas)) {
+                [$itemEdits['width'], $itemEdits['height']] = $ironedCanvas;
+                unset($itemEdits['output_size_mode']);
+            }
 
             /*
              * Ironing is done when it is asked for, and not second-guessed.
