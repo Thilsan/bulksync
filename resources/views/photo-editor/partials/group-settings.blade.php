@@ -206,6 +206,7 @@
                 @foreach ([
                     'General'         => \App\Services\PhotoroomService::GHOST_MANNEQUIN_HINT,
                     'Lace / lingerie' => \App\Services\PhotoroomService::GHOST_MANNEQUIN_HINT_FINE,
+                    'Worn shape'      => \App\Services\PhotoroomService::GHOST_MANNEQUIN_HINT_WORN,
                 ] as $label => $wording)
                     <button type="button" title="{{ $wording }}" @click="setBase(@js($wording))"
                             :class="base === @js($wording)
@@ -829,9 +830,22 @@
         };
     }
 
-    window.ghostHintBases = @json([
-        \App\Services\PhotoroomService::GHOST_MANNEQUIN_HINT,
-        \App\Services\PhotoroomService::GHOST_MANNEQUIN_HINT_FINE,
-    ]);
+    {{-- Built in a php block rather than inline. Blade's directive parser does
+         not survive a multi-line json argument: it reads the first line and
+         reports an unclosed bracket from the compiled file, naming a line
+         number in storage/framework/views and no useful cause.
+
+         The directive names are spelled out in prose here on purpose. Written
+         with their leading at-signs, Blade compiles them out of this comment
+         before the comment is stripped, and the view stops parsing. --}}
+    @php
+        $ghostHintBases = [
+            \App\Services\PhotoroomService::GHOST_MANNEQUIN_HINT,
+            \App\Services\PhotoroomService::GHOST_MANNEQUIN_HINT_FINE,
+            \App\Services\PhotoroomService::GHOST_MANNEQUIN_HINT_WORN,
+        ];
+    @endphp
+
+    window.ghostHintBases = @json($ghostHintBases);
 </script>
 @endonce

@@ -1165,6 +1165,28 @@ class PhotoroomService
     public const GHOST_MANNEQUIN_HINT_HEM =
         'The hem hangs straight and level — do not add a train, sweep or trailing hem';
 
+    /*
+     * For a garment photographed lying flat that should look worn.
+     *
+     * The other bases spend their words holding the garment still, because
+     * that is what a mannequin shot needs: the stand comes out and nothing
+     * else should move. A flat lay is the opposite job. The shape is the thing
+     * being asked for — chest forward, shoulders wide, sleeves with depth —
+     * and a prompt that says "keep the proportions unchanged" forbids it.
+     *
+     * Measured on four menswear flat lays with the lingerie wording: one came
+     * back with volume and three stayed flat, and the one the verifier refused
+     * was refused for changing the proportions by 9.4%. That 9.4% was the
+     * volume.
+     *
+     * So this releases the shape and pins everything else. Colour, fabric and
+     * print are still named, because those are invented just as readily when
+     * nothing holds them.
+     */
+    public const GHOST_MANNEQUIN_HINT_WORN = 'Show this garment as if worn on an invisible body, '
+        . 'with natural volume: the chest filled out, the shoulders with width, the sleeves holding '
+        . 'their shape and the collar standing open. Keep the exact colour, fabric, print and markings';
+
     public const GHOST_MANNEQUIN_HINT_FINE = 'Remove the mannequin completely, including visible legs, '
         . 'while keeping the exact garment shape, orientation, lace, sleeves, hem, fabric details, '
         . 'and proportions unchanged';

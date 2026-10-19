@@ -1504,6 +1504,24 @@ class PhotoEditorTest extends TestCase
         $this->assertStringContainsString('do not lighten it', PhotoroomService::GHOST_MANNEQUIN_HINT_COLOUR);
         $this->assertStringContainsString('sheen and texture', PhotoroomService::GHOST_MANNEQUIN_HINT_FABRIC);
 
+        /*
+         * And a third base, for a garment photographed lying flat.
+         *
+         * The others hold the garment still, because a mannequin shot wants
+         * the stand out and nothing else moved. A flat lay wants the opposite:
+         * the shape is the thing being asked for, and a prompt saying "keep
+         * the proportions unchanged" forbids it. Measured on four menswear
+         * flat lays with the lingerie wording, three stayed flat and the
+         * refusal that came back was for changing proportions by 9.4% — which
+         * was the volume.
+         */
+        $worn = PhotoroomService::GHOST_MANNEQUIN_HINT_WORN;
+
+        $this->assertStringContainsString('as if worn on an invisible body', $worn);
+        $this->assertStringContainsString('Keep the exact colour, fabric, print', $worn);
+        $this->assertStringNotContainsString('proportions unchanged', $worn,
+            'the worn-shape base forbids the very change it exists to ask for');
+
         foreach ([
             PhotoroomService::GHOST_MANNEQUIN_HINT_COLLARLESS,
             PhotoroomService::GHOST_MANNEQUIN_HINT_HEM,
