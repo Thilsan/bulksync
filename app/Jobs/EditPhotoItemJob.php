@@ -417,6 +417,38 @@ class EditPhotoItemJob implements ShouldQueue
                 $itemEdits['ironing'] = false;
             }
 
+            /*
+             * Ironing has a megapixel ceiling of its own, and says so in
+             * somebody else's words.
+             *
+             * A shirt at 1088x933 — 1,015,104 pixels — comes back with "The
+             * image you are trying to upscale is too big. Maximum allowed
+             * size: width * height = 1000000 pixels", on a request that asked
+             * for no upscale at all. Ironing upscales internally, and the
+             * refusal is reported as though the caller had asked for it. The
+             * same batch goes through untouched with ironing off.
+             *
+             * It fits what was already measured here: a photograph came back
+             * 3333x5000 without ironing and 832x1248 with it. The model works
+             * at about a megapixel whatever it is given, so trimming to its
+             * ceiling costs nothing that ironing was not going to cost anyway
+             * — and the alternative is losing the edit to a 400.
+             */
+            if (!empty($itemEdits['ironing'])) {
+                $ceiling = (int) (PhotoroomService::UPSCALE_MAX_PIXELS[PhotoroomService::UPSCALE_FAST] * 0.98);
+                $before  = @getimagesizefromstring($input);
+
+                $input = $imageService->scaleToPixelBudget($input, $ceiling);
+
+                if ($before && ($before[0] * $before[1]) > $ceiling) {
+                    Log::info('Trimmed for ironing, which upscales internally and refuses past a megapixel', [
+                        'item'   => $this->itemId,
+                        'from'   => "{$before[0]}x{$before[1]}",
+                        'to'     => $this->describeSize($input),
+                    ]);
+                }
+            }
+
             $edited = $photoroom->edit($input, $itemEdits, $item->filename);
             $requests++;
 
