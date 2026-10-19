@@ -539,6 +539,18 @@ class PhotoEditorController extends Controller implements HasMiddleware
             return redirect()->away($item->source_url);
         }
 
+        /*
+         * A Shopify row with no URL has no thumbnail to show.
+         *
+         * Without this it fell through to OneDrive, which has no ids on such a
+         * row, and the browser drew a broken-image icon with the filename
+         * beside it — which reads as "this picture failed to load" when the
+         * truth is that Shopify never gave us one. A 404 lets the card say so.
+         */
+        if (blank($item->onedrive_drive_id) || blank($item->onedrive_item_id)) {
+            abort(404);
+        }
+
         if ($session->user_id && ($user = User::find($session->user_id))) {
             $oneDrive->setUser($user);
         }
