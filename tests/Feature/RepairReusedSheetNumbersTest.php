@@ -9,6 +9,7 @@ use App\Models\User;
 use App\Services\OneDriveService;
 use App\Services\ProductRequestWorkflow;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Storage;
 use Mockery;
 use Tests\TestCase;
 
@@ -36,7 +37,7 @@ class RepairReusedSheetNumbersTest extends TestCase
             'priority' => 'medium', 'online_launch_date' => '2026-10-15',
         ]);
         $this->skus($request, ['BMW-1', 'BMW-2']);
-        $flow->log($request, 'created', 'Product request created automatically from the SharePoint tracking sheet');
+        $flow->log($request, 'created', 'Product request created automatically from the SharePoint tracking sheet', remarks: '2 SKUs imported');
 
         // The neighbour's first SKUs came in on an earlier run, before the sync
         // could rename anything — the log has no rename to date them by.
@@ -98,7 +99,7 @@ class RepairReusedSheetNumbersTest extends TestCase
         $this->bothBrandsOnTab();
 
         $this->artisan('product-requests:repair-reused-numbers')
-            ->expectsOutputToContain('"SIMONE PERELE" → "BMW Fragrances"   keep 2 of 7 SKUs')
+            ->expectsOutputToContain('"SIMONE PERELE" → "BMW Fragrances"   keep 2 of 7 SKUs   (created with 2)')
             ->assertSuccessful();
 
         $this->assertSame('SIMONE PERELE', $request->refresh()->brand);
@@ -107,6 +108,7 @@ class RepairReusedSheetNumbersTest extends TestCase
 
     public function test_the_request_is_put_back_and_the_other_rows_skus_removed(): void
     {
+        Storage::fake('local');
         $request = $this->damaged();
         $this->bothBrandsOnTab();
 
@@ -120,6 +122,10 @@ class RepairReusedSheetNumbersTest extends TestCase
         $this->assertSame('BMW Fragrances', $request->sheet_snapshot['brand'], 'The sync guard compares against this.');
         $this->assertSame(ProductRequest::PUBLISHED, $request->status, 'Its stage is the work people did — kept.');
         $this->assertTrue($request->activities()->where('action', 'sheet_repaired')->exists());
+
+        // What was removed can be put back.
+        $saved = json_decode(Storage::disk('local')->get(Storage::disk('local')->files()[0]), true);
+        $this->assertEqualsCanonicalizing(['SP-0', 'SP-1', 'SP-2', 'SP-3', 'SP-4'], array_column($saved[$request->reference], 'sku'));
 
         // Nothing left to do on a second run.
         $this->artisan('product-requests:repair-reused-numbers', ['--commit' => true])
@@ -150,5 +156,19 @@ class RepairReusedSheetNumbersTest extends TestCase
 
         $this->assertSame('BMW Fragrances', $request->refresh()->brand);
         $this->assertSame(7, $request->skus()->count(), 'Nothing is removed on a guess.');
+    }
+
+    /** SELMARK: on the tab, but none of the request's SKUs are — keep 0 of 32 is not a repair. */
+    public function test_a_request_is_never_emptied(): void
+    {
+        $request = $this->damaged();
+        $this->fakeTab([['12-Oct-26', 'BMW FRAGRANCES', 'SOMETHING-ELSE']]);
+
+        $this->artisan('product-requests:repair-reused-numbers', ['--commit' => true])
+            ->expectsOutputToContain('none are under that brand on the tab')
+            ->assertSuccessful();
+
+        $this->assertSame('BMW Fragrances', $request->refresh()->brand);
+        $this->assertSame(7, $request->skus()->count());
     }
 }

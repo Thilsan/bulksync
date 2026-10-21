@@ -8,6 +8,7 @@ use App\Services\ProductRequestWorkflow;
 use App\Services\SkuMappingService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 
 /**
  * Puts back requests the sheet sync handed to another product.
@@ -40,6 +41,7 @@ class RepairReusedSheetNumbers extends Command
             $this->warn('Dry run — nothing will change. Pass --commit to repair.');
         }
 
+        $backup     = [];
         $repaired   = 0;
         $removed    = 0;
         $unverified = [];
@@ -69,20 +71,33 @@ class RepairReusedSheetNumbers extends Command
                 ? $all->reject(fn ($sku) => in_array(strtoupper(trim($sku)), $onTab, true))->keys()
                 : collect();
 
-            if (!$onTab) {
+            // The tab knows the brand but none of these SKUs: the evidence
+            // contradicts itself, and emptying the request is not a repair.
+            $emptied = $onTab && $all->isNotEmpty() && $stray->count() === $all->count();
+
+            if (!$onTab || $emptied) {
                 $unverified[] = $request;
+                $stray        = collect();
             }
 
+            // How many it was created with — where "keep" agrees, the repair is right.
+            $created = preg_match('/^(\d+) SKUs imported/', (string) $request->activities->firstWhere('action', 'created')?->remarks, $m)
+                ? (int) $m[1]
+                : null;
+
             $this->line(sprintf(
-                '%-15s %-22s %-20s "%s" → "%s"   %s%s',
+                '%-15s %-22s %-20s "%s" → "%s"   %s%s%s',
                 $request->reference,
                 $request->store?->name ?? '—',
                 $request->category ?? '—',
                 $request->brand,
                 $plan['brand'],
-                $onTab
-                    ? 'keep ' . ($all->count() - $stray->count()) . " of {$all->count()} SKUs"
-                    : "SKUs unchecked ({$all->count()})",
+                match (true) {
+                    $emptied => "SKUs unchecked ({$all->count()}) — none are under that brand on the tab",
+                    !$onTab  => "SKUs unchecked ({$all->count()})",
+                    default  => 'keep ' . ($all->count() - $stray->count()) . " of {$all->count()} SKUs",
+                },
+                $created !== null ? "   (created with {$created})" : '',
                 $plan['launch'] ? "   launch → {$plan['launch']}" : '',
             ));
 
@@ -93,7 +108,8 @@ class RepairReusedSheetNumbers extends Command
                 continue;
             }
 
-            DB::transaction(function () use ($request, $plan, $mapping, $workflow, $stray, $onTab) {
+            DB::transaction(function () use ($request, $plan, $mapping, $workflow, $stray, $onTab, &$backup) {
+                $backup[$request->reference] = $request->skus()->whereIn('id', $stray)->get()->toArray();
                 $request->skus()->whereIn('id', $stray)->delete();
 
                 $request->update(array_filter([
@@ -114,9 +130,9 @@ class RepairReusedSheetNumbers extends Command
                     request:     $request,
                     action:      'sheet_repaired',
                     description: "Restored to {$plan['brand']} — the sheet had given its Request No to another product",
-                    remarks:     $onTab
+                    remarks:     $stray->isNotEmpty()
                         ? "{$stray->count()} SKU(s) not listed under {$plan['brand']} on the tab removed"
-                        : "{$plan['brand']} is not on the tab under that name, so its SKUs were left for a person to check",
+                        : "The tab could not confirm which SKUs are {$plan['brand']}'s, so they were left for a person to check",
                 );
             });
         }
@@ -124,9 +140,17 @@ class RepairReusedSheetNumbers extends Command
         $this->newLine();
         $this->info(($commit ? 'Repaired' : 'Would repair') . " {$repaired} request(s), removing {$removed} SKU(s).");
 
+        // Deleting eighteen thousand rows on the strength of a spreadsheet is
+        // not something to be unable to take back. One file per run, kept small.
+        if ($commit && $backup) {
+            $path = 'repair-reused-numbers-' . now()->format('Ymd-His') . '.json';
+            Storage::disk('local')->put($path, json_encode($backup));
+            $this->info('Every removed SKU row is saved in ' . Storage::disk('local')->path($path) . ' — delete it once you are happy.');
+        }
+
         if ($unverified) {
             $this->newLine();
-            $this->warn(count($unverified) . ' had their brand restored but their SKUs left as they are — the tab has no rows under that brand name:');
+            $this->warn(count($unverified) . ' had their brand restored but their SKUs left as they are — the tab could not confirm which are theirs:');
 
             foreach ($unverified as $request) {
                 $this->line("  {$request->reference}  {$request->category}");
