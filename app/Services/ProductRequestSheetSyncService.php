@@ -1198,6 +1198,29 @@ class ProductRequestSheetSyncService
         return $this->tabIndex[$sheet];
     }
 
+    /**
+     * Whose each SKU is, across every category tab: SKU => [brand key, ...].
+     *
+     * A sheet row's SKUs come from its own department's tab, so a neighbour's
+     * SKUs can sit in a request filed under a different category entirely.
+     *
+     * @return array<string, array<int, string>>
+     */
+    public function tabBrandsBySku(): array
+    {
+        $owners = [];
+
+        foreach (array_unique(array_column(config('product_request_sync.department_map', []), 'category')) as $category) {
+            foreach ($this->tabSkusByBrand($category) ?? [] as $brand => $skus) {
+                foreach ($skus as $sku) {
+                    $owners[$sku][] = $brand;
+                }
+            }
+        }
+
+        return $owners;
+    }
+
     /** "Bevery Hills Polo Club " and "BEVERY HILLS POLO CLUB" are one key. */
     public static function brandKey(string $brand): string
     {

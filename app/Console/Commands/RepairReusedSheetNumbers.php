@@ -42,6 +42,7 @@ class RepairReusedSheetNumbers extends Command
         }
 
         $backup     = [];
+        $owners     = null;
         $repaired   = 0;
         $removed    = 0;
         $unverified = [];
@@ -63,21 +64,34 @@ class RepairReusedSheetNumbers extends Command
                 continue;
             }
 
-            // Its own SKUs are the ones the tab lists under its own brand. A brand
-            // the tab does not know cannot be checked, so nothing is taken away.
-            $onTab = $sheet->tabSkusByBrand((string) $request->category)[ProductRequestSheetSyncService::brandKey($plan['brand'])] ?? null;
+            // Its own SKUs are the ones the tab lists under its own brand. Where
+            // the tab does not know the brand, only what some tab positively
+            // gives to another brand goes — a SKU nobody claims stays.
+            $key   = ProductRequestSheetSyncService::brandKey($plan['brand']);
+            $onTab = $sheet->tabSkusByBrand((string) $request->category)[$key] ?? null;
             $all   = $request->skus()->pluck('sku', 'id');
-            $stray = $onTab
-                ? $all->reject(fn ($sku) => in_array(strtoupper(trim($sku)), $onTab, true))->keys()
-                : collect();
 
-            // The tab knows the brand but none of these SKUs: the evidence
-            // contradicts itself, and emptying the request is not a repair.
-            $emptied = $onTab && $all->isNotEmpty() && $stray->count() === $all->count();
+            if ($onTab) {
+                $stray = $all->reject(fn ($sku) => in_array(strtoupper(trim($sku)), $onTab, true))->keys();
+            } else {
+                $owners ??= $sheet->tabBrandsBySku();
+                $stray    = $all->filter(function ($sku) use ($owners, $key) {
+                    $theirs = $owners[strtoupper(trim($sku))] ?? null;
+
+                    return $theirs && !in_array($key, $theirs, true);
+                })->keys();
+            }
+
+            // Every SKU belongs to somebody else: the evidence contradicts
+            // itself, and emptying the request is not a repair.
+            $emptied = $all->isNotEmpty() && $stray->count() === $all->count();
+
+            if ($emptied) {
+                $stray = collect();
+            }
 
             if (!$onTab || $emptied) {
                 $unverified[] = $request;
-                $stray        = collect();
             }
 
             // How many it was created with — where "keep" agrees, the repair is right.
@@ -93,8 +107,8 @@ class RepairReusedSheetNumbers extends Command
                 $request->brand,
                 $plan['brand'],
                 match (true) {
-                    $emptied => "SKUs unchecked ({$all->count()}) — none are under that brand on the tab",
-                    !$onTab  => "SKUs unchecked ({$all->count()})",
+                    $emptied => "SKUs left ({$all->count()}) — every one is listed under another brand",
+                    !$onTab  => 'remove ' . $stray->count() . " other brands' SKUs, keep " . ($all->count() - $stray->count()) . " unconfirmed of {$all->count()}",
                     default  => 'keep ' . ($all->count() - $stray->count()) . " of {$all->count()} SKUs",
                 },
                 $created !== null ? "   (created with {$created})" : '',
@@ -130,9 +144,9 @@ class RepairReusedSheetNumbers extends Command
                     request:     $request,
                     action:      'sheet_repaired',
                     description: "Restored to {$plan['brand']} — the sheet had given its Request No to another product",
-                    remarks:     $stray->isNotEmpty()
+                    remarks:     $onTab
                         ? "{$stray->count()} SKU(s) not listed under {$plan['brand']} on the tab removed"
-                        : "The tab could not confirm which SKUs are {$plan['brand']}'s, so they were left for a person to check",
+                        : "{$stray->count()} SKU(s) the tabs list under other brands removed; the rest could not be confirmed and were left for a person to check",
                 );
             });
         }
@@ -150,7 +164,7 @@ class RepairReusedSheetNumbers extends Command
 
         if ($unverified) {
             $this->newLine();
-            $this->warn(count($unverified) . ' had their brand restored but their SKUs left as they are — the tab could not confirm which are theirs:');
+            $this->warn(count($unverified) . ' had their brand restored, but the tabs could not confirm all of their SKUs — worth a look:');
 
             foreach ($unverified as $request) {
                 $this->line("  {$request->reference}  {$request->category}");

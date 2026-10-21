@@ -73,6 +73,7 @@ class RepairReusedSheetNumbersTest extends TestCase
         $drive->shouldReceive('resolveShareItem')->andReturn(['driveId' => 'd', 'itemId' => 'i']);
         $drive->shouldReceive('worksheetValues')->with('d', 'i', 'Perfumes & Cosmetics')
             ->andReturn(array_merge([['Date', 'Brand Name', 'Item SKU']], $rows));
+        $drive->shouldReceive('worksheetValues')->andReturn([['Date', 'Brand Name', 'Item SKU']]);   // every other tab
         $this->app->instance(OneDriveService::class, $drive);
     }
 
@@ -144,18 +145,22 @@ class RepairReusedSheetNumbersTest extends TestCase
             ->assertSuccessful();
     }
 
-    public function test_a_brand_the_tab_does_not_know_is_renamed_but_its_skus_are_left(): void
+    /** AUBADE is gone from the Lingerie tab, but the tabs still say whose its neighbour's SKUs are. */
+    public function test_a_brand_the_tab_does_not_know_loses_only_skus_another_brand_owns(): void
     {
         $request = $this->damaged();
-        $this->fakeTab([['21-Oct-26', 'SIMONE PERELE', 'SP-1']]);
+        $this->fakeTab([
+            ['21-Oct-26', 'SIMONE PERELE', 'SP-1'],
+            ['21-Oct-26', 'SIMONE PERELE', 'SP-2'],
+        ]);
 
         $this->artisan('product-requests:repair-reused-numbers', ['--commit' => true])
-            ->expectsOutputToContain('SKUs unchecked (7)')
-            ->expectsOutputToContain('1 had their brand restored but their SKUs left as they are')
+            ->expectsOutputToContain("remove 2 other brands' SKUs, keep 5 unconfirmed of 7")
+            ->expectsOutputToContain('worth a look')
             ->assertSuccessful();
 
         $this->assertSame('BMW Fragrances', $request->refresh()->brand);
-        $this->assertSame(7, $request->skus()->count(), 'Nothing is removed on a guess.');
+        $this->assertEqualsCanonicalizing(['BMW-1', 'BMW-2', 'SP-0', 'SP-3', 'SP-4'], $request->skus()->pluck('sku')->all());
     }
 
     /** SELMARK: on the tab, but none of the request's SKUs are — keep 0 of 32 is not a repair. */
@@ -165,7 +170,7 @@ class RepairReusedSheetNumbersTest extends TestCase
         $this->fakeTab([['12-Oct-26', 'BMW FRAGRANCES', 'SOMETHING-ELSE']]);
 
         $this->artisan('product-requests:repair-reused-numbers', ['--commit' => true])
-            ->expectsOutputToContain('none are under that brand on the tab')
+            ->expectsOutputToContain('every one is listed under another brand')
             ->assertSuccessful();
 
         $this->assertSame('BMW Fragrances', $request->refresh()->brand);
