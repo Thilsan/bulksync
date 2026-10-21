@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Models\ProductRequest;
+use App\Services\ProductRequestSheetSyncService;
 use App\Services\ProductRequestWorkflow;
 use App\Services\SkuMappingService;
 use Illuminate\Console\Command;
@@ -11,15 +12,18 @@ use Illuminate\Support\Facades\DB;
 /**
  * Puts back requests the sheet sync handed to another product.
  *
- * The sheet gave one Request No to several rows, and the sync — matching on the
- * number alone — renamed the request to each in turn and poured their SKUs in:
- * BMW Fragrances became "SIMONE PERELE" with 1,218 SKUs, still filed under
- * Beauty, and its brand managers were mailed about all of it.
+ * A row inserted on the master tab shifted every Request No below it, and the
+ * sync — matching on the number alone — renamed each request after its
+ * neighbour and poured the neighbour's SKUs in: BMW Fragrances became "SIMONE
+ * PERELE" with 1,218 SKUs, still filed under Beauty, and its brand managers were
+ * mailed about all of it.
  *
- * The audit trail kept what it was. The first rename from one brand to an
- * unrelated one marks where it went wrong; the brand and launch date are put
- * back from that entry, and every SKU added from then on is removed. The work
- * people did on the request — its stage, its people, its history — stays.
+ * What it was comes from the audit trail: the first rename to an unrelated brand.
+ * Which SKUs are its own comes from the category tab, the one place that says
+ * which SKU belongs to which brand. The log cannot answer that — for a while the
+ * sync added a neighbour's SKUs without renaming, so the damage often predates
+ * the rename. The work people did on the request — its stage, its people, its
+ * history — stays.
  */
 class RepairReusedSheetNumbers extends Command
 {
@@ -28,7 +32,7 @@ class RepairReusedSheetNumbers extends Command
 
     protected $description = 'Restore requests the sheet sync renamed and filled from a different row';
 
-    public function handle(SkuMappingService $mapping, ProductRequestWorkflow $workflow): int
+    public function handle(SkuMappingService $mapping, ProductRequestWorkflow $workflow, ProductRequestSheetSyncService $sheet): int
     {
         $commit = (bool) $this->option('commit');
 
@@ -36,11 +40,13 @@ class RepairReusedSheetNumbers extends Command
             $this->warn('Dry run — nothing will change. Pass --commit to repair.');
         }
 
-        $repaired = 0;
-        $review   = [];
+        $repaired   = 0;
+        $removed    = 0;
+        $unverified = [];
+        $review     = [];
 
         $requests = ProductRequest::whereNotNull('sheet_request_no')
-            ->with(['activities' => fn ($q) => $q->reorder()->orderBy('id')])
+            ->with(['store', 'activities' => fn ($q) => $q->reorder()->orderBy('id')])
             ->orderBy('id')
             ->get();
 
@@ -55,34 +61,46 @@ class RepairReusedSheetNumbers extends Command
                 continue;
             }
 
-            $stray = $request->skus()->where('created_at', '>', $plan['since'])->count();
+            // Its own SKUs are the ones the tab lists under its own brand. A brand
+            // the tab does not know cannot be checked, so nothing is taken away.
+            $onTab = $sheet->tabSkusByBrand((string) $request->category)[ProductRequestSheetSyncService::brandKey($plan['brand'])] ?? null;
+            $all   = $request->skus()->pluck('sku', 'id');
+            $stray = $onTab
+                ? $all->reject(fn ($sku) => in_array(strtoupper(trim($sku)), $onTab, true))->keys()
+                : collect();
+
+            if (!$onTab) {
+                $unverified[] = $request;
+            }
 
             $this->line(sprintf(
-                '%-15s %-22s %-14s "%s" → "%s"   remove %d of %d SKUs%s',
+                '%-15s %-22s %-20s "%s" → "%s"   %s%s',
                 $request->reference,
                 $request->store?->name ?? '—',
                 $request->category ?? '—',
                 $request->brand,
                 $plan['brand'],
-                $stray,
-                $request->skus()->count(),
+                $onTab
+                    ? 'keep ' . ($all->count() - $stray->count()) . " of {$all->count()} SKUs"
+                    : "SKUs unchecked ({$all->count()})",
                 $plan['launch'] ? "   launch → {$plan['launch']}" : '',
             ));
 
             $repaired++;
+            $removed += $stray->count();
 
             if (!$commit) {
                 continue;
             }
 
-            DB::transaction(function () use ($request, $plan, $mapping, $workflow, $stray) {
-                $request->skus()->where('created_at', '>', $plan['since'])->delete();
+            DB::transaction(function () use ($request, $plan, $mapping, $workflow, $stray, $onTab) {
+                $request->skus()->whereIn('id', $stray)->delete();
 
                 $request->update(array_filter([
                     'brand'              => $plan['brand'],
                     'online_launch_date' => $plan['launch'],
                 ]) + [
-                    // What the guard compares the sheet against from now on.
+                    // What the sync guard compares the sheet against from now on.
                     'sheet_snapshot' => [
                         'brand'              => $plan['brand'],
                         'priority'           => $request->priority,
@@ -96,13 +114,24 @@ class RepairReusedSheetNumbers extends Command
                     request:     $request,
                     action:      'sheet_repaired',
                     description: "Restored to {$plan['brand']} — the sheet had given its Request No to another product",
-                    remarks:     "{$stray} SKU(s) from other rows removed",
+                    remarks:     $onTab
+                        ? "{$stray->count()} SKU(s) not listed under {$plan['brand']} on the tab removed"
+                        : "{$plan['brand']} is not on the tab under that name, so its SKUs were left for a person to check",
                 );
             });
         }
 
         $this->newLine();
-        $this->info(($commit ? 'Repaired' : 'Would repair') . " {$repaired} request(s).");
+        $this->info(($commit ? 'Repaired' : 'Would repair') . " {$repaired} request(s), removing {$removed} SKU(s).");
+
+        if ($unverified) {
+            $this->newLine();
+            $this->warn(count($unverified) . ' had their brand restored but their SKUs left as they are — the tab has no rows under that brand name:');
+
+            foreach ($unverified as $request) {
+                $this->line("  {$request->reference}  {$request->category}");
+            }
+        }
 
         if ($review) {
             $this->newLine();
@@ -117,9 +146,9 @@ class RepairReusedSheetNumbers extends Command
     }
 
     /**
-     * Where this request was taken over, or null when it never was.
+     * What this request was before it was taken over, or null when it never was.
      *
-     * @return array{brand: string, launch: ?string, since: \Carbon\CarbonInterface}|null
+     * @return array{brand: string, launch: ?string}|null
      */
     private function plan(ProductRequest $request): ?array
     {
@@ -139,19 +168,9 @@ class RepairReusedSheetNumbers extends Command
 
             preg_match('/online_launch_date: "(.*?)" →/u', (string) $activity->remarks, $launch);
 
-            // The other row's SKUs are added just before the rename, in the same
-            // pass. Everything after the entry before that is not this request's.
-            $j = $i - 1;
-
-            while ($j >= 0 && $activities[$j]->action === 'skus_added'
-                && $activities[$j]->created_at->diffInMinutes($activity->created_at, true) <= 10) {
-                $j--;
-            }
-
             return [
                 'brand'  => $brand[1],
                 'launch' => ($launch[1] ?? '') !== '' ? $launch[1] : null,
-                'since'  => $j >= 0 ? $activities[$j]->created_at : $request->created_at,
             ];
         }
 
@@ -161,8 +180,8 @@ class RepairReusedSheetNumbers extends Command
     /** "Armani" and "ARMANI BEAUTY" are one brand corrected; "Azzaro" and "RYA COLLECTION" are not. */
     private function sameBrand(string $a, string $b): bool
     {
-        $a = preg_replace('/[^A-Z0-9]/', '', strtoupper($a));
-        $b = preg_replace('/[^A-Z0-9]/', '', strtoupper($b));
+        $a = ProductRequestSheetSyncService::brandKey($a);
+        $b = ProductRequestSheetSyncService::brandKey($b);
 
         return $a === $b || ($a !== '' && $b !== '' && (str_contains($a, $b) || str_contains($b, $a)));
     }

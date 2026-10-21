@@ -1146,6 +1146,64 @@ class ProductRequestSheetSyncService
      *
      * @return int how many were added
      */
+    /** @var array{driveId: string, itemId: string}|null */
+    private ?array $tabItem = null;
+
+    /** @var array<string, array<string, array<int, string>>> */
+    private array $tabIndex = [];
+
+    /**
+     * Every SKU a category's tab lists, by brand, across all dates.
+     *
+     * The tab is the one record of which SKUs are whose — the master tab's
+     * numbers are not to be trusted, and neither is anything built on them.
+     * Brands are keyed by letters and digits only (see brandKey()).
+     *
+     * @return array<string, array<int, string>>|null  null when the category has no tab
+     */
+    public function tabSkusByBrand(string $category): ?array
+    {
+        $sheet = collect(config('product_request_sync.department_map', []))
+            ->first(fn ($config) => ($config['category'] ?? null) === $category)['sheet'] ?? null;
+
+        if (!$sheet) {
+            return null;
+        }
+
+        if (!array_key_exists($sheet, $this->tabIndex)) {
+            if (!$this->tabItem) {
+                $this->drive->asServiceAccount();
+                $this->tabItem = $this->drive->resolveShareItem(config('product_request_sync.master_sheet_url'));
+            }
+
+            $values   = $this->drive->worksheetValues($this->tabItem['driveId'], $this->tabItem['itemId'], $sheet);
+            $header   = array_map('trim', $values[0] ?? []);
+            $skuCol   = array_search('Item SKU', $header, true);
+            $brandCol = array_search('Brand Name', $header, true);
+            $index    = [];
+
+            if ($skuCol !== false && $brandCol !== false) {
+                foreach (array_slice($values, 1) as $row) {
+                    $sku = strtoupper(trim((string) ($row[$skuCol] ?? '')));
+
+                    if ($sku !== '') {
+                        $index[self::brandKey((string) ($row[$brandCol] ?? ''))][] = $sku;
+                    }
+                }
+            }
+
+            $this->tabIndex[$sheet] = array_map(fn ($skus) => array_values(array_unique($skus)), $index);
+        }
+
+        return $this->tabIndex[$sheet];
+    }
+
+    /** "Bevery Hills Polo Club " and "BEVERY HILLS POLO CLUB" are one key. */
+    public static function brandKey(string $brand): string
+    {
+        return preg_replace('/[^A-Z0-9]/', '', strtoupper($brand));
+    }
+
     /**
      * Request Nos the sheet gives to more than one brand: number => the brands.
      *

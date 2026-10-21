@@ -6,8 +6,10 @@ use App\Models\ProductRequest;
 use App\Models\ProductRequestSku;
 use App\Models\Store;
 use App\Models\User;
+use App\Services\OneDriveService;
 use App\Services\ProductRequestWorkflow;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Mockery;
 use Tests\TestCase;
 
 /**
@@ -36,6 +38,12 @@ class RepairReusedSheetNumbersTest extends TestCase
         $this->skus($request, ['BMW-1', 'BMW-2']);
         $flow->log($request, 'created', 'Product request created automatically from the SharePoint tracking sheet');
 
+        // The neighbour's first SKUs came in on an earlier run, before the sync
+        // could rename anything — the log has no rename to date them by.
+        $this->travelTo('2026-10-13 10:00');
+        $this->skus($request, ['SP-0']);
+        $flow->log($request, 'skus_added', '1 SKU(s) added from the tracking sheet');
+
         $this->travelTo('2026-10-14 12:03');
         $flow->log($request, 'status_changed', 'Status changed from SKU Mapped to Published');
 
@@ -56,6 +64,27 @@ class RepairReusedSheetNumbersTest extends TestCase
         return $request;
     }
 
+    /** The Beauty tab: which SKU is whose, whatever the master tab's numbers say. */
+    private function fakeTab(array $rows): void
+    {
+        $drive = Mockery::mock(OneDriveService::class);
+        $drive->shouldReceive('asServiceAccount')->andReturnSelf();
+        $drive->shouldReceive('resolveShareItem')->andReturn(['driveId' => 'd', 'itemId' => 'i']);
+        $drive->shouldReceive('worksheetValues')->with('d', 'i', 'Perfumes & Cosmetics')
+            ->andReturn(array_merge([['Date', 'Brand Name', 'Item SKU']], $rows));
+        $this->app->instance(OneDriveService::class, $drive);
+    }
+
+    private function bothBrandsOnTab(): void
+    {
+        $this->fakeTab([
+            ['12-Oct-26', 'BMW FRAGRANCES', 'BMW-1'],
+            ['12-Oct-26', 'BMW Fragrances ', 'BMW-2'],
+            ['21-Oct-26', 'SIMONE PERELE', 'SP-0'],
+            ['21-Oct-26', 'SIMONE PERELE', 'SP-1'],
+        ]);
+    }
+
     private function skus(ProductRequest $request, array $skus): void
     {
         foreach ($skus as $sku) {
@@ -66,18 +95,20 @@ class RepairReusedSheetNumbersTest extends TestCase
     public function test_a_dry_run_changes_nothing(): void
     {
         $request = $this->damaged();
+        $this->bothBrandsOnTab();
 
         $this->artisan('product-requests:repair-reused-numbers')
-            ->expectsOutputToContain('"SIMONE PERELE" → "BMW Fragrances"   remove 4 of 6 SKUs')
+            ->expectsOutputToContain('"SIMONE PERELE" → "BMW Fragrances"   keep 2 of 7 SKUs')
             ->assertSuccessful();
 
         $this->assertSame('SIMONE PERELE', $request->refresh()->brand);
-        $this->assertSame(6, $request->skus()->count());
+        $this->assertSame(7, $request->skus()->count());
     }
 
     public function test_the_request_is_put_back_and_the_other_rows_skus_removed(): void
     {
         $request = $this->damaged();
+        $this->bothBrandsOnTab();
 
         $this->artisan('product-requests:repair-reused-numbers', ['--commit' => true])->assertSuccessful();
 
@@ -92,17 +123,32 @@ class RepairReusedSheetNumbersTest extends TestCase
 
         // Nothing left to do on a second run.
         $this->artisan('product-requests:repair-reused-numbers', ['--commit' => true])
-            ->expectsOutputToContain('Repaired 0 request(s).');
+            ->expectsOutputToContain('Repaired 0 request(s), removing 0 SKU(s).');
         $this->assertSame(1, $request->activities()->where('action', 'sheet_repaired')->count());
     }
 
     public function test_a_corrected_spelling_is_not_a_takeover(): void
     {
         $request = $this->damaged();
+        $this->bothBrandsOnTab();
         $request->activities()->where('action', 'sheet_updated')->update(['remarks' => 'brand: "Armani" → "ARMANI BEAUTY"']);
 
         $this->artisan('product-requests:repair-reused-numbers', ['--commit' => true])
             ->expectsOutputToContain('Repaired 0')
             ->assertSuccessful();
+    }
+
+    public function test_a_brand_the_tab_does_not_know_is_renamed_but_its_skus_are_left(): void
+    {
+        $request = $this->damaged();
+        $this->fakeTab([['21-Oct-26', 'SIMONE PERELE', 'SP-1']]);
+
+        $this->artisan('product-requests:repair-reused-numbers', ['--commit' => true])
+            ->expectsOutputToContain('SKUs unchecked (7)')
+            ->expectsOutputToContain('1 had their brand restored but their SKUs left as they are')
+            ->assertSuccessful();
+
+        $this->assertSame('BMW Fragrances', $request->refresh()->brand);
+        $this->assertSame(7, $request->skus()->count(), 'Nothing is removed on a guess.');
     }
 }
