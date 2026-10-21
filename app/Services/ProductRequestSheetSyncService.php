@@ -1152,6 +1152,9 @@ class ProductRequestSheetSyncService
     /** @var array<string, array<string, array<int, string>>> */
     private array $tabIndex = [];
 
+    /** @var array<string, string>  tab => why it could not be read */
+    public array $unreadableTabs = [];
+
     /**
      * Every SKU a category's tab lists, by brand, across all dates.
      *
@@ -1176,11 +1179,23 @@ class ProductRequestSheetSyncService
                 $this->tabItem = $this->drive->resolveShareItem(config('product_request_sync.master_sheet_url'));
             }
 
-            $values   = $this->drive->worksheetValues($this->tabItem['driveId'], $this->tabItem['itemId'], $sheet);
+            // A tab named in the config but missing from the workbook ("Home")
+            // knows nothing, rather than stopping everything that reads tabs.
+            try {
+                $values = $this->drive->worksheetValues($this->tabItem['driveId'], $this->tabItem['itemId'], $sheet);
+            } catch (\Throwable $e) {
+                $this->unreadableTabs[$sheet] = $e->getCode() === 404 ? 'no such tab in the workbook' : $e->getMessage();
+                $values = [];
+            }
+
             $header   = array_map('trim', $values[0] ?? []);
             $skuCol   = array_search('Item SKU', $header, true);
             $brandCol = array_search('Brand Name', $header, true);
             $index    = [];
+
+            if ($values && ($skuCol === false || $brandCol === false)) {
+                $this->unreadableTabs[$sheet] = 'no "Brand Name" or "Item SKU" header';
+            }
 
             if ($skuCol !== false && $brandCol !== false) {
                 foreach (array_slice($values, 1) as $row) {

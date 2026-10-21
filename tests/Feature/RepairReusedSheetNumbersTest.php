@@ -176,4 +176,30 @@ class RepairReusedSheetNumbersTest extends TestCase
         $this->assertSame('BMW Fragrances', $request->refresh()->brand);
         $this->assertSame(7, $request->skus()->count());
     }
+
+    /** "Home" is in the config but not in the workbook. */
+    public function test_a_missing_tab_does_not_stop_the_repair(): void
+    {
+        $request = $this->damaged();
+
+        $drive = Mockery::mock(OneDriveService::class);
+        $drive->shouldReceive('asServiceAccount')->andReturnSelf();
+        $drive->shouldReceive('resolveShareItem')->andReturn(['driveId' => 'd', 'itemId' => 'i']);
+        $drive->shouldReceive('worksheetValues')->with('d', 'i', 'Perfumes & Cosmetics')->andReturn([
+            ['Date', 'Brand Name', 'Item SKU'],
+            ['21-Oct-26', 'SIMONE PERELE', 'SP-1'],
+        ]);
+        $drive->shouldReceive('worksheetValues')->with('d', 'i', 'Home')->andThrow(new \RuntimeException('ItemNotFound', 404));
+        $drive->shouldReceive('worksheetValues')->andReturn([['Date', 'Brand', 'LUI204DRZ00990']]);
+        $this->app->instance(OneDriveService::class, $drive);
+
+        $this->artisan('product-requests:repair-reused-numbers', ['--commit' => true])
+            ->expectsOutputToContain('Home: no such tab in the workbook')
+            ->expectsOutputToContain('no "Brand Name" or "Item SKU" header')
+            ->assertSuccessful();
+
+        // BMW is on no tab, so every tab was read for the neighbour's SKUs —
+        // and the ones that could not be read did not stop it.
+        $this->assertSame(['BMW-1', 'BMW-2', 'SP-0', 'SP-2', 'SP-3', 'SP-4'], $request->refresh()->skus()->orderBy('sku')->pluck('sku')->all());
+    }
 }

@@ -162,6 +162,15 @@ class RepairReusedSheetNumbers extends Command
             $this->info('Every removed SKU row is saved in ' . Storage::disk('local')->path($path) . ' — delete it once you are happy.');
         }
 
+        if ($sheet->unreadableTabs) {
+            $this->newLine();
+            $this->warn('Tabs that could not be read — their SKUs count as unknown:');
+
+            foreach ($sheet->unreadableTabs as $tab => $why) {
+                $this->line("  {$tab}: {$why}");
+            }
+        }
+
         if ($unverified) {
             $this->newLine();
             $this->warn(count($unverified) . ' had their brand restored, but the tabs could not confirm all of their SKUs — worth a look:');
