@@ -1032,6 +1032,37 @@ class ProductRequestSheetSyncTest extends TestCase
         $this->assertStringContainsString('Request No of its own', implode("\n", $result['log']));
     }
 
+    /** #278 was on four rows at once, and one run renamed the request to each. */
+    public function test_a_number_on_two_rows_for_different_brands_is_skipped(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+
+        $drive = Mockery::mock(OneDriveService::class);
+        $drive->shouldReceive('asServiceAccount')->andReturnSelf();
+        $drive->shouldReceive('resolveShareItem')->andReturn(['driveId' => 'd', 'itemId' => 'i']);
+        $drive->shouldReceive('worksheetValues')
+            ->with('d', 'i', config('product_request_sync.master_worksheet'))
+            ->andReturn([
+                ['Request No', 'Request Date', 'Requested By', 'Department', 'Brand', 'Website'],
+                ['17', '05-Aug-26', 'KAYCEE', 'LINGERIE', 'AMADAMARIA', 'BS'],
+                ['17', '05-Aug-26', 'KAYCEE', 'LINGERIE', 'OTHER BRAND', 'BS'],
+            ]);
+        $drive->shouldReceive('worksheetValues')->with('d', 'i', 'Lingerie')->andReturn([
+            ['Date', 'Brand Name', 'Item SKU'],
+            ['05-Aug-26', 'AMADAMARIA', 'SKU-1'],
+            ['05-Aug-26', 'OTHER BRAND', 'SKU-3'],
+        ]);
+        $this->app->instance(OneDriveService::class, $drive);
+
+        $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertSame(0, ProductRequest::count());
+        $this->assertSame(2, $result['conflicts']);
+        $this->assertStringContainsString('the sheet has it on 2 rows, for AMADAMARIA, OTHER BRAND', implode("\n", $result['log']));
+    }
+
     public function test_skus_added_to_the_sheet_later_are_added_to_the_request(): void
     {
         Queue::fake();

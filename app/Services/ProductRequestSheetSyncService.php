@@ -68,12 +68,23 @@ class ProductRequestSheetSyncService
         ];
 
         $sheetCache = [];
+        $shared     = $this->sharedNumbers($header, $rows);
 
         foreach ($rows as $row) {
             $data = array_combine($header, array_pad($row, count($header), null));
 
             $requestNo = (int) ($data['Request No'] ?? 0);
             if (!$requestNo) {
+                continue;
+            }
+
+            // Two products under one number cannot both be the request it names.
+            // Read in turn, each one renamed it — four brands in a single run.
+            if (isset($shared[$requestNo])) {
+                $result['conflicts']++;
+                $result['log'][] = "Skipped Request No {$requestNo} ({$data['Brand']}): the sheet has it on "
+                    . count($shared[$requestNo]) . ' rows, for ' . implode(', ', $shared[$requestNo])
+                    . ' — give each row a Request No of its own.';
                 continue;
             }
 
@@ -1135,6 +1146,29 @@ class ProductRequestSheetSyncService
      *
      * @return int how many were added
      */
+    /**
+     * Request Nos the sheet gives to more than one brand: number => the brands.
+     *
+     * The same brand twice is a row typed in twice, and reads the same either way.
+     *
+     * @return array<int, array<int, string>>
+     */
+    private function sharedNumbers(array $header, array $rows): array
+    {
+        $brands = [];
+
+        foreach ($rows as $row) {
+            $data = array_combine($header, array_pad($row, count($header), null));
+            $no   = (int) ($data['Request No'] ?? 0);
+
+            if ($no && ($brand = User::normalizeBrand($data['Brand'] ?? null))) {
+                $brands[$no][$brand] = trim((string) $data['Brand']);
+            }
+        }
+
+        return array_map('array_values', array_filter($brands, fn ($b) => count($b) > 1));
+    }
+
     /**
      * Why this row is not the one the request was imported from, or null.
      *
