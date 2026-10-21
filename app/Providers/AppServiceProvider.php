@@ -40,6 +40,11 @@ class AppServiceProvider extends ServiceProvider
         // invisible, because nobody notices a copy that never arrives.
         Event::listen(MessageSending::class, BccEveryMessage::class);
 
+        // ...and every one is logged, so "why did I get this?" has an answer
+        // on the Email Log page rather than in somebody's inbox.
+        Event::listen(MessageSending::class, [\App\Support\EmailLogRecorder::class, 'sending']);
+        Event::listen(\Illuminate\Mail\Events\MessageSent::class, [\App\Support\EmailLogRecorder::class, 'sent']);
+
         // ...and again before every queued job. A queue worker is a long-lived
         // process: it applied the config once at boot, so settings saved after
         // it started were invisible to it. Notifications would then see

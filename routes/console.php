@@ -411,6 +411,9 @@ $pruneJobRuns = function () {
 
 Schedule::call($pruneJobRuns)->hourly()->name('prune-job-runs')->withoutOverlapping();
 
+// The email log keeps bodies a fortnight and rows three months; see EmailLog::prune().
+Schedule::call(fn () => \App\Models\EmailLog::prune())->hourly()->name('prune-email-logs')->withoutOverlapping();
+
 
 // A rewritten meta description cannot be graded on the day it ships — Google has
 // to recrawl the page first — so the reading is taken weeks later, once. Daily

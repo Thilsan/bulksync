@@ -26,6 +26,7 @@ use App\Http\Controllers\PhotoEditorController;
 use App\Http\Controllers\PhotoshootRoomController;
 use App\Http\Controllers\ProductPerformanceController;
 use App\Http\Controllers\ProductRequestController;
+use App\Http\Controllers\EmailLogController;
 use App\Http\Controllers\QueueController;
 use Illuminate\Support\Facades\Route;
 
@@ -235,6 +236,9 @@ Route::middleware('auth')->group(function () {
     Route::middleware('super-admin')->prefix('super-admin')->name('super-admin.')->group(function () {
         Route::get('/',                              [SuperAdminController::class, 'index'])->name('index');
         Route::get('/activity',                      [SuperAdminController::class, 'activity'])->name('activity');
+        Route::get('/emails',                        [EmailLogController::class, 'index'])->name('emails.index');
+        Route::get('/emails/{emailLog}',             [EmailLogController::class, 'show'])->name('emails.show');
+        Route::get('/emails/{emailLog}/body',        [EmailLogController::class, 'body'])->name('emails.body');
         Route::get('/live-feed',                     [SuperAdminController::class, 'liveFeed'])->name('live-feed');
         Route::post('/users',                        [SuperAdminController::class, 'storeUser'])->name('users.store');
         Route::post('/users/{user}/toggle',          [SuperAdminController::class, 'toggleUser'])->name('users.toggle');
