@@ -130,4 +130,29 @@ class BalanceMappedCountTest extends TestCase
 
         $this->assertSame('The balance is mapped — all 40 SKUs are ready', $entry->description);
     }
+
+    // ── Finished requests ────────────────────────────────────────────────────
+
+    /**
+     * The sheet sync appends SKUs to published requests, and re-validating each
+     * one mailed its brand manager — 34 emails in four minutes about requests
+     * that were already live.
+     */
+    public function test_a_published_request_is_recorded_but_nobody_is_mailed(): void
+    {
+        $request = $this->request(true, 40, 40);
+        $request->update(['status' => ProductRequest::PUBLISHED]);
+
+        app(ProductRequestWorkflow::class)->announceBalance($request, 3);
+
+        Notification::assertNothingSent();
+        $this->assertSame('The balance is mapped — all 40 SKUs are ready', $request->activities()->latest('id')->first()->description);
+    }
+
+    public function test_an_open_request_still_mails_its_people(): void
+    {
+        app(ProductRequestWorkflow::class)->announceBalance($this->request(true, 40, 40), 3);
+
+        Notification::assertSentTo($this->user, ProductRequestBalanceMapped::class);
+    }
 }

@@ -738,6 +738,13 @@ class ProductRequestWorkflow
                 : 'Nothing outstanding — the request can be finished',
         );
 
+        // A finished request has nobody waiting on its balance. The sheet sync
+        // appends SKUs to published requests too, and each one re-validated
+        // mailed everyone on it — dozens in a minute, about work already done.
+        if ($request->isClosed()) {
+            return;
+        }
+
         try {
             $recipients = $this->recipients($request);
 
