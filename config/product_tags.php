@@ -1882,6 +1882,57 @@ return [
                     'scat: Niche Fragrances',
                 ],
 
+                /*
+                | The unisex types come from the unisex export. A unisex scent
+                | carries both the men's and the women's tags, so it shows up
+                | in both departments.
+                |
+                | Left out: GCC, Perfume(s), Perfumes & Cosmetics, For Men &
+                | Women and For her / For him, which are legacy tags from older
+                | rows. Also left out: campaign and gift tags (200-back-voucher,
+                | new-season-*, EID*, Ramadan*, Father's day, Valentine, Spring
+                | Festival, PROMOCEGID, QND 23, Curated, Rare to find, Gift Box,
+                | Who: For Her/Him, Sale ...).
+                */
+                'Unisex Fragrances' => [
+                    'Beauty',
+                    'Beauty Fragrances',
+                    'Beauty Fragrances Fragrance',
+                    'Beauty Men fragrances',
+                    'Beauty Women fragrances',
+                    'Fragrance',
+                    'Fragrances',
+                    'Fragrances & Cosmetics',
+                    'Men',
+                    "Men'S Fragrances",
+                    'Mens',
+                    'scat: Fragrance',
+                    'scat: Men Fragrance',
+                    'Scat: New In Beauty & fragrance',
+                    'scat: Women Fragrance',
+                    'Unisex',
+                    'Unisex Fragrances',
+                    'Women',
+                    "Women'S Fragrances",
+                    'Womens',
+                ],
+
+                'Unisex Niche Fragrances' => [
+                    'Beauty',
+                    'Beauty Niche Fragrances',
+                    'Beauty Niche fragrances Fragrance',
+                    'Men',
+                    'Mens',
+                    'Niche fragrances',
+                    'Niche Perfumery',
+                    'Scat: New In Beauty & fragrance',
+                    'scat: Niche Fragrances',
+                    'Unisex',
+                    'Unisex Fragrances',
+                    'Women',
+                    'Womens',
+                ],
+
                 'Fragrance Gift Sets' => [
                     'Beauty Fragrances',
                     'Beauty Fragrances Fragrance',
@@ -1925,6 +1976,39 @@ return [
                     'Niche Perfumery',
                     'Scat: New In Beauty & fragrance',
                     'scat: Niche Bathline',
+                ],
+
+                'Hair Mist' => [
+                    'Beauty',
+                    'Beauty Niche Bathline',
+                    'Beauty Niche Fragrances',
+                    'Beauty Niche fragrances Bathline',
+                    'Hair Mist',
+                    'Mens',
+                    'scat: Niche Bathline',
+                    'Unisex',
+                    'Womens',
+                ],
+
+                'Body Mist' => [
+                    'Beauty',
+                    'Beauty Niche Fragrances',
+                    'Beauty Niche fragrances Bathline',
+                    'Body Spray',
+                    'Mens',
+                    'scat: Niche Bathline',
+                    'Unisex',
+                    'Womens',
+                ],
+
+                'Shower Gel' => [
+                    'Bathline',
+                    'Beauty',
+                    'Beauty Fragrances Bathline',
+                    'Beauty Niche fragrances Bathline',
+                    'scat: Niche Bathline',
+                    'Shower Gel',
+                    'Unisex',
                 ],
 
                 'Home Fragrance' => [
