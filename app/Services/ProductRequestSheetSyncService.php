@@ -101,6 +101,17 @@ class ProductRequestSheetSyncService
                     ->first();
 
                 if ($existing && $existing->status === 'created') {
+                    // The sheet's Request No is not a stable id: rows get renumbered
+                    // and the number ends up on a different product. Matching on
+                    // it alone poured Kenneth Cole perfume into a Simone Perele
+                    // request and moved its date — and every brand manager on the
+                    // old request was mailed about SKUs that were never theirs.
+                    if ($reused = $this->reusedNumber($existing->productRequest, $data, $deptConfig, $item, $sheetCache)) {
+                        $result['conflicts']++;
+                        $result['log'][] = "{$existing->productRequest->reference} — Request No {$requestNo} / {$token}: {$reused}";
+                        continue;
+                    }
+
                     // Requests created before the sheet's Request No / Requested By
                     // were stored have those two columns empty — fill them in on the
                     // next run rather than making the team re-create the request.
@@ -1124,6 +1135,51 @@ class ProductRequestSheetSyncService
      *
      * @return int how many were added
      */
+    /**
+     * Why this row is not the one the request was imported from, or null.
+     *
+     * A brand on the sheet may be corrected — that is an edit, and its SKUs are
+     * still the ones the request has. A different brand whose SKUs share nothing
+     * with the request is a different product that has inherited the number.
+     */
+    private function reusedNumber(?ProductRequest $request, array $data, ?array $deptConfig, array $item, array &$sheetCache): ?string
+    {
+        if (!$request) {
+            return null;
+        }
+
+        $was = User::normalizeBrand($request->sheet_snapshot['brand'] ?? $request->brand);
+        $now = User::normalizeBrand($data['Brand'] ?? null);
+
+        if ($was === null || $now === null || $was === $now) {
+            return null;
+        }
+
+        $why = "the sheet now has \"{$data['Brand']}\" under this number, but the request was imported for \"{$request->brand}\""
+            . ' — left alone. Give that row a Request No of its own.';
+
+        if (!$deptConfig) {
+            return $why;
+        }
+
+        $sheetName = $deptConfig['sheet'];
+
+        if (!array_key_exists($sheetName, $sheetCache)) {
+            $sheetCache[$sheetName] = $this->drive->worksheetValues($item['driveId'], $item['itemId'], $sheetName);
+        }
+
+        $onRow = array_map(fn ($sku) => strtoupper(trim($sku)),
+            $this->matchSkus($sheetCache[$sheetName], $data['Request Date'] ?? null, (string) $data['Brand']));
+
+        if (!$onRow) {
+            return null;   // nothing would be added; a rename is all this can be
+        }
+
+        $have = $request->skus()->pluck('sku')->map(fn ($sku) => strtoupper(trim($sku)))->all();
+
+        return array_intersect($onRow, $have) ? null : $why;
+    }
+
     private function addNewSkus(ProductRequest $request, array $sheetSkus, bool $commit): int
     {
         if (empty($sheetSkus)) {

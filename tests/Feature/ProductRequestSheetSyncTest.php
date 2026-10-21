@@ -1003,6 +1003,35 @@ class ProductRequestSheetSyncTest extends TestCase
      * same brand and date tomorrow. Without this the request keeps its original
      * ten and nobody ever sees the rest.
      */
+    /**
+     * Request No 285 was Simone Perele, then Kenneth Cole. The perfume's SKUs
+     * were poured into the lingerie request, its date moved, and its brand
+     * managers were mailed about them.
+     */
+    public function test_a_request_no_reused_for_another_product_is_left_alone(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+
+        $this->fakeSheet(['Brand' => 'AMADAMARIA']);
+        app(ProductRequestSheetSyncService::class)->run(commit: true);
+        app(ProductRequestSheetSyncService::class)->run(commit: true);   // takes the snapshot
+
+        $request = ProductRequest::sole();
+
+        $this->fakeSheet(['Brand' => 'OTHER BRAND', 'Priority' => 'Low']);
+        $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $request->refresh();
+        $this->assertSame('AMADAMARIA', $request->brand);
+        $this->assertSame('high', $request->priority, 'Nothing from the other row reaches the request.');
+        $this->assertSame(['SKU-1', 'SKU-2'], $request->skus()->orderBy('sku')->pluck('sku')->all());
+        $this->assertSame(0, $result['skus_added']);
+        $this->assertSame(1, $result['conflicts']);
+        $this->assertStringContainsString('Request No of its own', implode("\n", $result['log']));
+    }
+
     public function test_skus_added_to_the_sheet_later_are_added_to_the_request(): void
     {
         Queue::fake();
