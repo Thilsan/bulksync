@@ -295,4 +295,61 @@ class BrandManagerStoreScopeTest extends TestCase
         app(ProductRequestWorkflow::class)->staffFromCategory($request, notify: false);
         $this->assertSame('Blue Salon Person', $request->fresh()->ownerFor('brand_manager_id')?->name);
     }
+
+    // ── Changing the settings reaches requests already open ─────────────────
+
+    /**
+     * The complaint: a brand manager narrowed from Beauty everywhere to Beauty on
+     * Blue Salon kept the slot on every open Beauty request staffed before, and
+     * so kept getting those emails.
+     */
+    public function test_narrowing_a_brand_manager_takes_them_off_requests_no_longer_theirs(): void
+    {
+        $admin  = $this->user('Root', ['is_super_admin' => true]);
+        $raiser = $this->user('Raiser', ['pcr_role' => 'ecommerce', 'pcr_categories' => ['Beauty']]);
+        $nada   = $this->user('Nada', ['pcr_role' => 'brand_manager', 'pcr_brand_categories' => ['Beauty']]);
+
+        $elsewhere = $this->request($this->samsonite, 'Beauty', 'POURCHET', ['user_id' => $raiser->id]);
+        $hers      = $this->request($this->blueSalon, 'Beauty', 'POURCHET', ['user_id' => $raiser->id]);
+
+        $workflow = app(ProductRequestWorkflow::class);
+        $workflow->staffFromCategory($elsewhere, notify: false);
+        $workflow->staffFromCategory($hers, notify: false);
+        $this->assertSame($nada->id, $elsewhere->fresh()->ownerFor('brand_manager_id')?->id);
+
+        $this->actingAs($admin)->post(route('super-admin.users.permissions', $nada), [
+            'perm_product_request'       => 1,
+            'pcr_role'                   => 'brand_manager',
+            'pcr_brand_store_categories' => [$this->key($this->blueSalon, 'Beauty')],
+        ])->assertRedirect();
+
+        $this->assertNotSame($nada->id, $elsewhere->fresh()->ownerFor('brand_manager_id')?->id);
+        $this->assertSame($nada->id, $hers->fresh()->ownerFor('brand_manager_id')?->id);
+
+        Notification::fake();
+        $workflow->transition($elsewhere->fresh(), ProductRequest::COMPLETED, $raiser, force: true);
+        $workflow->transition($hers->fresh(), ProductRequest::COMPLETED, $raiser, force: true);
+
+        Notification::assertSentToTimes($nada, ProductRequestStatusChanged::class, 1);
+    }
+
+    public function test_the_audit_command_re_staffs_slots_left_over_from_old_settings(): void
+    {
+        $raiser = $this->user('Raiser', ['pcr_role' => 'ecommerce', 'pcr_categories' => ['Beauty']]);
+        $nada   = $this->user('Nada', ['pcr_role' => 'brand_manager', 'pcr_brand_categories' => ['Beauty']]);
+
+        $request = $this->request($this->samsonite, 'Beauty', 'POURCHET', ['user_id' => $raiser->id]);
+        app(ProductRequestWorkflow::class)->staffFromCategory($request, notify: false);
+
+        // Changed behind the screen's back, as every setting saved before this fix was.
+        $nada->update(['pcr_brand_categories' => null, 'pcr_brand_store_categories' => [$this->key($this->blueSalon, 'Beauty')]]);
+
+        $this->artisan('product-requests:audit-brand-recipients')
+            ->expectsOutputToContain('Nada')
+            ->assertSuccessful();
+        $this->assertSame($nada->id, $request->fresh()->ownerFor('brand_manager_id')?->id);
+
+        $this->artisan('product-requests:audit-brand-recipients', ['--commit' => true])->assertSuccessful();
+        $this->assertNotSame($nada->id, $request->fresh()->ownerFor('brand_manager_id')?->id);
+    }
 }

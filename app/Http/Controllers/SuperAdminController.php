@@ -7,6 +7,7 @@ use App\Models\ProductRequest;
 use App\Models\ProductRequestActivity;
 use App\Models\Store;
 use App\Models\User;
+use App\Services\ProductRequestWorkflow;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -218,7 +219,7 @@ class SuperAdminController extends Controller
         return back()->with('success', "\"{$user->name}\" has been {$status}.");
     }
 
-    public function updatePermissions(User $user, Request $request): RedirectResponse
+    public function updatePermissions(User $user, Request $request, ProductRequestWorkflow $workflow): RedirectResponse
     {
         // Only categories we actually trade in, in the order the dropdown shows them.
         $categories = array_values(array_intersect(
@@ -323,8 +324,46 @@ class SuperAdminController extends Controller
             }
         }
 
+        // Staffing reads these settings once, when a request is raised. Without
+        // this, narrowing someone to Beauty on Blue Salon left them holding the
+        // brand-manager slot on every open Beauty request they had been given
+        // before — and a slot is copied on every email the request sends.
+        $moved = 0;
+
+        if ($takenOver || $user->wasChanged(self::ROUTING_COLUMNS)) {
+            $moved = $this->restaffOpenRequests($workflow);
+        }
+
         return back()->with('success', "Permissions updated for \"{$user->name}\"."
-            . ($takenOver ? ' Categories and brands were taken off ' . implode(', ', array_unique($takenOver)) . '.' : ''));
+            . ($takenOver ? ' Categories and brands were taken off ' . implode(', ', array_unique($takenOver)) . '.' : '')
+            . ($moved ? " {$moved} open request(s) re-staffed to match." : ''));
+    }
+
+    /** The settings that decide who a request is staffed with and who hears about it. */
+    private const ROUTING_COLUMNS = [
+        'pcr_role', 'pcr_categories', 'pcr_brand_categories', 'pcr_store_categories',
+        'pcr_brand_store_categories', 'pcr_owned_brands', 'pcr_managed_brands',
+    ];
+
+    /**
+     * Move every role the app filled in itself to whoever the settings name now.
+     * Hand-picked roles are left alone, and nobody is emailed about the moves.
+     *
+     * @return int  requests that changed
+     */
+    private function restaffOpenRequests(ProductRequestWorkflow $workflow): int
+    {
+        $moved = 0;
+
+        ProductRequest::whereNotIn('status', ProductRequest::CLOSED_STATUSES)
+            ->whereHas('assignments', fn ($q) => $q->current()->where('auto', true))
+            ->each(function (ProductRequest $request) use ($workflow, &$moved) {
+                if ($workflow->restaffFromCategory($request, auth()->user(), notify: false)) {
+                    $moved++;
+                }
+            });
+
+        return $moved;
     }
 
     public function updateStores(User $user, Request $request): RedirectResponse
