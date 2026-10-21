@@ -82,6 +82,15 @@ class RepairReusedSheetNumbers extends Command
                 })->keys();
             }
 
+            // The damage only ever added. What came in with the request is its
+            // own, whatever the tab says today — the tabs get edited too.
+            $createdAt = $request->activities->firstWhere('action', 'created')?->created_at;
+
+            if ($createdAt) {
+                $original = $request->skus()->where('created_at', '<=', $createdAt)->pluck('id');
+                $stray    = $stray->diff($original)->values();
+            }
+
             // Every SKU belongs to somebody else: the evidence contradicts
             // itself, and emptying the request is not a repair.
             $emptied = $all->isNotEmpty() && $stray->count() === $all->count();

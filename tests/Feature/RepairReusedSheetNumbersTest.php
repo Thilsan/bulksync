@@ -169,12 +169,11 @@ class RepairReusedSheetNumbersTest extends TestCase
         $request = $this->damaged();
         $this->fakeTab([['12-Oct-26', 'BMW FRAGRANCES', 'SOMETHING-ELSE']]);
 
-        $this->artisan('product-requests:repair-reused-numbers', ['--commit' => true])
-            ->expectsOutputToContain('every one is listed under another brand')
-            ->assertSuccessful();
+        $this->artisan('product-requests:repair-reused-numbers', ['--commit' => true])->assertSuccessful();
 
+        // What it came in with stays, so it can never end up with nothing.
         $this->assertSame('BMW Fragrances', $request->refresh()->brand);
-        $this->assertSame(7, $request->skus()->count());
+        $this->assertSame(['BMW-1', 'BMW-2'], $request->skus()->orderBy('sku')->pluck('sku')->all());
     }
 
     /** "Home" is in the config but not in the workbook. */
@@ -201,5 +200,21 @@ class RepairReusedSheetNumbersTest extends TestCase
         // BMW is on no tab, so every tab was read for the neighbour's SKUs —
         // and the ones that could not be read did not stop it.
         $this->assertSame(['BMW-1', 'BMW-2', 'SP-0', 'SP-2', 'SP-3', 'SP-4'], $request->refresh()->skus()->orderBy('sku')->pluck('sku')->all());
+    }
+
+    /** SIMONE PERELE came in with 202 SKUs; the tab lists 14 of them under it today. */
+    public function test_skus_it_was_created_with_are_never_removed(): void
+    {
+        $request = $this->damaged();
+        $this->fakeTab([
+            ['12-Oct-26', 'BMW FRAGRANCES', 'BMW-1'],   // BMW-2 has since gone from the tab
+            ['21-Oct-26', 'SIMONE PERELE', 'SP-1'],
+        ]);
+
+        $this->artisan('product-requests:repair-reused-numbers', ['--commit' => true])
+            ->expectsOutputToContain('keep 2 of 7 SKUs   (created with 2)')
+            ->assertSuccessful();
+
+        $this->assertSame(['BMW-1', 'BMW-2'], $request->refresh()->skus()->orderBy('sku')->pluck('sku')->all());
     }
 }
