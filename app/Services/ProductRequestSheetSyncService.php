@@ -505,19 +505,24 @@ class ProductRequestSheetSyncService
             }
         }
 
-        // Every store here is named "<something> Website", while the sheet writes
-        // the bare name — so "Gold Gourmet" has to find "Gold Gourmet Website".
-        $name = strtolower(trim($token));
+        // Store names and the sheet disagree on both the "Website" suffix and the
+        // spacing: "Gold Gourmet" has to find "Gold Gourmet Website", and
+        // "American Tourister website" has to find "Americantourister".
+        $wanted = $this->storeNameKey($token);
 
-        foreach ([$name, "{$name} website", preg_replace('/\s*website$/', '', $name)] as $candidate) {
-            $store = Store::whereRaw('LOWER(TRIM(name)) = ?', [$candidate])->first();
-
-            if ($store) {
-                return $store;
-            }
+        if ($wanted === '') {
+            return null;
         }
 
-        return null;
+        return Store::all()->first(fn (Store $store) => $this->storeNameKey((string) $store->name) === $wanted);
+    }
+
+    /** "American Tourister website" and "Americantourister" → "americantourister". */
+    private function storeNameKey(string $name): string
+    {
+        $letters = preg_replace('/[^a-z0-9]/', '', strtolower($name));
+
+        return preg_replace('/website$/', '', (string) $letters);
     }
 
     /** "BS - PG-SN" / "BS & Samsonite" / "BS and Gold Gourmet" → ["BS", "PG", "SN"] etc. */

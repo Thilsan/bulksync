@@ -697,6 +697,31 @@ class ProductRequestSheetSyncTest extends TestCase
     }
 
     /**
+     * Request 208 sat unsynced: the sheet wrote "American Tourister website" and
+     * the store is called "Americantourister", one word.
+     */
+    public function test_a_token_finds_a_store_whose_name_is_spaced_differently(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+
+        Store::create([
+            'name'                 => 'Americantourister',
+            'shopify_domain'       => 'amtqatar.myshopify.com',
+            'is_active'            => true,
+            'requires_sku_mapping' => false,
+        ]);
+
+        $this->fakeSheet(['Website' => 'American Tourister website']);
+
+        $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertSame(0, $result['unmatched_store']);
+        $this->assertSame(1, $result['created']);
+        $this->assertSame('Americantourister', ProductRequest::sole()->store->name);
+    }
+
+    /**
      * Request 191 imported with 3 SKUs while the sheet said 4 — one row carried a
      * September date among August ones. The request still imports; the point is
      * that nobody has to count by hand to notice.
