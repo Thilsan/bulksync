@@ -222,6 +222,7 @@
                 @foreach ([
                     'Collarless'   => \App\Services\PhotoroomService::GHOST_MANNEQUIN_HINT_COLLARLESS,
                     'Straight hem' => \App\Services\PhotoroomService::GHOST_MANNEQUIN_HINT_HEM,
+                    'Straight fit' => \App\Services\PhotoroomService::GHOST_MANNEQUIN_HINT_STRAIGHT,
                     'Keep colour'  => \App\Services\PhotoroomService::GHOST_MANNEQUIN_HINT_COLOUR,
                     'Keep fabric'  => \App\Services\PhotoroomService::GHOST_MANNEQUIN_HINT_FABRIC,
                 ] as $label => $clause)

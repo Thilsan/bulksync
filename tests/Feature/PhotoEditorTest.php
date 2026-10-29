@@ -1525,6 +1525,7 @@ class PhotoEditorTest extends TestCase
         foreach ([
             PhotoroomService::GHOST_MANNEQUIN_HINT_COLLARLESS,
             PhotoroomService::GHOST_MANNEQUIN_HINT_HEM,
+            PhotoroomService::GHOST_MANNEQUIN_HINT_STRAIGHT,
             PhotoroomService::GHOST_MANNEQUIN_HINT_COLOUR,
             PhotoroomService::GHOST_MANNEQUIN_HINT_FABRIC,
         ] as $clause) {

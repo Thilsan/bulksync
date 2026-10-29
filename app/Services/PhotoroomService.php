@@ -1186,6 +1186,20 @@ class PhotoroomService
         'Keep the garment\'s exact colour and depth of shade — do not lighten it, wash it out or '
         . 'reduce its saturation';
 
+    /*
+     * For a knit the redraw shapes to a body.
+     *
+     * A V-neck sweater came back fitted: the waist pulled in and the sleeves
+     * curved in against the torso, as if worn by a slim figure. The catalogue
+     * look for womenswear knits is the opposite, a straight boxy body with
+     * the sleeves hanging straight down beside it. The redraw invents the
+     * body it fills, so this names the one we want.
+     */
+    public const GHOST_MANNEQUIN_HINT_STRAIGHT =
+        'Show the garment straight and boxy, front-facing and symmetrical, with the sleeves hanging '
+        . 'straight down beside the body, parallel to the side seams. Do not taper the waist, do not '
+        . 'curve the sleeves in against the torso and do not shape it to a fitted figure';
+
     public const GHOST_MANNEQUIN_HINT_HEM =
         'The hem hangs straight and level — do not add a train, sweep or trailing hem';
 
