@@ -1322,6 +1322,15 @@ class ProductRequestSheetSyncService
         return preg_replace('/[^A-Z0-9]/', '', strtoupper($brand));
     }
 
+    /** "Armani" and "ARMANI BEAUTY" are one brand corrected; "Azzaro" and "RYA COLLECTION" are not. */
+    public static function sameBrand(string $a, string $b): bool
+    {
+        $a = self::brandKey($a);
+        $b = self::brandKey($b);
+
+        return $a === $b || ($a !== '' && $b !== '' && (str_contains($a, $b) || str_contains($b, $a)));
+    }
+
     /**
      * The master rows as the products they describe.
      *
@@ -1635,8 +1644,11 @@ class ProductRequestSheetSyncService
         $onRow = array_map(fn ($sku) => strtoupper(trim($sku)),
             $this->matchSkus($sheetCache[$sheetName], $data['Request Date'] ?? null, (string) $data['Brand']));
 
+        // Nothing on the tab to compare. Only a respelling of the same name is a
+        // correction then: reading "no evidence" as one renamed twenty-one
+        // repaired requests straight back, BIKKEMBERG to BYE BRA among them.
         if (!$onRow) {
-            return null;   // nothing would be added; a rename is all this can be
+            return self::sameBrand($was, $now) ? null : $why;
         }
 
         $have = $request->skus()->pluck('sku')->map(fn ($sku) => strtoupper(trim($sku)))->all();

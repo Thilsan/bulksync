@@ -159,6 +159,29 @@ class RepairReusedSheetNumbersTest extends TestCase
             ->assertSuccessful();
     }
 
+    /** PCR-2026-00314: repaired to BIKKEMBERG, then renamed BYE BRA again by a sync. */
+    public function test_a_request_renamed_again_after_its_repair_is_repaired_again(): void
+    {
+        Storage::fake('local');
+        $request = $this->damaged();
+        $this->bothBrandsOnTab();
+
+        $this->artisan('product-requests:repair-reused-numbers', ['--commit' => true])->assertSuccessful();
+        $this->assertSame('BMW Fragrances', $request->refresh()->brand);
+
+        app(ProductRequestWorkflow::class)->log($request, 'sheet_updated', 'Updated from the tracking sheet',
+            remarks: 'brand: "BMW Fragrances" → "SIMONE PERELE"');
+        $request->update(['brand' => 'SIMONE PERELE']);
+
+        $this->artisan('product-requests:repair-reused-numbers', ['--commit' => true])
+            ->expectsOutputToContain('"SIMONE PERELE" → "BMW Fragrances"')
+            ->assertSuccessful();
+
+        $this->assertSame('BMW Fragrances', $request->refresh()->brand);
+        $this->assertSame('2026-10-15', $request->online_launch_date->toDateString(), 'The date it was given back stays.');
+        $this->assertSame(2, $request->activities()->where('action', 'sheet_repaired')->count());
+    }
+
     public function test_a_corrected_spelling_is_not_a_takeover(): void
     {
         $request = $this->damaged();

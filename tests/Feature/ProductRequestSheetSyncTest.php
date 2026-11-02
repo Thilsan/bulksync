@@ -962,7 +962,7 @@ class ProductRequestSheetSyncTest extends TestCase
         $request = ProductRequest::sole();
         $request->update(['brand' => 'AMADAMARIA (CORRECTED HERE)']);
 
-        $this->fakeSheet(['Brand' => 'SOMETHING ELSE']);
+        $this->fakeSheet(['Brand' => 'AMADA MARIA']);
         $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
 
         $this->assertSame(0, $result['updated']);
@@ -1006,7 +1006,7 @@ class ProductRequestSheetSyncTest extends TestCase
         $request = ProductRequest::sole();
         $request->update(['sheet_snapshot' => null]);
 
-        $this->fakeSheet(['Brand' => 'SOMETHING ELSE']);
+        $this->fakeSheet(['Brand' => 'AMADA MARIA']);
         $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
 
         $this->assertSame(0, $result['updated'], 'Nothing to compare against yet.');
@@ -1014,11 +1014,11 @@ class ProductRequestSheetSyncTest extends TestCase
         $this->assertNotNull($request->sheet_snapshot, 'But the snapshot is now recorded.');
 
         // From here on, a sheet edit is detectable.
-        $this->fakeSheet(['Brand' => 'A THIRD NAME']);
+        $this->fakeSheet(['Brand' => 'AMADAMARIA SWIM']);
         $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
 
         $this->assertSame(1, $result['updated']);
-        $this->assertSame('A THIRD NAME', $request->refresh()->brand);
+        $this->assertSame('AMADAMARIA SWIM', $request->refresh()->brand);
     }
 
     // ── SKUs appended to a category tab after the request exists ─────────────
@@ -1053,6 +1053,29 @@ class ProductRequestSheetSyncTest extends TestCase
         $this->assertSame('high', $request->priority, 'Nothing from the other row reaches the request.');
         $this->assertSame(['SKU-1', 'SKU-2'], $request->skus()->orderBy('sku')->pluck('sku')->all());
         $this->assertSame(0, $result['skus_added']);
+        $this->assertSame(1, $result['conflicts']);
+        $this->assertStringContainsString('Request No of its own', implode("\n", $result['log']));
+    }
+
+    /**
+     * BIKKEMBERG, repaired, then renamed BYE BRA again ten minutes later: BYE
+     * BRA's SKUs were not on the tab, and "nothing to compare" was read as a
+     * correction. A different name with no evidence is not one.
+     */
+    public function test_an_unrelated_brand_with_nothing_on_the_tab_is_not_a_correction(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+
+        $this->fakeSheet(['Brand' => 'AMADAMARIA']);
+        app(ProductRequestSheetSyncService::class)->run(commit: true);
+        $request = ProductRequest::sole();
+
+        $this->fakeSheet(['Brand' => 'BYE BRA']);   // no BYE BRA rows on the tab
+        $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertSame('AMADAMARIA', $request->refresh()->brand);
         $this->assertSame(1, $result['conflicts']);
         $this->assertStringContainsString('Request No of its own', implode("\n", $result['log']));
     }

@@ -213,18 +213,17 @@ class RepairReusedSheetNumbers extends Command
      */
     private function plan(ProductRequest $request): ?array
     {
-        $activities = $request->activities->values();
+        // Only what happened since the last repair. Before it is dealt with; after
+        // it, a sync that renamed the request again (BIKKEMBERG → BYE BRA ten
+        // minutes after its repair) is damage like the first.
+        $repairedAt = $request->activities->where('action', 'sheet_repaired')->max('id') ?? 0;
+        $activities = $request->activities->filter(fn ($a) => $a->id > $repairedAt)->values();
 
-        foreach ($activities as $i => $activity) {
+        foreach ($activities as $activity) {
             if ($activity->action !== 'sheet_updated'
                 || !preg_match('/brand: "(.*?)" → "(.*?)"/u', (string) $activity->remarks, $brand)
-                || $this->sameBrand($brand[1], $brand[2])) {
+                || ProductRequestSheetSyncService::sameBrand($brand[1], $brand[2])) {
                 continue;
-            }
-
-            // Already put back since — a second run must not do it again.
-            if ($activities->slice($i + 1)->contains('action', 'sheet_repaired')) {
-                return null;
             }
 
             preg_match('/online_launch_date: "(.*?)" →/u', (string) $activity->remarks, $launch);
@@ -236,14 +235,5 @@ class RepairReusedSheetNumbers extends Command
         }
 
         return null;
-    }
-
-    /** "Armani" and "ARMANI BEAUTY" are one brand corrected; "Azzaro" and "RYA COLLECTION" are not. */
-    private function sameBrand(string $a, string $b): bool
-    {
-        $a = ProductRequestSheetSyncService::brandKey($a);
-        $b = ProductRequestSheetSyncService::brandKey($b);
-
-        return $a === $b || ($a !== '' && $b !== '' && (str_contains($a, $b) || str_contains($b, $a)));
     }
 }
