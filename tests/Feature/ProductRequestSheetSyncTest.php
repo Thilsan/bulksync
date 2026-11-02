@@ -1693,4 +1693,132 @@ class ProductRequestSheetSyncTest extends TestCase
         $this->assertSame(1, $result['created']);
         $this->assertStringContainsString('Would create', implode(' ', $result['log']));
     }
+
+    // ── One product, however the sheet numbers it ────────────────────────────
+
+    /**
+     * Master rows as [Request No, Request Date, Brand, SKU Count], all KAYCEE /
+     * LINGERIE / BS; tab rows as [Date, Brand, SKU].
+     */
+    private function fakeMaster(array $masterRows, array $tabRows): void
+    {
+        $drive = Mockery::mock(OneDriveService::class);
+        $drive->shouldReceive('asServiceAccount')->andReturnSelf();
+        $drive->shouldReceive('setUser')->andReturnSelf();
+        $drive->shouldReceive('resolveShareItem')->andReturn(['driveId' => 'd', 'itemId' => 'i']);
+        $drive->shouldReceive('worksheetValues')
+            ->with('d', 'i', config('product_request_sync.master_worksheet'))
+            ->andReturn(array_merge(
+                [['Request No', 'Request Date', 'Requested By', 'Department', 'Brand', 'Website', 'SKU Count']],
+                array_map(fn ($r) => [(string) $r[0], $r[1], 'KAYCEE', 'LINGERIE', $r[2], 'BS', (string) $r[3]], $masterRows),
+            ));
+        $drive->shouldReceive('worksheetValues')
+            ->with('d', 'i', 'Lingerie')
+            ->andReturn(array_merge([['Date', 'Brand Name', 'Item SKU']], $tabRows));
+
+        $this->app->instance(OneDriveService::class, $drive);
+    }
+
+    /**
+     * TRIUMPH #269, #270 and #271: three master rows, one brand, one date. The
+     * tab cannot say which SKU is whose, so each became a request holding all
+     * 4,651 of them.
+     */
+    public function test_rows_for_one_brand_and_date_become_one_request(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+
+        $this->fakeMaster(
+            [[269, '13-Oct-26', 'TRIUMPH', 1], [270, '13-Oct-26', 'TRIUMPH', 2], [271, '13-Oct-26', 'TRIUMPH', 3]],
+            array_map(fn ($n) => ['13-Oct-26', 'TRIUMPH', "T-{$n}"], range(1, 6)),
+        );
+
+        $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $request = ProductRequest::sole();
+        $this->assertSame(6, $request->total_skus);
+        $this->assertSame(1, $result['created']);
+        $this->assertSame(0, $result['count_mismatch'], 'The three counts add up to the tab.');
+        $this->assertSame(
+            [$request->id, $request->id, $request->id],
+            ProductRequestSheetSync::orderBy('request_no')->pluck('product_request_id')->all(),
+            'Every number on the sheet points at the one request.',
+        );
+
+        $again = app(ProductRequestSheetSyncService::class)->run(commit: true);
+        $this->assertSame(0, $again['created']);
+        $this->assertSame(1, ProductRequest::count());
+    }
+
+    /** TRIUMPH came in as #436 on 14 Oct and again as #269 on 21 Oct. */
+    public function test_a_renumbered_row_is_not_imported_again(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+
+        $tab = [['13-Oct-26', 'TRIUMPH', 'T-1'], ['13-Oct-26', 'TRIUMPH', 'T-2']];
+
+        $this->fakeMaster([[436, '13-Oct-26', 'TRIUMPH', 2]], $tab);
+        app(ProductRequestSheetSyncService::class)->run(commit: true);
+        $request = ProductRequest::sole();
+
+        $this->fakeMaster([[269, '13-Oct-26', 'TRIUMPH', 2]], $tab);
+        $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertSame(0, $result['created']);
+        $this->assertSame(1, ProductRequest::count());
+        $this->assertSame($request->id, ProductRequestSheetSync::where('request_no', 269)->value('product_request_id'));
+    }
+
+    /**
+     * SANTINNI #119 on 17 Sep, and a later row copied with the same number on
+     * 21 Oct. The second batch is its own request, not more SKUs on the first.
+     */
+    public function test_a_number_reused_by_the_same_brand_on_another_date_is_a_new_request(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+
+        $this->fakeMaster(
+            [[119, '17-Sep-26', 'SANTINNI', 1], [119, '21-Oct-26', 'SANTINNI', 1]],
+            [['17-Sep-26', 'SANTINNI', 'S-1'], ['21-Oct-26', 'SANTINNI', 'S-2']],
+        );
+
+        app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $requests = ProductRequest::orderBy('id')->get();
+        $this->assertCount(2, $requests);
+        $this->assertSame('2026-09-17', $requests[0]->sheet_request_date->toDateString());
+        $this->assertSame(['S-1'], $requests[0]->skus()->pluck('sku')->all());
+        $this->assertSame('2026-10-21', $requests[1]->sheet_request_date->toDateString());
+        $this->assertSame(['S-2'], $requests[1]->skus()->pluck('sku')->all());
+
+        $again = app(ProductRequestSheetSyncService::class)->run(commit: true);
+        $this->assertSame(0, $again['created']);
+        $this->assertSame('2026-09-17', $requests[0]->fresh()->sheet_request_date->toDateString(), 'The date does not flip between the rows.');
+        $this->assertSame(['S-1'], $requests[0]->skus()->pluck('sku')->all());
+    }
+
+    /** LOVETOBAG #134 and #170: the same row typed in twice. */
+    public function test_a_row_typed_twice_is_counted_once(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+
+        $this->fakeMaster(
+            [[134, '30-Aug-26', 'LOVETOBAG', 2], [170, '30-Aug-26', 'LOVETOBAG', 2]],
+            [['30-Aug-26', 'LOVETOBAG', 'L-1'], ['30-Aug-26', 'LOVETOBAG', 'L-2']],
+        );
+
+        $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertSame(1, ProductRequest::count());
+        $this->assertSame(0, $result['count_mismatch']);
+        $this->assertStringContainsString('#134, #170', implode("\n", $result['log']));
+    }
 }

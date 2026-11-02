@@ -43,7 +43,7 @@ class CleanDuplicateSyncedRequests extends Command
      * did. The move itself is the tell — these three are the only ones
      * reconcileMapping() ever makes, and none of them is anybody's decision.
      */
-    private const AUTOMATIC_MOVES = [
+    public const AUTOMATIC_MOVES = [
         ProductRequest::SUBMITTED . '>' . ProductRequest::WAITING_MAPPING,
         ProductRequest::SUBMITTED . '>' . ProductRequest::SKU_VERIFIED,
         ProductRequest::WAITING_MAPPING . '>' . ProductRequest::SKU_VERIFIED,
@@ -100,7 +100,7 @@ class CleanDuplicateSyncedRequests extends Command
                 continue;   // not a race leftover — could be a request raised by hand
             }
 
-            if ($worked = $this->workDoneOn($orphan)) {
+            if ($worked = self::workDoneOn($orphan)) {
                 $kept[] = "{$orphan->reference} ({$orphan->brand}) — kept, someone has worked on it: {$worked}";
                 continue;
             }
@@ -128,7 +128,7 @@ class CleanDuplicateSyncedRequests extends Command
     }
 
     /** Any sign a person has engaged with this request, in words for the report. */
-    private function workDoneOn(ProductRequest $request): ?string
+    public static function workDoneOn(ProductRequest $request): ?string
     {
         $signs = [];
 
