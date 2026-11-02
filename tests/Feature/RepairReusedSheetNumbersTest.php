@@ -134,6 +134,31 @@ class RepairReusedSheetNumbersTest extends TestCase
         $this->assertSame(1, $request->activities()->where('action', 'sheet_repaired')->count());
     }
 
+    /**
+     * The SKUs added before a repair were the damage it undid. Listing every
+     * repaired request again as "worth a glance" buried the few that are.
+     */
+    public function test_a_second_run_does_not_list_what_it_has_repaired(): void
+    {
+        Storage::fake('local');
+        $request = $this->damaged();
+        $this->bothBrandsOnTab();
+
+        $this->artisan('product-requests:repair-reused-numbers', ['--commit' => true])->assertSuccessful();
+
+        $this->artisan('product-requests:repair-reused-numbers')
+            ->doesntExpectOutputToContain('worth a glance')
+            ->assertSuccessful();
+
+        // A top-up after the repair is new, and is listed again.
+        $this->skus($request, ['BMW-3']);
+        app(ProductRequestWorkflow::class)->log($request, 'skus_added', '1 SKU(s) added from the tracking sheet');
+
+        $this->artisan('product-requests:repair-reused-numbers')
+            ->expectsOutputToContain('1 more had SKUs added later')
+            ->assertSuccessful();
+    }
+
     public function test_a_corrected_spelling_is_not_a_takeover(): void
     {
         $request = $this->damaged();

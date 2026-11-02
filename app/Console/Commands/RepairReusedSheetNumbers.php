@@ -57,7 +57,12 @@ class RepairReusedSheetNumbers extends Command
             $plan = $this->plan($request);
 
             if (!$plan) {
-                if ($request->activities->contains('action', 'skus_added')) {
+                // Only SKUs added since the last repair. Those before it were the
+                // damage it undid, and listing every repaired request again buried
+                // the few genuine top-ups this is here to show.
+                $repairedAt = $request->activities->where('action', 'sheet_repaired')->max('id') ?? 0;
+
+                if ($request->activities->contains(fn ($a) => $a->action === 'skus_added' && $a->id > $repairedAt)) {
                     $review[] = $request;
                 }
 
