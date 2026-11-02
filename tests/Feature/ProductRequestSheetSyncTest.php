@@ -1821,4 +1821,163 @@ class ProductRequestSheetSyncTest extends TestCase
         $this->assertSame(0, $result['count_mismatch']);
         $this->assertStringContainsString('#134, #170', implode("\n", $result['log']));
     }
+
+    // ── A department changed on the sheet ────────────────────────────────────
+
+    /** AMADAMARIA on 5 Aug, filed under whichever department is given, on both tabs. */
+    private function fakeDepartment(string $department): void
+    {
+        $tab = [['Date', 'Brand Name', 'Item SKU'], ['05-Aug-26', 'AMADAMARIA', 'SKU-1'], ['05-Aug-26', 'AMADAMARIA', 'SKU-2']];
+
+        $drive = Mockery::mock(OneDriveService::class);
+        $drive->shouldReceive('asServiceAccount')->andReturnSelf();
+        $drive->shouldReceive('setUser')->andReturnSelf();
+        $drive->shouldReceive('resolveShareItem')->andReturn(['driveId' => 'd', 'itemId' => 'i']);
+        $drive->shouldReceive('worksheetValues')
+            ->with('d', 'i', config('product_request_sync.master_worksheet'))
+            ->andReturn([
+                ['Request No', 'Request Date', 'Requested By', 'Department', 'Brand', 'Website', 'SKU Count'],
+                ['17', '05-Aug-26', 'KAYCEE', $department, 'AMADAMARIA', 'BS', '2'],
+            ]);
+        $drive->shouldReceive('worksheetValues')->with('d', 'i', 'Lingerie')->andReturn($tab);
+        $drive->shouldReceive('worksheetValues')->with('d', 'i', 'Leather Goods')->andReturn($tab);
+        $drive->shouldReceive('worksheetValues')->with('d', 'i', 'Kids Fashion')->andReturn($tab);
+
+        $this->app->instance(OneDriveService::class, $drive);
+    }
+
+    private function brandManager(string $name, string $category): User
+    {
+        return User::create([
+            'name' => $name, 'email' => strtolower(str_replace(' ', '.', $name)) . '@example.test', 'password' => 'password',
+            'is_active' => true, 'perm_product_request' => true,
+            'pcr_role' => 'brand_manager', 'pcr_brand_categories' => [$category],
+        ]);
+    }
+
+    /** COLE HAAN filed as LINGERIE and moved to LEATHER: the request and its people follow. */
+    public function test_a_department_changed_on_the_sheet_moves_the_request(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+        $lingerie = $this->brandManager('Lingerie BM', 'Lingerie');
+        $leather  = $this->brandManager('Leather BM', 'Leather Goods');
+
+        $this->fakeDepartment('LINGERIE');
+        app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $request = ProductRequest::sole();
+        $this->assertSame('Lingerie', $request->category);
+        $this->assertSame($lingerie->id, $request->ownerFor('brand_manager_id')?->id);
+
+        $this->fakeDepartment('LEATHER');
+        $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $request->refresh();
+        $this->assertSame('Leather Goods', $request->category);
+        $this->assertSame($leather->id, $request->ownerFor('brand_manager_id')?->id, 'The new category\'s brand manager takes over.');
+        $this->assertSame(0, ProductRequest::whereKeyNot($request->id)->count(), 'It is the same request, moved — not a new one.');
+        $this->assertStringContainsString('category: "Lingerie" → "Leather Goods"', implode("\n", $result['log']));
+    }
+
+    /** Somebody who picked the brand manager by hand keeps the job. */
+    public function test_a_person_assigned_by_hand_stays_when_the_department_changes(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+        $this->brandManager('Lingerie BM', 'Lingerie');
+        $this->brandManager('Leather BM', 'Leather Goods');
+        $chosen = $this->brandManager('Chosen BM', 'Kids');
+
+        $this->fakeDepartment('LINGERIE');
+        app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $request = ProductRequest::sole();
+        app(\App\Services\ProductRequestWorkflow::class)->assignRole(
+            request: $request, field: 'brand_manager_id', userId: $chosen->id, actor: null, notify: false,
+        );
+
+        $this->fakeDepartment('LEATHER');
+        app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertSame('Leather Goods', $request->refresh()->category);
+        $this->assertSame($chosen->id, $request->ownerFor('brand_manager_id')?->id);
+    }
+
+    public function test_a_category_changed_here_is_not_overwritten_by_the_sheet(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+
+        $this->fakeDepartment('LINGERIE');
+        app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $request = ProductRequest::sole();
+        $request->update(['category' => 'Leather Goods']);   // corrected here
+
+        $this->fakeDepartment('KIDS FASHION');
+        $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertSame('Leather Goods', $request->refresh()->category);
+        $this->assertStringContainsString('category is "Leather Goods" here but the sheet now says "Kids"', implode("\n", $result['log']));
+    }
+
+    /**
+     * Imported before the department was remembered: a mismatch could be the
+     * sheet's edit or somebody's correction here, so it is reported every run
+     * until a person settles it — never guessed at.
+     */
+    public function test_a_request_from_before_categories_were_recorded_is_reported_not_moved(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+
+        $this->fakeDepartment('LINGERIE');
+        app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $request = ProductRequest::sole();
+        $request->update(['sheet_snapshot' => \Illuminate\Support\Arr::except($request->sheet_snapshot, 'category')]);
+
+        $this->fakeDepartment('LEATHER');
+
+        foreach ([1, 2] as $run) {
+            $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+            $this->assertSame('Lingerie', $request->refresh()->category, "Run {$run} must not move it.");
+            $this->assertStringContainsString('the sheet files it under "Leather Goods"', implode("\n", $result['log']), "Run {$run} must say so.");
+        }
+
+        // Settled by hand: the report stops and the category is remembered from here on.
+        $request->update(['category' => 'Leather Goods']);
+        $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertStringNotContainsString('files it under', implode("\n", $result['log']));
+        $this->assertSame('Leather Goods', $request->refresh()->sheet_snapshot['category']);
+    }
+
+    /** Older still, with no snapshot at all: its first snapshot does not assume the category. */
+    public function test_a_request_with_no_snapshot_does_not_have_its_category_assumed(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+
+        $this->fakeDepartment('LINGERIE');
+        app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $request = ProductRequest::sole();
+        $request->update(['sheet_snapshot' => null]);
+
+        $this->fakeDepartment('LEATHER');
+        app(ProductRequestSheetSyncService::class)->run(commit: true);   // records the snapshot
+        $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertArrayNotHasKey('category', $request->refresh()->sheet_snapshot);
+        $this->assertSame('Lingerie', $request->category);
+        $this->assertStringContainsString('the sheet files it under "Leather Goods"', implode("\n", $result['log']));
+    }
 }

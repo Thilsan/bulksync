@@ -875,11 +875,12 @@ class ProductRequestSheetSyncService
     /**
      * The fields the sheet is allowed to change on a request that already exists.
      *
-     * Deliberately short. Category is left out: it decides which tab the SKUs
-     * come from and who is staffed, so a change there is reported rather than
-     * applied. Notes are left out because the team writes in them.
+     * Deliberately short. Notes are left out because the team writes in them.
+     * Category is in: the department decides which tab the SKUs come from and
+     * who works on it, and a request left under the old one collects SKUs from
+     * the new tab while the old category's people are mailed about them.
      */
-    private const SHEET_OWNED = ['brand', 'priority', 'online_launch_date'];
+    private const SHEET_OWNED = ['brand', 'priority', 'online_launch_date', 'category'];
 
     /**
      * What the sheet currently says, in the request's own terms.
@@ -894,6 +895,7 @@ class ProductRequestSheetSyncService
             'brand'              => trim((string) ($data['Brand'] ?? '')) ?: null,
             'priority'           => in_array($priority, ['high', 'medium', 'low'], true) ? $priority : null,
             'online_launch_date' => $this->normalizeExcelDate($data['Requested Website Go-Live Date'] ?? null)?->toDateString(),
+            'category'           => $this->departmentConfigFor(trim((string) ($data['Department'] ?? '')))['category'] ?? null,
         ];
     }
 
@@ -908,6 +910,7 @@ class ProductRequestSheetSyncService
             'brand'              => trim((string) $request->brand) ?: null,
             'priority'           => $request->priority,
             'online_launch_date' => $request->online_launch_date?->toDateString(),
+            'category'           => trim((string) $request->category) ?: null,
         ];
     }
 
@@ -935,8 +938,17 @@ class ProductRequestSheetSyncService
         // any difference a local edit and then refuse to ever apply it. Assuming
         // the two were in step means the next sheet change is seen as a change.
         if ($snapshot === null) {
+            $values = $this->requestValues($request);
+
+            // Except a category that disagrees: the reused numbers left requests
+            // filed under a department that was never theirs, and assuming those
+            // were in step would move them the next time the sheet is read.
+            if ($sheet['category'] !== null && $sheet['category'] !== $values['category']) {
+                unset($values['category']);
+            }
+
             if ($commit) {
-                $request->update(['sheet_snapshot' => $this->requestValues($request)]);
+                $request->update(['sheet_snapshot' => $values]);
             }
 
             return ['applied' => [], 'conflicts' => []];
@@ -945,18 +957,33 @@ class ProductRequestSheetSyncService
         $applied   = [];
         $conflicts = [];
         $updates   = [];
+        $unsettled = [];
 
         foreach (self::SHEET_OWNED as $field) {
             $now  = $sheet[$field] ?? null;
             $then = $snapshot[$field] ?? null;
 
-            if ($now === null || $now === $then) {
-                continue;   // the sheet has not changed this
-            }
-
             $mine = $field === 'online_launch_date'
                 ? $request->online_launch_date?->toDateString()
                 : (string) $request->$field;
+
+            // Imported before this field was remembered. A difference now could
+            // be the sheet's edit or somebody's correction here, and nothing says
+            // which — so it is reported every run until a person settles it, and
+            // only then remembered.
+            if (!array_key_exists($field, $snapshot)) {
+                if ($now !== null && $now !== $mine) {
+                    $unsettled[] = $field;
+                    $conflicts[] = "the sheet files it under \"{$now}\" but the request is {$field} \"{$mine}\" here"
+                        . ' — imported before the sheet\'s value was recorded, so it is left for a person to set';
+                }
+
+                continue;
+            }
+
+            if ($now === null || $now === $then) {
+                continue;   // the sheet has not changed this
+            }
 
             if ($mine !== null && $then !== null && $mine !== $then) {
                 $conflicts[] = "{$field} is \"{$mine}\" here but the sheet now says \"{$now}\" — left as it is";
@@ -967,8 +994,19 @@ class ProductRequestSheetSyncService
             $applied[]       = "{$field}: \"{$then}\" → \"{$now}\"";
         }
 
-        if ($commit && ($updates || $snapshot !== $sheet)) {
-            $request->update($updates + ['sheet_snapshot' => $sheet]);
+        // An unsettled field stays out of the snapshot, so it is asked about again.
+        $remember = array_diff_key($sheet, array_flip($unsettled));
+
+        if ($commit && ($updates || $snapshot !== $remember)) {
+            $request->update($updates + ['sheet_snapshot' => $remember]);
+
+            // A new category is new people. Only the roles the app filled in move;
+            // anybody chosen by hand keeps the work.
+            if (isset($updates['category'])) {
+                foreach ($this->workflow->restaffFromCategory($request, null, notify: true) as $role => $change) {
+                    $applied[] = "{$role}: {$change['from']} → {$change['to']}";
+                }
+            }
 
             if ($applied) {
                 $this->workflow->log(
