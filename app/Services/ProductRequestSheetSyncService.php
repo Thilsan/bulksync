@@ -25,11 +25,48 @@ use App\Support\Queues;
  */
 class ProductRequestSheetSyncService
 {
+    /**
+     * Requests whose department is to be taken from the sheet even though it was
+     * never recorded at import: null for none, [] for all, or these references.
+     *
+     * @var array<int, string>|null
+     */
+    private ?array $settleCategories = null;
+
     public function __construct(
         private OneDriveService $drive,
         private ProductRequestWorkflow $workflow,
         private SkuMappingService $mapping,
     ) {}
+
+    /**
+     * Let the sheet decide the department of requests imported before it was
+     * recorded — the step a person takes once they have read the report and
+     * agree with the sheet.
+     *
+     * @param  array<int, string>  $references  only these; empty for every one
+     */
+    public function settleCategories(array $references = []): static
+    {
+        $this->settleCategories = array_map('strtoupper', $references);
+
+        return $this;
+    }
+
+    /**
+     * Whether this request still carries a brand the old number-only matching
+     * gave it from another row. Its department, SKUs and copies are that other
+     * row's business until repair-reused-numbers puts it back.
+     */
+    public static function renamedBySheet(ProductRequest $request): bool
+    {
+        return $request->activities->contains(function ($activity) use ($request) {
+            return $activity->action === 'sheet_updated'
+                && preg_match('/brand: "[^"]*" → "([^"]*)"/u', (string) $activity->remarks, $m)
+                // Still wearing the name the sheet gave it; once repaired, it is itself again.
+                && self::brandKey($m[1]) === self::brandKey((string) $request->brand);
+        });
+    }
 
     /**
      * @return array{created: int, unmatched_store: int, unmatched_department: int, unmatched_skus: int, errors: int, skipped_existing: int, log: array<int, string>}
@@ -972,11 +1009,25 @@ class ProductRequestSheetSyncService
             // which — so it is reported every run until a person settles it, and
             // only then remembered.
             if (!array_key_exists($field, $snapshot)) {
-                if ($now !== null && $now !== $mine) {
-                    $unsettled[] = $field;
-                    $conflicts[] = "the sheet files it under \"{$now}\" but the request is {$field} \"{$mine}\" here"
-                        . ' — imported before the sheet\'s value was recorded, so it is left for a person to set';
+                if ($now === null || $now === $mine) {
+                    continue;
                 }
+
+                $renamed = self::renamedBySheet($request);
+
+                if (!$renamed && $this->settleCategories !== null
+                    && ($this->settleCategories === [] || in_array(strtoupper($request->reference), $this->settleCategories, true))) {
+                    $updates[$field] = $now;
+                    $applied[]       = "{$field}: \"{$mine}\" → \"{$now}\" (settled from the sheet)";
+
+                    continue;
+                }
+
+                $unsettled[] = $field;
+                $conflicts[] = "{$request->brand}: the sheet files it under \"{$now}\" but the request is {$field} \"{$mine}\" here — "
+                    . ($renamed
+                        ? 'it still carries a brand the sheet gave it from another row; run product-requests:repair-reused-numbers first'
+                        : 'imported before the sheet\'s value was recorded; if the sheet is right, run product-requests:sync-sheet --settle-categories --commit');
 
                 continue;
             }

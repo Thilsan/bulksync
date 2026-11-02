@@ -63,12 +63,7 @@ class MergeDuplicateSheetRequests extends Command
             // A request the old number-only matching renamed after another row's
             // brand looks like a copy of that row's request, and is not one.
             // repair-reused-numbers puts it back first; until then it stays.
-            $renamed = $set->filter(fn ($r) => $r->activities->contains(function ($a) use ($r) {
-                return $a->action === 'sheet_updated'
-                    && preg_match('/brand: "[^"]*" → "([^"]*)"/u', (string) $a->remarks, $m)
-                    // Still wearing the name the sheet gave it; once repaired, it is itself again.
-                    && ProductRequestSheetSyncService::brandKey($m[1]) === ProductRequestSheetSyncService::brandKey((string) $r->brand);
-            }));
+            $renamed = $set->filter(fn ($r) => ProductRequestSheetSyncService::renamedBySheet($r));
 
             if ($renamed->isNotEmpty()) {
                 $review[] = "{$label}: " . $renamed->pluck('reference')->implode(', ')

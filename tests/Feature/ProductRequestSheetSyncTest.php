@@ -1959,6 +1959,79 @@ class ProductRequestSheetSyncTest extends TestCase
         $this->assertSame('Leather Goods', $request->refresh()->sheet_snapshot['category']);
     }
 
+    /** Imported under LINGERIE before the department was recorded; the sheet now says LEATHER. */
+    private function legacyLeatherMismatch(): ProductRequest
+    {
+        $this->fakeDepartment('LINGERIE');
+        app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $request = ProductRequest::sole();
+        $request->update(['sheet_snapshot' => \Illuminate\Support\Arr::except($request->sheet_snapshot, 'category')]);
+
+        $this->fakeDepartment('LEATHER');
+
+        return $request;
+    }
+
+    /** Somebody read the report and agrees with the sheet. */
+    public function test_settling_moves_an_old_request_to_the_sheets_department(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+        $this->brandManager('Lingerie BM', 'Lingerie');
+        $leather = $this->brandManager('Leather BM', 'Leather Goods');
+        $request = $this->legacyLeatherMismatch();
+
+        $this->artisan('product-requests:sync-sheet', ['--settle-categories' => true])
+            ->expectsOutputToContain('(settled from the sheet)')
+            ->assertSuccessful();
+        $this->assertSame('Lingerie', $request->refresh()->category, 'A dry run moves nothing.');
+
+        $this->artisan('product-requests:sync-sheet', ['--settle-categories' => true, '--commit' => true])->assertSuccessful();
+
+        $request->refresh();
+        $this->assertSame('Leather Goods', $request->category);
+        $this->assertSame($leather->id, $request->ownerFor('brand_manager_id')?->id);
+        $this->assertSame('Leather Goods', $request->sheet_snapshot['category'], 'From now on it follows the sheet.');
+    }
+
+    public function test_settling_can_be_limited_to_named_requests(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+        $request = $this->legacyLeatherMismatch();
+
+        $this->artisan('product-requests:sync-sheet', ['--settle-categories' => true, '--only' => ['PCR-SOMETHING-ELSE'], '--commit' => true])
+            ->assertSuccessful();
+        $this->assertSame('Lingerie', $request->refresh()->category);
+
+        $this->artisan('product-requests:sync-sheet', ['--settle-categories' => true, '--only' => [strtolower($request->reference)], '--commit' => true])
+            ->assertSuccessful();
+        $this->assertSame('Leather Goods', $request->refresh()->category);
+    }
+
+    /** PCR-2026-00127: LEA renamed COLE HAAN by a reused number. The sheet's department is COLE HAAN's, not LEA's. */
+    public function test_settling_leaves_a_request_the_sheet_renamed_for_the_repair(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+        $request = $this->legacyLeatherMismatch();
+
+        $request->activities()->create([
+            'action' => 'sheet_updated', 'description' => 'Updated from the tracking sheet',
+            'remarks' => 'brand: "LEA" → "AMADAMARIA"',
+        ]);
+
+        $this->artisan('product-requests:sync-sheet', ['--settle-categories' => true, '--commit' => true])
+            ->expectsOutputToContain('run product-requests:repair-reused-numbers first')
+            ->assertSuccessful();
+
+        $this->assertSame('Lingerie', $request->refresh()->category);
+    }
+
     /** Older still, with no snapshot at all: its first snapshot does not assume the category. */
     public function test_a_request_with_no_snapshot_does_not_have_its_category_assumed(): void
     {
