@@ -685,8 +685,9 @@
                                     $downloads = ['all' => 'All SKUs (' . $request->total_skus . ')'];
                                     if ($usesMapping) {
                                         $downloads[\App\Models\ProductRequest::MAP_MAPPED]     = 'Mapped (' . $request->mapped_skus . ')';
-                                        $downloads[\App\Models\ProductRequest::MAP_PENDING]    = 'Pending (' . $request->pending_skus . ')';
-                                        $downloads[\App\Models\ProductRequest::MAP_NOT_MAPPED] = 'Not mapped (' . $request->not_mapped_skus . ')';
+                                        // One bucket: the check only ever says pending, so a separate
+                                        // "Not mapped" sat at 0 beside it.
+                                        $downloads[\App\Models\ProductRequest::MAP_PENDING]    = 'Pending/Not Mapped (' . ($request->pending_skus + $request->not_mapped_skus) . ')';
                                     }
                                 @endphp
                                 @foreach($downloads as $filter => $label)
@@ -740,8 +741,7 @@
                             ? [
                                 ['Total',      $total,                     'box',   'bg-gray-50 border-gray-100',       'bg-white text-gray-500',     'text-gray-900',  'SKUs on this request'],
                                 ['Mapped',     $request->mapped_skus,     'check', 'bg-green-50 border-green-100',     'bg-green-100 text-green-600', 'text-green-700', 'Ready on Shopify'],
-                                ['Pending',    $request->pending_skus,    'clock', 'bg-amber-50 border-amber-100',     'bg-amber-100 text-amber-600', 'text-amber-700', 'Waiting for Cegid'],
-                                ['Not mapped', $request->not_mapped_skus, 'x',     'bg-red-50 border-red-100',         'bg-red-100 text-red-500',     'text-red-600',   'Need attention'],
+                                ['Pending/Not Mapped', $request->pending_skus + $request->not_mapped_skus, 'clock', 'bg-amber-50 border-amber-100', 'bg-amber-100 text-amber-600', 'text-amber-700', 'Waiting for Cegid'],
                             ]
                             : [
                                 ['Total',          $total,              'box',   'bg-gray-50 border-gray-100',   'bg-white text-gray-500',     'text-gray-900',  'SKUs on this request'],
@@ -1110,8 +1110,7 @@
                     $skuChips = array_filter([
                         'all'        => ['All', $pageSkus->count()],
                         'mapped'     => $usesMapping ? ['Mapped', $pageSkus->where('mapping_status', \App\Models\ProductRequest::MAP_MAPPED)->count()] : null,
-                        'pending'    => $usesMapping ? ['Pending', $pageSkus->where('mapping_status', \App\Models\ProductRequest::MAP_PENDING)->count()] : null,
-                        'not_mapped' => $usesMapping ? ['Not mapped', $pageSkus->where('mapping_status', \App\Models\ProductRequest::MAP_NOT_MAPPED)->count()] : null,
+                        'pending'    => $usesMapping ? ['Pending/Not Mapped', $pageSkus->whereIn('mapping_status', [\App\Models\ProductRequest::MAP_PENDING, \App\Models\ProductRequest::MAP_NOT_MAPPED])->count()] : null,
                         'published'  => ['Published', $pageSkus->where('in_shopify', true)->where('shopify_published', true)->count()],
                         'draft'      => ['Draft', $pageSkus->where('in_shopify', true)->where('shopify_published', '!==', true)->count()],
                         'missing'    => ['Not on Shopify', $pageSkus->where('in_shopify', false)->count()],
@@ -1131,7 +1130,8 @@
                             const q = this.q.trim().toLowerCase();
                             if (q && !sku.toLowerCase().includes(q) && !(title || '').toLowerCase().includes(q)) return false;
                             switch (this.filter) {
-                                case 'mapped': case 'pending': case 'not_mapped': return status === this.filter;
+                                case 'mapped':    return status === 'mapped';
+                                case 'pending':   return status === 'pending' || status === 'not_mapped';
                                 case 'published': return live && pub;
                                 case 'draft':     return live && !pub;
                                 case 'missing':   return !live;
@@ -1455,57 +1455,6 @@
                     <p class="text-xs text-gray-400">Max {{ \App\Models\ProductRequestAttachment::maxUploadLabel() }} per file.</p>
                 </div>
             </div>
-
-            {{-- Timeline: comments and activity in one place ──────────────── --}}
-            <div class="{{ $card }}">
-                <div class="px-5 py-3.5 flex items-center justify-between">
-                    <h3 class="text-sm font-semibold text-gray-900">Timeline</h3>
-                    <a href="{{ route('product-requests.activities', $request) }}" class="text-xs text-brand-600 hover:text-brand-700 font-medium">View all</a>
-                </div>
-                <form method="POST" action="{{ route('product-requests.comment', $request) }}" class="px-5 pb-4">
-                    @csrf
-                    <div class="flex gap-2 rounded-lg border border-gray-300 focus-within:ring-2 focus-within:ring-brand-500 p-1.5">
-                        <textarea name="remarks" rows="1" required placeholder="Leave a comment…"
-                                  class="flex-1 border-0 px-2 py-1.5 text-sm focus:ring-0 resize-none"></textarea>
-                        <button type="submit" class="{{ $small }} bg-brand-600 hover:bg-brand-700 text-white self-end">Post</button>
-                    </div>
-                </form>
-                <div class="px-5 pb-5 max-h-[520px] overflow-y-auto">
-                    @forelse($activities as $entry)
-                        @php $isComment = $entry->action === 'comment'; @endphp
-                        <div class="relative flex gap-3 pb-4">
-                            @unless($loop->last)
-                                <span class="absolute left-[11px] top-6 bottom-0 w-px bg-gray-100"></span>
-                            @endunless
-                            <span class="relative w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-[10px] font-semibold {{ $isComment ? 'bg-brand-50 text-brand-700' : 'bg-gray-100 text-gray-400' }}">
-                                @if($isComment)
-                                    {{ strtoupper(substr($entry->actorName(), 0, 1)) }}
-                                @else
-                                    <span class="w-1.5 h-1.5 rounded-full bg-gray-400"></span>
-                                @endif
-                            </span>
-                            <div class="flex-1 min-w-0">
-                                <div class="flex items-baseline justify-between gap-2">
-                                    <p class="text-sm text-gray-800">
-                                        <span class="font-medium">{{ $entry->actorName() }}</span>
-                                        @unless($isComment)
-                                            <span class="text-gray-600">{{ \Illuminate\Support\Str::lcfirst($entry->description) }}</span>
-                                        @endunless
-                                    </p>
-                                    <span class="text-xs text-gray-400 whitespace-nowrap shrink-0" title="{{ $entry->created_at->format('d M Y, h:i A') }}">{{ $entry->created_at->format('d M, h:i A') }}</span>
-                                </div>
-                                @if($isComment)
-                                    <p class="mt-1 text-sm text-gray-700 bg-gray-50 rounded-lg px-3 py-2 whitespace-pre-line">{{ $entry->remarks }}</p>
-                                @elseif($entry->remarks)
-                                    <p class="text-xs text-gray-500 mt-0.5">{{ $entry->remarks }}</p>
-                                @endif
-                            </div>
-                        </div>
-                    @empty
-                        <p class="py-6 text-sm text-gray-400 text-center">Nothing yet.</p>
-                    @endforelse
-                </div>
-            </div>
         </div>
 
         {{-- ── Sidebar ────────────────────────────────────────────────────── --}}
@@ -1620,6 +1569,57 @@
                         </div>
                     </details>
                 @endif
+            </div>
+
+            {{-- Timeline: comments and activity in one place, beside the work on large screens ──────────────── --}}
+            <div class="{{ $card }}">
+                <div class="px-5 py-3.5 flex items-center justify-between">
+                    <h3 class="text-sm font-semibold text-gray-900">Timeline</h3>
+                    <a href="{{ route('product-requests.activities', $request) }}" class="text-xs text-brand-600 hover:text-brand-700 font-medium">View all</a>
+                </div>
+                <form method="POST" action="{{ route('product-requests.comment', $request) }}" class="px-5 pb-4">
+                    @csrf
+                    <div class="flex gap-2 rounded-lg border border-gray-300 focus-within:ring-2 focus-within:ring-brand-500 p-1.5">
+                        <textarea name="remarks" rows="1" required placeholder="Leave a comment…"
+                                  class="flex-1 border-0 px-2 py-1.5 text-sm focus:ring-0 resize-none"></textarea>
+                        <button type="submit" class="{{ $small }} bg-brand-600 hover:bg-brand-700 text-white self-end">Post</button>
+                    </div>
+                </form>
+                <div class="px-5 pb-5 max-h-[520px] overflow-y-auto">
+                    @forelse($activities as $entry)
+                        @php $isComment = $entry->action === 'comment'; @endphp
+                        <div class="relative flex gap-3 pb-4">
+                            @unless($loop->last)
+                                <span class="absolute left-[11px] top-6 bottom-0 w-px bg-gray-100"></span>
+                            @endunless
+                            <span class="relative w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-[10px] font-semibold {{ $isComment ? 'bg-brand-50 text-brand-700' : 'bg-gray-100 text-gray-400' }}">
+                                @if($isComment)
+                                    {{ strtoupper(substr($entry->actorName(), 0, 1)) }}
+                                @else
+                                    <span class="w-1.5 h-1.5 rounded-full bg-gray-400"></span>
+                                @endif
+                            </span>
+                            <div class="flex-1 min-w-0">
+                                <div class="flex items-baseline justify-between gap-2">
+                                    <p class="text-sm text-gray-800">
+                                        <span class="font-medium">{{ $entry->actorName() }}</span>
+                                        @unless($isComment)
+                                            <span class="text-gray-600">{{ \Illuminate\Support\Str::lcfirst($entry->description) }}</span>
+                                        @endunless
+                                    </p>
+                                    <span class="text-xs text-gray-400 whitespace-nowrap shrink-0" title="{{ $entry->created_at->format('d M Y, h:i A') }}">{{ $entry->created_at->format('d M, h:i A') }}</span>
+                                </div>
+                                @if($isComment)
+                                    <p class="mt-1 text-sm text-gray-700 bg-gray-50 rounded-lg px-3 py-2 whitespace-pre-line">{{ $entry->remarks }}</p>
+                                @elseif($entry->remarks)
+                                    <p class="text-xs text-gray-500 mt-0.5">{{ $entry->remarks }}</p>
+                                @endif
+                            </div>
+                        </div>
+                    @empty
+                        <p class="py-6 text-sm text-gray-400 text-center">Nothing yet.</p>
+                    @endforelse
+                </div>
             </div>
         </div>
     </div>

@@ -1852,6 +1852,25 @@ class ProductRequestTest extends TestCase
         $this->assertStringContainsString('Pending Mapping', $csv);
     }
 
+    public function test_pending_export_includes_not_mapped_skus(): void
+    {
+        Notification::fake();
+
+        $user    = $this->brandManager();
+        $request = $this->submitFor($user, $this->mappingSite(), "G-1\nG-2\nG-3");
+
+        $request->skus()->where('sku', 'G-2')->update(['mapping_status' => ProductRequest::MAP_NOT_MAPPED]);
+        $request->skus()->where('sku', 'G-3')->update(['mapping_status' => ProductRequest::MAP_MAPPED]);
+
+        $csv = $this->actingAs($user)
+            ->get(route('product-requests.skus.download', [$request, 'filter' => ProductRequest::MAP_PENDING]))
+            ->streamedContent();
+
+        $this->assertStringContainsString('G-1', $csv);
+        $this->assertStringContainsString('G-2', $csv);
+        $this->assertStringNotContainsString('G-3', $csv);
+    }
+
     // ── Stage queues ─────────────────────────────────────────────────────────
 
     public function test_each_queue_shows_only_its_own_stages(): void

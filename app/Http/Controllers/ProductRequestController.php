@@ -1264,8 +1264,11 @@ class ProductRequestController extends Controller implements HasMiddleware
 
         $query = $productRequest->skus()->orderBy('id');
 
-        if (in_array($filter, [ProductRequest::MAP_MAPPED, ProductRequest::MAP_PENDING, ProductRequest::MAP_NOT_MAPPED], true)) {
+        // Pending and not mapped download as one list, as the page shows them.
+        if ($filter === ProductRequest::MAP_MAPPED) {
             $query->where('mapping_status', $filter);
+        } elseif (in_array($filter, [ProductRequest::MAP_PENDING, ProductRequest::MAP_NOT_MAPPED], true)) {
+            $query->whereIn('mapping_status', [ProductRequest::MAP_PENDING, ProductRequest::MAP_NOT_MAPPED]);
         }
 
         $filename = "{$productRequest->reference}-skus-{$filter}.csv";
