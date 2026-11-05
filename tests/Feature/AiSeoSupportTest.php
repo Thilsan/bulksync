@@ -54,14 +54,14 @@ class AiSeoSupportTest extends TestCase
         Http::fake([self::BASE . '/seo-quickwins' => Http::response($this->quickWinsResponse())]);
 
         $this->actingAs($this->user())
-            ->get(route('ai-seo.index', ['property' => 'sc-domain:goldgourmet.qa']))
+            ->get(route('ai-seo.index', ['property' => 'https://goldgourmet.qa/']))
             ->assertOk()
             ->assertSee('/products/saffron-gift-box')
             ->assertSee('Ranking 7.4 with 920 impressions.')
             ->assertSee('Gold Gourmet');
 
         Http::assertSent(fn (Request $r) => $r->url() === self::BASE . '/seo-quickwins'
-            && $r['property'] === 'sc-domain:goldgourmet.qa'
+            && $r['property'] === 'https://goldgourmet.qa/'
             && !$r->hasHeader('Authorization'));
     }
 
@@ -74,7 +74,7 @@ class AiSeoSupportTest extends TestCase
             ->get(route('ai-seo.index', ['property' => 'sc-domain:example.com']))
             ->assertOk();
 
-        Http::assertSent(fn (Request $r) => $r['property'] === 'sc-domain:goldgourmet.qa');
+        Http::assertSent(fn (Request $r) => $r['property'] === 'https://goldgourmet.qa/');
     }
 
     public function test_no_search_console_data_yet_is_explained_not_an_empty_table(): void
@@ -110,7 +110,7 @@ class AiSeoSupportTest extends TestCase
 
         $this->actingAs($this->user())
             ->postJson(route('ai-seo.report'), [
-                'url' => 'https://goldgourmet.qa/', 'property' => 'sc-domain:goldgourmet.qa',
+                'url' => 'https://goldgourmet.qa/', 'property' => 'https://goldgourmet.qa/',
             ])
             ->assertStatus(502)
             ->assertJsonPath('message', fn ($m) => str_contains($m, 'sent back nothing'));
@@ -125,7 +125,7 @@ class AiSeoSupportTest extends TestCase
 
         $this->actingAs($this->user())
             ->postJson(route('ai-seo.report'), [
-                'url' => 'https://goldgourmet.qa/products/x', 'property' => 'sc-domain:goldgourmet.qa',
+                'url' => 'https://goldgourmet.qa/products/x', 'property' => 'https://goldgourmet.qa/',
             ])
             ->assertOk()
             ->assertJsonPath('summary.score', 68)
@@ -142,13 +142,13 @@ class AiSeoSupportTest extends TestCase
 
         $this->actingAs($this->user())
             ->postJson(route('ai-seo.report'), [
-                'url' => 'https://outoftheblue.qa/products/x', 'property' => 'sc-domain:goldgourmet.qa',
+                'url' => 'https://outoftheblue.qa/products/x', 'property' => 'https://goldgourmet.qa/',
             ])
             ->assertStatus(422);
 
         $this->actingAs($this->user())
             ->postJson(route('ai-seo.report'), [
-                'url' => 'https://evil-goldgourmet.qa.example.com/', 'property' => 'sc-domain:goldgourmet.qa',
+                'url' => 'https://evil-goldgourmet.qa.example.com/', 'property' => 'https://goldgourmet.qa/',
             ])
             ->assertStatus(422);
 
@@ -161,7 +161,7 @@ class AiSeoSupportTest extends TestCase
 
         $this->actingAs($this->user())
             ->postJson(route('ai-seo.report'), [
-                'url' => 'https://www.goldgourmet.qa/ar/products/x', 'property' => 'sc-domain:goldgourmet.qa',
+                'url' => 'https://www.goldgourmet.qa/ar/products/x', 'property' => 'https://goldgourmet.qa/',
             ])
             ->assertOk();
     }
@@ -172,7 +172,7 @@ class AiSeoSupportTest extends TestCase
 
         $this->actingAs($this->user())
             ->postJson(route('ai-seo.report'), [
-                'url' => 'https://goldgourmet.qa/products/x', 'property' => 'sc-domain:goldgourmet.qa',
+                'url' => 'https://goldgourmet.qa/products/x', 'property' => 'https://goldgourmet.qa/',
             ])
             ->assertStatus(502)
             ->assertJsonPath('message', 'The SEO engine did not answer in time. It is safe to try again.');
@@ -185,7 +185,7 @@ class AiSeoSupportTest extends TestCase
         $finding = [
             'findingId' => 'a3f9c21b',
             'url'       => 'https://goldgourmet.qa/products/saffron-gift-box',
-            'property'  => 'sc-domain:goldgourmet.qa',
+            'property'  => 'https://goldgourmet.qa/',
             'issue'     => 'Title too long (71 chars)',
             'category'  => 'Title',
         ];
@@ -201,7 +201,7 @@ class AiSeoSupportTest extends TestCase
     public function test_the_analyzer_page_says_when_a_pasted_page_is_on_the_wrong_store(): void
     {
         $this->actingAs($this->user())
-            ->get(route('ai-seo.analyze', ['property' => 'sc-domain:goldgourmet.qa', 'url' => 'https://outoftheblue.qa/x']))
+            ->get(route('ai-seo.analyze', ['property' => 'https://goldgourmet.qa/', 'url' => 'https://outoftheblue.qa/x']))
             ->assertOk()
             ->assertSee('That page is not on goldgourmet.qa');
     }
@@ -213,7 +213,7 @@ class AiSeoSupportTest extends TestCase
 
         $this->actingAs($user)->get(route('ai-seo.index'))->assertForbidden();
         $this->actingAs($user)->postJson(route('ai-seo.report'), [
-            'url' => 'https://goldgourmet.qa/', 'property' => 'sc-domain:goldgourmet.qa',
+            'url' => 'https://goldgourmet.qa/', 'property' => 'https://goldgourmet.qa/',
         ])->assertForbidden();
         $this->actingAs($user)->get(route('dashboard'))->assertDontSee('AI SEO Support');
 
