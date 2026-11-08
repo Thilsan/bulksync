@@ -669,7 +669,8 @@
                     <div>
                         <h3 class="text-sm font-semibold text-gray-900">Products</h3>
                         <p class="text-xs text-gray-400">
-                            {{ $request->validated_at ? 'Checked ' . $request->validated_at->diffForHumans() : 'Not checked yet' }}
+                            {{ $request->validation_status === 'skipped' ? 'Not checked against Shopify'
+                                : ($request->validated_at ? 'Checked ' . $request->validated_at->diffForHumans() : 'Not checked yet') }}
                         </p>
                     </div>
                     <div class="flex items-center gap-2">

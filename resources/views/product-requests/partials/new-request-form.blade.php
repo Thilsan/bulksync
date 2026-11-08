@@ -80,82 +80,13 @@
                   mappingSites: {{ Illuminate\Support\Js::from($stores->where('requires_sku_mapping', true)->pluck('id')->map(fn ($id) => (string) $id)->values()) }},
                   get usesMapping() { return this.mappingSites.includes(String(this.storeId)) },
 
-                  // On a Cegid-mapped website the product list is checked against
-                  // Shopify before anything is created, so the person sees which
-                  // SKUs are ready and which they still have to map.
-                  check: { open: false, loading: false, error: null, result: null },
-                  confirmed: false,
-                  onlySkus: '',
+                  // Submitted as it is: no check against Shopify first, and every
+                  // SKU in the file goes into the request.
                   submitting: false,
-                  expanded: {}, cache: {},
-                  // Which mapped SKUs go into the request: all of them unless unticked.
-                  chosen: {},
-                  get chosenSkus() { return (this.check.result?.mapped || []).map(r => r.sku).filter(s => this.chosen[s]); },
-                  async onSubmit(e) {
-                      if (this.confirmed || !this.usesMapping) { this.submitting = true; return; }
-                      if (!e.target.reportValidity()) return;
-                      e.preventDefault();
-                      this.check = { open: true, loading: true, error: null, result: null };
-                      const data = new FormData(e.target);
-                      try {
-                          const res  = await fetch('{{ route('product-requests.precheck') }}', { method: 'POST', body: data, headers: { Accept: 'application/json' } });
-                          const body = await res.json();
-                          if (res.status === 422) {
-                              this.check.error = Object.values(body.errors || {}).flat()[0] || body.message;
-                          } else if (!res.ok) {
-                              this.check.error = body.error || body.message || 'The check could not run.';
-                          } else if (!body.mapping) {
-                              this.check.open = false; this.go(null);
-                              return;
-                          } else {
-                              this.check.result = body;
-                              this.chosen = Object.fromEntries(body.mapped.map(r => [r.sku, true]));
-                              this.openAll(body.mapped.map(r => r.sku));
-                          }
-                      } catch (err) {
-                          this.check.error = 'The check could not reach the server.';
-                      }
-                      this.check.loading = false;
-                  },
-                  // Submit for real, with only the SKUs that were confirmed.
-                  go(skus) {
-                      this.onlySkus = skus ? JSON.stringify(skus) : '';
-                      this.confirmed = true;
-                      this.check.open = false;
-                      this.$nextTick(() => this.$refs.form.requestSubmit());
-                  },
-                  // Open by default: the first 40 load a few at a time, so a long
-                  // list neither waits on forty Shopify calls nor floods it.
-                  async openAll(skus) {
-                      this.expanded = {};
-                      const first = skus.slice(0, 40);
-                      first.forEach(s => this.expanded[s] = true);
-                      const queue = [...first];
-                      const worker = async () => { while (queue.length) await this.fetchVariants(queue.shift()); };
-                      await Promise.all([worker(), worker(), worker()]);
-                  },
-                  variants(sku) {
-                      this.expanded[sku] = !this.expanded[sku];
-                      if (this.expanded[sku]) this.fetchVariants(sku);
-                  },
-                  async fetchVariants(sku) {
-                      if (this.cache[sku]) return;
-                      this.cache[sku] = { data: null, error: null, loading: true };
-                      try {
-                          const res  = await fetch('{{ route('product-requests.precheck-variants') }}?store_id=' + this.storeId + '&sku=' + encodeURIComponent(sku), { headers: { Accept: 'application/json' } });
-                          const body = await res.json();
-                          this.cache[sku] = res.ok ? { data: body, error: null, loading: false }
-                                                   : { data: null, error: body.error || body.message || 'Could not read the variants.', loading: false };
-                      } catch (err) {
-                          this.cache[sku] = { data: null, error: 'Could not reach Shopify for this SKU.', loading: false };
-                      }
-                  },
               }"
               x-ref="form"
-              @submit="onSubmit($event)">
+              @submit="submitting = true">
             @csrf
-            <input type="hidden" name="only_skus" :value="onlySkus">
-            <input type="hidden" name="unmapped_skus" :value="check.result ? JSON.stringify(check.result.unmapped) : ''">
 
             <div class="flex-1 min-h-0 overflow-y-auto px-4 py-6 sm:px-6">
                 <div class="max-w-4xl mx-auto">
@@ -374,8 +305,8 @@
                             <h3 class="text-sm font-semibold text-gray-900 mb-3">Product list</h3>
 
                             @include('product-requests.partials.sku-csv-check')
-                            {{-- Checked as soon as it is picked, so a wrong file is caught
-                               now rather than after the whole form is filled in. --}}
+                            {{-- A CSV is read as soon as it is picked, so an empty file is
+                               caught now rather than after the whole form is filled in. --}}
                             <div x-data="{
                                     fileName: '',
                                     over: false,
@@ -400,8 +331,8 @@
                                     <path x-show="fileName" x-cloak stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
                                 </svg>
                                 <span class="text-sm font-medium text-gray-800" x-text="fileName || 'Upload SKU file'"></span>
-                                <span class="text-xs text-gray-400" x-text="fileName ? 'Click to change' : 'CSV with a SKU or Item SKU column · drag and drop or click'"></span>
-                                <input type="file" name="sku_csv" accept=".csv,.txt" x-ref="skuCsv" required class="sr-only"
+                                <span class="text-xs text-gray-400" x-text="fileName ? 'Click to change' : 'Excel or CSV · SKU or Item SKU column, else the first column · drag and drop or click'"></span>
+                                <input type="file" name="sku_csv" accept=".xlsx,.csv,.txt" x-ref="skuCsv" required class="sr-only"
                                        @change="pick($el.files)">
                             </label>
                             <p x-show="error" x-cloak x-text="error" class="mt-2 text-xs text-red-600"></p>
@@ -459,154 +390,13 @@
                             class="border border-gray-300 bg-white text-gray-700 text-sm font-medium px-4 py-2 rounded-lg hover:bg-gray-50 transition-colors">
                         Cancel
                     </button>
-                    <button type="submit" :disabled="check.loading || submitting"
+                    <button type="submit" :disabled="submitting"
                             class="inline-flex items-center gap-2 text-white text-sm font-medium px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 shadow-sm transition-colors disabled:opacity-60">
-                        <svg x-show="check.loading || submitting" x-cloak class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
-                        <span x-text="usesMapping && !confirmed ? 'Check & submit' : 'Submit request'">Submit request</span>
+                        <svg x-show="submitting" x-cloak class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                        <span>Submit request</span>
                     </button>
                 </div>
             </div>
-
-            {{-- Check & confirm: which SKUs are mapped on the website and which still need mapping --}}
-            {{-- Teleported to <main>: the New Request panel is its own layer, and
-                 anything inside it sits under the chat button however high it goes. --}}
-            <template x-teleport="main">
-            <div x-show="check.open" x-cloak class="fixed inset-0 z-[200] flex items-center justify-center p-4" @keydown.escape.window="if (!check.loading) check.open = false">
-                <div class="absolute inset-0 bg-gray-900/40 backdrop-blur-[2px]" @click="if (!check.loading) check.open = false"></div>
-                <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-6xl max-h-[92vh] flex flex-col overflow-hidden"
-                     x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0 scale-95" x-transition:enter-end="opacity-100 scale-100">
-
-                    {{-- Checking --}}
-                    <template x-if="check.loading">
-                        <div class="px-6 py-14 text-center">
-                            <svg class="mx-auto w-8 h-8 animate-spin text-brand-600" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
-                            <p class="mt-4 text-sm font-medium text-gray-900">Checking your SKUs on the website…</p>
-                            <p class="text-xs text-gray-500 mt-1">Looking up each one in Shopify. This takes a few seconds.</p>
-                        </div>
-                    </template>
-
-                    {{-- Could not check --}}
-                    <template x-if="!check.loading && check.error">
-                        <div>
-                            <div class="px-6 pt-6 pb-4 flex items-start gap-4">
-                                <span class="w-11 h-11 rounded-2xl bg-red-100 text-red-600 flex items-center justify-center shrink-0">
-                                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M5 19h14a2 2 0 001.84-2.75L13.74 4a2 2 0 00-3.48 0l-7.1 12.25A2 2 0 004.99 19z"/></svg>
-                                </span>
-                                <div>
-                                    <h3 class="text-lg font-semibold text-gray-900">The check didn't work</h3>
-                                    <p class="text-sm text-gray-600 mt-1" x-text="check.error"></p>
-                                </div>
-                            </div>
-                            <div class="px-6 py-4 bg-gray-50 border-t border-gray-100 flex justify-end gap-2">
-                                <button type="button" @click="check.open = false" class="border border-gray-300 bg-white text-gray-700 text-sm font-medium px-4 py-2 rounded-lg hover:bg-gray-50">Back</button>
-                                <button type="button" @click="go(null)" class="text-white text-sm font-medium px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700">Submit anyway</button>
-                            </div>
-                        </div>
-                    </template>
-
-                    {{-- The result --}}
-                    <template x-if="!check.loading && check.result">
-                        <div class="flex flex-col min-h-0">
-                            <div class="px-6 pt-6 pb-4 flex items-start gap-4 border-b border-gray-100">
-                                <span class="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0"
-                                      :class="!check.result.unmapped.length ? 'bg-green-100 text-green-600' : (check.result.mapped.length ? 'bg-amber-100 text-amber-600' : 'bg-red-100 text-red-600')">
-                                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                         :d="!check.result.unmapped.length ? 'M5 13l4 4L19 7' : 'M12 9v2m0 4h.01M5 19h14a2 2 0 001.84-2.75L13.74 4a2 2 0 00-3.48 0l-7.1 12.25A2 2 0 004.99 19z'"/></svg>
-                                </span>
-                                <div class="min-w-0">
-                                    <h3 class="text-lg font-semibold text-gray-900"
-                                        x-text="!check.result.unmapped.length
-                                            ? `All ${check.result.mapped.length} SKUs are mapped`
-                                            : (check.result.mapped.length
-                                                ? `${check.result.mapped.length} of ${check.result.mapped.length + check.result.unmapped.length} SKUs are mapped`
-                                                : 'None of these SKUs are mapped yet')"></h3>
-                                    <p class="text-sm text-gray-600 mt-1">
-                                        <template x-if="!check.result.unmapped.length"><span>Everything is ready on <span x-text="check.result.store"></span>. Check the list, then create the request.</span></template>
-                                        <template x-if="check.result.unmapped.length && check.result.mapped.length"><span>Only the mapped ones can go into this request. Map the other <b x-text="check.result.unmapped.length"></b> in Cegid on your side, then add them to the request later.</span></template>
-                                        <template x-if="!check.result.mapped.length"><span>Map them in Cegid on your side first. Once they show on <span x-text="check.result.store"></span>, submit the request again.</span></template>
-                                    </p>
-                                </div>
-                            </div>
-
-                            <div class="px-6 py-4 overflow-y-auto space-y-5">
-                                {{-- Mapped --}}
-                                <section x-show="check.result.mapped.length">
-                                    <div class="flex items-center justify-between mb-2">
-                                    <h4 class="text-xs font-semibold uppercase tracking-wider text-green-700 flex items-center gap-1.5">
-                                        <span class="w-2 h-2 rounded-full bg-green-500"></span>
-                                        <span x-text="`Mapped — goes into the request (${check.result.mapped.length})`"></span>
-                                    </h4>
-                                    <span class="flex items-center gap-4">
-                                    <button type="button" class="text-xs font-medium text-brand-700 hover:text-brand-800"
-                                            @click="const all = chosenSkus.length === check.result.mapped.length; check.result.mapped.forEach(r => chosen[r.sku] = !all)"
-                                            x-text="chosenSkus.length === check.result.mapped.length ? 'Clear all' : 'Select all'"></button>
-                                    <button type="button" class="text-xs font-medium text-brand-700 hover:text-brand-800"
-                                            @click="Object.values(expanded).some(v => v) ? (expanded = {}) : openAll(check.result.mapped.map(r => r.sku))"
-                                            x-text="Object.values(expanded).some(v => v) ? 'Hide all colours & sizes' : 'Show all colours & sizes'"></button>
-                                    </span>
-                                    </div>
-                                    <div class="space-y-1.5">
-                                        <template x-for="row in check.result.mapped" :key="row.sku">
-                                            <div class="rounded-xl border transition-colors" :class="chosen[row.sku] ? 'border-gray-200' : 'border-gray-100 bg-gray-50/60'">
-                                                <div class="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-gray-50 rounded-xl cursor-pointer" @click="variants(row.sku)">
-                                                    <label class="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 cursor-pointer"
-                                                           :class="chosen[row.sku] ? 'bg-green-50' : 'bg-gray-100'" @click.stop
-                                                           :title="chosen[row.sku] ? 'In this request — untick to leave it out' : 'Left out — tick to include it'">
-                                                        <input type="checkbox" x-model="chosen[row.sku]" class="w-4 h-4 rounded border-gray-300 text-green-600 accent-green-600 focus:ring-green-500">
-                                                    </label>
-                                                    <span class="min-w-0 flex-1">
-                                                        <span class="block text-sm font-medium truncate" :class="chosen[row.sku] ? 'text-gray-900' : 'text-gray-400 line-through'" x-text="row.title || 'Untitled product'"></span>
-                                                        <span class="block text-xs font-mono text-gray-500" x-text="row.sku"></span>
-                                                    </span>
-                                                    <span class="text-[11px] font-medium rounded-full px-2 py-0.5"
-                                                          :class="row.published ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-100 text-gray-500'"
-                                                          x-text="row.published ? 'Published' : 'Draft'"></span>
-                                                    <span class="text-xs font-medium text-brand-700 whitespace-nowrap" x-text="expanded[row.sku] ? 'Hide' : 'Colours & sizes'"></span>
-                                                </div>
-                                                <div x-show="expanded[row.sku]" class="border-t border-gray-100 bg-gray-50/70 px-3 pb-3 rounded-b-xl">
-                                                    <template x-if="expanded[row.sku]">
-                                                        <div x-data="{ get breakdown() { return cache[row.sku]?.data }, get breakdownLoading() { return cache[row.sku]?.loading ?? true }, get breakdownError() { return cache[row.sku]?.error } }">
-                                                            @include('partials.variant-breakdown')
-                                                        </div>
-                                                    </template>
-                                                </div>
-                                            </div>
-                                        </template>
-                                    </div>
-                                </section>
-
-                                {{-- Not mapped --}}
-                                <section x-show="check.result.unmapped.length">
-                                    <h4 class="text-xs font-semibold uppercase tracking-wider text-red-600 mb-2 flex items-center gap-1.5">
-                                        <span class="w-2 h-2 rounded-full bg-red-500"></span>
-                                        <span x-text="`Not mapped yet — map these in Cegid (${check.result.unmapped.length})`"></span>
-                                    </h4>
-                                    <div class="flex flex-wrap gap-1.5">
-                                        <template x-for="sku in check.result.unmapped" :key="sku">
-                                            <span class="rounded-lg bg-red-50 border border-red-100 px-2 py-1 font-mono text-xs text-red-700" x-text="sku"></span>
-                                        </template>
-                                    </div>
-                                    <button type="button" @click="navigator.clipboard?.writeText(check.result.unmapped.join('\n')); $el.textContent = 'Copied ✓'"
-                                            class="mt-2 text-xs font-medium text-brand-700 hover:text-brand-800">Copy the list</button>
-                                </section>
-                            </div>
-
-                            <div class="px-6 py-4 bg-gray-50 border-t border-gray-100 flex flex-wrap justify-end gap-2">
-                                <button type="button" @click="check.open = false" class="border border-gray-300 bg-white text-gray-700 text-sm font-medium px-4 py-2 rounded-lg hover:bg-gray-50">Back</button>
-                                <span x-show="check.result.mapped.length && !chosenSkus.length" class="self-center text-xs text-gray-500">Tick at least one SKU.</span>
-                                <button type="button" x-show="check.result.mapped.length" @click="go(chosenSkus)" :disabled="!chosenSkus.length"
-                                        class="inline-flex items-center gap-2 text-white text-sm font-medium px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed">
-                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
-                                    <span x-text="chosenSkus.length === check.result.mapped.length && !check.result.unmapped.length
-                                              ? 'Create request'
-                                              : `Create request with ${chosenSkus.length} ${chosenSkus.length === 1 ? 'SKU' : 'SKUs'}`"></span>
-                                </button>
-                            </div>
-                        </div>
-                    </template>
-                </div>
-            </div>
-            </template>
         </form>
     </div>
 </div>
