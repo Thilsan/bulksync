@@ -578,8 +578,9 @@ class ProductRequestSheetSyncTest extends TestCase
             ->with('d', 'i', 'Lingerie')
             ->andReturn([
                 ['Date', 'Brand Name', 'Item SKU'],
-                ['10-Aug-26', 'CERRUTI', 'CER-1'],
-                ['11-Aug-26', 'CERRUTI', 'CER-2'],
+                // Neither is a day off 12 August, so neither is taken for it.
+                ['08-Aug-26', 'CERRUTI', 'CER-1'],
+                ['10-Aug-26', 'CERRUTI', 'CER-2'],
             ]);
 
         $this->app->instance(OneDriveService::class, $drive);
@@ -1451,6 +1452,105 @@ class ProductRequestSheetSyncTest extends TestCase
         $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
 
         $this->assertSame(0, $result['count_mismatch']);
+    }
+
+    // ── Master and tab dated a day apart ─────────────────────────────────────
+
+    /** The October perfume batch: the master says 21 October, its rows on the tab 20 October. */
+    public function test_a_tab_dated_a_day_off_still_matches(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+        $this->fakeSheetDated('21-Oct-26', ['20-Oct-26', '20-Oct-26']);
+
+        $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertSame(1, $result['created']);
+        $this->assertSame(2, ProductRequest::sole()->skus()->count());
+        $this->assertSame(0, $result['count_mismatch']);
+
+        // Said out loud, like a swap: somebody should glance at it.
+        $this->assertSame(1, $result['swapped_dates']);
+        $this->assertStringContainsString('a day from the request date', implode(' ', $result['log']));
+    }
+
+    /** A day either side is a guess between two batches. */
+    public function test_a_day_off_either_side_is_left_for_a_person(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+        $this->fakeSheetDated('21-Oct-26', ['20-Oct-26', '22-Oct-26']);
+
+        $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertSame(0, $result['created']);
+        $this->assertSame(1, $result['unmatched_skus']);
+    }
+
+    /** Two days is not a slip of the date, so nothing is guessed. */
+    public function test_two_days_off_is_not_guessed_at(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+        $this->fakeSheetDated('21-Oct-26', ['19-Oct-26']);
+
+        $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertSame(0, $result['created']);
+        $this->assertSame(1, $result['unmatched_skus']);
+    }
+
+    /** The rows a day off already belong to the master row dated that day; they are not taken twice. */
+    public function test_a_day_off_that_is_another_requests_date_is_not_taken(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+
+        $header = ['Request No', 'Request Date', 'Requested By', 'Department', 'Brand', 'Website'];
+
+        $drive = Mockery::mock(OneDriveService::class);
+        $drive->shouldReceive('asServiceAccount')->andReturnSelf();
+        $drive->shouldReceive('setUser')->andReturnSelf();
+        $drive->shouldReceive('resolveShareItem')->andReturn(['driveId' => 'd', 'itemId' => 'i']);
+        $drive->shouldReceive('worksheetValues')
+            ->with('d', 'i', config('product_request_sync.master_worksheet'))
+            ->andReturn([
+                $header,
+                ['17', '20-Oct-26', 'KAYCEE', 'LINGERIE', 'AMADAMARIA', 'BS'],
+                ['18', '21-Oct-26', 'KAYCEE', 'LINGERIE', 'AMADAMARIA', 'BS'],
+            ]);
+        $drive->shouldReceive('worksheetValues')
+            ->with('d', 'i', 'Lingerie')
+            ->andReturn([
+                ['Date', 'Brand Name', 'Item SKU'],
+                ['20-Oct-26', 'AMADAMARIA', 'SKU-1'],
+            ]);
+        $this->app->instance(OneDriveService::class, $drive);
+
+        $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertSame(1, $result['created']);
+        $this->assertSame(1, $result['unmatched_skus']);
+        $this->assertSame(17, (int) ProductRequest::sole()->sheet_request_no);
+    }
+
+    /** "SN ONLY" means SN, and nothing else on the row. */
+    public function test_a_website_marked_only_finds_its_store(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+        $this->fakeSheet(['Website' => 'BS ONLY']);
+
+        $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertSame(0, $result['unmatched_store']);
+        $this->assertSame(1, $result['created']);
+        $this->assertSame('Bluesalon Website', ProductRequest::sole()->store->name);
     }
 
     // ── Auditing what actually arrived ───────────────────────────────────────

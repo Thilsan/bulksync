@@ -33,6 +33,15 @@ class ProductRequestSheetSyncService
      */
     private ?array $settleCategories = null;
 
+    /**
+     * Every (brand, request date) the master tab holds, keyed "brandKey|Y-m-d".
+     * A tab date a day off is only taken for a request when no master row of
+     * its own already claims it — see tabDateFor().
+     *
+     * @var array<string, true>
+     */
+    private array $masterBrandDates = [];
+
     public function __construct(
         private OneDriveService $drive,
         private ProductRequestWorkflow $workflow,
@@ -85,6 +94,8 @@ class ProductRequestSheetSyncService
         $masterValues = $this->drive->worksheetValues($item['driveId'], $item['itemId'], config('product_request_sync.master_worksheet'));
         $header       = array_map('trim', $masterValues[0] ?? []);
         $rows         = array_slice($masterValues, 1);
+
+        $this->rememberMasterDates($header, $rows);
 
         $result = [
             'created'               => 0,
@@ -353,6 +364,8 @@ class ProductRequestSheetSyncService
         $masterValues = $this->drive->worksheetValues($item['driveId'], $item['itemId'], config('product_request_sync.master_worksheet'));
         $header       = array_map('trim', $masterValues[0] ?? []);
 
+        $this->rememberMasterDates($header, array_slice($masterValues, 1));
+
         $sheetCache = [];
         $rows       = [];
 
@@ -537,7 +550,14 @@ class ProductRequestSheetSyncService
             return null;
         }
 
-        return Store::all()->first(fn (Store $store) => $this->storeNameKey((string) $store->name) === $wanted);
+        $store = Store::all()->first(fn (Store $store) => $this->storeNameKey((string) $store->name) === $wanted);
+
+        // "SN ONLY" says the row is for SN and no other site; the store is SN's.
+        if (!$store && preg_match('/^(.+?)\s+only$/i', trim($token), $m)) {
+            return $this->storeForToken($m[1]);
+        }
+
+        return $store;
     }
 
     /** "American Tourister website" and "Americantourister" → "americantourister". */
@@ -666,14 +686,16 @@ class ProductRequestSheetSyncService
             return [];
         }
 
-        [$targetDate, $swapped] = $this->tabDateFor($sheetValues, $requestDateRaw, $brand);
+        [$targetDate, $correction] = $this->tabDateFor($sheetValues, $requestDateRaw, $brand);
 
         if (!$targetDate) {
             return [];
         }
 
-        if ($swapped) {
+        if ($correction === 'swapped') {
             $note = "matched on {$targetDate} — day and month are swapped on the tab";
+        } elseif ($correction === 'day_off') {
+            $note = "matched on {$targetDate} — the tab dates these rows a day from the request date";
         }
 
         $skus = [];
@@ -708,29 +730,65 @@ class ProductRequestSheetSyncService
      * ambiguous and stays skipped, which is why RAGO (5 Aug and 17 Aug) is left
      * for a person to sort out.
      *
-     * @return array{0: ?string, 1: bool}  the date to match on, and whether it was a swap
+     * The other slip is a day: the master row is filed the day after the SKUs
+     * went on the tab (the October perfume batch is 21 October on the master,
+     * 20 October on the tab, for every brand in it). That is taken when exactly
+     * one of the brand's dates is a day either side and no master row of its
+     * own is dated that day — those rows are that row's, not this one's.
+     *
+     * @return array{0: ?string, 1: ?string}  the date to match on, and 'swapped' / 'day_off' when it is not the master's own
      */
     private function tabDateFor(array $sheetValues, mixed $requestDateRaw, string $brand): array
     {
         $target = $this->normalizeExcelDate($requestDateRaw)?->toDateString();
 
         if (!$target) {
-            return [null, false];
+            return [null, null];
         }
 
         $dates = $this->brandDates($sheetValues, $brand);
 
         if (in_array($target, $dates, true)) {
-            return [$target, false];
+            return [$target, null];
         }
 
         $swapped = $this->swapDayAndMonth($target);
 
         if ($swapped !== null && $dates === [$swapped]) {
-            return [$swapped, true];
+            return [$swapped, 'swapped'];
         }
 
-        return [$target, false];
+        $day    = Carbon::parse($target);
+        $either = [$day->copy()->subDay()->toDateString(), $day->copy()->addDay()->toDateString()];
+        $near   = array_values(array_intersect($dates, $either));
+
+        if (count($near) === 1 && !isset($this->masterBrandDates[self::brandKey($brand) . '|' . $near[0]])) {
+            return [$near[0], 'day_off'];
+        }
+
+        return [$target, null];
+    }
+
+    /** Which brand is requested on which day, across the whole master tab. */
+    private function rememberMasterDates(array $header, array $rows): void
+    {
+        $this->masterBrandDates = [];
+
+        $brandCol = array_search('Brand', $header, true);
+        $dateCol  = array_search('Request Date', $header, true);
+
+        if ($brandCol === false || $dateCol === false) {
+            return;
+        }
+
+        foreach ($rows as $row) {
+            $brand = trim((string) ($row[$brandCol] ?? ''));
+            $date  = $this->normalizeExcelDate($row[$dateCol] ?? null)?->toDateString();
+
+            if ($brand !== '' && $date) {
+                $this->masterBrandDates[self::brandKey($brand) . '|' . $date] = true;
+            }
+        }
     }
 
     /**
