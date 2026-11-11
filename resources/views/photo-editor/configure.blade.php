@@ -252,48 +252,93 @@
                              here the same control is repeated down a page of
                              SKUs beside their photographs, and two rows of
                              buttons each would bury them. --}}
-                        <div class="group/cat mb-3 flex flex-wrap items-center gap-2.5 rounded-xl border px-4 py-2.5 transition-colors"
+                        <div class="mb-3 rounded-xl border px-4 py-3 transition-colors"
                              :class="overridden
                                 ? 'border-brand-200 bg-brand-50/40'
-                                : 'border-gray-200 bg-white hover:border-gray-300'"
+                                : 'border-gray-200 bg-white'"
                              x-data="skuCategory(@js($group->framing_preset ?: ($session->edits['framing_preset'] ?? '')), @js((bool) $group->framing_preset))">
 
-                            <span class="text-[10px] font-semibold uppercase tracking-[0.14em]"
-                                  :class="overridden ? 'text-brand-700' : 'text-gray-400'">Category</span>
+                            <div class="mb-2 flex flex-wrap items-center gap-2.5">
+                                <span class="text-[10px] font-semibold uppercase tracking-[0.14em]"
+                                      :class="overridden ? 'text-brand-700' : 'text-gray-400'">Category</span>
 
-                            {{-- The two halves read as one control: a hairline
-                                 between them rather than a gap, so "Men" and
-                                 "Ties" are plainly one choice and not two
-                                 unrelated boxes sitting next to each other. --}}
-                            <div class="flex items-stretch divide-x divide-gray-200 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
-                                @foreach ([['main', 'onMain()', null], ['sub', 'onSub()', 'subsFor(main).length']] as [$model, $handler, $shownWhen])
-                                    <div class="relative" @if ($shownWhen) x-show="{{ $shownWhen }}" x-cloak @endif>
-                                        <select x-model="{{ $model }}" @change="{{ $handler }}"
-                                                class="h-full cursor-pointer appearance-none bg-transparent py-1.5 pl-3 pr-7 text-xs font-medium text-gray-800
-                                                       transition-colors hover:bg-gray-50 focus:bg-brand-50/50 focus:outline-none">
-                                            @if ($model === 'main')
-                                                @foreach ($framingTree as $mainKey => $main)
-                                                    <option value="{{ $mainKey }}">{{ $main['label'] }}</option>
-                                                @endforeach
-                                            @else
-                                                <template x-for="s in subsFor(main)" :key="s.key">
-                                                    <option :value="s.key" x-text="s.label"></option>
-                                                </template>
-                                            @endif
-                                        </select>
+                                <span x-show="! overridden"
+                                      class="text-[11px] text-gray-400">Following the run</span>
 
-                                        {{-- Drawn rather than left to the
-                                             browser: a native select arrow is
-                                             a different shape and weight on
-                                             every platform, and two of them
-                                             side by side is where that shows
-                                             most. --}}
-                                        <svg class="pointer-events-none absolute right-2 top-1/2 h-3 w-3 -translate-y-1/2 text-gray-400"
-                                             viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"
-                                             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                                            <path d="M3 4.5 6 7.5 9 4.5" />
-                                        </svg>
-                                    </div>
+                                <span x-show="overridden" x-cloak
+                                      class="inline-flex items-center gap-1.5 rounded-full bg-white px-2.5 py-1 text-[11px] font-medium text-brand-700 ring-1 ring-inset ring-brand-600/20">
+                                    <span class="h-1.5 w-1.5 rounded-full bg-brand-500"></span>
+                                    Set for this SKU
+                                </span>
+
+                                <button type="button" x-show="overridden" x-cloak @click="reset()"
+                                        class="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-gray-500 transition-colors hover:bg-white hover:text-gray-900">
+                                    <svg class="h-3 w-3" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"
+                                         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                        <path d="M2.5 5.5h5a2.5 2.5 0 0 1 0 5H5" />
+                                        <path d="M4.5 3 2.5 5.5 4.5 8" />
+                                    </svg>
+                                    Follow the run
+                                </button>
+                            </div>
+
+                            {{-- Main categories, then what sits under the open
+                                 one — the same two rows the run's settings
+                                 panel uses, so the catalogue is navigated the
+                                 same way in both places.
+
+                                 Everything is on screen rather than behind a
+                                 menu: the whole reason this row exists is that
+                                 a folder holds several categories at once, and
+                                 a person retagging a page of SKUs should be
+                                 able to see what they are choosing between
+                                 without opening anything. --}}
+                            <div class="flex flex-wrap gap-1">
+                                @foreach ($framingTree as $mainKey => $main)
+                                    <button type="button" @click="openMain('{{ $mainKey }}')"
+                                            :class="main === '{{ $mainKey }}'
+                                                ? 'bg-white text-gray-900 shadow-sm ring-1 ring-gray-200'
+                                                : 'text-gray-500 hover:bg-white/70 hover:text-gray-800'"
+                                            class="rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-colors">
+                                        {{ $main['label'] }}
+
+                                        {{-- So it stays obvious which main
+                                             category holds the chosen
+                                             subcategory while another one is
+                                             open for browsing. --}}
+                                        <span x-show="overridden && preset.split('/')[0] === '{{ $mainKey }}'" x-cloak
+                                              class="ml-0.5 text-brand-500">&bull;</span>
+                                    </button>
+                                @endforeach
+                            </div>
+
+                            <div class="mt-2 flex flex-wrap gap-1 border-t pt-2"
+                                 :class="overridden ? 'border-brand-200/70' : 'border-gray-100'">
+                                @foreach ($framingTree as $mainKey => $main)
+                                    @foreach ($main['subcategories'] ?? [] as $subKey => $sub)
+                                        <button type="button" x-show="main === '{{ $mainKey }}'" x-cloak
+                                                @click="usePreset('{{ $mainKey }}/{{ $subKey }}')"
+                                                :class="overridden && preset === '{{ $mainKey }}/{{ $subKey }}'
+                                                    ? 'bg-brand-600 text-white shadow-sm'
+                                                    : 'bg-white text-gray-600 ring-1 ring-gray-200 hover:ring-brand-300 hover:text-gray-900'"
+                                                class="rounded-lg px-2.5 py-1 text-[11px] font-medium transition-colors">{{ $sub['label'] }}</button>
+                                    @endforeach
+                                @endforeach
+
+                                {{-- A main category with nothing under it is
+                                     the choice itself — perfume is framed one
+                                     way whatever the bottle — so it is picked
+                                     here rather than leaving an empty row
+                                     that reads as something unfilled. --}}
+                                @foreach ($framingTree as $mainKey => $main)
+                                    @if (!isset($main['subcategories']))
+                                        <button type="button" x-show="main === '{{ $mainKey }}'" x-cloak
+                                                @click="usePreset('{{ $mainKey }}')"
+                                                :class="overridden && preset === '{{ $mainKey }}'
+                                                    ? 'bg-brand-600 text-white shadow-sm'
+                                                    : 'bg-white text-gray-600 ring-1 ring-gray-200 hover:ring-brand-300 hover:text-gray-900'"
+                                                class="rounded-lg px-2.5 py-1 text-[11px] font-medium transition-colors">{{ $main['label'] }}</button>
+                                    @endif
                                 @endforeach
                             </div>
 
@@ -301,25 +346,6 @@
                                  following it stays the stored default and a
                                  later change to the run still reaches here. --}}
                             <input type="hidden" name="groups[{{ $group->id }}][framing_preset]" :value="overridden ? preset : ''">
-
-                            <span x-show="! overridden"
-                                  class="text-[11px] text-gray-400">Following the run</span>
-
-                            <span x-show="overridden" x-cloak
-                                  class="inline-flex items-center gap-1.5 rounded-full bg-white px-2.5 py-1 text-[11px] font-medium text-brand-700 ring-1 ring-inset ring-brand-600/20">
-                                <span class="h-1.5 w-1.5 rounded-full bg-brand-500"></span>
-                                Set for this SKU
-                            </span>
-
-                            <button type="button" x-show="overridden" x-cloak @click="reset()"
-                                    class="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-gray-500 transition-colors hover:bg-white hover:text-gray-900">
-                                <svg class="h-3 w-3" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"
-                                     stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                                    <path d="M2.5 5.5h5a2.5 2.5 0 0 1 0 5H5" />
-                                    <path d="M4.5 3 2.5 5.5 4.5 8" />
-                                </svg>
-                                Follow the run
-                            </button>
                         </div>
 
                         <div class="mb-3 flex flex-wrap items-center gap-2.5 rounded-xl border border-gray-200 bg-white px-4 py-2.5 transition-colors hover:border-gray-300">
@@ -610,72 +636,41 @@
      * The category tree, store-scoped, as {mainKey: {label, subs: [...]}}.
      * One copy for the page rather than one per SKU card.
      */
-    @php
-        // Shaped in a php block, never as a multi-line json argument: Blade's
-        // directive parser reads only the first line of one and then reports
-        // an unclosed bracket from the compiled file in storage/framework.
-        $categoryTree = collect($framingTree)->map(fn ($main) => [
-            'label' => $main['label'],
-            'subs'  => collect($main['subcategories'] ?? [])
-                ->map(fn ($sub, $key) => ['key' => $key, 'label' => $sub['label']])
-                ->values()
-                ->all(),
-        ])->all();
-    @endphp
-
-    window.photoEditorCategories = @json($categoryTree);
-
     /*
      * One SKU's category, when it is not the run's.
      *
-     * Holds the two halves of the key separately because the screen shows them
-     * as two boxes, and writes the joined key to a hidden input only while the
-     * SKU is actually overridden. Left alone, the input posts an empty string
-     * and the SKU keeps following the run — which matters because the run's
-     * category can still change after this page was last saved.
+     * Two pieces of state that are easy to confuse: `main` is only which row
+     * of subcategories is on screen, and `preset` is the choice. Opening
+     * "Women" to see what is under it must not retag the SKU as a dress, so
+     * browsing and choosing are separate — openMain() moves the eye,
+     * usePreset() makes the decision.
      *
-     * A main category with nothing under it, like Perfume, is the whole key on
-     * its own; the second box hides rather than showing an empty list.
+     * `overridden` is the third: left alone, the hidden input posts an empty
+     * string and the SKU keeps following the run, which matters because the
+     * run's own category can still change after this page was last saved.
      */
     function skuCategory(initial, overridden) {
-        const [main, sub] = String(initial || '').split('/');
-
         return {
-            main: main || '',
-            sub:  sub  || '',
+            preset: String(initial || ''),
             overridden: Boolean(overridden),
 
-            subsFor(key) {
-                return (window.photoEditorCategories[key] || {}).subs || [];
+            // The chosen category's row is the one to open on arrival, so the
+            // highlighted pill is visible without hunting for it.
+            main: String(initial || '').split('/')[0] || '',
+
+            openMain(key) {
+                this.main = key;
             },
 
-            get preset() {
-                if (!this.main) return '';
-
-                return this.subsFor(this.main).length ? `${this.main}/${this.sub}` : this.main;
-            },
-
-            /*
-             * Changing the main category picks its first subcategory rather
-             * than leaving the second box on a value from the old one. "Men"
-             * followed by a stale "Dresses" would post men/dresses, which is
-             * not a preset, and the SKU would silently fall back to the run's
-             * framing after the server dropped it.
-             */
-            onMain() {
-                const subs = this.subsFor(this.main);
-                this.sub = subs.length ? subs[0].key : '';
-                this.overridden = true;
-            },
-
-            onSub() {
+            usePreset(key) {
+                this.preset = key;
+                this.main = key.split('/')[0];
                 this.overridden = true;
             },
 
             reset() {
-                const [m, s] = String(@js($session->edits['framing_preset'] ?? '')).split('/');
-                this.main = m || '';
-                this.sub  = s || '';
+                this.preset = String(@js($session->edits['framing_preset'] ?? ''));
+                this.main = this.preset.split('/')[0] || '';
                 this.overridden = false;
             },
         };
