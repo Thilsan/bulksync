@@ -593,7 +593,11 @@ class ProductRequestSheetSyncTest extends TestCase
         $this->assertStringContainsString('2026-08-10', $log);
     }
 
-    /** A near-miss spelling is the other common cause, and worth naming. */
+    /**
+     * A near-miss spelling is the other common cause, and worth naming. On the
+     * request's own date it is taken (see the tests further down); on another
+     * date it is two guesses at once, so it is only named.
+     */
     public function test_a_brand_spelled_differently_is_named(): void
     {
         Queue::fake();
@@ -614,13 +618,14 @@ class ProductRequestSheetSyncTest extends TestCase
             ->with('d', 'i', 'Lingerie')
             ->andReturn([
                 ['Date', 'Brand Name', 'Item SKU'],
-                ['12-Aug-26', 'CERRUTI 1881', 'CER-1'],
+                ['20-Aug-26', 'CERRUTI 1881', 'CER-1'],
             ]);
 
         $this->app->instance(OneDriveService::class, $drive);
 
         $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
 
+        $this->assertSame(1, $result['unmatched_skus']);
         $this->assertStringContainsString('does have CERRUTI 1881', implode("\n", $result['log']));
     }
 
@@ -735,6 +740,187 @@ class ProductRequestSheetSyncTest extends TestCase
                 "\"{$department}\" went to the wrong category",
             );
         }
+    }
+
+    /** A master tab and the category tabs it reads, by name. */
+    private function fakeWorkbook(array $master, array $tabs): void
+    {
+        $drive = Mockery::mock(OneDriveService::class);
+        $drive->shouldReceive('asServiceAccount')->andReturnSelf();
+        $drive->shouldReceive('setUser')->andReturnSelf();
+        $drive->shouldReceive('resolveShareItem')->andReturn(['driveId' => 'd', 'itemId' => 'i']);
+        $drive->shouldReceive('worksheetValues')
+            ->with('d', 'i', config('product_request_sync.master_worksheet'))
+            ->andReturn($master);
+
+        foreach ($tabs as $tab => $rows) {
+            $drive->shouldReceive('worksheetValues')
+                ->with('d', 'i', $tab)
+                ->andReturn([['Date', 'Brand Name', 'Item SKU'], ...$rows]);
+        }
+
+        $this->app->instance(OneDriveService::class, $drive);
+    }
+
+    /** Request 352 sat unsynced as "MOSAFER DIVISION": a known name with a word added. */
+    public function test_a_department_with_extra_words_still_maps(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+
+        $this->fakeWorkbook(
+            [
+                ['Request No', 'Request Date', 'Requested By', 'Department', 'Brand', 'Website'],
+                ['352', '05-Nov-26', 'ANJALI', 'MOSAFER DIVISION', 'AMERICAN TOURISTER', 'BS'],
+            ],
+            ['Luggage' => [['05-Nov-26', 'AMERICAN TOURISTER', 'AT-1']]],
+        );
+
+        $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertSame(0, $result['unmatched_department'], implode("\n", $result['log']));
+        $this->assertSame('Luggage', ProductRequest::sole()->category);
+    }
+
+    /** Two tabs fitting equally well is a guess, and a wrong one files the SKUs with the wrong team. */
+    public function test_a_department_fitting_two_tabs_equally_is_not_guessed(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+
+        $this->fakeWorkbook(
+            [
+                ['Request No', 'Request Date', 'Requested By', 'Department', 'Brand', 'Website'],
+                ['355', '08-Nov-26', 'SHERYL', 'KIDS FASHION ACCESSORIES', 'JUST CAVALLI', 'BS'],
+            ],
+            [],
+        );
+
+        $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertSame(1, $result['unmatched_department']);
+        $this->assertSame(0, ProductRequest::count());
+    }
+
+    /** A Department nobody mapped still has a Category that says where the SKUs are. */
+    public function test_an_unknown_department_falls_back_to_the_category_column(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+
+        $this->fakeWorkbook(
+            [
+                ['Request No', 'Request Date', 'Requested By', 'Department', 'Brand', 'Website', 'Category'],
+                ['17', '05-Aug-26', 'KAYCEE', 'N/A', 'AMADAMARIA', 'BS', 'LINGERIE'],
+            ],
+            ['Lingerie' => [['05-Aug-26', 'AMADAMARIA', 'SKU-1']]],
+        );
+
+        $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertSame(1, $result['created'], implode("\n", $result['log']));
+        $this->assertSame('Lingerie', ProductRequest::sole()->category);
+    }
+
+    /** "JUST CAVALLI" on the master, "JUST CAVALLI KIDS" on the tab, same day: one brand. */
+    public function test_a_brand_inside_the_tabs_name_on_the_same_date_is_taken(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+
+        $this->fakeWorkbook(
+            [
+                ['Request No', 'Request Date', 'Requested By', 'Department', 'Brand', 'Website'],
+                ['355', '08-Nov-26', 'SHERYL', 'KIDS', 'JUST CAVALLI', 'BS'],
+            ],
+            ['Kids Fashion' => [
+                ['08-Nov-26', 'JUST CAVALLI KIDS', 'JC-1'],
+                ['08-Nov-26', 'JUST CAVALLI KIDS', 'JC-2'],
+                ['08-Nov-26', 'OTHER BRAND', 'OB-1'],
+            ]],
+        );
+
+        $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertSame(1, $result['created'], implode("\n", $result['log']));
+        $this->assertSame(2, ProductRequest::sole()->total_skus);
+        $this->assertSame('JUST CAVALLI', ProductRequest::sole()->brand);
+        $this->assertSame(1, $result['swapped_dates'], 'A corrected name is said out loud like a corrected date.');
+        $this->assertStringContainsString('"JUST CAVALLI KIDS" rows to "JUST CAVALLI"', implode("\n", $result['log']));
+    }
+
+    /** "CAVALLI" with JUST CAVALLI and ROBERTO CAVALLI on the tab that day could be either. */
+    public function test_a_brand_fitting_two_names_on_the_tab_is_not_guessed(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+
+        $this->fakeWorkbook(
+            [
+                ['Request No', 'Request Date', 'Requested By', 'Department', 'Brand', 'Website'],
+                ['355', '08-Nov-26', 'SHERYL', 'KIDS', 'CAVALLI', 'BS'],
+            ],
+            ['Kids Fashion' => [
+                ['08-Nov-26', 'JUST CAVALLI', 'JC-1'],
+                ['08-Nov-26', 'ROBERTO CAVALLI', 'RC-1'],
+            ]],
+        );
+
+        $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertSame(1, $result['unmatched_skus']);
+        $this->assertSame(0, ProductRequest::count());
+    }
+
+    /**
+     * The tab's "CAVALLI" fits both master rows that day. Taking it for either
+     * puts one brand's SKUs in the other's request, so neither takes it.
+     */
+    public function test_a_tab_name_two_master_rows_could_claim_is_not_taken(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+
+        $this->fakeWorkbook(
+            [
+                ['Request No', 'Request Date', 'Requested By', 'Department', 'Brand', 'Website'],
+                ['355', '08-Nov-26', 'SHERYL', 'KIDS', 'JUST CAVALLI', 'BS'],
+                ['356', '08-Nov-26', 'SHERYL', 'KIDS', 'ROBERTO CAVALLI', 'BS'],
+            ],
+            ['Kids Fashion' => [['08-Nov-26', 'CAVALLI', 'C-1']]],
+        );
+
+        $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertSame(2, $result['unmatched_skus'], implode("\n", $result['log']));
+        $this->assertSame(0, ProductRequest::count());
+    }
+
+    /** Spaces, hyphens and dots are typing, not a different brand. */
+    public function test_brand_spacing_and_punctuation_do_not_matter(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+
+        $this->fakeWorkbook(
+            [
+                ['Request No', 'Request Date', 'Requested By', 'Department', 'Brand', 'Website'],
+                ['356', '08-Nov-26', 'SHERYL', 'KIDS', 'JOHN-RICHMOND', 'BS'],
+            ],
+            ['Kids Fashion' => [['08-Nov-26', 'John  Richmond', 'JR-1']]],
+        );
+
+        $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertSame(1, $result['created'], implode("\n", $result['log']));
+        $this->assertSame(0, $result['swapped_dates'], 'Spacing is not worth a warning.');
     }
 
     /**

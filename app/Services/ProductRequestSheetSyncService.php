@@ -122,7 +122,7 @@ class ProductRequestSheetSyncService
         foreach ($entries as ['data' => $data, 'numbers' => $numbers]) {
             $requestNo  = $numbers[0];
             $department = trim((string) ($data['Department'] ?? ''));
-            $deptConfig = $this->departmentConfigFor($department);
+            $deptConfig = $this->departmentConfigForRow($data);
 
             $tokens = $this->splitWebsiteTokens((string) ($data['Website'] ?? ''));
 
@@ -243,11 +243,12 @@ class ProductRequestSheetSyncService
                 }
 
                 if (!$deptConfig) {
-                    $this->record($ledgerNo, $token, null, null, 'unmatched_department',
-                        "Department \"{$department}\" is not in config/product_request_sync.php");
+                    $category = trim((string) ($data['Category'] ?? ''));
+                    $why      = "department \"{$department}\" and category \"{$category}\" are neither in config/product_request_sync.php";
+
+                    $this->record($ledgerNo, $token, null, null, 'unmatched_department', ucfirst($why));
                     $result['unmatched_department']++;
-                    $result['log'][] = "Skipped Request No {$requestNo} / {$token} ({$data['Brand']}): "
-                        . "department \"{$department}\" is not in config/product_request_sync.php";
+                    $result['log'][] = "Skipped Request No {$requestNo} / {$token} ({$data['Brand']}): {$why}";
                     continue;
                 }
 
@@ -374,7 +375,7 @@ class ProductRequestSheetSyncService
             }
 
             $department = trim((string) ($data['Department'] ?? ''));
-            $deptConfig = $this->departmentConfigFor($department);
+            $deptConfig = $this->departmentConfigForRow($data);
             $brand      = trim((string) ($data['Brand'] ?? ''));
             $expected   = (int) preg_replace('/[^0-9]/', '', (string) ($data['SKU Count'] ?? ''));
             $listed     = filled($data['Listed By'] ?? null) || filled($data['Listed Date'] ?? null);
@@ -517,13 +518,61 @@ class ProductRequestSheetSyncService
             }
         }
 
-        return null;
+        // Then a known name inside a longer one: "MOSAFER DIVISION", "LINGERIE &
+        // NIGHTWEAR". Whole words, so "MENS" is never found inside "WOMENS", and
+        // the name with the most words wins. Two tabs fitting equally well —
+        // "KIDS FASHION ACCESSORIES" — is a guess, and nothing is returned.
+        $words = $this->departmentWords($department);
+        $best  = [];
+        $most  = 0;
+
+        foreach ($map as $key => $config) {
+            foreach ([(string) $key, (string) ($config['category'] ?? '')] as $name) {
+                $needed = $this->departmentWords($name);
+
+                if (!$needed || array_diff($needed, $words) || count($needed) < $most) {
+                    continue;
+                }
+
+                if (count($needed) > $most) {
+                    $most = count($needed);
+                    $best = [];
+                }
+
+                $best[$config['sheet']] = $config;
+            }
+        }
+
+        return count($best) === 1 ? reset($best) : null;
+    }
+
+    /**
+     * Which department a master row is, and so which tab holds its SKUs.
+     *
+     * The Department column decides. When it names nothing known — blank, "N/A",
+     * a word nobody mapped — the Category column usually does ("LUGGAGE",
+     * "LINGERIE"), so it is asked next. Every reader of a row's department goes
+     * through here, so the sync, its fingerprints and the sheet snapshot can
+     * never disagree about which one a row is.
+     */
+    private function departmentConfigForRow(array $data): ?array
+    {
+        return $this->departmentConfigFor(trim((string) ($data['Department'] ?? '')))
+            ?? $this->departmentConfigFor(trim((string) ($data['Category'] ?? '')));
     }
 
     /** "Women's Fashion", "WOMENS FASHION" and "womens  fashion" → "womensfashion". */
     private function departmentKey(string $department): string
     {
         return (string) preg_replace('/[^a-z0-9]/', '', strtolower($department));
+    }
+
+    /** "Women's Fashion" → ["womens", "fashion"]; "MOSAFER DIVISION" → ["mosafer", "division"]. */
+    private function departmentWords(string $department): array
+    {
+        $words = preg_split('/[^a-z0-9]+/', str_replace(["'", '’'], '', strtolower($department)));
+
+        return array_values(array_filter($words ?: [], fn ($word) => $word !== ''));
     }
 
     /** Tokens this app is told not to sync — a decision, not a missing store. */
@@ -644,7 +693,7 @@ class ProductRequestSheetSyncService
                 continue;
             }
 
-            if (strcasecmp($rowBrand, trim($brand)) === 0) {
+            if ($this->keyOf($rowBrand) === $this->keyOf($brand)) {
                 $raw = trim((string) ($row[$dateCol] ?? ''));
                 $on  = $this->normalizeExcelDate($row[$dateCol] ?? null)?->toDateString();
 
@@ -698,17 +747,22 @@ class ProductRequestSheetSyncService
             return [];
         }
 
+        $brandNote = null;
+        $brand     = $this->tabBrandFor($sheetValues, $requestDateRaw, $brand, $brandNote);
+
         [$targetDate, $correction] = $this->tabDateFor($sheetValues, $requestDateRaw, $brand);
 
         if (!$targetDate) {
             return [];
         }
 
-        if ($correction === 'swapped') {
-            $note = "matched on {$targetDate} — day and month are swapped on the tab";
-        } elseif ($correction === 'day_off') {
-            $note = "matched on {$targetDate} — the tab dates these rows a day from the request date";
-        }
+        $dateNote = match ($correction) {
+            'swapped' => "matched on {$targetDate} — day and month are swapped on the tab",
+            'day_off' => "matched on {$targetDate} — the tab dates these rows a day from the request date",
+            default   => null,
+        };
+
+        $note = implode('; ', array_filter([$brandNote, $dateNote])) ?: null;
 
         $skus = [];
 
@@ -716,7 +770,7 @@ class ProductRequestSheetSyncService
             $rowDate  = $this->normalizeExcelDate($row[$dateCol] ?? null)?->toDateString();
             $rowBrand = trim((string) ($row[$brandCol] ?? ''));
 
-            if ($rowDate === $targetDate && strcasecmp($rowBrand, trim($brand)) === 0) {
+            if ($rowDate === $targetDate && $this->keyOf($rowBrand) === $this->keyOf($brand)) {
                 $sku = trim((string) ($row[$skuCol] ?? ''));
                 if ($sku !== '') {
                     $skus[] = $sku;
@@ -823,7 +877,7 @@ class ProductRequestSheetSyncService
 
         foreach (array_slice($sheetValues, 1) as $row) {
             if (trim((string) ($row[$skuCol] ?? '')) === ''
-                || strcasecmp(trim((string) ($row[$brandCol] ?? '')), trim($brand)) !== 0) {
+                || $this->keyOf((string) ($row[$brandCol] ?? '')) !== $this->keyOf($brand)) {
                 continue;
             }
 
@@ -836,6 +890,98 @@ class ProductRequestSheetSyncService
         sort($dates);
 
         return $dates;
+    }
+
+    /**
+     * The name a category tab files this request's rows under.
+     *
+     * Normally the master row's own. But the two tabs are typed by different
+     * people, so "JUST CAVALLI" on the master is "JUST CAVALLI KIDS" on the tab,
+     * or the other way round. One name inside the other is accepted only when
+     * nothing else could be meant: on the request's own date, exactly one brand
+     * on the tab fits, and no other master row that day fits it too. "CAVALLI"
+     * against both JUST CAVALLI and ROBERTO CAVALLI on one day is a guess, and
+     * a wrong guess puts another brand's SKUs in this request — so it stays
+     * skipped for a person.
+     */
+    private function tabBrandFor(array $sheetValues, mixed $requestDateRaw, string $brand, ?string &$note = null): string
+    {
+        $header   = array_map('trim', $sheetValues[0] ?? []);
+        $dateCol  = array_search('Date', $header, true);
+        $brandCol = array_search('Brand Name', $header, true);
+        $skuCol   = array_search('Item SKU', $header, true);
+        $wanted   = $this->keyOf($brand);
+        $date     = $this->normalizeExcelDate($requestDateRaw)?->toDateString();
+
+        if ($dateCol === false || $brandCol === false || $skuCol === false || $wanted === '' || !$date) {
+            return $brand;
+        }
+
+        // Its own name finds rows — on the date, or on the one tabDateFor()
+        // corrects it to. Nothing to look for.
+        [$onDate, ] = $this->tabDateFor($sheetValues, $requestDateRaw, $brand);
+
+        if (in_array($onDate, $this->brandDates($sheetValues, $brand), true)) {
+            return $brand;
+        }
+
+        $fits = [];
+
+        foreach (array_slice($sheetValues, 1) as $row) {
+            $rowBrand = trim((string) ($row[$brandCol] ?? ''));
+            $key      = $this->keyOf($rowBrand);
+
+            if (isset($fits[$key]) || !$this->brandKeysFit($key, $wanted)
+                || trim((string) ($row[$skuCol] ?? '')) === ''
+                || $this->normalizeExcelDate($row[$dateCol] ?? null)?->toDateString() !== $date) {
+                continue;
+            }
+
+            $fits[$key] = $rowBrand;
+        }
+
+        if (count($fits) !== 1) {
+            return $brand;
+        }
+
+        $found = (string) reset($fits);
+        $key   = (string) key($fits);
+
+        // Another row on the master that day whose brand fits as well — or IS
+        // this name — has as good a claim on these rows as this one.
+        foreach (array_keys($this->masterBrandDates) as $claim) {
+            [$other, $on] = explode('|', $claim, 2);
+
+            if ($on === $date && $other !== $wanted && $this->brandKeysFit($other, $key)) {
+                return $brand;
+            }
+        }
+
+        $note = "matched the tab's \"{$found}\" rows to \"{$brand}\"";
+
+        return $found;
+    }
+
+    /**
+     * One brand key inside the other: "JUSTCAVALLI" and "JUSTCAVALLIKIDS".
+     * Never on a name shorter than four letters, which fits inside far too much.
+     */
+    private function brandKeysFit(string $a, string $b): bool
+    {
+        if ($a === $b) {
+            return true;
+        }
+
+        return min(strlen($a), strlen($b)) >= 4 && (str_contains($a, $b) || str_contains($b, $a));
+    }
+
+    /** @var array<string, string> */
+    private array $brandKeys = [];
+
+    /** brandKey(), remembered: the tabs run to thousands of rows, read once per request. */
+    private function keyOf(string $brand): string
+    {
+        return $this->brandKeys[$brand] ??= self::brandKey($brand);
     }
 
     /** 2026-08-09 → 2026-09-08. Null when the day is past 12 and cannot be a month. */
@@ -1002,7 +1148,7 @@ class ProductRequestSheetSyncService
             'brand'              => trim((string) ($data['Brand'] ?? '')) ?: null,
             'priority'           => in_array($priority, ['high', 'medium', 'low'], true) ? $priority : null,
             'online_launch_date' => $this->normalizeExcelDate($data['Requested Website Go-Live Date'] ?? null)?->toDateString(),
-            'category'           => $this->departmentConfigFor(trim((string) ($data['Department'] ?? '')))['category'] ?? null,
+            'category'           => $this->departmentConfigForRow($data)['category'] ?? null,
         ];
     }
 
@@ -1158,7 +1304,7 @@ class ProductRequestSheetSyncService
             return null;
         }
 
-        $brand = (string) ($data['Brand'] ?? '');
+        $brand = $this->tabBrandFor($sheetValues, $data['Request Date'] ?? null, (string) ($data['Brand'] ?? ''));
         $rows  = $this->rowsOnDateFor($sheetValues, $data['Request Date'] ?? null, $brand);
 
         // The master row counts ROWS; a request holds distinct SKUs. Where the
@@ -1207,6 +1353,7 @@ class ProductRequestSheetSyncService
             return ['rows' => 0, 'distinct' => 0];
         }
 
+        $brand      = $this->tabBrandFor($sheetValues, $requestDateRaw, $brand);
         [$target, ] = $this->tabDateFor($sheetValues, $requestDateRaw, $brand);
         $rows       = 0;
         $seen       = [];
@@ -1214,7 +1361,7 @@ class ProductRequestSheetSyncService
         foreach (array_slice($sheetValues, 1) as $row) {
             $sku = trim((string) ($row[$skuCol] ?? ''));
 
-            if ($sku === '' || strcasecmp(trim((string) ($row[$brandCol] ?? '')), trim($brand)) !== 0) {
+            if ($sku === '' || $this->keyOf((string) ($row[$brandCol] ?? '')) !== $this->keyOf($brand)) {
                 continue;
             }
 
@@ -1249,7 +1396,7 @@ class ProductRequestSheetSyncService
         $blank   = 0;
 
         foreach (array_slice($sheetValues, 1) as $row) {
-            if (strcasecmp(trim((string) ($row[$brandCol] ?? '')), trim($brand)) !== 0) {
+            if ($this->keyOf((string) ($row[$brandCol] ?? '')) !== $this->keyOf($brand)) {
                 continue;
             }
 
@@ -1555,7 +1702,7 @@ class ProductRequestSheetSyncService
         $onSheet = [];
 
         foreach ($entries as ['data' => $data]) {
-            $deptConfig = $this->departmentConfigFor(trim((string) ($data['Department'] ?? '')));
+            $deptConfig = $this->departmentConfigForRow($data);
 
             if (!$deptConfig) {
                 continue;
