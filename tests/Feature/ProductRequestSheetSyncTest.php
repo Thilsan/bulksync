@@ -578,8 +578,9 @@ class ProductRequestSheetSyncTest extends TestCase
             ->with('d', 'i', 'Lingerie')
             ->andReturn([
                 ['Date', 'Brand Name', 'Item SKU'],
-                ['10-Aug-26', 'CERRUTI', 'CER-1'],
-                ['11-Aug-26', 'CERRUTI', 'CER-2'],
+                // Neither is a day off 12 August, so neither is taken for it.
+                ['08-Aug-26', 'CERRUTI', 'CER-1'],
+                ['10-Aug-26', 'CERRUTI', 'CER-2'],
             ]);
 
         $this->app->instance(OneDriveService::class, $drive);
@@ -1028,7 +1029,7 @@ class ProductRequestSheetSyncTest extends TestCase
         $request = ProductRequest::sole();
         $request->update(['brand' => 'AMADAMARIA (CORRECTED HERE)']);
 
-        $this->fakeSheet(['Brand' => 'SOMETHING ELSE']);
+        $this->fakeSheet(['Brand' => 'AMADA MARIA']);
         $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
 
         $this->assertSame(0, $result['updated']);
@@ -1072,7 +1073,7 @@ class ProductRequestSheetSyncTest extends TestCase
         $request = ProductRequest::sole();
         $request->update(['sheet_snapshot' => null]);
 
-        $this->fakeSheet(['Brand' => 'SOMETHING ELSE']);
+        $this->fakeSheet(['Brand' => 'AMADA MARIA']);
         $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
 
         $this->assertSame(0, $result['updated'], 'Nothing to compare against yet.');
@@ -1080,11 +1081,11 @@ class ProductRequestSheetSyncTest extends TestCase
         $this->assertNotNull($request->sheet_snapshot, 'But the snapshot is now recorded.');
 
         // From here on, a sheet edit is detectable.
-        $this->fakeSheet(['Brand' => 'A THIRD NAME']);
+        $this->fakeSheet(['Brand' => 'AMADAMARIA SWIM']);
         $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
 
         $this->assertSame(1, $result['updated']);
-        $this->assertSame('A THIRD NAME', $request->refresh()->brand);
+        $this->assertSame('AMADAMARIA SWIM', $request->refresh()->brand);
     }
 
     // ── SKUs appended to a category tab after the request exists ─────────────
@@ -1119,6 +1120,29 @@ class ProductRequestSheetSyncTest extends TestCase
         $this->assertSame('high', $request->priority, 'Nothing from the other row reaches the request.');
         $this->assertSame(['SKU-1', 'SKU-2'], $request->skus()->orderBy('sku')->pluck('sku')->all());
         $this->assertSame(0, $result['skus_added']);
+        $this->assertSame(1, $result['conflicts']);
+        $this->assertStringContainsString('Request No of its own', implode("\n", $result['log']));
+    }
+
+    /**
+     * BIKKEMBERG, repaired, then renamed BYE BRA again ten minutes later: BYE
+     * BRA's SKUs were not on the tab, and "nothing to compare" was read as a
+     * correction. A different name with no evidence is not one.
+     */
+    public function test_an_unrelated_brand_with_nothing_on_the_tab_is_not_a_correction(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+
+        $this->fakeSheet(['Brand' => 'AMADAMARIA']);
+        app(ProductRequestSheetSyncService::class)->run(commit: true);
+        $request = ProductRequest::sole();
+
+        $this->fakeSheet(['Brand' => 'BYE BRA']);   // no BYE BRA rows on the tab
+        $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertSame('AMADAMARIA', $request->refresh()->brand);
         $this->assertSame(1, $result['conflicts']);
         $this->assertStringContainsString('Request No of its own', implode("\n", $result['log']));
     }
@@ -1496,6 +1520,105 @@ class ProductRequestSheetSyncTest extends TestCase
         $this->assertSame(0, $result['count_mismatch']);
     }
 
+    // ── Master and tab dated a day apart ─────────────────────────────────────
+
+    /** The October perfume batch: the master says 21 October, its rows on the tab 20 October. */
+    public function test_a_tab_dated_a_day_off_still_matches(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+        $this->fakeSheetDated('21-Oct-26', ['20-Oct-26', '20-Oct-26']);
+
+        $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertSame(1, $result['created']);
+        $this->assertSame(2, ProductRequest::sole()->skus()->count());
+        $this->assertSame(0, $result['count_mismatch']);
+
+        // Said out loud, like a swap: somebody should glance at it.
+        $this->assertSame(1, $result['swapped_dates']);
+        $this->assertStringContainsString('a day from the request date', implode(' ', $result['log']));
+    }
+
+    /** A day either side is a guess between two batches. */
+    public function test_a_day_off_either_side_is_left_for_a_person(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+        $this->fakeSheetDated('21-Oct-26', ['20-Oct-26', '22-Oct-26']);
+
+        $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertSame(0, $result['created']);
+        $this->assertSame(1, $result['unmatched_skus']);
+    }
+
+    /** Two days is not a slip of the date, so nothing is guessed. */
+    public function test_two_days_off_is_not_guessed_at(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+        $this->fakeSheetDated('21-Oct-26', ['19-Oct-26']);
+
+        $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertSame(0, $result['created']);
+        $this->assertSame(1, $result['unmatched_skus']);
+    }
+
+    /** The rows a day off already belong to the master row dated that day; they are not taken twice. */
+    public function test_a_day_off_that_is_another_requests_date_is_not_taken(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+
+        $header = ['Request No', 'Request Date', 'Requested By', 'Department', 'Brand', 'Website'];
+
+        $drive = Mockery::mock(OneDriveService::class);
+        $drive->shouldReceive('asServiceAccount')->andReturnSelf();
+        $drive->shouldReceive('setUser')->andReturnSelf();
+        $drive->shouldReceive('resolveShareItem')->andReturn(['driveId' => 'd', 'itemId' => 'i']);
+        $drive->shouldReceive('worksheetValues')
+            ->with('d', 'i', config('product_request_sync.master_worksheet'))
+            ->andReturn([
+                $header,
+                ['17', '20-Oct-26', 'KAYCEE', 'LINGERIE', 'AMADAMARIA', 'BS'],
+                ['18', '21-Oct-26', 'KAYCEE', 'LINGERIE', 'AMADAMARIA', 'BS'],
+            ]);
+        $drive->shouldReceive('worksheetValues')
+            ->with('d', 'i', 'Lingerie')
+            ->andReturn([
+                ['Date', 'Brand Name', 'Item SKU'],
+                ['20-Oct-26', 'AMADAMARIA', 'SKU-1'],
+            ]);
+        $this->app->instance(OneDriveService::class, $drive);
+
+        $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertSame(1, $result['created']);
+        $this->assertSame(1, $result['unmatched_skus']);
+        $this->assertSame(17, (int) ProductRequest::sole()->sheet_request_no);
+    }
+
+    /** "SN ONLY" means SN, and nothing else on the row. */
+    public function test_a_website_marked_only_finds_its_store(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+        $this->fakeSheet(['Website' => 'BS ONLY']);
+
+        $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertSame(0, $result['unmatched_store']);
+        $this->assertSame(1, $result['created']);
+        $this->assertSame('Bluesalon Website', ProductRequest::sole()->store->name);
+    }
+
     // ── Auditing what actually arrived ───────────────────────────────────────
 
     /**
@@ -1758,5 +1881,365 @@ class ProductRequestSheetSyncTest extends TestCase
         // were nearly missed.
         $this->assertSame(1, $result['created']);
         $this->assertStringContainsString('Would create', implode(' ', $result['log']));
+    }
+
+    // ── One product, however the sheet numbers it ────────────────────────────
+
+    /**
+     * Master rows as [Request No, Request Date, Brand, SKU Count], all KAYCEE /
+     * LINGERIE / BS; tab rows as [Date, Brand, SKU].
+     */
+    private function fakeMaster(array $masterRows, array $tabRows): void
+    {
+        $drive = Mockery::mock(OneDriveService::class);
+        $drive->shouldReceive('asServiceAccount')->andReturnSelf();
+        $drive->shouldReceive('setUser')->andReturnSelf();
+        $drive->shouldReceive('resolveShareItem')->andReturn(['driveId' => 'd', 'itemId' => 'i']);
+        $drive->shouldReceive('worksheetValues')
+            ->with('d', 'i', config('product_request_sync.master_worksheet'))
+            ->andReturn(array_merge(
+                [['Request No', 'Request Date', 'Requested By', 'Department', 'Brand', 'Website', 'SKU Count']],
+                array_map(fn ($r) => [(string) $r[0], $r[1], 'KAYCEE', 'LINGERIE', $r[2], 'BS', (string) $r[3]], $masterRows),
+            ));
+        $drive->shouldReceive('worksheetValues')
+            ->with('d', 'i', 'Lingerie')
+            ->andReturn(array_merge([['Date', 'Brand Name', 'Item SKU']], $tabRows));
+
+        $this->app->instance(OneDriveService::class, $drive);
+    }
+
+    /**
+     * TRIUMPH #269, #270 and #271: three master rows, one brand, one date. The
+     * tab cannot say which SKU is whose, so each became a request holding all
+     * 4,651 of them.
+     */
+    public function test_rows_for_one_brand_and_date_become_one_request(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+
+        $this->fakeMaster(
+            [[269, '13-Oct-26', 'TRIUMPH', 1], [270, '13-Oct-26', 'TRIUMPH', 2], [271, '13-Oct-26', 'TRIUMPH', 3]],
+            array_map(fn ($n) => ['13-Oct-26', 'TRIUMPH', "T-{$n}"], range(1, 6)),
+        );
+
+        $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $request = ProductRequest::sole();
+        $this->assertSame(6, $request->total_skus);
+        $this->assertSame(1, $result['created']);
+        $this->assertSame(0, $result['count_mismatch'], 'The three counts add up to the tab.');
+        $this->assertSame(
+            [$request->id, $request->id, $request->id],
+            ProductRequestSheetSync::orderBy('request_no')->pluck('product_request_id')->all(),
+            'Every number on the sheet points at the one request.',
+        );
+
+        $again = app(ProductRequestSheetSyncService::class)->run(commit: true);
+        $this->assertSame(0, $again['created']);
+        $this->assertSame(1, ProductRequest::count());
+    }
+
+    /** TRIUMPH came in as #436 on 14 Oct and again as #269 on 21 Oct. */
+    public function test_a_renumbered_row_is_not_imported_again(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+
+        $tab = [['13-Oct-26', 'TRIUMPH', 'T-1'], ['13-Oct-26', 'TRIUMPH', 'T-2']];
+
+        $this->fakeMaster([[436, '13-Oct-26', 'TRIUMPH', 2]], $tab);
+        app(ProductRequestSheetSyncService::class)->run(commit: true);
+        $request = ProductRequest::sole();
+
+        $this->fakeMaster([[269, '13-Oct-26', 'TRIUMPH', 2]], $tab);
+        $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertSame(0, $result['created']);
+        $this->assertSame(1, ProductRequest::count());
+        $this->assertSame($request->id, ProductRequestSheetSync::where('request_no', 269)->value('product_request_id'));
+    }
+
+    /**
+     * SANTINNI #119 on 17 Sep, and a later row copied with the same number on
+     * 21 Oct. The second batch is its own request, not more SKUs on the first.
+     */
+    public function test_a_number_reused_by_the_same_brand_on_another_date_is_a_new_request(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+
+        $this->fakeMaster(
+            [[119, '17-Sep-26', 'SANTINNI', 1], [119, '21-Oct-26', 'SANTINNI', 1]],
+            [['17-Sep-26', 'SANTINNI', 'S-1'], ['21-Oct-26', 'SANTINNI', 'S-2']],
+        );
+
+        app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $requests = ProductRequest::orderBy('id')->get();
+        $this->assertCount(2, $requests);
+        $this->assertSame('2026-09-17', $requests[0]->sheet_request_date->toDateString());
+        $this->assertSame(['S-1'], $requests[0]->skus()->pluck('sku')->all());
+        $this->assertSame('2026-10-21', $requests[1]->sheet_request_date->toDateString());
+        $this->assertSame(['S-2'], $requests[1]->skus()->pluck('sku')->all());
+
+        $again = app(ProductRequestSheetSyncService::class)->run(commit: true);
+        $this->assertSame(0, $again['created']);
+        $this->assertSame('2026-09-17', $requests[0]->fresh()->sheet_request_date->toDateString(), 'The date does not flip between the rows.');
+        $this->assertSame(['S-1'], $requests[0]->skus()->pluck('sku')->all());
+    }
+
+    /** LOVETOBAG #134 and #170: the same row typed in twice. */
+    public function test_a_row_typed_twice_is_counted_once(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+
+        $this->fakeMaster(
+            [[134, '30-Aug-26', 'LOVETOBAG', 2], [170, '30-Aug-26', 'LOVETOBAG', 2]],
+            [['30-Aug-26', 'LOVETOBAG', 'L-1'], ['30-Aug-26', 'LOVETOBAG', 'L-2']],
+        );
+
+        $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertSame(1, ProductRequest::count());
+        $this->assertSame(0, $result['count_mismatch']);
+        $this->assertStringContainsString('#134, #170', implode("\n", $result['log']));
+    }
+
+    // ── A department changed on the sheet ────────────────────────────────────
+
+    /** AMADAMARIA on 5 Aug, filed under whichever department is given, on both tabs. */
+    private function fakeDepartment(string $department): void
+    {
+        $tab = [['Date', 'Brand Name', 'Item SKU'], ['05-Aug-26', 'AMADAMARIA', 'SKU-1'], ['05-Aug-26', 'AMADAMARIA', 'SKU-2']];
+
+        $drive = Mockery::mock(OneDriveService::class);
+        $drive->shouldReceive('asServiceAccount')->andReturnSelf();
+        $drive->shouldReceive('setUser')->andReturnSelf();
+        $drive->shouldReceive('resolveShareItem')->andReturn(['driveId' => 'd', 'itemId' => 'i']);
+        $drive->shouldReceive('worksheetValues')
+            ->with('d', 'i', config('product_request_sync.master_worksheet'))
+            ->andReturn([
+                ['Request No', 'Request Date', 'Requested By', 'Department', 'Brand', 'Website', 'SKU Count'],
+                ['17', '05-Aug-26', 'KAYCEE', $department, 'AMADAMARIA', 'BS', '2'],
+            ]);
+        $drive->shouldReceive('worksheetValues')->with('d', 'i', 'Lingerie')->andReturn($tab);
+        $drive->shouldReceive('worksheetValues')->with('d', 'i', 'Leather Goods')->andReturn($tab);
+        $drive->shouldReceive('worksheetValues')->with('d', 'i', 'Kids Fashion')->andReturn($tab);
+
+        $this->app->instance(OneDriveService::class, $drive);
+    }
+
+    private function brandManager(string $name, string $category): User
+    {
+        return User::create([
+            'name' => $name, 'email' => strtolower(str_replace(' ', '.', $name)) . '@example.test', 'password' => 'password',
+            'is_active' => true, 'perm_product_request' => true,
+            'pcr_role' => 'brand_manager', 'pcr_brand_categories' => [$category],
+        ]);
+    }
+
+    /** COLE HAAN filed as LINGERIE and moved to LEATHER: the request and its people follow. */
+    public function test_a_department_changed_on_the_sheet_moves_the_request(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+        $lingerie = $this->brandManager('Lingerie BM', 'Lingerie');
+        $leather  = $this->brandManager('Leather BM', 'Leather Goods');
+
+        $this->fakeDepartment('LINGERIE');
+        app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $request = ProductRequest::sole();
+        $this->assertSame('Lingerie', $request->category);
+        $this->assertSame($lingerie->id, $request->ownerFor('brand_manager_id')?->id);
+
+        $this->fakeDepartment('LEATHER');
+        $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $request->refresh();
+        $this->assertSame('Leather Goods', $request->category);
+        $this->assertSame($leather->id, $request->ownerFor('brand_manager_id')?->id, 'The new category\'s brand manager takes over.');
+        $this->assertSame(0, ProductRequest::whereKeyNot($request->id)->count(), 'It is the same request, moved — not a new one.');
+        $this->assertStringContainsString('category: "Lingerie" → "Leather Goods"', implode("\n", $result['log']));
+    }
+
+    /** Somebody who picked the brand manager by hand keeps the job. */
+    public function test_a_person_assigned_by_hand_stays_when_the_department_changes(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+        $this->brandManager('Lingerie BM', 'Lingerie');
+        $this->brandManager('Leather BM', 'Leather Goods');
+        $chosen = $this->brandManager('Chosen BM', 'Kids');
+
+        $this->fakeDepartment('LINGERIE');
+        app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $request = ProductRequest::sole();
+        app(\App\Services\ProductRequestWorkflow::class)->assignRole(
+            request: $request, field: 'brand_manager_id', userId: $chosen->id, actor: null, notify: false,
+        );
+
+        $this->fakeDepartment('LEATHER');
+        app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertSame('Leather Goods', $request->refresh()->category);
+        $this->assertSame($chosen->id, $request->ownerFor('brand_manager_id')?->id);
+    }
+
+    public function test_a_category_changed_here_is_not_overwritten_by_the_sheet(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+
+        $this->fakeDepartment('LINGERIE');
+        app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $request = ProductRequest::sole();
+        $request->update(['category' => 'Leather Goods']);   // corrected here
+
+        $this->fakeDepartment('KIDS FASHION');
+        $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertSame('Leather Goods', $request->refresh()->category);
+        $this->assertStringContainsString('category is "Leather Goods" here but the sheet now says "Kids"', implode("\n", $result['log']));
+    }
+
+    /**
+     * Imported before the department was remembered: a mismatch could be the
+     * sheet's edit or somebody's correction here, so it is reported every run
+     * until a person settles it — never guessed at.
+     */
+    public function test_a_request_from_before_categories_were_recorded_is_reported_not_moved(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+
+        $this->fakeDepartment('LINGERIE');
+        app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $request = ProductRequest::sole();
+        $request->update(['sheet_snapshot' => \Illuminate\Support\Arr::except($request->sheet_snapshot, 'category')]);
+
+        $this->fakeDepartment('LEATHER');
+
+        foreach ([1, 2] as $run) {
+            $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+            $this->assertSame('Lingerie', $request->refresh()->category, "Run {$run} must not move it.");
+            $this->assertStringContainsString('the sheet files it under "Leather Goods"', implode("\n", $result['log']), "Run {$run} must say so.");
+        }
+
+        // Settled by hand: the report stops and the category is remembered from here on.
+        $request->update(['category' => 'Leather Goods']);
+        $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertStringNotContainsString('files it under', implode("\n", $result['log']));
+        $this->assertSame('Leather Goods', $request->refresh()->sheet_snapshot['category']);
+    }
+
+    /** Imported under LINGERIE before the department was recorded; the sheet now says LEATHER. */
+    private function legacyLeatherMismatch(): ProductRequest
+    {
+        $this->fakeDepartment('LINGERIE');
+        app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $request = ProductRequest::sole();
+        $request->update(['sheet_snapshot' => \Illuminate\Support\Arr::except($request->sheet_snapshot, 'category')]);
+
+        $this->fakeDepartment('LEATHER');
+
+        return $request;
+    }
+
+    /** Somebody read the report and agrees with the sheet. */
+    public function test_settling_moves_an_old_request_to_the_sheets_department(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+        $this->brandManager('Lingerie BM', 'Lingerie');
+        $leather = $this->brandManager('Leather BM', 'Leather Goods');
+        $request = $this->legacyLeatherMismatch();
+
+        $this->artisan('product-requests:sync-sheet', ['--settle-categories' => true])
+            ->expectsOutputToContain('(settled from the sheet)')
+            ->assertSuccessful();
+        $this->assertSame('Lingerie', $request->refresh()->category, 'A dry run moves nothing.');
+
+        $this->artisan('product-requests:sync-sheet', ['--settle-categories' => true, '--commit' => true])->assertSuccessful();
+
+        $request->refresh();
+        $this->assertSame('Leather Goods', $request->category);
+        $this->assertSame($leather->id, $request->ownerFor('brand_manager_id')?->id);
+        $this->assertSame('Leather Goods', $request->sheet_snapshot['category'], 'From now on it follows the sheet.');
+    }
+
+    public function test_settling_can_be_limited_to_named_requests(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+        $request = $this->legacyLeatherMismatch();
+
+        $this->artisan('product-requests:sync-sheet', ['--settle-categories' => true, '--only' => ['PCR-SOMETHING-ELSE'], '--commit' => true])
+            ->assertSuccessful();
+        $this->assertSame('Lingerie', $request->refresh()->category);
+
+        $this->artisan('product-requests:sync-sheet', ['--settle-categories' => true, '--only' => [strtolower($request->reference)], '--commit' => true])
+            ->assertSuccessful();
+        $this->assertSame('Leather Goods', $request->refresh()->category);
+    }
+
+    /** PCR-2026-00127: LEA renamed COLE HAAN by a reused number. The sheet's department is COLE HAAN's, not LEA's. */
+    public function test_settling_leaves_a_request_the_sheet_renamed_for_the_repair(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+        $request = $this->legacyLeatherMismatch();
+
+        $request->activities()->create([
+            'action' => 'sheet_updated', 'description' => 'Updated from the tracking sheet',
+            'remarks' => 'brand: "LEA" → "AMADAMARIA"',
+        ]);
+
+        $this->artisan('product-requests:sync-sheet', ['--settle-categories' => true, '--commit' => true])
+            ->expectsOutputToContain('run product-requests:repair-reused-numbers first')
+            ->assertSuccessful();
+
+        $this->assertSame('Lingerie', $request->refresh()->category);
+    }
+
+    /** Older still, with no snapshot at all: its first snapshot does not assume the category. */
+    public function test_a_request_with_no_snapshot_does_not_have_its_category_assumed(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+
+        $this->fakeDepartment('LINGERIE');
+        app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $request = ProductRequest::sole();
+        $request->update(['sheet_snapshot' => null]);
+
+        $this->fakeDepartment('LEATHER');
+        app(ProductRequestSheetSyncService::class)->run(commit: true);   // records the snapshot
+        $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertArrayNotHasKey('category', $request->refresh()->sheet_snapshot);
+        $this->assertSame('Lingerie', $request->category);
+        $this->assertStringContainsString('the sheet files it under "Leather Goods"', implode("\n", $result['log']));
     }
 }

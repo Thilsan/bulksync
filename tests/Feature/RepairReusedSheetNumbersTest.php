@@ -134,6 +134,54 @@ class RepairReusedSheetNumbersTest extends TestCase
         $this->assertSame(1, $request->activities()->where('action', 'sheet_repaired')->count());
     }
 
+    /**
+     * The SKUs added before a repair were the damage it undid. Listing every
+     * repaired request again as "worth a glance" buried the few that are.
+     */
+    public function test_a_second_run_does_not_list_what_it_has_repaired(): void
+    {
+        Storage::fake('local');
+        $request = $this->damaged();
+        $this->bothBrandsOnTab();
+
+        $this->artisan('product-requests:repair-reused-numbers', ['--commit' => true])->assertSuccessful();
+
+        $this->artisan('product-requests:repair-reused-numbers')
+            ->doesntExpectOutputToContain('worth a glance')
+            ->assertSuccessful();
+
+        // A top-up after the repair is new, and is listed again.
+        $this->skus($request, ['BMW-3']);
+        app(ProductRequestWorkflow::class)->log($request, 'skus_added', '1 SKU(s) added from the tracking sheet');
+
+        $this->artisan('product-requests:repair-reused-numbers')
+            ->expectsOutputToContain('1 more had SKUs added later')
+            ->assertSuccessful();
+    }
+
+    /** PCR-2026-00314: repaired to BIKKEMBERG, then renamed BYE BRA again by a sync. */
+    public function test_a_request_renamed_again_after_its_repair_is_repaired_again(): void
+    {
+        Storage::fake('local');
+        $request = $this->damaged();
+        $this->bothBrandsOnTab();
+
+        $this->artisan('product-requests:repair-reused-numbers', ['--commit' => true])->assertSuccessful();
+        $this->assertSame('BMW Fragrances', $request->refresh()->brand);
+
+        app(ProductRequestWorkflow::class)->log($request, 'sheet_updated', 'Updated from the tracking sheet',
+            remarks: 'brand: "BMW Fragrances" → "SIMONE PERELE"');
+        $request->update(['brand' => 'SIMONE PERELE']);
+
+        $this->artisan('product-requests:repair-reused-numbers', ['--commit' => true])
+            ->expectsOutputToContain('"SIMONE PERELE" → "BMW Fragrances"')
+            ->assertSuccessful();
+
+        $this->assertSame('BMW Fragrances', $request->refresh()->brand);
+        $this->assertSame('2026-10-15', $request->online_launch_date->toDateString(), 'The date it was given back stays.');
+        $this->assertSame(2, $request->activities()->where('action', 'sheet_repaired')->count());
+    }
+
     public function test_a_corrected_spelling_is_not_a_takeover(): void
     {
         $request = $this->damaged();

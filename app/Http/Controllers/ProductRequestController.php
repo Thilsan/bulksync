@@ -25,6 +25,7 @@ use Illuminate\Container\Attributes\CurrentUser;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Validation\ValidationException;
 use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
@@ -36,6 +37,7 @@ use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use App\Support\Queues;
+use App\Support\XlsxReader;
 
 class ProductRequestController extends Controller implements HasMiddleware
 {
@@ -708,7 +710,7 @@ class ProductRequestController extends Controller implements HasMiddleware
     {
         $request->validate([
             'store_id' => 'required|integer',
-            'sku_csv'  => 'nullable|file|mimes:csv,txt|max:20480',
+            'sku_csv'  => 'nullable|file|mimes:csv,txt,xlsx|max:20480',
             'skus'     => 'nullable|string',
         ]);
 
@@ -815,7 +817,7 @@ class ProductRequestController extends Controller implements HasMiddleware
             'brand'                     => 'required|string|max:255',
             'category'                  => ['required', Rule::in(ProductRequest::CATEGORIES)],
             'skus'                      => 'nullable|string',
-            'sku_csv'                   => 'nullable|file|mimes:csv,txt|max:20480',
+            'sku_csv'                   => 'nullable|file|mimes:csv,txt,xlsx|max:20480',
             'online_launch_date'        => 'required|date',
             'store_launch_date'         => 'nullable|date',
             'image_source'              => 'required|in:' . implode(',', array_keys(ProductRequest::selectableImageSources())),
@@ -919,7 +921,10 @@ class ProductRequestController extends Controller implements HasMiddleware
                 : null,
             'use_ai_content'            => (bool) $data['use_ai_content'],
             'notes'                     => $data['notes'] ?? null,
-            'validation_status'         => 'pending',
+            // Not checked against Shopify: the request takes the list as it is,
+            // and the hourly recheck leaves it alone. Validate SKUs on the
+            // request page still runs the check if somebody wants it.
+            'validation_status'         => 'skipped',
             'total_skus'                => count($skus),
             // Everything the upload asked for that did not go in, and why, so
             // the request is a record of the whole list.
@@ -978,13 +983,16 @@ class ProductRequestController extends Controller implements HasMiddleware
         $staffed = $this->workflow->staffFromCategory($productRequest, $user);
         $assigned += count($staffed);
 
-        ValidateProductRequestSkusJob::dispatch($productRequest->id, $user->id)->onQueue(Queues::PRODUCT_REQUESTS);
+        // What the check would have ended with, without the check: the counts,
+        // then the stage they put the request in.
+        $this->mapping->rollUp($productRequest);
+        $this->workflow->reconcileMapping($productRequest->refresh(), $user);
 
         $names = collect($staffed)->unique('id')->pluck('name')->join(', ', ' and ');
 
         return redirect()
             ->route('product-requests.show', $productRequest)
-            ->with('success', "Request {$productRequest->reference} submitted. SKU validation is running."
+            ->with('success', "Request {$productRequest->reference} submitted."
                 . ($names !== '' ? " {$productRequest->category} goes to {$names}." : '')
                 . ($assigned > 0 ? " {$assigned} " . str('assignment')->plural($assigned) . ' made.' : ''));
     }
@@ -1182,7 +1190,7 @@ class ProductRequestController extends Controller implements HasMiddleware
 
         $request->validate([
             'skus'    => 'nullable|string',
-            'sku_csv' => 'nullable|file|mimes:csv,txt|max:' . min(20480, ProductRequestAttachment::maxUploadKb()),
+            'sku_csv' => 'nullable|file|mimes:csv,txt,xlsx|max:' . min(20480, ProductRequestAttachment::maxUploadKb()),
         ]);
 
         $incoming = $this->parseSkus($request);
@@ -1223,6 +1231,12 @@ class ProductRequestController extends Controller implements HasMiddleware
             description: "{$added} SKU(s) added to the request",
             actor:       $user,
         );
+
+        if ($productRequest->validation_status === 'skipped') {
+            $this->mapping->rollUp($productRequest);
+
+            return back()->with('success', "{$added} SKU(s) added.");
+        }
 
         ValidateProductRequestSkusJob::dispatch($productRequest->id, $user->id)->onQueue(Queues::PRODUCT_REQUESTS);
 
@@ -1270,8 +1284,11 @@ class ProductRequestController extends Controller implements HasMiddleware
 
         $query = $productRequest->skus()->orderBy('id');
 
-        if (in_array($filter, [ProductRequest::MAP_MAPPED, ProductRequest::MAP_PENDING, ProductRequest::MAP_NOT_MAPPED], true)) {
+        // Pending and not mapped download as one list, as the page shows them.
+        if ($filter === ProductRequest::MAP_MAPPED) {
             $query->where('mapping_status', $filter);
+        } elseif (in_array($filter, [ProductRequest::MAP_PENDING, ProductRequest::MAP_NOT_MAPPED], true)) {
+            $query->whereIn('mapping_status', [ProductRequest::MAP_PENDING, ProductRequest::MAP_NOT_MAPPED]);
         }
 
         $filename = "{$productRequest->reference}-skus-{$filter}.csv";
@@ -2453,7 +2470,7 @@ class ProductRequestController extends Controller implements HasMiddleware
         $skus = [];
 
         if ($request->hasFile('sku_csv')) {
-            $skus = $this->skusFromCsv($request->file('sku_csv')->getRealPath());
+            $skus = $this->skusFromCsv($request->file('sku_csv'));
         }
 
         if ($request->filled('skus')) {
@@ -2483,42 +2500,33 @@ class ProductRequestController extends Controller implements HasMiddleware
     private ?array $csvCopy = null;
 
     /**
-     * Reads the SKUs from the "SKU" or "Item SKU" column, wherever it sits.
-     * A file without either header is refused rather than guessed at: taking
-     * the first column of an arbitrary sheet files barcodes or names as SKUs.
+     * Reads the SKUs from an Excel or CSV file: the "SKU" or "Item SKU" column
+     * wherever it sits, otherwise the first column.
      *
-     * Read as CSV, not line by line: a Long Description often runs over
-     * several lines inside quotes, and splitting on newlines would cut those
-     * rows in half.
+     * Without a SKU header the first row is still taken for a header when it
+     * reads like one — "Item Code", "Barcode" — and for the first SKU when it
+     * does not, so a bare list of SKUs loses nothing.
+     *
+     * A CSV is read as CSV, not line by line: a Long Description often runs
+     * over several lines inside quotes, and splitting on newlines would cut
+     * those rows in half.
      *
      * @throws ValidationException
      */
-    private function skusFromCsv(string $path): array
+    private function skusFromCsv(UploadedFile $file): array
     {
-        $invalid = 'Please upload a valid CSV. Its first row must have a column named "SKU" or "Item SKU".';
-
-        $handle = fopen($path, 'r');
-        $rows   = [];
-
-        while ($handle && ($row = fgetcsv($handle, null, ',', '"', '')) !== false) {
-            if (trim(implode('', array_map('strval', $row)), " \t") !== '') {
-                $rows[] = $row;
-            }
-        }
-
-        if ($handle) {
-            fclose($handle);
-        }
+        $rows = array_values(array_filter(
+            $this->rowsOf($file),
+            fn ($row) => trim(implode('', array_map('strval', $row)), " \t") !== '',
+        ));
 
         if ($rows === []) {
-            throw ValidationException::withMessages(['sku_csv' => $invalid]);
+            throw ValidationException::withMessages(['sku_csv' => 'The file is empty. Please check it and upload it again.']);
         }
 
-        $headers = array_map(
-            fn ($h) => strtolower(preg_replace('/\s+/', ' ', trim((string) $h))),
-            array_shift($rows),
-        );
-        $headers[0] = preg_replace('/^\xEF\xBB\xBF/', '', $headers[0]);   // Excel's BOM
+        $rows[0][0] = preg_replace('/^\xEF\xBB\xBF/', '', (string) ($rows[0][0] ?? ''));   // Excel's BOM
+
+        $headers = array_map(fn ($h) => strtolower(preg_replace('/\s+/', ' ', trim((string) $h))), $rows[0]);
 
         $column = null;
         foreach ($headers as $i => $header) {
@@ -2528,9 +2536,11 @@ class ProductRequestController extends Controller implements HasMiddleware
             }
         }
 
-        if ($column === null) {
-            throw ValidationException::withMessages(['sku_csv' => $invalid]);
+        if ($column !== null || self::looksLikeHeader((string) ($rows[0][0] ?? ''))) {
+            array_shift($rows);
         }
+
+        $column ??= 0;
 
         $copyColumn = null;
         foreach (self::COPY_CSV_HEADERS as $name) {
@@ -2563,13 +2573,61 @@ class ProductRequestController extends Controller implements HasMiddleware
 
         if ($skus === []) {
             throw ValidationException::withMessages([
-                'sku_csv' => 'The CSV has a SKU column but no SKUs under it. Please check the file and upload it again.',
+                'sku_csv' => 'There are no SKUs in the file. Please check it and upload it again.',
             ]);
         }
 
         $this->csvCopy = $copyColumn === null ? null : $copy;
 
         return $skus;
+    }
+
+    /**
+     * A header names a column in words ("Item Code"); a SKU is a code
+     * ("WOA122PAN00115"). Lowercase letters or a space give a header away.
+     */
+    private static function looksLikeHeader(string $cell): bool
+    {
+        return preg_match('/[a-z]|\s/', trim($cell)) === 1;
+    }
+
+    /**
+     * Every row of an uploaded Excel or CSV file, cells as strings.
+     *
+     * @throws ValidationException
+     */
+    private function rowsOf(UploadedFile $file): array
+    {
+        $extension = strtolower($file->getClientOriginalExtension());
+
+        if ($extension === 'xls') {
+            throw ValidationException::withMessages([
+                'sku_csv' => 'That is an old .xls file. Please save it as .xlsx (Excel Workbook) or CSV from Excel and upload it again.',
+            ]);
+        }
+
+        if ($extension === 'xlsx') {
+            try {
+                return XlsxReader::rows($file->getRealPath());
+            } catch (\RuntimeException $e) {
+                throw ValidationException::withMessages([
+                    'sku_csv' => "The Excel file could not be opened ({$e->getMessage()}). Please save it again as .xlsx or CSV and upload it.",
+                ]);
+            }
+        }
+
+        $handle = fopen($file->getRealPath(), 'r');
+        $rows   = [];
+
+        while ($handle && ($row = fgetcsv($handle, null, ',', '"', '')) !== false) {
+            $rows[] = $row;
+        }
+
+        if ($handle) {
+            fclose($handle);
+        }
+
+        return $rows;
     }
 
     /**

@@ -1185,6 +1185,8 @@ class ProductRequestTest extends TestCase
 
         $author  = $this->brandManager();
         $request = $this->submitFor($author, $this->mappingSite(), "BAL-1\nBAL-2");
+        // Somebody pressed Check SKUs, so the hourly check watches it from here.
+        $request->update(['validation_status' => 'completed']);
 
         $request = $this->mapSome($request, 1);
         $this->actingAs($author)->post(route('product-requests.continue-mapped', $request))->assertRedirect();
@@ -1867,6 +1869,25 @@ class ProductRequestTest extends TestCase
         $this->assertStringContainsString('Pending Mapping', $csv);
     }
 
+    public function test_pending_export_includes_not_mapped_skus(): void
+    {
+        Notification::fake();
+
+        $user    = $this->brandManager();
+        $request = $this->submitFor($user, $this->mappingSite(), "G-1\nG-2\nG-3");
+
+        $request->skus()->where('sku', 'G-2')->update(['mapping_status' => ProductRequest::MAP_NOT_MAPPED]);
+        $request->skus()->where('sku', 'G-3')->update(['mapping_status' => ProductRequest::MAP_MAPPED]);
+
+        $csv = $this->actingAs($user)
+            ->get(route('product-requests.skus.download', [$request, 'filter' => ProductRequest::MAP_PENDING]))
+            ->streamedContent();
+
+        $this->assertStringContainsString('G-1', $csv);
+        $this->assertStringContainsString('G-2', $csv);
+        $this->assertStringNotContainsString('G-3', $csv);
+    }
+
     // ── Stage queues ─────────────────────────────────────────────────────────
 
     public function test_each_queue_shows_only_its_own_stages(): void
@@ -2338,8 +2359,11 @@ class ProductRequestTest extends TestCase
         }
     }
 
-    /** A CSV without a SKU / Item SKU header is refused, and no request is made. */
-    public function test_a_csv_without_a_sku_column_is_refused(): void
+    /**
+     * Without a SKU / Item SKU header the first column is the SKUs. A header row
+     * in words is skipped; a bare list keeps its first SKU.
+     */
+    public function test_a_file_without_a_sku_column_uses_its_first_column(): void
     {
         Notification::fake();
         Queue::fake();
@@ -2347,16 +2371,140 @@ class ProductRequestTest extends TestCase
         $user  = $this->brandManager();
         $store = $this->plainSite();
 
-        $this->submitCsv($user, $store, "Barcode,Name\n6291,Bag\n")
-            ->assertSessionHasErrors(['sku_csv' => 'Please upload a valid CSV. Its first row must have a column named "SKU" or "Item SKU".']);
+        $this->submitCsv($user, $store, "Barcode,Name\n6291,Bag\n6292,Belt\n")->assertSessionHasNoErrors();
+        $this->assertSame(['6291', '6292'], ProductRequest::latest('id')->first()->skus()->orderBy('id')->pluck('sku')->all());
 
-        // A bare list with no header row is refused too: the first SKU is not a header.
-        $this->submitCsv($user, $store, "AB-1\nAB-2\n")->assertSessionHasErrors('sku_csv');
+        $this->submitCsv($user, $store, "AB-1\nAB-2\n")->assertSessionHasNoErrors();
+        $this->assertSame(['AB-1', 'AB-2'], ProductRequest::latest('id')->first()->skus()->orderBy('id')->pluck('sku')->all());
 
         $this->submitCsv($user, $store, "SKU,Name\n,Bag\n")
-            ->assertSessionHasErrors(['sku_csv' => 'The CSV has a SKU column but no SKUs under it. Please check the file and upload it again.']);
+            ->assertSessionHasErrors(['sku_csv' => 'There are no SKUs in the file. Please check it and upload it again.']);
+
+        $this->assertSame(2, ProductRequest::count());
+
+        foreach (ProductRequest::pluck('id') as $id) {
+            File::deleteDirectory(storage_path("app/product-requests/{$id}"));
+        }
+    }
+
+    /**
+     * A real .xlsx built by hand: shared and inline strings, rich text, a
+     * barcode Excel stored in E-notation, empty cells left out of the file,
+     * and the first sheet named by the workbook rather than by file name.
+     */
+    private function xlsx(): string
+    {
+        $path = tempnam(sys_get_temp_dir(), 'xlsx');
+        $zip  = new \ZipArchive();
+        $zip->open($path, \ZipArchive::OVERWRITE);
+
+        $zip->addFromString('xl/workbook.xml', '<workbook xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>'
+            . '<sheet name="SKUs" sheetId="1" r:id="rId7"/><sheet name="Other" sheetId="2" r:id="rId1"/></sheets></workbook>');
+        $zip->addFromString('xl/_rels/workbook.xml.rels', '<Relationships>'
+            . '<Relationship Id="rId1" Type="worksheet" Target="worksheets/sheet1.xml"/>'
+            . '<Relationship Target="worksheets/sheet2.xml" Type="worksheet" Id="rId7"/></Relationships>');
+        $zip->addFromString('xl/sharedStrings.xml', '<sst>'
+            . '<si><t>Name</t></si>'
+            . '<si><t>Item SKU</t></si>'
+            . '<si><r><t>XL-</t></r><r><t>1</t></r><rPh><t>ignored</t></rPh></si>'
+            . '<si><t>Linen shirt</t></si></sst>');
+        // The sheet nobody asked for.
+        $zip->addFromString('xl/worksheets/sheet1.xml', '<worksheet><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>SKU</t></is></c></row>'
+            . '<row r="2"><c r="A2" t="inlineStr"><is><t>WRONG-SHEET</t></is></c></row></sheetData></worksheet>');
+        $zip->addFromString('xl/worksheets/sheet2.xml', '<worksheet><sheetData>'
+            . '<row r="1"><c r="A1" t="s"><v>0</v></c><c r="C1" t="s"><v>1</v></c></row>'
+            . '<row r="2"><c r="A2" t="s"><v>3</v></c><c r="C2" t="s"><v>2</v></c></row>'
+            . '<row r="3"><c r="C3"><v>6.291041500213E+12</v></c></row>'
+            . '<row r="4"/>'
+            . '<row r="5"><c r="C5" t="inlineStr"><is><t>XL-3</t></is></c></row>'
+            . '</sheetData></worksheet>');
+        $zip->close();
+
+        return $path;
+    }
+
+    public function test_skus_are_read_from_an_excel_file(): void
+    {
+        Notification::fake();
+        Queue::fake();
+
+        $user  = $this->brandManager();
+        $store = $this->plainSite();
+        $user->stores()->syncWithoutDetaching([$store->id]);
+        $path  = $this->xlsx();
+
+        $this->actingAs($user)->post(route('product-requests.store'), [
+            'store_id'           => $store->id,
+            'request_type'       => 'new_brand',
+            'brand'              => 'Samsonite',
+            'category'           => 'Luggage',
+            'sku_csv'            => new UploadedFile($path, 'skus.xlsx', null, null, true),
+            'online_launch_date' => now()->addDays(18)->format('Y-m-d H:i'),
+            'image_source'       => ProductRequest::IMG_PHOTOSHOOT,
+            'use_ai_content'     => 1,
+            'priority'           => 'high',
+        ])->assertSessionHasNoErrors();
+
+        $request = ProductRequest::latest('id')->firstOrFail();
+
+        try {
+            $this->assertSame(['XL-1', '6291041500213', 'XL-3'], $request->skus()->orderBy('id')->pluck('sku')->all());
+        } finally {
+            @unlink($path);
+            File::deleteDirectory(storage_path("app/product-requests/{$request->id}"));
+        }
+    }
+
+    public function test_an_old_xls_file_is_refused_with_how_to_fix_it(): void
+    {
+        Notification::fake();
+        Queue::fake();
+
+        $user  = $this->brandManager();
+        $store = $this->plainSite();
+        $user->stores()->syncWithoutDetaching([$store->id]);
+
+        $this->actingAs($user)->post(route('product-requests.store'), [
+            'store_id'           => $store->id,
+            'request_type'       => 'new_brand',
+            'brand'              => 'Samsonite',
+            'category'           => 'Luggage',
+            'sku_csv'            => UploadedFile::fake()->createWithContent('skus.xls', "SKU\nA-1\n"),
+            'online_launch_date' => now()->addDays(18)->format('Y-m-d H:i'),
+            'image_source'       => ProductRequest::IMG_PHOTOSHOOT,
+            'use_ai_content'     => 1,
+            'priority'           => 'high',
+        ])->assertSessionHasErrors('sku_csv');
 
         $this->assertSame(0, ProductRequest::count());
+    }
+
+    /** Submitted as it is: no Shopify check, now or by the hourly recheck. */
+    public function test_a_submitted_request_is_not_checked_against_shopify(): void
+    {
+        Notification::fake();
+        Queue::fake();
+
+        $request = $this->submitFor($this->brandManager(), $this->mappingSite(), "NC-1\nNC-2");
+
+        Queue::assertNotPushed(\App\Jobs\ValidateProductRequestSkusJob::class);
+
+        $this->assertSame('skipped', $request->validation_status);
+        $this->assertSame(2, $request->pending_skus);
+        $this->assertSame(ProductRequest::WAITING_MAPPING, $request->status);
+
+        foreach ($request->skus as $row) {
+            $this->appearsInShopify($request, $row->sku);
+        }
+
+        app(\App\Jobs\RecheckProductRequestMappingsJob::class)->handle(
+            app(SkuMappingService::class),
+            app(ProductRequestWorkflow::class),
+        );
+
+        $request->refresh();
+        $this->assertSame(0, $request->mapped_skus);
+        $this->assertSame(ProductRequest::WAITING_MAPPING, $request->status);
     }
 
     public function test_an_upload_php_rejected_is_reported_not_silently_dropped(): void
@@ -3734,6 +3882,7 @@ class ProductRequestTest extends TestCase
     public function test_ai_content_needs_skus_that_exist_in_shopify(): void
     {
         Notification::fake();
+        Queue::fake();   // the real job would call Shopify and Gemini
 
         $user    = $this->brandManager();
         $request = $this->submitFor($user, $this->plainSite(), "AI-1\nAI-2");

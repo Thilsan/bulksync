@@ -36,6 +36,9 @@ class RecheckProductRequestMappingsJob implements ShouldQueue
         $requests = ProductRequest::query()
             ->whereNotIn('status', ProductRequest::CLOSED_STATUSES)
             ->where('total_skus', '>', 0)
+            // Filed without a check, and meant to stay that way until somebody
+            // presses Validate SKUs on the request.
+            ->where('validation_status', '!=', 'skipped')
             ->where(function ($q) {
                 // Requests still parked before the mapping gate…
                 $q->whereIn('status', [ProductRequest::SUBMITTED, ProductRequest::WAITING_MAPPING])

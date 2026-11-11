@@ -343,6 +343,10 @@ return [
      * Each store is named by its Search Console property, exactly as the guide
      * spells it. There is no "list properties" call, so a new store is added
      * here once easybits has been given Search Console access to it.
+     *
+     * The stores are URL-prefix properties, so the full address with its
+     * trailing slash. "sc-domain:goldgourmet.qa" matches no verified property,
+     * and the engine answers that with a 200 and an empty body.
      */
     'ai_seo' => [
         'base_url'        => env('AI_SEO_BASE_URL', 'https://bisdev.dev.easybits.tech/webhook'),
@@ -351,8 +355,8 @@ return [
         // model in turn; the guide says to allow at least 30 seconds.
         'analyze_timeout' => (int) env('AI_SEO_ANALYZE_TIMEOUT', 90),
         'properties'      => [
-            'sc-domain:goldgourmet.qa'  => 'Gold Gourmet',
-            'sc-domain:outoftheblue.qa' => 'Out of the Blue',
+            'https://goldgourmet.qa/'  => 'Gold Gourmet',
+            'https://outoftheblue.qa/' => 'Out of the Blue',
         ],
     ],
 

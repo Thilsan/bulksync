@@ -25,11 +25,57 @@ use App\Support\Queues;
  */
 class ProductRequestSheetSyncService
 {
+    /**
+     * Requests whose department is to be taken from the sheet even though it was
+     * never recorded at import: null for none, [] for all, or these references.
+     *
+     * @var array<int, string>|null
+     */
+    private ?array $settleCategories = null;
+
+    /**
+     * Every (brand, request date) the master tab holds, keyed "brandKey|Y-m-d".
+     * A tab date a day off is only taken for a request when no master row of
+     * its own already claims it — see tabDateFor().
+     *
+     * @var array<string, true>
+     */
+    private array $masterBrandDates = [];
+
     public function __construct(
         private OneDriveService $drive,
         private ProductRequestWorkflow $workflow,
         private SkuMappingService $mapping,
     ) {}
+
+    /**
+     * Let the sheet decide the department of requests imported before it was
+     * recorded — the step a person takes once they have read the report and
+     * agree with the sheet.
+     *
+     * @param  array<int, string>  $references  only these; empty for every one
+     */
+    public function settleCategories(array $references = []): static
+    {
+        $this->settleCategories = array_map('strtoupper', $references);
+
+        return $this;
+    }
+
+    /**
+     * Whether this request still carries a brand the old number-only matching
+     * gave it from another row. Its department, SKUs and copies are that other
+     * row's business until repair-reused-numbers puts it back.
+     */
+    public static function renamedBySheet(ProductRequest $request): bool
+    {
+        return $request->activities->contains(function ($activity) use ($request) {
+            return $activity->action === 'sheet_updated'
+                && preg_match('/brand: "[^"]*" → "([^"]*)"/u', (string) $activity->remarks, $m)
+                // Still wearing the name the sheet gave it; once repaired, it is itself again.
+                && self::brandKey($m[1]) === self::brandKey((string) $request->brand);
+        });
+    }
 
     /**
      * @return array{created: int, unmatched_store: int, unmatched_department: int, unmatched_skus: int, errors: int, skipped_existing: int, log: array<int, string>}
@@ -48,6 +94,8 @@ class ProductRequestSheetSyncService
         $masterValues = $this->drive->worksheetValues($item['driveId'], $item['itemId'], config('product_request_sync.master_worksheet'));
         $header       = array_map('trim', $masterValues[0] ?? []);
         $rows         = array_slice($masterValues, 1);
+
+        $this->rememberMasterDates($header, $rows);
 
         $result = [
             'created'               => 0,
@@ -68,48 +116,20 @@ class ProductRequestSheetSyncService
         ];
 
         $sheetCache = [];
-        $shared     = $this->sharedNumbers($header, $rows);
+        $entries    = $this->entries($header, $rows, $result);
+        $onSheet    = $this->sheetFingerprints($entries);
 
-        foreach ($rows as $row) {
-            $data = array_combine($header, array_pad($row, count($header), null));
-
-            $requestNo = (int) ($data['Request No'] ?? 0);
-            if (!$requestNo) {
-                continue;
-            }
-
-            // Two products under one number cannot both be the request it names.
-            // Read in turn, each one renamed it — four brands in a single run.
-            if (isset($shared[$requestNo])) {
-                $result['conflicts']++;
-                $result['log'][] = "Skipped Request No {$requestNo} ({$data['Brand']}): the sheet has it on "
-                    . count($shared[$requestNo]) . ' rows, for ' . implode(', ', $shared[$requestNo])
-                    . ' — give each row a Request No of its own.';
-                continue;
-            }
-
-            // Listed By / Listed Date mean e-commerce already handled this row by
-            // hand, before the automation existed — there is no work left in it.
-            //
-            // Unless the sheet calls it Completed. Then it is a product that went
-            // live and has no record here at all, which is the one thing worth
-            // importing: it comes in published rather than as work to do.
-            if (filled($data['Listed By'] ?? null) || filled($data['Listed Date'] ?? null)) {
-                if (!$this->sheetSaysPublished($data)) {
-                    $result['already_listed']++;
-                    continue;
-                }
-            }
-
+        foreach ($entries as ['data' => $data, 'numbers' => $numbers]) {
+            $requestNo  = $numbers[0];
             $department = trim((string) ($data['Department'] ?? ''));
             $deptConfig = $this->departmentConfigFor($department);
 
             $tokens = $this->splitWebsiteTokens((string) ($data['Website'] ?? ''));
 
             foreach ($tokens as $token) {
-                $existing = ProductRequestSheetSync::where('request_no', $requestNo)
-                    ->where('website_token', $token)
-                    ->first();
+                $store       = $deptConfig ? $this->storeForToken($token) : null;
+                $fingerprint = $store ? $this->entryFingerprint($store, $data, $deptConfig) : null;
+                $existing    = $this->ledgerFor($numbers, $token, $fingerprint, $onSheet, $commit);
 
                 if ($existing && $existing->status === 'created') {
                     // The sheet's Request No is not a stable id: rows get renumbered
@@ -197,15 +217,22 @@ class ProductRequestSheetSyncService
                     continue;
                 }
 
+                // The number this row is recorded under: the first of its numbers
+                // not already naming another request. None, when every one was
+                // copied from an older row — the request is then found by its
+                // brand and date alone.
+                $ledgerNo = $this->freeNumber($numbers, $token);
+
                 // Claim this (request no, website token) before doing any work. The
                 // unique index is what makes the claim safe: two runs racing on
                 // the same row both read no ledger entry a moment ago, and without
                 // this both would create a request and the second would silently
                 // repoint the ledger at itself, orphaning the first.
-                if ($commit && !$existing) {
+                if ($commit && $ledgerNo !== null
+                    && !ProductRequestSheetSync::where('request_no', $ledgerNo)->where('website_token', $token)->exists()) {
                     try {
-                        $existing = ProductRequestSheetSync::create([
-                            'request_no'    => $requestNo,
+                        ProductRequestSheetSync::create([
+                            'request_no'    => $ledgerNo,
                             'website_token' => $token,
                             'status'        => 'claimed',
                         ]);
@@ -216,7 +243,7 @@ class ProductRequestSheetSyncService
                 }
 
                 if (!$deptConfig) {
-                    $this->record($requestNo, $token, null, null, 'unmatched_department',
+                    $this->record($ledgerNo, $token, null, null, 'unmatched_department',
                         "Department \"{$department}\" is not in config/product_request_sync.php");
                     $result['unmatched_department']++;
                     $result['log'][] = "Skipped Request No {$requestNo} / {$token} ({$data['Brand']}): "
@@ -224,10 +251,8 @@ class ProductRequestSheetSyncService
                     continue;
                 }
 
-                $store = $this->storeForToken($token);
-
                 if (!$store) {
-                    $this->record($requestNo, $token, null, null, 'unmatched_store',
+                    $this->record($ledgerNo, $token, null, null, 'unmatched_store',
                         "No store mapped for website token \"{$token}\"");
                     $result['unmatched_store']++;
                     $result['log'][] = "Skipped Request No {$requestNo} / {$token} ({$data['Brand']}): "
@@ -265,7 +290,7 @@ class ProductRequestSheetSyncService
                         : "no row in \"{$sheetName}\" matches date {$date} (cell \"{$rawDate}\") + brand \"{$data['Brand']}\""
                             . $this->mismatchHint($sheetCache[$sheetName], (string) ($data['Brand'] ?? ''));
 
-                    $this->record($requestNo, $token, $store->id, null, 'unmatched_skus', ucfirst($why));
+                    $this->record($ledgerNo, $token, $store->id, null, 'unmatched_skus', ucfirst($why));
                     $result['unmatched_skus']++;
                     $result['log'][] = "Skipped Request No {$requestNo} / {$token} ({$data['Brand']}): {$why}";
                     continue;
@@ -292,11 +317,20 @@ class ProductRequestSheetSyncService
 
                 try {
                     $productRequest = $this->createRequest($data, $store, $deptConfig['category'], $skus, $syncUser);
-                    $this->record($requestNo, $token, $store->id, $productRequest->id, 'created', null);
+                    $this->record($ledgerNo, $token, $store->id, $productRequest->id, 'created', null);
+
+                    // The row's other numbers name the same request, so none of
+                    // them is ever read as a product still to import.
+                    foreach (array_diff($numbers, [$ledgerNo]) as $other) {
+                        if ($this->freeNumber([$other], $token) !== null) {
+                            $this->record($other, $token, $store->id, $productRequest->id, 'created', null);
+                        }
+                    }
+
                     $result['created']++;
                     $result['log'][] = "Created {$productRequest->reference} for Request No {$requestNo} / {$token}";
                 } catch (\Throwable $e) {
-                    $this->record($requestNo, $token, $store->id, null, 'error', $e->getMessage());
+                    $this->record($ledgerNo, $token, $store->id, null, 'error', $e->getMessage());
                     $result['errors']++;
                     $result['log'][] = "ERROR on Request No {$requestNo} / {$token}: {$e->getMessage()}";
                 }
@@ -325,6 +359,8 @@ class ProductRequestSheetSyncService
         $item         = $this->drive->resolveShareItem(config('product_request_sync.master_sheet_url'));
         $masterValues = $this->drive->worksheetValues($item['driveId'], $item['itemId'], config('product_request_sync.master_worksheet'));
         $header       = array_map('trim', $masterValues[0] ?? []);
+
+        $this->rememberMasterDates($header, array_slice($masterValues, 1));
 
         $sheetCache = [];
         $rows       = [];
@@ -526,7 +562,14 @@ class ProductRequestSheetSyncService
             return null;
         }
 
-        return Store::all()->first(fn (Store $store) => $this->storeNameKey((string) $store->name) === $wanted);
+        $store = Store::all()->first(fn (Store $store) => $this->storeNameKey((string) $store->name) === $wanted);
+
+        // "SN ONLY" says the row is for SN and no other site; the store is SN's.
+        if (!$store && preg_match('/^(.+?)\s+only$/i', trim($token), $m)) {
+            return $this->storeForToken($m[1]);
+        }
+
+        return $store;
     }
 
     /** "American Tourister website" and "Americantourister" → "americantourister". */
@@ -655,14 +698,16 @@ class ProductRequestSheetSyncService
             return [];
         }
 
-        [$targetDate, $swapped] = $this->tabDateFor($sheetValues, $requestDateRaw, $brand);
+        [$targetDate, $correction] = $this->tabDateFor($sheetValues, $requestDateRaw, $brand);
 
         if (!$targetDate) {
             return [];
         }
 
-        if ($swapped) {
+        if ($correction === 'swapped') {
             $note = "matched on {$targetDate} — day and month are swapped on the tab";
+        } elseif ($correction === 'day_off') {
+            $note = "matched on {$targetDate} — the tab dates these rows a day from the request date";
         }
 
         $skus = [];
@@ -697,29 +742,65 @@ class ProductRequestSheetSyncService
      * ambiguous and stays skipped, which is why RAGO (5 Aug and 17 Aug) is left
      * for a person to sort out.
      *
-     * @return array{0: ?string, 1: bool}  the date to match on, and whether it was a swap
+     * The other slip is a day: the master row is filed the day after the SKUs
+     * went on the tab (the October perfume batch is 21 October on the master,
+     * 20 October on the tab, for every brand in it). That is taken when exactly
+     * one of the brand's dates is a day either side and no master row of its
+     * own is dated that day — those rows are that row's, not this one's.
+     *
+     * @return array{0: ?string, 1: ?string}  the date to match on, and 'swapped' / 'day_off' when it is not the master's own
      */
     private function tabDateFor(array $sheetValues, mixed $requestDateRaw, string $brand): array
     {
         $target = $this->normalizeExcelDate($requestDateRaw)?->toDateString();
 
         if (!$target) {
-            return [null, false];
+            return [null, null];
         }
 
         $dates = $this->brandDates($sheetValues, $brand);
 
         if (in_array($target, $dates, true)) {
-            return [$target, false];
+            return [$target, null];
         }
 
         $swapped = $this->swapDayAndMonth($target);
 
         if ($swapped !== null && $dates === [$swapped]) {
-            return [$swapped, true];
+            return [$swapped, 'swapped'];
         }
 
-        return [$target, false];
+        $day    = Carbon::parse($target);
+        $either = [$day->copy()->subDay()->toDateString(), $day->copy()->addDay()->toDateString()];
+        $near   = array_values(array_intersect($dates, $either));
+
+        if (count($near) === 1 && !isset($this->masterBrandDates[self::brandKey($brand) . '|' . $near[0]])) {
+            return [$near[0], 'day_off'];
+        }
+
+        return [$target, null];
+    }
+
+    /** Which brand is requested on which day, across the whole master tab. */
+    private function rememberMasterDates(array $header, array $rows): void
+    {
+        $this->masterBrandDates = [];
+
+        $brandCol = array_search('Brand', $header, true);
+        $dateCol  = array_search('Request Date', $header, true);
+
+        if ($brandCol === false || $dateCol === false) {
+            return;
+        }
+
+        foreach ($rows as $row) {
+            $brand = trim((string) ($row[$brandCol] ?? ''));
+            $date  = $this->normalizeExcelDate($row[$dateCol] ?? null)?->toDateString();
+
+            if ($brand !== '' && $date) {
+                $this->masterBrandDates[self::brandKey($brand) . '|' . $date] = true;
+            }
+        }
     }
 
     /**
@@ -901,11 +982,12 @@ class ProductRequestSheetSyncService
     /**
      * The fields the sheet is allowed to change on a request that already exists.
      *
-     * Deliberately short. Category is left out: it decides which tab the SKUs
-     * come from and who is staffed, so a change there is reported rather than
-     * applied. Notes are left out because the team writes in them.
+     * Deliberately short. Notes are left out because the team writes in them.
+     * Category is in: the department decides which tab the SKUs come from and
+     * who works on it, and a request left under the old one collects SKUs from
+     * the new tab while the old category's people are mailed about them.
      */
-    private const SHEET_OWNED = ['brand', 'priority', 'online_launch_date'];
+    private const SHEET_OWNED = ['brand', 'priority', 'online_launch_date', 'category'];
 
     /**
      * What the sheet currently says, in the request's own terms.
@@ -920,6 +1002,7 @@ class ProductRequestSheetSyncService
             'brand'              => trim((string) ($data['Brand'] ?? '')) ?: null,
             'priority'           => in_array($priority, ['high', 'medium', 'low'], true) ? $priority : null,
             'online_launch_date' => $this->normalizeExcelDate($data['Requested Website Go-Live Date'] ?? null)?->toDateString(),
+            'category'           => $this->departmentConfigFor(trim((string) ($data['Department'] ?? '')))['category'] ?? null,
         ];
     }
 
@@ -934,6 +1017,7 @@ class ProductRequestSheetSyncService
             'brand'              => trim((string) $request->brand) ?: null,
             'priority'           => $request->priority,
             'online_launch_date' => $request->online_launch_date?->toDateString(),
+            'category'           => trim((string) $request->category) ?: null,
         ];
     }
 
@@ -961,8 +1045,17 @@ class ProductRequestSheetSyncService
         // any difference a local edit and then refuse to ever apply it. Assuming
         // the two were in step means the next sheet change is seen as a change.
         if ($snapshot === null) {
+            $values = $this->requestValues($request);
+
+            // Except a category that disagrees: the reused numbers left requests
+            // filed under a department that was never theirs, and assuming those
+            // were in step would move them the next time the sheet is read.
+            if ($sheet['category'] !== null && $sheet['category'] !== $values['category']) {
+                unset($values['category']);
+            }
+
             if ($commit) {
-                $request->update(['sheet_snapshot' => $this->requestValues($request)]);
+                $request->update(['sheet_snapshot' => $values]);
             }
 
             return ['applied' => [], 'conflicts' => []];
@@ -971,18 +1064,47 @@ class ProductRequestSheetSyncService
         $applied   = [];
         $conflicts = [];
         $updates   = [];
+        $unsettled = [];
 
         foreach (self::SHEET_OWNED as $field) {
             $now  = $sheet[$field] ?? null;
             $then = $snapshot[$field] ?? null;
 
-            if ($now === null || $now === $then) {
-                continue;   // the sheet has not changed this
-            }
-
             $mine = $field === 'online_launch_date'
                 ? $request->online_launch_date?->toDateString()
                 : (string) $request->$field;
+
+            // Imported before this field was remembered. A difference now could
+            // be the sheet's edit or somebody's correction here, and nothing says
+            // which — so it is reported every run until a person settles it, and
+            // only then remembered.
+            if (!array_key_exists($field, $snapshot)) {
+                if ($now === null || $now === $mine) {
+                    continue;
+                }
+
+                $renamed = self::renamedBySheet($request);
+
+                if (!$renamed && $this->settleCategories !== null
+                    && ($this->settleCategories === [] || in_array(strtoupper($request->reference), $this->settleCategories, true))) {
+                    $updates[$field] = $now;
+                    $applied[]       = "{$field}: \"{$mine}\" → \"{$now}\" (settled from the sheet)";
+
+                    continue;
+                }
+
+                $unsettled[] = $field;
+                $conflicts[] = "{$request->brand}: the sheet files it under \"{$now}\" but the request is {$field} \"{$mine}\" here — "
+                    . ($renamed
+                        ? 'it still carries a brand the sheet gave it from another row; run product-requests:repair-reused-numbers first'
+                        : 'imported before the sheet\'s value was recorded; if the sheet is right, run product-requests:sync-sheet --settle-categories --commit');
+
+                continue;
+            }
+
+            if ($now === null || $now === $then) {
+                continue;   // the sheet has not changed this
+            }
 
             if ($mine !== null && $then !== null && $mine !== $then) {
                 $conflicts[] = "{$field} is \"{$mine}\" here but the sheet now says \"{$now}\" — left as it is";
@@ -993,8 +1115,19 @@ class ProductRequestSheetSyncService
             $applied[]       = "{$field}: \"{$then}\" → \"{$now}\"";
         }
 
-        if ($commit && ($updates || $snapshot !== $sheet)) {
-            $request->update($updates + ['sheet_snapshot' => $sheet]);
+        // An unsettled field stays out of the snapshot, so it is asked about again.
+        $remember = array_diff_key($sheet, array_flip($unsettled));
+
+        if ($commit && ($updates || $snapshot !== $remember)) {
+            $request->update($updates + ['sheet_snapshot' => $remember]);
+
+            // A new category is new people. Only the roles the app filled in move;
+            // anybody chosen by hand keeps the work.
+            if (isset($updates['category'])) {
+                foreach ($this->workflow->restaffFromCategory($request, null, notify: true) as $role => $change) {
+                    $applied[] = "{$role}: {$change['from']} → {$change['to']}";
+                }
+            }
 
             if ($applied) {
                 $this->workflow->log(
@@ -1259,6 +1392,269 @@ class ProductRequestSheetSyncService
         return preg_replace('/[^A-Z0-9]/', '', strtoupper($brand));
     }
 
+    /** "Armani" and "ARMANI BEAUTY" are one brand corrected; "Azzaro" and "RYA COLLECTION" are not. */
+    public static function sameBrand(string $a, string $b): bool
+    {
+        $a = self::brandKey($a);
+        $b = self::brandKey($b);
+
+        return $a === $b || ($a !== '' && $b !== '' && (str_contains($a, $b) || str_contains($b, $a)));
+    }
+
+    /**
+     * The master rows as the products they describe.
+     *
+     * A product is a brand on a date for a website. The category tabs carry no
+     * Request No, so two master rows for TRIUMPH on 13 Oct cannot be told apart
+     * there — each one matched all 4,651 SKUs of all three and became a request
+     * of its own holding every one of them. Rows like that are one request here,
+     * with the counts added up so the shortfall check still has a number.
+     *
+     * A row that repeats the number or the SKU Count of one already in the group
+     * is the same row typed in twice and counts once.
+     *
+     * @return array<int, array{data: array<string, mixed>, numbers: array<int, int>}>
+     */
+    private function entries(array $header, array $rows, array &$result): array
+    {
+        $shared    = $this->sharedNumbers($header, $rows);
+        $statusKey = collect($header)->first(fn ($h) => preg_replace('/[^a-z]/', '', strtolower((string) $h)) === 'ecomstatus');
+        $groups    = [];
+
+        foreach ($rows as $index => $row) {
+            $data = array_combine($header, array_pad($row, count($header), null));
+
+            $requestNo = (int) ($data['Request No'] ?? 0);
+            if (!$requestNo) {
+                continue;
+            }
+
+            // Two products under one number cannot both be the request it names.
+            // Read in turn, each one renamed it — four brands in a single run.
+            if (isset($shared[$requestNo])) {
+                $result['conflicts']++;
+                $result['log'][] = "Skipped Request No {$requestNo} ({$data['Brand']}): the sheet has it on "
+                    . count($shared[$requestNo]) . ' rows, for ' . implode(', ', $shared[$requestNo])
+                    . ' — give each row a Request No of its own.';
+                continue;
+            }
+
+            // Listed By / Listed Date mean e-commerce already handled this row by
+            // hand, before the automation existed — there is no work left in it.
+            //
+            // Unless the sheet calls it Completed. Then it is a product that went
+            // live and has no record here at all, which is the one thing worth
+            // importing: it comes in published rather than as work to do.
+            if (filled($data['Listed By'] ?? null) || filled($data['Listed Date'] ?? null)) {
+                if (!$this->sheetSaysPublished($data)) {
+                    $result['already_listed']++;
+                    continue;
+                }
+            }
+
+            $brand = self::brandKey((string) ($data['Brand'] ?? ''));
+            $date  = $this->normalizeExcelDate($data['Request Date'] ?? null)?->toDateString();
+            $key   = $brand !== '' && $date
+                ? implode('|', [
+                    $brand,
+                    $date,
+                    preg_replace('/[^a-z]/', '', strtolower((string) ($data['Department'] ?? ''))),
+                    strtoupper(preg_replace('/\s+/', '', (string) ($data['Website'] ?? ''))),
+                ])
+                : "row {$index}";
+
+            $count = (int) preg_replace('/[^0-9]/', '', (string) ($data['SKU Count'] ?? ''));
+            $body  = json_encode(array_map(fn ($v) => trim((string) $v), array_diff_key($data, ['Request No' => true])));
+
+            if (!isset($groups[$key])) {
+                $groups[$key] = ['data' => $data, 'numbers' => [$requestNo], 'counts' => [$count], 'bodies' => [$body], 'rows' => 1];
+                continue;
+            }
+
+            $group = &$groups[$key];
+            $group['rows']++;
+
+            // Two batches of one brand on one day are possible; two rows equal in
+            // every cell but the number are the same row typed in twice.
+            $copy = in_array($requestNo, $group['numbers'], true) || in_array($body, $group['bodies'], true);
+            $group['bodies'][] = $body;
+
+            if (!in_array($requestNo, $group['numbers'], true)) {
+                $group['numbers'][] = $requestNo;
+            }
+
+            if (!$copy) {
+                $group['counts'][] = $count;
+            }
+
+            // Completed only when every row of it is: one batch still open means
+            // the request still has work in it.
+            if ($statusKey && !$this->sheetSaysPublished($data)) {
+                $group['data'][$statusKey] = $data[$statusKey];
+            }
+
+            unset($group);
+        }
+
+        $entries = [];
+
+        foreach ($groups as $group) {
+            $data = $group['data'];
+
+            if ($group['rows'] > 1) {
+                $data['SKU Count'] = (string) array_sum($group['counts']);
+
+                $date = $this->normalizeExcelDate($data['Request Date'] ?? null)?->toDateString();
+                $result['log'][] = 'Request No ' . implode(', ', array_map(fn ($n) => "#{$n}", $group['numbers']))
+                    . " ({$data['Brand']}, {$date}, {$data['Website']}): one brand on one date, imported as one request"
+                    . (count($group['counts']) < $group['rows'] ? ' — some of these rows look typed in twice' : '')
+                    . '. The category tab cannot tell their SKUs apart.';
+            }
+
+            $entries[] = ['data' => $data, 'numbers' => $group['numbers']];
+        }
+
+        return $entries;
+    }
+
+    /**
+     * What a sheet row is, independent of its Request No: website, brand, date
+     * and category. Null when the row does not say enough to know.
+     */
+    private function entryFingerprint(Store $store, array $data, array $deptConfig): ?string
+    {
+        return $this->fingerprint(
+            $store->id,
+            (string) ($data['Brand'] ?? ''),
+            $this->normalizeExcelDate($data['Request Date'] ?? null)?->toDateString(),
+            (string) $deptConfig['category'],
+        );
+    }
+
+    /** The same, read off a request. */
+    public static function fingerprintOf(ProductRequest $request): ?string
+    {
+        return self::fingerprint(
+            (int) $request->store_id,
+            (string) $request->brand,
+            $request->sheet_request_date?->toDateString(),
+            (string) $request->category,
+        );
+    }
+
+    private static function fingerprint(int $storeId, string $brand, ?string $date, string $category): ?string
+    {
+        $brand = self::brandKey($brand);
+
+        return $brand === '' || !$date ? null : implode('|', [$storeId, $brand, $date, strtolower(trim($category))]);
+    }
+
+    /** @return array<string, true> the fingerprint of every product on the sheet right now */
+    private function sheetFingerprints(array $entries): array
+    {
+        $onSheet = [];
+
+        foreach ($entries as ['data' => $data]) {
+            $deptConfig = $this->departmentConfigFor(trim((string) ($data['Department'] ?? '')));
+
+            if (!$deptConfig) {
+                continue;
+            }
+
+            foreach ($this->splitWebsiteTokens((string) ($data['Website'] ?? '')) as $token) {
+                if (($store = $this->storeForToken($token)) && ($fp = $this->entryFingerprint($store, $data, $deptConfig))) {
+                    $onSheet[$fp] = true;
+                }
+            }
+        }
+
+        return $onSheet;
+    }
+
+    /**
+     * The ledger row of the request a sheet row already became, or null when it
+     * is new.
+     *
+     * The Request No alone cannot answer this: rows get renumbered (TRIUMPH was
+     * #436 one week and #269 the next, and came in twice) and numbers get copied
+     * onto new rows. So a number is believed only while the request it names is
+     * still this product — or is no longer anywhere on the sheet, which is a
+     * corrected brand or date rather than a different product. Failing that, the
+     * product is looked for by what it is.
+     */
+    private function ledgerFor(array $numbers, string $token, ?string $fingerprint, array $onSheet, bool $commit): ?ProductRequestSheetSync
+    {
+        $rows = ProductRequestSheetSync::whereIn('request_no', $numbers)
+            ->where('website_token', $token)
+            ->where('status', 'created')
+            ->with('productRequest')
+            ->orderBy('product_request_id')
+            ->get();
+
+        foreach ($rows->filter(fn ($row) => $row->productRequest) as $row) {
+            $theirs = self::fingerprintOf($row->productRequest);
+
+            if ($fingerprint === null || $theirs === null || $theirs === $fingerprint || !isset($onSheet[$theirs])) {
+                return $row;
+            }
+        }
+
+        if ($fingerprint && ($request = $this->requestWithFingerprint($fingerprint))) {
+            $free = $this->freeNumber($numbers, $token);
+
+            if ($free !== null && $commit) {
+                $this->record($free, $token, $request->store_id, $request->id, 'created', 'Matched by brand and date — the row was renumbered');
+
+                return ProductRequestSheetSync::where('request_no', $free)->where('website_token', $token)->first();
+            }
+
+            $row = new ProductRequestSheetSync([
+                'request_no'         => $free ?? $numbers[0],
+                'website_token'      => $token,
+                'store_id'           => $request->store_id,
+                'product_request_id' => $request->id,
+                'status'             => 'created',
+            ]);
+
+            return $row->setRelation('productRequest', $request);
+        }
+
+        // A request deleted on purpose leaves its ledger row behind, and that row
+        // is what keeps the sync from bringing it back.
+        return $rows->first(fn ($row) => !$row->productRequest);
+    }
+
+    /** The first of these numbers not already naming a request, or null. */
+    private function freeNumber(array $numbers, string $token): ?int
+    {
+        $taken = ProductRequestSheetSync::whereIn('request_no', $numbers)
+            ->where('website_token', $token)
+            ->where('status', 'created')
+            ->pluck('request_no')
+            ->all();
+
+        foreach ($numbers as $number) {
+            if (!in_array($number, $taken)) {
+                return $number;
+            }
+        }
+
+        return null;
+    }
+
+    /** The request already here for this product, preferring one still open. */
+    private function requestWithFingerprint(string $fingerprint): ?ProductRequest
+    {
+        [$storeId, , $date, $category] = explode('|', $fingerprint, 4);
+
+        return ProductRequest::where('store_id', $storeId)
+            ->whereDate('sheet_request_date', $date)
+            ->get()
+            ->filter(fn ($request) => self::fingerprintOf($request) === $fingerprint)
+            ->sortBy(fn ($request) => [$request->status === ProductRequest::CANCELLED ? 1 : 0, $request->id])
+            ->first();
+    }
+
     /**
      * Request Nos the sheet gives to more than one brand: number => the brands.
      *
@@ -1318,8 +1714,11 @@ class ProductRequestSheetSyncService
         $onRow = array_map(fn ($sku) => strtoupper(trim($sku)),
             $this->matchSkus($sheetCache[$sheetName], $data['Request Date'] ?? null, (string) $data['Brand']));
 
+        // Nothing on the tab to compare. Only a respelling of the same name is a
+        // correction then: reading "no evidence" as one renamed twenty-one
+        // repaired requests straight back, BIKKEMBERG to BYE BRA among them.
         if (!$onRow) {
-            return null;   // nothing would be added; a rename is all this can be
+            return self::sameBrand($was, $now) ? null : $why;
         }
 
         $have = $request->skus()->pluck('sku')->map(fn ($sku) => strtoupper(trim($sku)))->all();
@@ -1492,8 +1891,14 @@ class ProductRequestSheetSyncService
         return $fixed;
     }
 
-    private function record(int $requestNo, string $token, ?int $storeId, ?int $productRequestId, string $status, ?string $note): void
+    private function record(?int $requestNo, string $token, ?int $storeId, ?int $productRequestId, string $status, ?string $note): void
     {
+        // Every number on the row already names another request; there is no
+        // row of the ledger this one can be written to.
+        if ($requestNo === null) {
+            return;
+        }
+
         ProductRequestSheetSync::updateOrCreate(
             ['request_no' => $requestNo, 'website_token' => $token],
             ['store_id' => $storeId, 'product_request_id' => $productRequestId, 'status' => $status, 'note' => $note],

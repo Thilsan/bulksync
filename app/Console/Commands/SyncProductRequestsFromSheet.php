@@ -16,7 +16,10 @@ use Illuminate\Console\Command;
  */
 class SyncProductRequestsFromSheet extends Command
 {
-    protected $signature = 'product-requests:sync-sheet {--commit : Actually create requests, instead of only reporting what would happen}';
+    protected $signature = 'product-requests:sync-sheet
+                            {--commit : Actually create requests, instead of only reporting what would happen}
+                            {--settle-categories : Move requests to the department the sheet gives them, where it was never recorded at import}
+                            {--only=* : With --settle-categories, just these request references}';
 
     protected $description = 'Sync new rows from the SharePoint product listing tracking sheet into product requests';
 
@@ -26,6 +29,10 @@ class SyncProductRequestsFromSheet extends Command
 
         if (!$commit) {
             $this->warn('Dry run — nothing will be created. Pass --commit to actually create requests.');
+        }
+
+        if ($this->option('settle-categories')) {
+            $service->settleCategories($this->option('only'));
         }
 
         $result = $service->run($commit);
@@ -45,7 +52,7 @@ class SyncProductRequestsFromSheet extends Command
             ['Already synced',         $result['skipped_existing']],
             ['Not synced by choice',   $result['ignored']],
             ['Already listed by hand',  $result['already_listed']],
-            ['Date swapped on the tab', $result['swapped_dates']],
+            ['Date corrected on the tab', $result['swapped_dates']],
             ['Unmatched department',   $result['unmatched_department']],
             ['Unmatched store',        $result['unmatched_store']],
             ['Unmatched SKUs',         $result['unmatched_skus']],
