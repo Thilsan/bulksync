@@ -77,6 +77,7 @@ class PhotoEditGroup extends Model
         'angle_source_item_id',
         'pendant_closeup',
         'case_height_cm',
+        'framing_preset',
         'redraw_refused',
     ];
 

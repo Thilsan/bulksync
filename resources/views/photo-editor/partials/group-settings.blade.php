@@ -517,6 +517,17 @@
             match each other.
         </p>
 
+        {{-- Only on a SKU's own panel, never on the run's. The review screen
+             carries a category row on every card, so a SKU can be a pair of
+             shorts without opting out of the run's settings; when both are
+             set, the one beside the photographs wins, because that is the one
+             chosen while looking at the product. --}}
+        @if (($uid ?? 'run') !== 'run')
+            <p class="mt-2 text-[11px] text-gray-400">
+                If you also set a category on this SKU's card above, that one is used.
+            </p>
+        @endif
+
         {{-- The name of the standard, kept beside the values it produced. The
              server expands it again on the way in: the boxes below are disabled
              while a category is picked, so a browser posts back only some of

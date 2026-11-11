@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\PhotoroomService;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -119,6 +120,21 @@ class PhotoEditItem extends Model
          */
         if ($group?->case_height_cm) {
             $edits['case_height_cm'] = $group->case_height_cm;
+        }
+
+        /*
+         * The category is the group's own column too, and for the same reason:
+         * one folder holds several categories at once — shirts, trousers and
+         * shorts photographed in the same session — so it is picked SKU by SKU
+         * on the review screen while every other setting still follows the run.
+         *
+         * Applied through the service rather than merged, because a category
+         * is a whole set of framing numbers and not a label: writing the key
+         * alone would leave the SKU framed to the run's category while
+         * claiming to be in another.
+         */
+        if (filled($group?->framing_preset)) {
+            $edits = PhotoroomService::applyFramingPreset($edits, $group->framing_preset);
         }
 
         return $edits;

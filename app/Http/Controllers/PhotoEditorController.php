@@ -406,6 +406,15 @@ class PhotoEditorController extends Controller implements HasMiddleware
             'groups.*.back_view.*'     => ['integer'],
             'groups.*.pendant_closeup' => ['nullable', 'boolean'],
             'groups.*.case_height_cm'  => ['nullable', 'integer', 'min:10', 'max:120'],
+
+            /*
+             * Checked against the real list rather than accepted as a string.
+             * An unknown key is silently dropped by applyFramingPreset, which
+             * would leave the SKU framed to the run's category while the
+             * screen showed another — the one failure here that nothing
+             * downstream looks wrong for.
+             */
+            'groups.*.framing_preset'  => ['nullable', 'string', Rule::in(array_keys(PhotoroomService::framingPresetsFlat()))],
             'groups.*.keep_bg'         => ['nullable', 'array'],
             'groups.*.keep_bg.*'       => ['integer'],
             'groups.*.no_handle'       => ['nullable', 'array'],
@@ -459,6 +468,14 @@ class PhotoEditorController extends Controller implements HasMiddleware
                 // every SKU that follows the run — which is most of them.
                 'case_height_cm'  => filled($input['case_height_cm'] ?? null)
                     ? max(10, min(120, (int) $input['case_height_cm']))
+                    : null,
+
+                // Saved outside the differs gate for the same reason, and a
+                // more common one: a folder holds several categories at once,
+                // so the category is picked SKU by SKU while everything else
+                // still follows the run. Null means "the run's category".
+                'framing_preset'  => filled($input['framing_preset'] ?? null)
+                    ? (string) $input['framing_preset']
                     : null,
             ]);
 

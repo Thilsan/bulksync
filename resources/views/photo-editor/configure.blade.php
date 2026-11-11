@@ -13,6 +13,21 @@
     what the run is about to cost. Nothing is sent to Photoroom until this
     form is submitted.
 --}}
+@php
+    /*
+     * The same store-scoped tree the settings panel uses.
+     *
+     * Built here as well because the per-SKU category row on each card is
+     * outside that partial. Scoped to the active store for the same reason it
+     * is there: offering both brands' categories at once is how a Samsonite
+     * case gets framed to Blue Salon's 2000 square.
+     */
+    $activeStore = \App\Models\Store::getActive();
+    $framingTree = \App\Services\PhotoroomService::framingPresetsForStore(
+        trim(($activeStore?->name ?? '') . ' ' . ($activeStore?->shopify_domain ?? '')),
+    );
+@endphp
+
 <div class="space-y-5" x-data="configureRun()" @photo-credits-changed.window="recount()">
 
     <div>
@@ -218,6 +233,59 @@
                              Shown on every SKU rather than only luggage: a run
                              holds whatever the folder held, and "not a suitcase"
                              changes nothing for a dress. --}}
+                        {{-- ── Category ──────────────────────────────────
+                             On the card rather than inside the settings panel
+                             below, because a folder arrives holding several
+                             categories at once — shirts, trousers and shorts
+                             photographed in one session — and the category is
+                             the one setting that differs SKU by SKU while
+                             everything else follows the run.
+
+                             It was reachable before, but only by ticking
+                             "settings differ", which opens the whole panel:
+                             background, treatment, prompt, finishing. Saying a
+                             SKU is a pair of shorts should not mean opting it
+                             out of the run's settings.
+
+                             Selects rather than the button tree the run uses.
+                             The run picks a category once on an empty screen;
+                             here the same control is repeated down a page of
+                             SKUs beside their photographs, and two rows of
+                             buttons each would bury them. --}}
+                        <div class="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2"
+                             x-data="skuCategory(@js($group->framing_preset ?: ($session->edits['framing_preset'] ?? '')), @js((bool) $group->framing_preset))">
+                            <label class="text-xs font-semibold uppercase tracking-wide text-gray-500">Category</label>
+
+                            <select x-model="main" @change="onMain()"
+                                    class="rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs focus:border-brand-500 focus:outline-none">
+                                @foreach ($framingTree as $mainKey => $main)
+                                    <option value="{{ $mainKey }}">{{ $main['label'] }}</option>
+                                @endforeach
+                            </select>
+
+                            {{-- Hidden for a main category that is the choice
+                                 itself. Perfume is framed one way whatever the
+                                 bottle, and an empty second box beside it reads
+                                 as something left unfilled. --}}
+                            <select x-model="sub" @change="onSub()" x-show="subsFor(main).length" x-cloak
+                                    class="rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs focus:border-brand-500 focus:outline-none">
+                                <template x-for="s in subsFor(main)" :key="s.key">
+                                    <option :value="s.key" x-text="s.label"></option>
+                                </template>
+                            </select>
+
+                            {{-- Empty while the SKU follows the run, so that
+                                 following it stays the stored default and a
+                                 later change to the run still reaches here. --}}
+                            <input type="hidden" name="groups[{{ $group->id }}][framing_preset]" :value="overridden ? preset : ''">
+
+                            <span class="text-[11px]" :class="overridden ? 'text-brand-700' : 'text-gray-400'"
+                                  x-text="overridden ? 'Set for this SKU' : 'Following the run'"></span>
+
+                            <button type="button" x-show="overridden" x-cloak @click="reset()"
+                                    class="text-[11px] text-gray-500 underline hover:text-gray-800">Follow the run</button>
+                        </div>
+
                         <div class="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
                             <label for="case-size-{{ $group->id }}"
                                    class="text-xs font-semibold uppercase tracking-wide text-gray-500">
@@ -486,6 +554,81 @@
 </div>
 
 <script>
+    /*
+     * The category tree, store-scoped, as {mainKey: {label, subs: [...]}}.
+     * One copy for the page rather than one per SKU card.
+     */
+    @php
+        // Shaped in a php block, never as a multi-line json argument: Blade's
+        // directive parser reads only the first line of one and then reports
+        // an unclosed bracket from the compiled file in storage/framework.
+        $categoryTree = collect($framingTree)->map(fn ($main) => [
+            'label' => $main['label'],
+            'subs'  => collect($main['subcategories'] ?? [])
+                ->map(fn ($sub, $key) => ['key' => $key, 'label' => $sub['label']])
+                ->values()
+                ->all(),
+        ])->all();
+    @endphp
+
+    window.photoEditorCategories = @json($categoryTree);
+
+    /*
+     * One SKU's category, when it is not the run's.
+     *
+     * Holds the two halves of the key separately because the screen shows them
+     * as two boxes, and writes the joined key to a hidden input only while the
+     * SKU is actually overridden. Left alone, the input posts an empty string
+     * and the SKU keeps following the run — which matters because the run's
+     * category can still change after this page was last saved.
+     *
+     * A main category with nothing under it, like Perfume, is the whole key on
+     * its own; the second box hides rather than showing an empty list.
+     */
+    function skuCategory(initial, overridden) {
+        const [main, sub] = String(initial || '').split('/');
+
+        return {
+            main: main || '',
+            sub:  sub  || '',
+            overridden: Boolean(overridden),
+
+            subsFor(key) {
+                return (window.photoEditorCategories[key] || {}).subs || [];
+            },
+
+            get preset() {
+                if (!this.main) return '';
+
+                return this.subsFor(this.main).length ? `${this.main}/${this.sub}` : this.main;
+            },
+
+            /*
+             * Changing the main category picks its first subcategory rather
+             * than leaving the second box on a value from the old one. "Men"
+             * followed by a stale "Dresses" would post men/dresses, which is
+             * not a preset, and the SKU would silently fall back to the run's
+             * framing after the server dropped it.
+             */
+            onMain() {
+                const subs = this.subsFor(this.main);
+                this.sub = subs.length ? subs[0].key : '';
+                this.overridden = true;
+            },
+
+            onSub() {
+                this.overridden = true;
+            },
+
+            reset() {
+                const [m, s] = String(@js($session->edits['framing_preset'] ?? '')).split('/');
+                this.main = m || '';
+                this.sub  = s || '';
+                this.overridden = false;
+            },
+        };
+    }
+
     /*
      * The order of one SKU's photos, held as a list of ids.
      *
