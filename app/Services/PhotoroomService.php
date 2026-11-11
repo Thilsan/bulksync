@@ -514,7 +514,7 @@ class PhotoroomService
                 'bags'     => ['label' => 'Bags',     'note' => 'House rule, unmeasured: 10% around a 2000 square, centred.', 'edits' => ['width' => 2000, 'height' => 2000, 'padding' => 0.10]],
                 'ties'     => [
                     'label' => 'Ties',
-                    'note'  => 'House rule, unmeasured: 10% around a 2000 square, centred. The sample in the ties folder could not be measured — it is a 1024x1536 source crop whose knot runs off the top edge, not a finished catalogue frame, so its 1.04% and 0.20% describe the crop rather than the house standard. Replace this with a measured note once a live tie from the website is to hand.',
+                    'note'  => 'Measured off STR202ACC00791_0 on a 2000 square: the tie sits 9.90% down, ends 9.85% up from the bottom, and fills 80.2% of the height. The same house rule again, on the narrowest category there is — it fills 16.1% of the width, and is centred to within half a pixel.',
                     'edits' => [
                         'width'   => 2000,
                         'height'  => 2000,
@@ -524,10 +524,16 @@ class PhotoroomService
                          *
                          * A tie is far taller than it is wide, so the height
                          * decides the size on its own and the padding alone
-                         * holds it. It lands narrow — roughly a third of the
-                         * width of the 80% it fills vertically — which is what
-                         * a tie looks like on a square canvas, and is the same
-                         * answer the shirts beside it would give.
+                         * holds it. Confirmed rather than assumed: the sample
+                         * lands at 80.2% of the height and 16.1% of the width,
+                         * which is what the padding gives unaided.
+                         *
+                         * The first guess at this entry came from a source
+                         * crop whose knot ran off the top edge — 1.04% above
+                         * and 0.20% below — which would have put ties at 99%
+                         * of the canvas, the one category lining up with
+                         * nothing beside it. A sample has to be a finished
+                         * catalogue frame before its edges mean anything.
                          */
                         'padding' => 0.10,
                     ],
