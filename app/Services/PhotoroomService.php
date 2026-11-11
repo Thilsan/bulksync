@@ -512,6 +512,32 @@ class PhotoroomService
                     ],
                 ],
                 'bags'     => ['label' => 'Bags',     'note' => 'House rule, unmeasured: 10% around a 2000 square, centred.', 'edits' => ['width' => 2000, 'height' => 2000, 'padding' => 0.10]],
+                'caps'     => [
+                    'label' => 'Caps',
+                    'note'  => 'Measured off STR202ACC00777_0 on a 2000 square: the cap sits 10.10% in from the left and 10.05% from the right, and fills 79.8% of the width. The same 10% house rule again — but the first measured category where the width is what it is measured against, because a cap is wider than it is tall.',
+                    'edits' => [
+                        'width'   => 2000,
+                        'height'  => 2000,
+
+                        /*
+                         * Plain padding, with nothing declared to bind.
+                         *
+                         * Every garment category needed the height pinned
+                         * because a garment is taller than it is wide and the
+                         * width would otherwise decide the size. A cap is the
+                         * other shape, so the width binds on its own and the
+                         * padding alone reproduces the sample: 79.8% of the
+                         * width against 76.8% of the height.
+                         *
+                         * The sample sits 0.95% of the canvas above centre
+                         * (11.15% above, 12.10% below). Centred here rather
+                         * than copied: under one percent is below what reads
+                         * as deliberate placement next to the brim's own
+                         * asymmetry, and every other category is centred.
+                         */
+                        'padding' => 0.10,
+                    ],
+                ],
             ],
         ],
 
@@ -1727,6 +1753,7 @@ class PhotoroomService
         'men/t-shirt'     => 'the t-shirt',
         'men/trousers'    => 'the trousers',
         'men/shorts'      => 'the shorts',
+        'men/caps'        => 'the cap',
         'men/jeans'       => 'the jeans',
         'men/bags'        => 'the bag',
 
