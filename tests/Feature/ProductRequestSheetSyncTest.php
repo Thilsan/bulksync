@@ -794,6 +794,48 @@ class ProductRequestSheetSyncTest extends TestCase
         $this->assertStringContainsString('the "Home" tab is not in the workbook', implode("\n", $result['log']));
     }
 
+    /**
+     * DOREEN, SLOGGI, TRIUMPH and four more sat unsynced because the tab typed
+     * their date as "21/10/26" and it was read as 21 Oct 0026.
+     */
+    public function test_a_tab_date_with_a_two_digit_year_is_this_century(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+
+        $this->fakeWorkbook(
+            [
+                ['Request No', 'Request Date', 'Requested By', 'Department', 'Brand', 'Website'],
+                ['328', '21-Oct-26', 'KAYCEE', 'LINGERIE', 'DOREEN', 'BS'],
+            ],
+            ['Lingerie' => [
+                ['21/10/26', 'DOREEN', 'DOR-1'],
+                ['21/10/2026', 'DOREEN', 'DOR-2'],   // a four-digit year still reads as before
+            ]],
+        );
+
+        $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertSame(1, $result['created'], implode("\n", $result['log']));
+        $this->assertSame(2, ProductRequest::sole()->total_skus);
+    }
+
+    /** Requests 161 and 207 named their website "BS website". */
+    public function test_a_website_written_with_the_website_suffix_finds_its_store(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $store = $this->store();
+
+        $this->fakeSheet(['Website' => 'BS website']);
+
+        $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertSame(0, $result['unmatched_store'], implode("\n", $result['log']));
+        $this->assertSame($store->id, ProductRequest::sole()->store_id);
+    }
+
     /** A sign-in or throttling failure is every tab's problem, not one row's — it still stops the run. */
     public function test_a_tab_that_fails_for_another_reason_still_stops_the_run(): void
     {

@@ -597,8 +597,11 @@ class ProductRequestSheetSyncService
      */
     private function storeForToken(string $token): ?Store
     {
+        // "BS website" is BS: the sheet adds the word the store names carry.
+        $bare = trim((string) preg_replace('/\s*website$/i', '', trim($token)));
+
         foreach (config('product_request_sync.website_store_map', []) as $key => $domain) {
-            if (strcasecmp($key, $token) === 0) {
+            if (strcasecmp($key, $token) === 0 || ($bare !== '' && strcasecmp($key, $bare) === 0)) {
                 return Store::where('shopify_domain', $domain)->first();
             }
         }
@@ -1037,7 +1040,10 @@ class ProductRequestSheetSyncService
 
         $value = trim((string) $value);
 
-        foreach (['d-m-y', 'd/m/Y', 'M j,Y', 'd-M-y'] as $format) {
+        // d/m/y before d/m/Y: Y takes "26" as the year 26, and "21/10/26" became
+        // 21 Oct 0026 — seven October requests never matched their own rows. y
+        // refuses a four-digit year, so "21/10/2026" still falls through to Y.
+        foreach (['d-m-y', 'd/m/y', 'd/m/Y', 'M j,Y', 'd-M-y'] as $format) {
             try {
                 return Carbon::createFromFormat($format, $value);
             } catch (\Throwable) {
