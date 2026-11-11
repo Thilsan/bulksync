@@ -288,7 +288,7 @@ class ProductRequestSheetSyncService
                     $rawDate = trim((string) ($data['Request Date'] ?? ''));
 
                     $why = $missing
-                        ? "the \"{$sheetName}\" tab has no " . implode(' or ', array_map(fn ($c) => "\"{$c}\"", $missing)) . ' column'
+                        ? "the \"{$sheetName}\" tab has no " . implode(' or ', $missing) . ' column — its headers are: ' . $this->headersOf($values)
                         : "no row in \"{$sheetName}\" matches date {$date} (cell \"{$rawDate}\") + brand \"{$data['Brand']}\""
                             . $this->mismatchHint($values, (string) ($data['Brand'] ?? ''));
 
@@ -670,14 +670,51 @@ class ProductRequestSheetSyncService
     }
 
     /**
-     * The columns that link a category tab back to a master row. A tab missing
-     * any of them can never match anything, which is a different problem from a
-     * row simply not being there yet — see missingColumnsOn().
+     * The columns that link a category tab back to a master row — date, brand,
+     * SKU — and the names each goes by. A tab missing any of them can never
+     * match anything, which is a different problem from a row simply not being
+     * there yet — see missingColumnsOn().
+     *
+     * The tabs are made by different people: Womens Fashion heads them "Brand"
+     * and "SKU" where the rest say "Brand Name" and "Item SKU", and ten requests
+     * sat unsynced over it. The first name wins when a tab has both.
      */
-    private const SKU_COLUMNS = ['Date', 'Brand Name', 'Item SKU'];
+    private const TAB_COLUMNS = [
+        ['Date'],
+        ['Brand Name', 'Brand'],
+        ['Item SKU', 'SKU'],
+    ];
 
     /**
-     * Which of the linking columns a tab does not have.
+     * Where a tab keeps its date, brand and SKU, false for any it lacks.
+     * Matched on letters only, so "ITEM SKU" and "Brand  Name" count too.
+     *
+     * @return array{0: int|false, 1: int|false, 2: int|false}
+     */
+    private function tabColumns(array $sheetValues): array
+    {
+        $flatten = fn ($name) => (string) preg_replace('/[^a-z0-9]/', '', strtolower((string) $name));
+        $header  = array_map($flatten, $sheetValues[0] ?? []);
+        $found   = [];
+
+        foreach (self::TAB_COLUMNS as $names) {
+            $at = false;
+
+            foreach ($names as $name) {
+                if (($at = array_search($flatten($name), $header, true)) !== false) {
+                    break;
+                }
+            }
+
+            $found[] = $at;
+        }
+
+        return $found;
+    }
+
+    /**
+     * Which of the linking columns a tab does not have, each with the names it
+     * was looked for under: '"Item SKU" (or "SKU")'.
      *
      * Without this a mis-headed tab looks exactly like a tab whose rows have not
      * been filled in — every request against it is reported as "no row matched",
@@ -688,12 +725,24 @@ class ProductRequestSheetSyncService
      */
     private function missingColumnsOn(array $sheetValues): array
     {
-        $header = array_map(fn ($h) => strtolower(trim((string) $h)), $sheetValues[0] ?? []);
+        $missing = [];
 
-        return array_values(array_filter(
-            self::SKU_COLUMNS,
-            fn ($column) => !in_array(strtolower($column), $header, true),
-        ));
+        foreach ($this->tabColumns($sheetValues) as $i => $at) {
+            if ($at === false) {
+                $names     = self::TAB_COLUMNS[$i];
+                $missing[] = "\"{$names[0]}\"" . (count($names) > 1 ? ' (or "' . implode('" or "', array_slice($names, 1)) . '")' : '');
+            }
+        }
+
+        return $missing;
+    }
+
+    /** A tab's headers as a short list — what to rename when none of them is the one wanted. */
+    private function headersOf(array $sheetValues): string
+    {
+        $names = array_values(array_filter(array_map(fn ($h) => trim((string) $h), $sheetValues[0] ?? []), fn ($h) => $h !== ''));
+
+        return implode(', ', array_slice($names, 0, 12)) . (count($names) > 12 ? ', …' : '');
     }
 
     /**
@@ -705,9 +754,7 @@ class ProductRequestSheetSyncService
      */
     private function mismatchHint(array $sheetValues, string $brand): string
     {
-        $header   = array_map('trim', $sheetValues[0] ?? []);
-        $dateCol  = array_search('Date', $header, true);
-        $brandCol = array_search('Brand Name', $header, true);
+        [$dateCol, $brandCol] = $this->tabColumns($sheetValues);
 
         if ($dateCol === false || $brandCol === false) {
             return '';
@@ -769,10 +816,7 @@ class ProductRequestSheetSyncService
     /** Rows in a category sheet whose Date + Brand Name match this request — the only link between the two tabs. */
     private function matchSkus(array $sheetValues, mixed $requestDateRaw, string $brand, ?string &$note = null): array
     {
-        $header   = array_map('trim', $sheetValues[0] ?? []);
-        $dateCol  = array_search('Date', $header, true);
-        $skuCol   = array_search('Item SKU', $header, true);
-        $brandCol = array_search('Brand Name', $header, true);
+        [$dateCol, $brandCol, $skuCol] = $this->tabColumns($sheetValues);
 
         if ($dateCol === false || $skuCol === false || $brandCol === false) {
             return [];
@@ -895,10 +939,7 @@ class ProductRequestSheetSyncService
      */
     private function brandDates(array $sheetValues, string $brand): array
     {
-        $header   = array_map('trim', $sheetValues[0] ?? []);
-        $dateCol  = array_search('Date', $header, true);
-        $brandCol = array_search('Brand Name', $header, true);
-        $skuCol   = array_search('Item SKU', $header, true);
+        [$dateCol, $brandCol, $skuCol] = $this->tabColumns($sheetValues);
 
         if ($dateCol === false || $brandCol === false || $skuCol === false) {
             return [];
@@ -937,10 +978,7 @@ class ProductRequestSheetSyncService
      */
     private function tabBrandFor(array $sheetValues, mixed $requestDateRaw, string $brand, ?string &$note = null): string
     {
-        $header   = array_map('trim', $sheetValues[0] ?? []);
-        $dateCol  = array_search('Date', $header, true);
-        $brandCol = array_search('Brand Name', $header, true);
-        $skuCol   = array_search('Item SKU', $header, true);
+        [$dateCol, $brandCol, $skuCol] = $this->tabColumns($sheetValues);
         $wanted   = $this->keyOf($brand);
         $date     = $this->normalizeExcelDate($requestDateRaw)?->toDateString();
 
@@ -1378,10 +1416,7 @@ class ProductRequestSheetSyncService
      */
     private function rowsOnDateFor(array $sheetValues, mixed $requestDateRaw, string $brand): array
     {
-        $header   = array_map('trim', $sheetValues[0] ?? []);
-        $dateCol  = array_search('Date', $header, true);
-        $brandCol = array_search('Brand Name', $header, true);
-        $skuCol   = array_search('Item SKU', $header, true);
+        [$dateCol, $brandCol, $skuCol] = $this->tabColumns($sheetValues);
 
         if ($dateCol === false || $brandCol === false || $skuCol === false) {
             return ['rows' => 0, 'distinct' => 0];
@@ -1417,10 +1452,7 @@ class ProductRequestSheetSyncService
      */
     private function brandBreakdown(array $sheetValues, string $brand): string
     {
-        $header   = array_map('trim', $sheetValues[0] ?? []);
-        $dateCol  = array_search('Date', $header, true);
-        $brandCol = array_search('Brand Name', $header, true);
-        $skuCol   = array_search('Item SKU', $header, true);
+        [$dateCol, $brandCol, $skuCol] = $this->tabColumns($sheetValues);
 
         if ($dateCol === false || $brandCol === false || $skuCol === false) {
             return '';
@@ -1519,13 +1551,17 @@ class ProductRequestSheetSyncService
                 $values = [];
             }
 
-            $header   = array_map('trim', $values[0] ?? []);
-            $skuCol   = array_search('Item SKU', $header, true);
-            $brandCol = array_search('Brand Name', $header, true);
-            $index    = [];
+            [, $brandCol, $skuCol] = $this->tabColumns($values);
+            $index                 = [];
 
             if ($values && ($skuCol === false || $brandCol === false)) {
-                $this->unreadableTabs[$sheet] = 'no "Brand Name" or "Item SKU" header';
+                // Only brand and SKU matter here; a missing date does not.
+                $missing = array_values(array_filter(
+                    $this->missingColumnsOn($values),
+                    fn ($column) => !str_starts_with($column, '"Date"'),
+                ));
+
+                $this->unreadableTabs[$sheet] = 'no ' . implode(' or ', $missing) . ' header';
             }
 
             if ($skuCol !== false && $brandCol !== false) {

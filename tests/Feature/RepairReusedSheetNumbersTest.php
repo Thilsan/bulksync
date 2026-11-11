@@ -242,7 +242,7 @@ class RepairReusedSheetNumbersTest extends TestCase
 
         $this->artisan('product-requests:repair-reused-numbers', ['--commit' => true])
             ->expectsOutputToContain('Home: no such tab in the workbook')
-            ->expectsOutputToContain('no "Brand Name" or "Item SKU" header')
+            ->expectsOutputToContain('no "Item SKU" (or "SKU") header')
             ->assertSuccessful();
 
         // BMW is on no tab, so every tab was read for the neighbour's SKUs —

@@ -524,7 +524,7 @@ class ProductRequestSheetSyncTest extends TestCase
         $drive->shouldReceive('worksheetValues')
             ->with('d', 'i', 'Lingerie')
             ->andReturn([
-                ['Date', 'Brand', 'SKU'],          // "Brand Name" and "Item SKU" both wrong
+                ['Date', 'Label', 'Code'],         // neither brand nor SKU under any name it goes by
                 ['05-Aug-26', 'AMADAMARIA', 'SKU-1'],
             ]);
 
@@ -535,9 +535,74 @@ class ProductRequestSheetSyncTest extends TestCase
         $this->assertSame(1, $result['unmatched_skus']);
 
         $log = implode("\n", $result['log']);
-        $this->assertStringContainsString('"Brand Name"', $log);
-        $this->assertStringContainsString('"Item SKU"', $log);
+        $this->assertStringContainsString('"Brand Name" (or "Brand")', $log);
+        $this->assertStringContainsString('"Item SKU" (or "SKU")', $log);
+        $this->assertStringContainsString('its headers are: Date, Label, Code', $log, 'Say what is there, so the rename is obvious.');
         $this->assertStringNotContainsString('no row in', $log, 'A header problem must not read as a missing row.');
+    }
+
+    /**
+     * Womens Fashion heads its columns "Brand" and "SKU", with a blank one
+     * between — and ten requests sat unsynced over the names alone.
+     */
+    public function test_a_tab_headed_brand_and_sku_is_read(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+
+        $drive = Mockery::mock(OneDriveService::class);
+        $drive->shouldReceive('asServiceAccount')->andReturnSelf();
+        $drive->shouldReceive('resolveShareItem')->andReturn(['driveId' => 'd', 'itemId' => 'i']);
+        $drive->shouldReceive('worksheetValues')
+            ->with('d', 'i', config('product_request_sync.master_worksheet'))
+            ->andReturn([
+                ['Request No', 'Request Date', 'Requested By', 'Department', 'Brand', 'Website'],
+                ['44', '05-Aug-26', 'KAYCEE', 'WOMENS FASHION', 'JIJIL', 'BS'],
+            ]);
+        $drive->shouldReceive('worksheetValues')
+            ->with('d', 'i', 'Womens Fashion')
+            ->andReturn([
+                ['Date', 'Brand', '', 'SKU', 'Product Name'],
+                ['05-Aug-26', 'JIJIL', '', 'JIJ-1', 'Dress'],
+                ['05-Aug-26', 'JIJIL', '', 'JIJ-2', 'Skirt'],
+            ]);
+        $this->app->instance(OneDriveService::class, $drive);
+
+        $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertSame(1, $result['created'], implode("\n", $result['log']));
+        $this->assertSame(['JIJ-1', 'JIJ-2'], ProductRequest::sole()->skus()->orderBy('sku')->pluck('sku')->all());
+    }
+
+    /** A tab with both names keeps reading the full one — "SKU" there may be something else. */
+    public function test_the_full_header_name_wins_when_a_tab_has_both(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+
+        $drive = Mockery::mock(OneDriveService::class);
+        $drive->shouldReceive('asServiceAccount')->andReturnSelf();
+        $drive->shouldReceive('resolveShareItem')->andReturn(['driveId' => 'd', 'itemId' => 'i']);
+        $drive->shouldReceive('worksheetValues')
+            ->with('d', 'i', config('product_request_sync.master_worksheet'))
+            ->andReturn([
+                ['Request No', 'Request Date', 'Requested By', 'Department', 'Brand', 'Website'],
+                ['17', '05-Aug-26', 'KAYCEE', 'LINGERIE', 'AMADAMARIA', 'BS'],
+            ]);
+        $drive->shouldReceive('worksheetValues')
+            ->with('d', 'i', 'Lingerie')
+            ->andReturn([
+                ['Date', 'Brand', 'Brand Name', 'SKU', 'ITEM SKU'],
+                ['05-Aug-26', 'GROUP', 'AMADAMARIA', 'STYLE-9', 'AMA-1'],
+            ]);
+        $this->app->instance(OneDriveService::class, $drive);
+
+        $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertSame(1, $result['created'], implode("\n", $result['log']));
+        $this->assertSame(['AMA-1'], ProductRequest::sole()->skus()->pluck('sku')->all());
     }
 
     public function test_a_row_whose_skus_are_not_on_the_category_tab_says_so(): void

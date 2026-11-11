@@ -51,24 +51,40 @@ class ShowProductRequestSheetColumns extends Command
                 continue;
             }
 
-            $header = array_map('trim', $values[0] ?? []);
+            $header    = array_map('trim', $values[0] ?? []);
+            $headerRow = 0;
 
             // A header row is not always row 1 — some tabs carry a title above it.
-            // The row with the most filled cells in the first few is the real one.
-            foreach (array_slice($values, 0, 5) as $index => $row) {
-                if (count(array_filter($row, 'filled')) > count(array_filter($header, 'filled'))) {
-                    $header = array_map('trim', $row);
+            // The first row at least half as full as the fullest of the first few
+            // is the real one. Not simply the fullest: a header with one blank
+            // cell (Womens Fashion) has fewer than the data rows under it.
+            $top    = array_slice($values, 0, 5);
+            $filled = array_map(fn ($row) => count(array_filter($row, 'filled')), $top);
+
+            foreach ($top as $index => $row) {
+                if ($filled[$index] * 2 >= max($filled)) {
+                    $header    = array_map('trim', $row);
+                    $headerRow = $index;
+                    break;
                 }
             }
 
             $columns = [];
 
             foreach ($header as $position => $name) {
-                if ($name === '' || ($find !== '' && !str_contains(strtolower($name), $find))) {
+                if ($find !== '' && !str_contains(strtolower($name), $find)) {
                     continue;
                 }
 
-                $columns[] = [$this->columnLetter($position), $name];
+                $example = $this->example($values, $headerRow, $position);
+
+                // A column with no header but values under it is still a column —
+                // Womens Fashion has one between "Brand" and "SKU".
+                if ($name === '' && $example === '') {
+                    continue;
+                }
+
+                $columns[] = [$this->columnLetter($position), $name === '' ? '(no header)' : $name, $example];
             }
 
             $this->newLine();
@@ -79,10 +95,24 @@ class ShowProductRequestSheetColumns extends Command
                 continue;
             }
 
-            $this->table(['Cell', 'Header'], $columns);
+            $this->table(['Cell', 'Header', 'First value'], $columns);
         }
 
         return self::SUCCESS;
+    }
+
+    /** The first value under a header — "is this the SKU column?" answered by looking. */
+    private function example(array $values, int $headerRow, int $position): string
+    {
+        foreach (array_slice($values, $headerRow + 1) as $row) {
+            $value = trim((string) ($row[$position] ?? ''));
+
+            if ($value !== '') {
+                return mb_strimwidth($value, 0, 40, '…');
+            }
+        }
+
+        return '';
     }
 
     /**
