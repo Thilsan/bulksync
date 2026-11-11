@@ -252,48 +252,92 @@
                              here the same control is repeated down a page of
                              SKUs beside their photographs, and two rows of
                              buttons each would bury them. --}}
-                        <div class="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2"
+                        <div class="group/cat mb-3 flex flex-wrap items-center gap-2.5 rounded-xl border px-4 py-2.5 transition-colors"
+                             :class="overridden
+                                ? 'border-brand-200 bg-brand-50/40'
+                                : 'border-gray-200 bg-white hover:border-gray-300'"
                              x-data="skuCategory(@js($group->framing_preset ?: ($session->edits['framing_preset'] ?? '')), @js((bool) $group->framing_preset))">
-                            <label class="text-xs font-semibold uppercase tracking-wide text-gray-500">Category</label>
 
-                            <select x-model="main" @change="onMain()"
-                                    class="rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs focus:border-brand-500 focus:outline-none">
-                                @foreach ($framingTree as $mainKey => $main)
-                                    <option value="{{ $mainKey }}">{{ $main['label'] }}</option>
+                            <span class="text-[10px] font-semibold uppercase tracking-[0.14em]"
+                                  :class="overridden ? 'text-brand-700' : 'text-gray-400'">Category</span>
+
+                            {{-- The two halves read as one control: a hairline
+                                 between them rather than a gap, so "Men" and
+                                 "Ties" are plainly one choice and not two
+                                 unrelated boxes sitting next to each other. --}}
+                            <div class="flex items-stretch divide-x divide-gray-200 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
+                                @foreach ([['main', 'onMain()', null], ['sub', 'onSub()', 'subsFor(main).length']] as [$model, $handler, $shownWhen])
+                                    <div class="relative" @if ($shownWhen) x-show="{{ $shownWhen }}" x-cloak @endif>
+                                        <select x-model="{{ $model }}" @change="{{ $handler }}"
+                                                class="h-full cursor-pointer appearance-none bg-transparent py-1.5 pl-3 pr-7 text-xs font-medium text-gray-800
+                                                       transition-colors hover:bg-gray-50 focus:bg-brand-50/50 focus:outline-none">
+                                            @if ($model === 'main')
+                                                @foreach ($framingTree as $mainKey => $main)
+                                                    <option value="{{ $mainKey }}">{{ $main['label'] }}</option>
+                                                @endforeach
+                                            @else
+                                                <template x-for="s in subsFor(main)" :key="s.key">
+                                                    <option :value="s.key" x-text="s.label"></option>
+                                                </template>
+                                            @endif
+                                        </select>
+
+                                        {{-- Drawn rather than left to the
+                                             browser: a native select arrow is
+                                             a different shape and weight on
+                                             every platform, and two of them
+                                             side by side is where that shows
+                                             most. --}}
+                                        <svg class="pointer-events-none absolute right-2 top-1/2 h-3 w-3 -translate-y-1/2 text-gray-400"
+                                             viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"
+                                             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                            <path d="M3 4.5 6 7.5 9 4.5" />
+                                        </svg>
+                                    </div>
                                 @endforeach
-                            </select>
-
-                            {{-- Hidden for a main category that is the choice
-                                 itself. Perfume is framed one way whatever the
-                                 bottle, and an empty second box beside it reads
-                                 as something left unfilled. --}}
-                            <select x-model="sub" @change="onSub()" x-show="subsFor(main).length" x-cloak
-                                    class="rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs focus:border-brand-500 focus:outline-none">
-                                <template x-for="s in subsFor(main)" :key="s.key">
-                                    <option :value="s.key" x-text="s.label"></option>
-                                </template>
-                            </select>
+                            </div>
 
                             {{-- Empty while the SKU follows the run, so that
                                  following it stays the stored default and a
                                  later change to the run still reaches here. --}}
                             <input type="hidden" name="groups[{{ $group->id }}][framing_preset]" :value="overridden ? preset : ''">
 
-                            <span class="text-[11px]" :class="overridden ? 'text-brand-700' : 'text-gray-400'"
-                                  x-text="overridden ? 'Set for this SKU' : 'Following the run'"></span>
+                            <span x-show="! overridden"
+                                  class="text-[11px] text-gray-400">Following the run</span>
+
+                            <span x-show="overridden" x-cloak
+                                  class="inline-flex items-center gap-1.5 rounded-full bg-white px-2.5 py-1 text-[11px] font-medium text-brand-700 ring-1 ring-inset ring-brand-600/20">
+                                <span class="h-1.5 w-1.5 rounded-full bg-brand-500"></span>
+                                Set for this SKU
+                            </span>
 
                             <button type="button" x-show="overridden" x-cloak @click="reset()"
-                                    class="text-[11px] text-gray-500 underline hover:text-gray-800">Follow the run</button>
+                                    class="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-gray-500 transition-colors hover:bg-white hover:text-gray-900">
+                                <svg class="h-3 w-3" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"
+                                     stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                    <path d="M2.5 5.5h5a2.5 2.5 0 0 1 0 5H5" />
+                                    <path d="M4.5 3 2.5 5.5 4.5 8" />
+                                </svg>
+                                Follow the run
+                            </button>
                         </div>
 
-                        <div class="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+                        <div class="mb-3 flex flex-wrap items-center gap-2.5 rounded-xl border border-gray-200 bg-white px-4 py-2.5 transition-colors hover:border-gray-300">
                             <label for="case-size-{{ $group->id }}"
-                                   class="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                                   class="text-[10px] font-semibold uppercase tracking-[0.14em] text-gray-400">
                                 Case size
                             </label>
-                            <select id="case-size-{{ $group->id }}"
-                                    name="groups[{{ $group->id }}][case_height_cm]"
-                                    class="rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs focus:border-brand-500 focus:outline-none">
+
+                            {{-- Matched to the category row above it: same
+                                 height, same hairline border, same drawn
+                                 arrow. Two rows of settings in two different
+                                 styles reads as two different eras of the
+                                 page. --}}
+                            <div class="relative">
+                                <select id="case-size-{{ $group->id }}"
+                                        name="groups[{{ $group->id }}][case_height_cm]"
+                                        class="cursor-pointer appearance-none rounded-lg border border-gray-200 bg-white py-1.5 pl-3 pr-7 text-xs font-medium text-gray-800 shadow-sm
+                                               transition-colors hover:bg-gray-50 focus:border-brand-400 focus:outline-none">
                                 <option value="">Not a suitcase</option>
                                 @foreach ([55 => 'Cabin', 65 => 'Medium', 80 => 'Large'] as $sizeCm => $sizeLabel)
                                     <option value="{{ $sizeCm }}" @selected($group->case_height_cm === $sizeCm)>
@@ -310,7 +354,15 @@
                                         {{ $group->case_height_cm }} cm
                                     </option>
                                 @endif
-                            </select>
+                                </select>
+
+                                <svg class="pointer-events-none absolute right-2 top-1/2 h-3 w-3 -translate-y-1/2 text-gray-400"
+                                     viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"
+                                     stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                    <path d="M3 4.5 6 7.5 9 4.5" />
+                                </svg>
+                            </div>
+
                             <span class="text-[11px] text-gray-400">
                                 Makes a large case look large. Raised trolley handles are cropped on this SKU
                                 &mdash; a handle and a typed size cannot both fit. Leave it alone for anything
