@@ -214,13 +214,19 @@ class ProductRequestController extends Controller implements HasMiddleware
         $query = $byStatus($filtered(), $request->string('status')->toString())
             ->with(['user', 'store', 'currentAssignments.user']);
 
-        // Newest first, so a request lands on top of page 1 the moment it's
-        // created, whether raised by hand or pulled from the sheet. The sheet
-        // number then id tiebreaks keep the two or three requests one sheet row
-        // makes (BS / PG / SN) next to each other, in the order created.
+        // In sheet order, not the order the sync happened to create them in: a
+        // row that only syncs today — its department fixed, say — belongs with
+        // the other requests of its Request Date, not on top of the ones the
+        // sheet lists after it. A request raised by hand has no sheet date and
+        // goes by the day it was raised, newest first within that day.
+        //
+        // The id tiebreak keeps the two or three requests one sheet row makes
+        // (BS / PG / SN) next to each other, in the order created.
         $requests = $query
-            ->orderByDesc('created_at')
+            ->orderByRaw('COALESCE(DATE(sheet_request_date), DATE(created_at)) DESC')
+            ->orderByRaw('sheet_request_no IS NOT NULL')
             ->orderByDesc('sheet_request_no')
+            ->orderByRaw('CASE WHEN sheet_request_no IS NULL THEN id END DESC')
             ->orderBy('id')
             ->paginate(20)
             ->withQueryString();

@@ -139,14 +139,16 @@ class ProductRequestTest extends TestCase
         return ProductRequest::latest('id')->first();
     }
 
-    // ── The list reads newest first ──────────────────────────────────────────
+    // ── The list reads in sheet order ────────────────────────────────────────
 
     /**
-     * The request created most recently is on top, whether it came from the
-     * sheet or was raised by hand. A hand-raised one has no sheet number but
-     * must not sink below older numbered rows.
+     * Requests 359 and 360 synced days late, after their department was fixed,
+     * and landed on top of 361. The list follows the sheet — its Request Date,
+     * then its Request No — so a late sync slots into place. A request raised
+     * by hand has no sheet date and goes by the day it was raised, so it must
+     * not sink below older numbered rows.
      */
-    public function test_the_list_shows_the_newest_request_first(): void
+    public function test_the_list_follows_the_sheet_not_the_order_of_creation(): void
     {
         Notification::fake();
         Queue::fake();
@@ -154,19 +156,25 @@ class ProductRequestTest extends TestCase
         $user  = $this->brandManager();
         $store = $this->plainSite();
 
-        // Sheet numbers deliberately disagree with creation order, so passing
-        // cannot be an accident of the old sheet-number sort.
-        $this->travelTo(now()->subHours(3));
-        $oldest = $this->submitFor($user, $store);
-        $oldest->update(['sheet_request_no' => 100, 'brand' => 'AUBADE']);
+        $this->travelTo('2026-11-11 09:00');
+        $this->submitFor($user, $store)
+            ->update(['sheet_request_no' => 354, 'sheet_request_date' => '2026-11-08', 'brand' => 'ERMANNO FIRENZE']);
 
-        $this->travelTo(now()->addHour());
-        $middle = $this->submitFor($user, $store);
-        $middle->update(['sheet_request_no' => 12, 'brand' => 'AORA ATHLETICS']);
+        $this->travelTo('2026-11-11 10:00');
+        $this->submitFor($user, $store)
+            ->update(['sheet_request_no' => 361, 'sheet_request_date' => '2026-11-10', 'brand' => 'THE MERCHANT OF VENICE']);
 
-        $this->travelBack();
-        $newest = $this->submitFor($user, $store);
-        $newest->update(['brand' => 'RAISED BY HAND']);   // no sheet number
+        // Created last, but the sheet has it before 361.
+        $this->travelTo('2026-11-11 11:00');
+        $this->submitFor($user, $store)
+            ->update(['sheet_request_no' => 360, 'sheet_request_date' => '2026-11-09', 'brand' => 'ZUHAIR MURAD']);
+        $this->submitFor($user, $store)
+            ->update(['sheet_request_no' => 359, 'sheet_request_date' => '2026-11-09', 'brand' => 'BARMAS']);
+
+        $this->travelTo('2026-11-11 12:00');
+        $this->submitFor($user, $store)->update(['brand' => 'RAISED BY HAND']);   // no sheet number
+        $this->travelTo('2026-11-11 12:30');
+        $this->submitFor($user, $store)->update(['brand' => 'RAISED BY HAND LATER']);
 
         $order = $this->actingAs($user)
             ->get(route('product-requests.list'))
@@ -175,7 +183,14 @@ class ProductRequestTest extends TestCase
             ->pluck('brand')
             ->all();
 
-        $this->assertSame(['RAISED BY HAND', 'AORA ATHLETICS', 'AUBADE'], $order);
+        $this->assertSame([
+            'RAISED BY HAND LATER',
+            'RAISED BY HAND',
+            'THE MERCHANT OF VENICE',
+            'ZUHAIR MURAD',
+            'BARMAS',
+            'ERMANNO FIRENZE',
+        ], $order);
     }
 
     /** Two websites off one sheet row stay together rather than splitting up. */

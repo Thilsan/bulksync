@@ -71,9 +71,10 @@ return [
     | SKU rows. A department not listed here is flagged for manual review
     | rather than guessed at.
     |
-    | Matching is case-insensitive (see ProductRequestSheetSyncService::
+    | Matching ignores case, spaces and punctuation (see ProductRequestSheetSyncService::
     | departmentConfigFor) since the sheet is hand-typed and inconsistently
-    | cased row to row — keys below just need to match the letters, not the case.
+    | written row to row — "WOMENS FASHION" finds "Women's Fashion" below, and
+    | keys just need to match the letters.
     */
     'department_map' => [
         'F&B'                  => ['category' => 'Food & Beverages',    'sheet' => 'Food & Beverages'],
@@ -84,7 +85,12 @@ return [
         'MOSAFER'              => ['category' => 'Luggage',             'sheet' => 'Luggage'],
         'KIDS FASHION'         => ['category' => 'Kids',                'sheet' => 'Kids Fashion'],
         'LINGERIE'             => ['category' => 'Lingerie',            'sheet' => 'Lingerie'],
+        // Men and women typed the same ways: with or without the S, the
+        // apostrophe, or the word Fashion. "MENS FASHION" / "Women's Fashion"
+        // are the categories themselves, so they need no key of their own.
         'MENS'                 => ['category' => "Men's Fashion",       'sheet' => 'Mens Fashion'],
+        'WOMENS'               => ['category' => "Women's Fashion",     'sheet' => 'Womens Fashion'],
+        'MEN FASHION'          => ['category' => "Men's Fashion",       'sheet' => 'Mens Fashion'],
         'WOMEN FASHION'        => ['category' => "Women's Fashion",     'sheet' => 'Womens Fashion'],
         'LEATHER GOODS'        => ['category' => 'Leather Goods',       'sheet' => 'Leather Goods'],
         // The same department, typed short on some rows.

@@ -671,6 +671,72 @@ class ProductRequestSheetSyncTest extends TestCase
     }
 
     /**
+     * Requests 359 and 360 sat unsynced as "MENS FASHION" and "WOMENS FASHION":
+     * neither is a key, and neither equals "Men's Fashion" / "Women's Fashion"
+     * once the apostrophe is in the way. Every way the sheet types them has to
+     * land on the same tab.
+     */
+    public function test_mens_and_womens_fashion_map_however_they_are_typed(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+
+        $departments = [
+            'WOMENS FASHION'  => "Women's Fashion",
+            "women's FASHION" => "Women's Fashion",
+            'WOMEN FASHION'   => "Women's Fashion",
+            'WOMENS'          => "Women's Fashion",
+            'MENS FASHION'    => "Men's Fashion",
+            "Men's Fashion"   => "Men's Fashion",
+            'MEN FASHION'     => "Men's Fashion",
+            'MENS'            => "Men's Fashion",
+        ];
+
+        $master = [['Request No', 'Request Date', 'Requested By', 'Department', 'Brand', 'Website']];
+        $tabs   = ['Mens Fashion' => [], 'Womens Fashion' => []];
+        $no     = 400;
+
+        foreach ($departments as $department => $category) {
+            $brand    = 'BRAND ' . $no;
+            $master[] = [(string) $no, '09-Nov-26', 'KAYCEE', $department, $brand, 'BS'];
+            $tabs[$category === "Men's Fashion" ? 'Mens Fashion' : 'Womens Fashion'][] = ['09-Nov-26', $brand, 'SKU-' . $no];
+            $no++;
+        }
+
+        $drive = Mockery::mock(OneDriveService::class);
+        $drive->shouldReceive('asServiceAccount')->andReturnSelf();
+        $drive->shouldReceive('setUser')->andReturnSelf();
+        $drive->shouldReceive('resolveShareItem')->andReturn(['driveId' => 'd', 'itemId' => 'i']);
+        $drive->shouldReceive('worksheetValues')
+            ->with('d', 'i', config('product_request_sync.master_worksheet'))
+            ->andReturn($master);
+
+        foreach ($tabs as $tab => $rows) {
+            $drive->shouldReceive('worksheetValues')
+                ->with('d', 'i', $tab)
+                ->andReturn([['Date', 'Brand Name', 'Item SKU'], ...$rows]);
+        }
+
+        $this->app->instance(OneDriveService::class, $drive);
+
+        $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertSame(0, $result['unmatched_department'], implode("\n", $result['log']));
+        $this->assertSame(count($departments), $result['created']);
+
+        $no = 400;
+
+        foreach ($departments as $department => $category) {
+            $this->assertSame(
+                $category,
+                ProductRequest::where('sheet_request_no', $no++)->sole()->category,
+                "\"{$department}\" went to the wrong category",
+            );
+        }
+    }
+
+    /**
      * The sheet writes the bare name, the app names its stores "<x> Website" —
      * so a token has to find the store despite the suffix, or every new website
      * needs a config edit and a deploy before it can sync.

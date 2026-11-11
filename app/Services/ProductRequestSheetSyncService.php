@@ -307,10 +307,6 @@ class ProductRequestSheetSyncService
     }
 
     /**
-     * The sheet is hand-typed and inconsistently cased row to row
-     * (e.g. "LEATHER GOODS" vs "Leather Goods") — matched on letters only.
-     */
-    /**
      * Every master row against what is actually in the system.
      *
      * The sync reports exceptions — what it skipped, what disagreed. That answers
@@ -455,12 +451,22 @@ class ProductRequestSheetSyncService
         return "OK — {$inSystem} SKU(s)";
     }
 
+    /**
+     * The sheet is hand-typed and inconsistently written row to row — "LEATHER
+     * GOODS" and "Leather Goods", "WOMENS FASHION" and "Women's Fashion" — so
+     * it is matched on letters and digits only (see departmentKey()).
+     */
     private function departmentConfigFor(string $department): ?array
     {
-        $map = config('product_request_sync.department_map', []);
+        $map    = config('product_request_sync.department_map', []);
+        $wanted = $this->departmentKey($department);
+
+        if ($wanted === '') {
+            return null;
+        }
 
         foreach ($map as $key => $config) {
-            if (strcasecmp($key, $department) === 0) {
+            if ($this->departmentKey((string) $key) === $wanted) {
                 return $config;
             }
         }
@@ -470,12 +476,18 @@ class ProductRequestSheetSyncService
         // Cosmetics". Matching on the category as well means the obvious spelling
         // works without another alias every time somebody types the plain word.
         foreach ($map as $config) {
-            if (strcasecmp($config['category'] ?? '', $department) === 0) {
+            if ($this->departmentKey($config['category'] ?? '') === $wanted) {
                 return $config;
             }
         }
 
         return null;
+    }
+
+    /** "Women's Fashion", "WOMENS FASHION" and "womens  fashion" → "womensfashion". */
+    private function departmentKey(string $department): string
+    {
+        return (string) preg_replace('/[^a-z0-9]/', '', strtolower($department));
     }
 
     /** Tokens this app is told not to sync — a decision, not a missing store. */
