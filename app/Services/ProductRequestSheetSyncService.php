@@ -153,17 +153,12 @@ class ProductRequestSheetSyncService
                     // this the request keeps whatever it had when it was created
                     // and the later ones are never seen by anyone.
                     if ($deptConfig && $existing->productRequest) {
-                        $sheetName = $deptConfig['sheet'];
-
-                        if (!array_key_exists($sheetName, $sheetCache)) {
-                            $sheetCache[$sheetName] = $this->drive->worksheetValues($item['driveId'], $item['itemId'], $sheetName);
-                        }
-
+                        $values   = $this->tab($item, $deptConfig['sheet'], $sheetCache);
                         $swapNote = null;
 
                         $added = $this->addNewSkus(
                             $existing->productRequest,
-                            $this->matchSkus($sheetCache[$sheetName], $data['Request Date'] ?? null, (string) ($data['Brand'] ?? ''), $swapNote),
+                            $values === null ? [] : $this->matchSkus($values, $data['Request Date'] ?? null, (string) ($data['Brand'] ?? ''), $swapNote),
                             $commit,
                         );
 
@@ -195,7 +190,7 @@ class ProductRequestSheetSyncService
                             $result['log'][] = "{$existing->productRequest->reference} — {$conflict}";
                         }
 
-                        if ($shortfall = $this->countShortfall($data, $total, $sheetCache[$sheetName])) {
+                        if ($values !== null && ($shortfall = $this->countShortfall($data, $total, $values))) {
                             $result['count_mismatch']++;
                             $result['log'][] = "{$existing->productRequest->reference} — Request No {$requestNo} / {$token} "
                                 . "({$data['Brand']}): {$shortfall}";
@@ -262,13 +257,19 @@ class ProductRequestSheetSyncService
                 }
 
                 $sheetName = $deptConfig['sheet'];
+                $values    = $this->tab($item, $sheetName, $sheetCache);
 
-                if (!array_key_exists($sheetName, $sheetCache)) {
-                    $sheetCache[$sheetName] = $this->drive->worksheetValues($item['driveId'], $item['itemId'], $sheetName);
+                if ($values === null) {
+                    $why = "the \"{$sheetName}\" tab is not in the workbook — add it, or map this department to another tab in config/product_request_sync.php";
+
+                    $this->record($ledgerNo, $token, $store->id, null, 'unmatched_skus', ucfirst($why));
+                    $result['unmatched_skus']++;
+                    $result['log'][] = "Skipped Request No {$requestNo} / {$token} ({$data['Brand']}): {$why}";
+                    continue;
                 }
 
                 $swapNote = null;
-                $skus     = $this->matchSkus($sheetCache[$sheetName], $data['Request Date'] ?? null, (string) ($data['Brand'] ?? ''), $swapNote);
+                $skus     = $this->matchSkus($values, $data['Request Date'] ?? null, (string) ($data['Brand'] ?? ''), $swapNote);
 
                 // Said out loud every time. A request whose SKUs were found only
                 // by guessing at a typo is one somebody should glance at.
@@ -278,7 +279,7 @@ class ProductRequestSheetSyncService
                 }
 
                 if (empty($skus)) {
-                    $missing = $this->missingColumnsOn($sheetCache[$sheetName]);
+                    $missing = $this->missingColumnsOn($values);
                     $date    = $this->normalizeExcelDate($data['Request Date'] ?? null)?->toDateString()
                         ?? (string) ($data['Request Date'] ?? 'no date');
 
@@ -289,7 +290,7 @@ class ProductRequestSheetSyncService
                     $why = $missing
                         ? "the \"{$sheetName}\" tab has no " . implode(' or ', array_map(fn ($c) => "\"{$c}\"", $missing)) . ' column'
                         : "no row in \"{$sheetName}\" matches date {$date} (cell \"{$rawDate}\") + brand \"{$data['Brand']}\""
-                            . $this->mismatchHint($sheetCache[$sheetName], (string) ($data['Brand'] ?? ''));
+                            . $this->mismatchHint($values, (string) ($data['Brand'] ?? ''));
 
                     $this->record($ledgerNo, $token, $store->id, null, 'unmatched_skus', ucfirst($why));
                     $result['unmatched_skus']++;
@@ -301,7 +302,7 @@ class ProductRequestSheetSyncService
                 // rows on the category tab disagree with the master row — a wrong
                 // date on one line is invisible otherwise, because the request
                 // still imports and simply comes in short.
-                if ($shortfall = $this->countShortfall($data, count($skus), $sheetCache[$sheetName])) {
+                if ($shortfall = $this->countShortfall($data, count($skus), $values)) {
                     $result['count_mismatch']++;
                     $result['log'][] = "Request No {$requestNo} / {$token} ({$data['Brand']}): {$shortfall}";
                 }
@@ -636,6 +637,33 @@ class ProductRequestSheetSyncService
         $parts      = preg_split('/\s*[-&\/,]\s*/', (string) $normalized);
 
         return array_values(array_unique(array_filter(array_map('trim', $parts ?: []))));
+    }
+
+    /**
+     * A category tab's rows, or null when the workbook has no such tab.
+     *
+     * The config can name a tab nobody has made yet ("Home"), and one row
+     * pointing at it must not stop the sync for every other row — on 11 Nov one
+     * did, and nothing at all was imported until it was found. Anything else
+     * going wrong (sign-in, throttling) still stops the run: every tab would
+     * fail the same way, and skipping them all would only bury that.
+     */
+    private function tab(array $item, string $sheet, array &$sheetCache): ?array
+    {
+        if (!array_key_exists($sheet, $sheetCache)) {
+            try {
+                $sheetCache[$sheet] = $this->drive->worksheetValues($item['driveId'], $item['itemId'], $sheet);
+            } catch (\Throwable $e) {
+                if ($e->getCode() !== 404) {
+                    throw $e;
+                }
+
+                $sheetCache[$sheet]          = null;
+                $this->unreadableTabs[$sheet] = 'no such tab in the workbook';
+            }
+        }
+
+        return $sheetCache[$sheet];
     }
 
     /**
@@ -1852,14 +1880,10 @@ class ProductRequestSheetSyncService
             return $why;
         }
 
-        $sheetName = $deptConfig['sheet'];
+        $values = $this->tab($item, $deptConfig['sheet'], $sheetCache);
 
-        if (!array_key_exists($sheetName, $sheetCache)) {
-            $sheetCache[$sheetName] = $this->drive->worksheetValues($item['driveId'], $item['itemId'], $sheetName);
-        }
-
-        $onRow = array_map(fn ($sku) => strtoupper(trim($sku)),
-            $this->matchSkus($sheetCache[$sheetName], $data['Request Date'] ?? null, (string) $data['Brand']));
+        $onRow = $values === null ? [] : array_map(fn ($sku) => strtoupper(trim($sku)),
+            $this->matchSkus($values, $data['Request Date'] ?? null, (string) $data['Brand']));
 
         // Nothing on the tab to compare. Only a respelling of the same name is a
         // correction then: reading "no evidence" as one renamed twenty-one

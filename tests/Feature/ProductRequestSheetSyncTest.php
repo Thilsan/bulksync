@@ -742,7 +742,7 @@ class ProductRequestSheetSyncTest extends TestCase
         }
     }
 
-    /** A master tab and the category tabs it reads, by name. */
+    /** A master tab and the category tabs it reads, by name — or what reading one throws. */
     private function fakeWorkbook(array $master, array $tabs): void
     {
         $drive = Mockery::mock(OneDriveService::class);
@@ -754,12 +754,64 @@ class ProductRequestSheetSyncTest extends TestCase
             ->andReturn($master);
 
         foreach ($tabs as $tab => $rows) {
-            $drive->shouldReceive('worksheetValues')
-                ->with('d', 'i', $tab)
-                ->andReturn([['Date', 'Brand Name', 'Item SKU'], ...$rows]);
+            $expectation = $drive->shouldReceive('worksheetValues')->with('d', 'i', $tab);
+
+            $rows instanceof \Throwable
+                ? $expectation->andThrow($rows)
+                : $expectation->andReturn([['Date', 'Brand Name', 'Item SKU'], ...$rows]);
         }
 
         $this->app->instance(OneDriveService::class, $drive);
+    }
+
+    /**
+     * On 11 Nov one row reached "Home" — in the config, not in the workbook — and
+     * its 404 stopped the whole run, so nothing on any other row came in either.
+     */
+    public function test_a_tab_missing_from_the_workbook_skips_only_its_own_rows(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+
+        $this->fakeWorkbook(
+            [
+                ['Request No', 'Request Date', 'Requested By', 'Department', 'Brand', 'Website'],
+                ['400', '05-Aug-26', 'KAYCEE', 'HOME FRAGRANCE', 'LAFCO', 'BS'],
+                ['17', '05-Aug-26', 'KAYCEE', 'LINGERIE', 'AMADAMARIA', 'BS'],
+            ],
+            [
+                'Home'     => new \RuntimeException('Client error: 404 Not Found', 404),
+                'Lingerie' => [['05-Aug-26', 'AMADAMARIA', 'SKU-1']],
+            ],
+        );
+
+        $result = app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->assertSame(1, $result['created'], implode("\n", $result['log']));
+        $this->assertSame('AMADAMARIA', ProductRequest::sole()->brand);
+        $this->assertSame(1, $result['unmatched_skus']);
+        $this->assertStringContainsString('the "Home" tab is not in the workbook', implode("\n", $result['log']));
+    }
+
+    /** A sign-in or throttling failure is every tab's problem, not one row's — it still stops the run. */
+    public function test_a_tab_that_fails_for_another_reason_still_stops_the_run(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+
+        $this->fakeWorkbook(
+            [
+                ['Request No', 'Request Date', 'Requested By', 'Department', 'Brand', 'Website'],
+                ['17', '05-Aug-26', 'KAYCEE', 'LINGERIE', 'AMADAMARIA', 'BS'],
+            ],
+            ['Lingerie' => new \RuntimeException('Client error: 401 Unauthorized', 401)],
+        );
+
+        $this->expectExceptionMessage('401 Unauthorized');
+
+        app(ProductRequestSheetSyncService::class)->run(commit: true);
     }
 
     /** Request 352 sat unsynced as "MOSAFER DIVISION": a known name with a word added. */
