@@ -512,6 +512,26 @@ class PhotoroomService
                     ],
                 ],
                 'bags'     => ['label' => 'Bags',     'note' => 'House rule, unmeasured: 10% around a 2000 square, centred.', 'edits' => ['width' => 2000, 'height' => 2000, 'padding' => 0.10]],
+                'ties'     => [
+                    'label' => 'Ties',
+                    'note'  => 'House rule, unmeasured: 10% around a 2000 square, centred. The sample in the ties folder could not be measured — it is a 1024x1536 source crop whose knot runs off the top edge, not a finished catalogue frame, so its 1.04% and 0.20% describe the crop rather than the house standard. Replace this with a measured note once a live tie from the website is to hand.',
+                    'edits' => [
+                        'width'   => 2000,
+                        'height'  => 2000,
+
+                        /*
+                         * Nothing declared to bind, as on the caps.
+                         *
+                         * A tie is far taller than it is wide, so the height
+                         * decides the size on its own and the padding alone
+                         * holds it. It lands narrow — roughly a third of the
+                         * width of the 80% it fills vertically — which is what
+                         * a tie looks like on a square canvas, and is the same
+                         * answer the shirts beside it would give.
+                         */
+                        'padding' => 0.10,
+                    ],
+                ],
                 'caps'     => [
                     'label' => 'Caps',
                     'note'  => 'Measured off STR202ACC00777_0 on a 2000 square: the cap sits 10.10% in from the left and 10.05% from the right, and fills 79.8% of the width. The same 10% house rule again — but the first measured category where the width is what it is measured against, because a cap is wider than it is tall.',
@@ -1754,6 +1774,7 @@ class PhotoroomService
         'men/trousers'    => 'the trousers',
         'men/shorts'      => 'the shorts',
         'men/caps'        => 'the cap',
+        'men/ties'        => 'the tie',
         'men/jeans'       => 'the jeans',
         'men/bags'        => 'the bag',
 
