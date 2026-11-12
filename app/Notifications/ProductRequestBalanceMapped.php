@@ -48,13 +48,6 @@ class ProductRequestBalanceMapped extends Notification implements ShouldQueue
         );
     }
 
-    public function via(object $notifiable): array
-    {
-        return config('mail.default') === 'log'
-            ? ['database']
-            : ['database', 'mail'];
-    }
-
     /** True when nothing is outstanding any more — the whole request can finish. */
     public function isComplete(): bool
     {

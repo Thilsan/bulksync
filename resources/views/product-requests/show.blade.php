@@ -2190,19 +2190,6 @@
                             </p>
                         @endif
 
-                        {{-- The people waiting on the mapping see that IT has it. --}}
-                        <span class="text-gray-500 self-start pt-1">Cc</span>
-                        <div class="flex flex-wrap gap-1.5">
-                            @forelse($itSupport['cc'] as $person)
-                                <span class="inline-flex items-center gap-1.5 rounded-full bg-gray-100 pl-1 pr-2.5 py-0.5 text-xs text-gray-700" title="{{ $person['email'] }}">
-                                    <span class="grid h-5 w-5 place-items-center rounded-full bg-white text-[10px] font-semibold text-gray-600 ring-1 ring-gray-200">{{ mb_strtoupper(mb_substr($person['name'], 0, 1)) }}</span>
-                                    {{ $person['name'] }} <span class="text-gray-400">· {{ $person['role'] }}</span>
-                                </span>
-                            @empty
-                                <span class="pt-1 text-xs text-gray-400">Nobody — no brand manager or e-commerce owner is assigned yet.</span>
-                            @endforelse
-                        </div>
-
                         <span class="text-gray-500">Subject</span>
                         <p class="text-gray-800 truncate" title="{{ $itSupport['subject'] }}">{{ $itSupport['subject'] }}</p>
                     </div>

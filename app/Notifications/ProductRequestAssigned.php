@@ -78,13 +78,6 @@ class ProductRequestAssigned extends Notification implements ShouldQueue
         return $this->assigneeName !== null;
     }
 
-    public function via(object $notifiable): array
-    {
-        return config('mail.default') === 'log'
-            ? ['database']
-            : ['database', 'mail'];
-    }
-
     public function toMail(object $notifiable): MailMessage
     {
         $request = $this->requestForEmail($this->requestId);

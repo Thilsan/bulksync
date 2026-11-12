@@ -241,6 +241,21 @@ class MailSettingsTest extends TestCase
         MailConfigurator::apply();
 
         $this->assertSame(['database', 'mail'], $notification->via($user));
+
+        // A brand manager follows requests in the app only — unless they also
+        // oversee everything.
+        $brand = User::create([
+            'name' => 'Brand', 'email' => 'brand@example.test', 'password' => 'password',
+            'is_active' => true, 'pcr_role' => 'brand_manager',
+        ]);
+        $this->assertSame(['database'], $notification->via($brand));
+        $this->assertSame(['database'], \App\Notifications\ProductRequestMappingNeeded::forRequest($request)->via($brand));
+
+        $brand->update(['is_super_admin' => true]);
+        $this->assertSame(['database', 'mail'], $notification->via($brand));
+
+        $brand->update(['is_super_admin' => false, 'pcr_notify_all' => true]);
+        $this->assertSame(['database', 'mail'], $notification->via($brand));
     }
 
     public function test_only_super_admins_can_change_mail_settings(): void

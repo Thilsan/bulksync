@@ -1176,20 +1176,12 @@ class ProductRequestTest extends TestCase
 
         $author  = $this->brandManager();
         $ecom    = User::create([
-            'name' => 'Ecom Owner', 'email' => 'Ecom@example.test', 'password' => 'password',
+            'name' => 'Ecom Owner', 'email' => 'ecom@example.test', 'password' => 'password',
             'is_active' => true, 'perm_product_request' => true,
         ]);
         $request = $this->mapSome($this->submitFor($author, $this->mappingSite(), "BAL-1\nBAL-2\nBAL-3"), 1);
         $request = $this->assign($request, 'brand_manager_id', $author);
         $request = $this->assign($request, 'assigned_to', $ecom);
-
-        // The popup names who will be copied.
-        $this->actingAs($author)->get(route('product-requests.show', $request))
-            ->assertViewHas('itSupport', fn ($it) => $it['cc'] === [
-                ['name' => 'Brand Manager', 'email' => 'brand@example.test', 'role' => 'Brand Team'],
-                ['name' => 'Ecom Owner',    'email' => 'ecom@example.test',  'role' => 'E-Commerce Team'],
-            ])
-            ->assertSee('Ecom Owner');
 
         $this->actingAs($author)->post(route('product-requests.it-support', $request), [
             'it_support_to'      => 'it@example.test; desk@example.test',
@@ -1210,7 +1202,8 @@ class ProductRequestTest extends TestCase
 
         $this->assertSame("[{$request->reference}] 2 SKUs are not mapped in Cegid for Bluesalon Website", $mail->subject);
         $this->assertSame([['brand@example.test', 'Brand Manager']], $mail->replyTo);
-        $this->assertSame([['brand@example.test', 'Brand Manager'], ['ecom@example.test', 'Ecom Owner']], $mail->cc);
+        // IT support only: the people on the request are not copied.
+        $this->assertSame([], $mail->cc);
         $this->assertStringContainsString('Please map these &lt;today&gt;.<br />', $html);
         $this->assertStringContainsString('BAL-3', $html);
         $this->assertSame("{$request->reference}-not-mapped.csv", $mail->rawAttachments[0]['name']);
@@ -1218,14 +1211,7 @@ class ProductRequestTest extends TestCase
         $this->assertStringNotContainsString('BAL-1', $mail->rawAttachments[0]['data']);
 
         $this->assertTrue($request->activities()->where('action', 'it_support_emailed')
-            ->where('description', 'like', '%it@example.test, desk@example.test%copying Brand Manager, Ecom Owner%')->exists());
-
-        // Nobody is both sent and copied, and a deactivated owner is not copied.
-        $sentTo = ProductRequestItSupportMapping::forRequest($request->fresh(), $author, 'Note', ['ECOM@example.test']);
-        $this->assertSame(['Brand Manager'], array_column($sentTo->cc, 'name'));
-
-        $ecom->update(['is_active' => false]);
-        $this->assertSame(['Brand Manager'], array_column(ProductRequestItSupportMapping::copiedOn($request->fresh()), 'name'));
+            ->where('description', 'like', '%it@example.test, desk@example.test%')->exists());
     }
 
     public function test_it_support_is_not_emailed_without_a_good_address_or_a_cegid_balance(): void

@@ -3,6 +3,7 @@
 namespace App\Notifications\Concerns;
 
 use App\Models\ProductRequest;
+use App\Models\User;
 
 /**
  * Shared email data for Product Creation Request notifications.
@@ -14,6 +15,20 @@ use App\Models\ProductRequest;
  */
 trait BuildsRequestEmail
 {
+    /**
+     * In-app always. Email only when a mailer is actually configured — a "log"
+     * mailer in dev would pretend the team was told — and never to a brand
+     * manager: the brand side follows product requests in the app, not by
+     * email. Someone who also oversees everything still gets the email.
+     */
+    public function via(object $notifiable): array
+    {
+        $emails = config('mail.default') !== 'log'
+            && !($notifiable instanceof User && $notifiable->isBrandManagerOnly());
+
+        return $emails ? ['database', 'mail'] : ['database'];
+    }
+
     protected function requestForEmail(int $id): ?ProductRequest
     {
         return ProductRequest::with(['store', 'user', 'assignments'])->find($id);

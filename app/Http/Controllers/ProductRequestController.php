@@ -1097,7 +1097,6 @@ class ProductRequestController extends Controller implements HasMiddleware
                        . ($count === 1 ? 'it is' : 'they are') . " not showing on Shopify. "
                        . "Could you please check " . ($count === 1 ? 'it' : 'them') . "?\n\n"
                        . "Thanks,\n{$user->name}",
-            'cc'      => ProductRequestItSupportMapping::copiedOn($productRequest),
             'mailOff' => !MailConfigurator::effective()['sending'],
             // Only a super admin can save the address, so only they are sent there.
             'settings' => $user->is_super_admin ? route('settings.index') . '#it-support' : null,
@@ -1959,7 +1958,7 @@ class ProductRequestController extends Controller implements HasMiddleware
             ]);
         }
 
-        $notification = ProductRequestItSupportMapping::forRequest($productRequest, $user, $data['it_support_message'], $to);
+        $notification = ProductRequestItSupportMapping::forRequest($productRequest, $user, $data['it_support_message']);
 
         if (!$notification->unmapped) {
             return back()->with('warning', 'No SKU on this request is waiting on Cegid — there is nothing to send to IT support.');
@@ -1967,19 +1966,18 @@ class ProductRequestController extends Controller implements HasMiddleware
 
         NotificationFacade::route('mail', $to)->notify($notification);
 
-        $count  = count($notification->unmapped);
-        $list   = implode(', ', $to);
-        $copied = $notification->cc ? ', copying ' . implode(', ', array_column($notification->cc, 'name')) : '';
+        $count = count($notification->unmapped);
+        $list  = implode(', ', $to);
 
         $this->workflow->log(
             request:     $productRequest,
             action:      'it_support_emailed',
-            description: "Emailed IT support ({$list}) about {$count} unmapped SKU(s){$copied}",
+            description: "Emailed IT support ({$list}) about {$count} unmapped SKU(s)",
             actor:       $user,
             remarks:     $data['it_support_message'],
         );
 
-        return back()->with('success', "Sent to {$list}{$copied}: {$count} unmapped SKU(s), with the list attached.");
+        return back()->with('success', "Sent to {$list}: {$count} unmapped SKU(s), with the list attached.");
     }
 
     /**

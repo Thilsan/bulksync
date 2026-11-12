@@ -20,6 +20,9 @@ use App\Support\Queues;
  *
  * Only ever sent for Cegid websites: everywhere else there is no mapping step
  * and an unmatched SKU simply means the product has not been created yet.
+ *
+ * A brand manager gets it in the app only (BuildsRequestEmail::via), so the
+ * email and its CSV reach only someone it falls to who is not one.
  */
 class ProductRequestMappingNeeded extends Notification implements ShouldQueue
 {
@@ -62,13 +65,6 @@ class ProductRequestMappingNeeded extends Notification implements ShouldQueue
             total:     (int) $request->total_skus,
             pending:   $pending,
         );
-    }
-
-    public function via(object $notifiable): array
-    {
-        return config('mail.default') === 'log'
-            ? ['database']
-            : ['database', 'mail'];
     }
 
     public function toMail(object $notifiable): MailMessage

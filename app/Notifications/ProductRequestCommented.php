@@ -43,13 +43,6 @@ class ProductRequestCommented extends Notification implements ShouldQueue
         );
     }
 
-    public function via(object $notifiable): array
-    {
-        return config('mail.default') === 'log'
-            ? ['database']
-            : ['database', 'mail'];
-    }
-
     public function toMail(object $notifiable): MailMessage
     {
         $request = $this->requestForEmail($this->requestId);

@@ -39,15 +39,6 @@ class ProductRequestStatusChanged extends Notification implements ShouldQueue
         );
     }
 
-    public function via(object $notifiable): array
-    {
-        // In-app always; email only when a mailer is actually configured, so a
-        // "log" mailer in dev doesn't pretend the team was told.
-        return config('mail.default') === 'log'
-            ? ['database']
-            : ['database', 'mail'];
-    }
-
     public function toMail(object $notifiable): MailMessage
     {
         $request = $this->requestForEmail($this->requestId);

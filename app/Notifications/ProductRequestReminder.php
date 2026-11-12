@@ -28,13 +28,6 @@ class ProductRequestReminder extends Notification implements ShouldQueue
         $this->onQueue(Queues::PRODUCT_REQUESTS);
     }
 
-    public function via(object $notifiable): array
-    {
-        return config('mail.default') === 'log'
-            ? ['database']
-            : ['database', 'mail'];
-    }
-
     public function toMail(object $notifiable): MailMessage
     {
         $count   = count($this->items);
