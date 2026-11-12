@@ -77,19 +77,32 @@ class ProductRequestItSupportMapping extends Notification implements ShouldQueue
         );
     }
 
-    /** The SKUs still waiting on Cegid, in the order they were added. */
+    /**
+     * The SKUs still waiting on Cegid, in the order they were added: those on
+     * the request, then those set aside when it went ahead without them.
+     * Nothing on a website without Cegid, where none are waiting on it.
+     */
     public static function unmappedOf(ProductRequest $request): array
     {
-        return $request->skus()
+        if (!$request->requiresMapping()) {
+            return [];
+        }
+
+        $onIt = $request->skus()
             ->whereIn('mapping_status', [ProductRequest::MAP_PENDING, ProductRequest::MAP_NOT_MAPPED])
             ->orderBy('id')
             ->get()
+            ->toBase()
             ->map(fn ($row) => [
                 'sku'    => $row->sku,
                 'status' => $row->label(),
                 'note'   => $row->mapping_note,
-            ])
-            ->all();
+            ]);
+
+        $setAside = collect($request->setAsideUnmappedSkus())
+            ->map(fn ($sku) => ['sku' => $sku, 'status' => 'Set aside — not mapped', 'note' => null]);
+
+        return $onIt->merge($setAside)->values()->all();
     }
 
     public static function subjectFor(ProductRequest $request, int $count): string

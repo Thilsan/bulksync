@@ -763,8 +763,13 @@
                     @php
                         // A ring for the one number people ask for — how much is ready —
                         // and a tile per count, each with its own colour and a hint.
-                        $total = (int) $request->total_skus;
-                        $ready = $usesMapping ? (int) $request->mapped_skus : $inShopify;
+                        // Set aside so the request could go ahead, but still the brand's
+                        // SKUs to map: counted here so they are not lost from sight.
+                        $aside       = $usesMapping ? $request->setAsideRows() : [];
+                        $asideMapped = count(array_filter($aside, fn ($row) => !empty($row['mapped'])));
+                        $asideLeft   = count($aside) - $asideMapped;
+                        $total = (int) $request->total_skus + count($aside);
+                        $ready = $usesMapping ? (int) $request->mapped_skus + $asideMapped : $inShopify;
                         $pct   = $total > 0 ? (int) round(100 * $ready / $total) : 0;
                         $ringTone = $pct >= 100 ? 'text-green-500' : ($pct > 0 ? 'text-amber-500' : 'text-gray-300');
                         $C = 2 * M_PI * 42;
@@ -778,9 +783,11 @@
                         ];
                         $tiles = $usesMapping
                             ? [
-                                ['Total',      $total,                     'box',   'bg-gray-50 border-gray-100',       'bg-white text-gray-500',     'text-gray-900',  'SKUs on this request'],
-                                ['Mapped',     $request->mapped_skus,     'check', 'bg-green-50 border-green-100',     'bg-green-100 text-green-600', 'text-green-700', 'Ready on Shopify'],
-                                ['Pending/Not Mapped', $request->pending_skus + $request->not_mapped_skus, 'clock', 'bg-amber-50 border-amber-100', 'bg-amber-100 text-amber-600', 'text-amber-700', 'Waiting for Cegid'],
+                                ['Total',      $total,                     'box',   'bg-gray-50 border-gray-100',       'bg-white text-gray-500',     'text-gray-900',
+                                    $aside ? number_format($request->total_skus) . ' going ahead · ' . count($aside) . ' set aside' : 'SKUs on this request'],
+                                ['Mapped',     $request->mapped_skus + $asideMapped, 'check', 'bg-green-50 border-green-100', 'bg-green-100 text-green-600', 'text-green-700', 'Ready on Shopify'],
+                                ['Pending/Not Mapped', $request->pending_skus + $request->not_mapped_skus + $asideLeft, 'clock', 'bg-amber-50 border-amber-100', 'bg-amber-100 text-amber-600', 'text-amber-700',
+                                    $asideLeft ? 'Map in Cegid, then Check SKUs' : 'Waiting for Cegid'],
                             ]
                             : [
                                 ['Total',          $total,              'box',   'bg-gray-50 border-gray-100',   'bg-white text-gray-500',     'text-gray-900',  'SKUs on this request'],
@@ -822,7 +829,7 @@
                     </div>
 
                     @if($usesMapping && $request->total_skus > 0)
-                        @if($request->hasSkuBalance())
+                        @if($itSupport || $request->canContinueWithMapped())
                             <div class="flex flex-wrap items-center gap-2">
                                 @if($itSupport)
                                     <button type="button" @click="showItSupport = true" class="{{ $small }} border border-gray-300 text-gray-700 hover:bg-gray-50">
@@ -853,12 +860,25 @@
                         @endif
                     @endif
 
-                    @if(!$closed && ($setAside = $request->setAsideSkus()))
-                        <p class="flex flex-wrap items-center gap-x-1.5 rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-                            <span class="font-medium">{{ count($setAside) }} {{ count($setAside) === 1 ? 'SKU' : 'SKUs' }} set aside</span>
-                            — not mapped in Cegid when this request went ahead. You will be asked to start a new request for them once this one is published.
-                            <button type="button" @click="tab = 'uploaded'; $nextTick(() => document.getElementById('tabs').scrollIntoView({ behavior: 'smooth' }))" class="font-medium underline underline-offset-2 hover:text-amber-700">See them</button>
-                        </p>
+                    @if(!$closed && $aside)
+                        @php
+                            $seeThem = "tab = 'uploaded'; \$nextTick(() => document.getElementById('tabs').scrollIntoView({ behavior: 'smooth' }))";
+                        @endphp
+                        @if($asideLeft > 0)
+                            <p class="flex flex-wrap items-center gap-x-1.5 rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                                <span class="font-medium">{{ $asideLeft }} {{ $asideLeft === 1 ? 'SKU is' : 'SKUs are' }} not mapped yet</span>
+                                — set aside so this request could go ahead{{ $asideMapped ? " ({$asideMapped} of the " . count($aside) . ' are mapped now)' : '' }}.
+                                Finish mapping {{ $asideLeft === 1 ? 'it' : 'them' }} in Cegid, then click <span class="font-medium">Check SKUs</span>.
+                                Once this request is published, {{ count($aside) === 1 ? 'it goes' : 'they go' }} on a new request.
+                                <button type="button" @click="{{ $seeThem }}" class="font-medium underline underline-offset-2 hover:text-amber-700">See them</button>
+                            </p>
+                        @else
+                            <p class="flex flex-wrap items-center gap-x-1.5 rounded-lg border border-green-100 bg-green-50 px-3 py-2 text-xs text-green-900">
+                                <span class="font-medium">The {{ count($aside) }} set-aside {{ count($aside) === 1 ? 'SKU is' : 'SKUs are' }} mapped now.</span>
+                                {{ count($aside) === 1 ? 'It goes' : 'They go' }} on a new request once this one is published, and that request moves straight past the mapping.
+                                <button type="button" @click="{{ $seeThem }}" class="font-medium underline underline-offset-2 hover:text-green-700">See them</button>
+                            </p>
+                        @endif
                     @endif
 
                 </div>

@@ -36,9 +36,10 @@ class SkuMappingService
         $request->update(['validation_status' => 'running']);
 
         try {
-            $rows = $request->skus()->orderBy('id')->get();
+            $rows     = $request->skus()->orderBy('id')->get();
+            $setAside = $request->setAsideSkus();
 
-            if ($rows->isEmpty()) {
+            if ($rows->isEmpty() && $setAside === []) {
                 $this->rollUp($request, 'completed');
                 return;
             }
@@ -52,7 +53,7 @@ class SkuMappingService
             // read back as "not in Shopify".
             // null means Shopify never answered — no connection, or a lookup
             // that failed and was swallowed. Only a real answer is evidence.
-            $found    = $shopify ? $this->lookupShopify($shopify, $rows->pluck('sku')->all()) : null;
+            $found    = $shopify ? $this->lookupShopify($shopify, array_merge($rows->pluck('sku')->all(), $setAside)) : null;
             $answered = $found !== null;
             $found  ??= [];
 
@@ -81,6 +82,12 @@ class SkuMappingService
                 $row->update($attributes);
             }
 
+            // Set aside, but still being mapped: the same check says which have
+            // come through, so the request can say how many are left to do.
+            if ($answered && $setAside !== []) {
+                $this->markSetAside($request, $found);
+            }
+
             $this->rollUp($request, 'completed', $answered);
 
         } catch (\Throwable $e) {
@@ -91,6 +98,19 @@ class SkuMappingService
                 'validation_error'  => $e->getMessage(),
             ]);
         }
+    }
+
+    /** Record on each set-aside SKU whether Shopify has it now. */
+    private function markSetAside(ProductRequest $request, array $found): void
+    {
+        $at = now()->toIso8601String();
+
+        $request->update(['left_out_skus' => array_map(
+            fn ($row) => ($row['reason'] ?? null) === ProductRequest::LEFT_SET_ASIDE && empty($row['moved_to'])
+                ? ['mapped' => !empty($found[$row['sku']]), 'checked_at' => $at] + $row
+                : $row,
+            $request->left_out_skus ?? [],
+        )]);
     }
 
     /**

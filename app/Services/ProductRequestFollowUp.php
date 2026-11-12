@@ -2,8 +2,10 @@
 
 namespace App\Services;
 
+use App\Jobs\ValidateProductRequestSkusJob;
 use App\Models\ProductRequest;
 use App\Models\User;
+use App\Support\Queues;
 
 /**
  * Going ahead with the mapped SKUs, and coming back for the rest.
@@ -122,6 +124,11 @@ class ProductRequestFollowUp
         $this->workflow->staffFromCategory($new, $actor);
         $this->mapping->rollUp($new);
         $this->workflow->reconcileMapping($new->refresh(), $actor);
+
+        // Checked straight away, unlike a request raised by hand: these SKUs
+        // were being mapped all along, and any that are done move it on.
+        $new->update(['validation_status' => 'pending']);
+        ValidateProductRequestSkusJob::dispatch($new->id, $actor->id)->onQueue(Queues::PRODUCT_REQUESTS);
 
         return $new->refresh();
     }

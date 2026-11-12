@@ -1074,10 +1074,6 @@ class ProductRequestController extends Controller implements HasMiddleware
             && session()->pull(self::itSupportPromptKey($productRequest), false)
             && $productRequest->validation_status === 'completed';
 
-        if (!$productRequest->hasSkuBalance()) {
-            return null;
-        }
-
         $skus    = array_column(ProductRequestItSupportMapping::unmappedOf($productRequest), 'sku');
         $count   = count($skus);
         $website = $productRequest->store?->name ?? 'the website';
@@ -1930,7 +1926,7 @@ class ProductRequestController extends Controller implements HasMiddleware
     {
         $this->authorizeView($productRequest, $user);
 
-        if (!$productRequest->hasSkuBalance()) {
+        if (!ProductRequestItSupportMapping::unmappedOf($productRequest)) {
             return back()->with('warning', 'Every SKU on this request is mapped — there is nothing to send to IT support.');
         }
 
@@ -1959,10 +1955,6 @@ class ProductRequestController extends Controller implements HasMiddleware
         }
 
         $notification = ProductRequestItSupportMapping::forRequest($productRequest, $user, $data['it_support_message']);
-
-        if (!$notification->unmapped) {
-            return back()->with('warning', 'No SKU on this request is waiting on Cegid — there is nothing to send to IT support.');
-        }
 
         NotificationFacade::route('mail', $to)->notify($notification);
 

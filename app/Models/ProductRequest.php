@@ -1382,15 +1382,32 @@ class ProductRequest extends Model
 
     /**
      * SKUs set aside when the request went ahead with the mapped ones, and not
-     * yet moved on to a request of their own.
+     * yet moved on to a request of their own. Each carries what the last
+     * Check SKUs said of it — 'mapped' true or false — once one has looked.
      *
-     * @return list<string>
+     * @return list<array{sku: string, reason: string, mapped?: bool}>
      */
-    public function setAsideSkus(): array
+    public function setAsideRows(): array
     {
         return collect($this->left_out_skus ?? [])
             ->filter(fn ($row) => ($row['reason'] ?? null) === self::LEFT_SET_ASIDE && empty($row['moved_to']))
-            ->pluck('sku')->values()->all();
+            ->values()->all();
+    }
+
+    /** @return list<string> */
+    public function setAsideSkus(): array
+    {
+        return array_column($this->setAsideRows(), 'sku');
+    }
+
+    /**
+     * Set-aside SKUs still not mapped, as far as the last check knows.
+     *
+     * @return list<string>
+     */
+    public function setAsideUnmappedSkus(): array
+    {
+        return array_column(array_filter($this->setAsideRows(), fn ($row) => empty($row['mapped'])), 'sku');
     }
 
     /**

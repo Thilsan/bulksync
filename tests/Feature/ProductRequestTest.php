@@ -1067,8 +1067,32 @@ class ProductRequestTest extends TestCase
         $this->assertTrue($request->activities()->where('action', 'sku_set_aside')
             ->where('description', 'like', 'Continuing with 1 of 3 SKUs (33%)%2 not mapped set aside%')->exists());
 
-        // While it is being worked on, the set-aside two are mentioned, not offered.
-        $show($request)->assertViewHas('followUp', fn ($f) => $f === null)->assertSee('2 SKUs set aside');
+        // While it is being worked on, the set-aside two still count, with what
+        // to do about them — and IT support can be asked about them.
+        $show($request)->assertViewHas('followUp', fn ($f) => $f === null)
+            ->assertSee('1 going ahead · 2 set aside')
+            ->assertSee('2 SKUs are not mapped yet')
+            ->assertSee('Map in Cegid, then Check SKUs')
+            ->assertViewHas('itSupport', fn ($it) => $it['skus'] === ['BAL-2', 'BAL-3']);
+
+        // Check SKUs looks at them too: one comes through, then the other.
+        $this->appearsInShopify($request, 'BAL-2');
+        app(SkuMappingService::class)->validate($request->fresh());
+        $request->refresh();
+
+        $this->assertSame(['BAL-3'], $request->setAsideUnmappedSkus());
+        $this->assertSame(['BAL-1'], $request->skus()->pluck('sku')->all());
+        $show($request)->assertSee('1 SKU is not mapped yet')->assertSee('(1 of the 2 are mapped now)')
+            ->assertViewHas('itSupport', fn ($it) => $it['skus'] === ['BAL-3']);
+
+        $this->appearsInShopify($request, 'BAL-3');
+        app(SkuMappingService::class)->validate($request->fresh());
+        $request->refresh();
+
+        $this->assertSame([], $request->setAsideUnmappedSkus());
+        $this->assertSame(['BAL-2', 'BAL-3'], $request->setAsideSkus());
+        $show($request)->assertSee('The 2 set-aside SKUs are mapped now.')
+            ->assertViewHas('itSupport', fn ($it) => $it === null);
 
         app(ProductRequestWorkflow::class)->transition($request, ProductRequest::PUBLISHED, $author, 'Live', force: true);
         $request->refresh();
@@ -1091,6 +1115,8 @@ class ProductRequestTest extends TestCase
         $this->assertSame('Samsonite — the other two', $new->name);
         $this->assertSame(['BAL-2', 'BAL-3'], $new->skus()->orderBy('id')->pluck('sku')->all());
         $this->assertSame(ProductRequest::WAITING_MAPPING, $new->status);
+        // Checked straight away, so the two mapped meanwhile move it on.
+        Queue::assertPushed(\App\Jobs\ValidateProductRequestSkusJob::class, fn ($job) => $job->requestId === $new->id);
         $this->assertSame([$request->store_id, $request->brand, $request->category, $request->user_id, $request->image_source],
             [$new->store_id, $new->brand, $new->category, $new->user_id, $new->image_source]);
         $this->assertStringContainsString($request->reference, $new->notes);
