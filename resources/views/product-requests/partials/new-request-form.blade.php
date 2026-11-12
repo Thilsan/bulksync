@@ -110,7 +110,7 @@
                         <section class="bg-white/90 rounded-xl border border-white shadow-[0_8px_30px_-12px_rgba(15,23,42,.18)] p-4">
                             <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                                 <div class="rounded-lg border border-gray-200 bg-white p-3">
-                                    <label class="block text-xs font-medium text-gray-500 mb-1.5">Website</label>
+                                    <label class="block text-xs font-medium text-gray-500 mb-1.5">Website <span class="text-red-500">*</span></label>
                                     @if($stores->isEmpty())
                                         <p class="text-xs text-red-600">You don't have access to any website yet. Ask an admin for store access.</p>
                                     @else
@@ -122,7 +122,7 @@
                                 </div>
 
                                 <div class="rounded-lg border border-gray-200 bg-white p-3">
-                                    <label class="block text-xs font-medium text-gray-500 mb-1.5">Brand</label>
+                                    <label class="block text-xs font-medium text-gray-500 mb-1.5">Brand <span class="text-red-500">*</span></label>
                                     @php
                                         // Every brand already on a request, spelled once — picking one
                                         // keeps "Armani" and "ARMANI" from becoming two brands.
@@ -199,7 +199,7 @@
                                 </div>
 
                                 <div class="rounded-lg border border-gray-200 bg-white p-3">
-                                    <label class="block text-xs font-medium text-gray-500 mb-1.5">Category</label>
+                                    <label class="block text-xs font-medium text-gray-500 mb-1.5">Category <span class="text-red-500">*</span></label>
                                     @include('product-requests.partials.pretty-select', [
                                         'name' => 'category', 'model' => 'category', 'placeholder' => 'Select a category',
                                         'options' => array_combine(\App\Models\ProductRequest::CATEGORIES, \App\Models\ProductRequest::CATEGORIES),
@@ -207,7 +207,7 @@
                                 </div>
 
                                 <div class="rounded-lg border border-gray-200 bg-white p-3">
-                                    <label class="block text-xs font-medium text-gray-500 mb-1.5">Website Go-Live Date</label>
+                                    <label class="block text-xs font-medium text-gray-500 mb-1.5">Website Go-Live Date <span class="text-red-500">*</span></label>
                                     @include('product-requests.partials.date-picker', [
                                         'name' => 'online_launch_date', 'model' => 'onlineDate', 'placeholder' => 'Pick a date',
                                     ])
@@ -223,7 +223,7 @@
                                 </div>
 
                                 <div class="rounded-lg border border-gray-200 bg-white p-3">
-                                    <label class="block text-xs font-medium text-gray-500 mb-1.5">Priority</label>
+                                    <label class="block text-xs font-medium text-gray-500 mb-1.5">Priority <span class="text-red-500">*</span></label>
                                     <div class="flex rounded-lg bg-gray-100 p-1 gap-1">
                                         @foreach(\App\Models\ProductRequest::PRIORITIES as $value => $label)
                                             <label class="relative flex-1 text-center cursor-pointer rounded-md px-2 py-1 text-sm text-gray-600 transition-colors hover:text-gray-900 has-[:checked]:bg-white has-[:checked]:text-gray-900 has-[:checked]:font-medium has-[:checked]:shadow-sm">
@@ -236,7 +236,7 @@
                                 </div>
 
                                 <div class="rounded-lg border border-gray-200 bg-white p-3">
-                                    <label class="block text-xs font-medium text-gray-500 mb-1.5">Is it new products?</label>
+                                    <label class="block text-xs font-medium text-gray-500 mb-1.5">Is it new products? <span class="text-red-500">*</span></label>
                                     <div class="flex rounded-lg bg-gray-100 p-1 gap-1">
                                         @foreach(['new_brand' => 'Yes', 'existing_brand' => 'No'] as $value => $label)
                                             <label class="relative flex-1 text-center cursor-pointer rounded-md px-2 py-1 text-sm text-gray-600 transition-colors hover:text-gray-900 has-[:checked]:bg-white has-[:checked]:text-gray-900 has-[:checked]:font-medium has-[:checked]:shadow-sm">
@@ -302,7 +302,7 @@
 
                         {{-- Products --}}
                         <section class="bg-white/90 rounded-xl border border-white shadow-[0_8px_30px_-12px_rgba(15,23,42,.18)] p-4">
-                            <h3 class="text-sm font-semibold text-gray-900 mb-3">Product list</h3>
+                            <h3 class="text-sm font-semibold text-gray-900 mb-3">Product list <span class="text-red-500">*</span></h3>
 
                             {{-- The file is read by the server as soon as it is picked, so an
                                empty file is caught now rather than after the whole form is
@@ -376,7 +376,7 @@
                                  column is picked already; anything else is the person's call. --}}
                             <template x-if="columns.length">
                                 <div class="mt-3 rounded-lg border border-gray-200 bg-white p-3">
-                                    <label class="block text-xs font-medium text-gray-500 mb-1.5">SKU column</label>
+                                    <label class="block text-xs font-medium text-gray-500 mb-1.5">SKU column <span class="text-red-500">*</span></label>
                                     <div class="relative sm:w-1/2" @click.outside="menu = false"
                                          @keydown.escape="if (menu) { menu = false; $event.stopPropagation(); }">
 
@@ -427,7 +427,7 @@
 
                         {{-- Images --}}
                         <section class="bg-white/90 rounded-xl border border-white shadow-[0_8px_30px_-12px_rgba(15,23,42,.18)] p-4">
-                            <h3 class="text-sm font-semibold text-gray-900 mb-3">Images</h3>
+                            <h3 class="text-sm font-semibold text-gray-900 mb-3">Images <span class="text-red-500">*</span></h3>
 
                             {{-- One answer, three real options. This used to be two yes/no
                                  questions that could contradict each other. --}}
@@ -444,7 +444,7 @@
                             {{-- Only supplier images have a location to record — a photoshoot
                                  has nothing to point at until it has happened. --}}
                             <div x-show="imageSource === '{{ \App\Models\ProductRequest::IMG_SUPPLIER }}'" x-cloak class="mt-4 pt-4 border-t border-gray-100">
-                                <label class="block text-sm text-gray-700 mb-1">Where are they?</label>
+                                <label class="block text-sm text-gray-700 mb-1">Where are they? <span class="text-red-500">*</span></label>
                                 <div class="flex rounded-lg bg-gray-100 p-1 gap-1 sm:w-2/3">
                                     @foreach(\App\Models\ProductRequest::IMAGE_LOCATIONS as $value => $label)
                                         <label class="relative flex-1 text-center cursor-pointer rounded-md px-3 py-1.5 text-sm text-gray-600 transition-colors hover:text-gray-900 has-[:checked]:bg-white has-[:checked]:text-gray-900 has-[:checked]:font-medium has-[:checked]:shadow-sm">

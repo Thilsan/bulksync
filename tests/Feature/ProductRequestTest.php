@@ -2377,10 +2377,14 @@ class ProductRequestTest extends TestCase
         $this->submitCsv($user, $store, "AB-1\nAB-2\n")->assertSessionHasNoErrors();
         $this->assertSame(['AB-1', 'AB-2'], ProductRequest::latest('id')->first()->skus()->orderBy('id')->pluck('sku')->all());
 
+        // "AAA" is a heading, not a SKU: the rest of its row is in words.
+        $this->submitCsv($user, $store, "AAA,Product ID\nGAT-1,8064\nGAT-2,8065\n")->assertSessionHasNoErrors();
+        $this->assertSame(['GAT-1', 'GAT-2'], ProductRequest::latest('id')->first()->skus()->orderBy('id')->pluck('sku')->all());
+
         $this->submitCsv($user, $store, "SKU,Name\n,Bag\n")
             ->assertSessionHasErrors(['sku_csv' => 'There are no SKUs in the file. Please check it and upload it again.']);
 
-        $this->assertSame(2, ProductRequest::count());
+        $this->assertSame(3, ProductRequest::count());
 
         foreach (ProductRequest::pluck('id') as $id) {
             File::deleteDirectory(storage_path("app/product-requests/{$id}"));
@@ -2466,6 +2470,12 @@ class ProductRequestTest extends TestCase
             ]);
 
         $columns("\xEF\xBB\xBFBarcode,Variant SKU\n6291,VS-1\n")->assertOk()->assertJsonPath('column', 1);
+
+        // A heading typed like a code is still a heading when its neighbours are words.
+        $columns("AAA,Product ID,Product Name\nGAT207LUG00139,8.06454E+12,Little Frontec\n")
+            ->assertOk()
+            ->assertJsonPath('columns.*.label', ['AAA', 'Product ID', 'Product Name'])
+            ->assertJsonPath('columns.0.sample', ['GAT207LUG00139']);
 
         // A bare list has no header to name its column by, and only one to pick.
         $columns("AB-1\nAB-2\n")->assertOk()->assertExactJson([

@@ -2664,9 +2664,10 @@ class ProductRequestController extends Controller implements HasMiddleware
     /**
      * [the column a SKU header names, or null; whether the first row is a header].
      *
-     * Without a SKU header the first row is still taken for a header when it
-     * reads like one — "Item Code", "Barcode" — and for the first SKU when it
-     * does not, so a bare list of SKUs loses nothing.
+     * Without a SKU header the first row is still taken for a header when any
+     * cell of it reads like one — "Item Code", "Product ID", even beside a
+     * heading typed as "AAA" — and for the first SKU when none does, so a bare
+     * list of SKUs loses nothing.
      */
     private static function skuFileLayout(array $rows): array
     {
@@ -2678,7 +2679,9 @@ class ProductRequestController extends Controller implements HasMiddleware
             }
         }
 
-        return [$found, $found !== null || self::looksLikeHeader((string) ($rows[0][0] ?? ''))];
+        $worded = array_filter($rows[0], fn ($cell) => self::looksLikeHeader((string) $cell));
+
+        return [$found, $found !== null || $worded !== []];
     }
 
     /**
