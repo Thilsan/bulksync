@@ -40,9 +40,9 @@
 
         if (!rows.length) return 'The file is empty. Please check it and upload it again.';
 
-        // The SKU or Item SKU column, else the first one.
+        // The SKU, Item SKU or Variant SKU column, else the first one.
         const headers = rows[0].map(h => h.trim().replace(/\s+/g, ' ').toLowerCase());
-        const column  = Math.max(0, headers.findIndex(h => h === 'sku' || h === 'item sku'));
+        const column  = Math.max(0, headers.findIndex(h => ['sku', 'item sku', 'variant sku'].includes(h)));
 
         if (!rows.some(r => (r[column] || '').trim() !== '')) {
             return 'There are no SKUs in the file. Please check it and upload it again.';

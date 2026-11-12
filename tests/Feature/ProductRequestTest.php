@@ -2189,7 +2189,7 @@ class ProductRequestTest extends TestCase
     }
 
     /** POST a new request with only a SKU CSV as its products. */
-    private function submitCsv(User $user, Store $store, string $csv)
+    private function submitCsv(User $user, Store $store, string $csv, array $extra = [])
     {
         $user->stores()->syncWithoutDetaching([$store->id]);
 
@@ -2203,7 +2203,7 @@ class ProductRequestTest extends TestCase
             'image_source'       => ProductRequest::IMG_PHOTOSHOOT,
             'use_ai_content'     => 1,
             'priority'           => 'high',
-        ]);
+        ] + $extra);
     }
 
     /**
@@ -2388,6 +2388,98 @@ class ProductRequestTest extends TestCase
     }
 
     /**
+     * A column the file calls something else — "Variant Code" here — is read
+     * when it is the one picked on the form, header row and all skipped.
+     */
+    public function test_the_picked_column_is_read_for_the_skus(): void
+    {
+        Notification::fake();
+        Queue::fake();
+
+        $user  = $this->brandManager();
+        $store = $this->plainSite();
+
+        $this->submitCsv($user, $store, "Date,Variant Code,Name\n31/08/2026,VC-1,Bag\n31/08/2026,VC-2,Belt\n", ['sku_column' => 1])
+            ->assertSessionHasNoErrors();
+
+        $request = ProductRequest::latest('id')->first();
+
+        try {
+            $this->assertSame(['VC-1', 'VC-2'], $request->skus()->orderBy('id')->pluck('sku')->all());
+        } finally {
+            File::deleteDirectory(storage_path("app/product-requests/{$request->id}"));
+        }
+    }
+
+    /** "Variant SKU", as Shopify exports it, is found without being picked. */
+    public function test_a_variant_sku_column_is_found_by_its_header(): void
+    {
+        Notification::fake();
+        Queue::fake();
+
+        $user  = $this->brandManager();
+        $store = $this->plainSite();
+
+        $this->submitCsv($user, $store, "Handle,Variant SKU\nlinen-shirt,VS-1\nlinen-shirt,VS-2\n")->assertSessionHasNoErrors();
+
+        $request = ProductRequest::latest('id')->first();
+
+        try {
+            $this->assertSame(['VS-1', 'VS-2'], $request->skus()->orderBy('id')->pluck('sku')->all());
+        } finally {
+            File::deleteDirectory(storage_path("app/product-requests/{$request->id}"));
+        }
+    }
+
+    public function test_a_column_the_file_does_not_have_is_refused(): void
+    {
+        Notification::fake();
+        Queue::fake();
+
+        $this->submitCsv($this->brandManager(), $this->plainSite(), "SKU,Name\nA-1,Bag\n", ['sku_column' => 5])
+            ->assertSessionHasErrors('sku_csv');
+
+        $this->assertSame(0, ProductRequest::count());
+    }
+
+    /** The form's column picker: each column named, counted and sampled. */
+    public function test_the_column_picker_lists_a_files_columns(): void
+    {
+        $user = $this->brandManager();
+
+        $columns = fn (string $csv) => $this->actingAs($user)->post(
+            route('product-requests.sku-file-columns'),
+            ['sku_csv' => UploadedFile::fake()->createWithContent('skus.csv', $csv)],
+            ['Accept' => 'application/json'],
+        );
+
+        // No SKU header: nothing is picked for them.
+        $columns("Date,Item  Code,Name\n31/08/2026,IC-1,Bag\n31/08/2026,IC-2,Belt\n31/08/2026,IC-2,Belt\n")
+            ->assertOk()
+            ->assertExactJson([
+                'columns' => [
+                    ['label' => 'Date',      'count' => 1, 'sample' => ['31/08/2026']],
+                    ['label' => 'Item Code', 'count' => 2, 'sample' => ['IC-1', 'IC-2']],
+                    ['label' => 'Name',      'count' => 2, 'sample' => ['Bag', 'Belt']],
+                ],
+                'column' => null,
+            ]);
+
+        $columns("\xEF\xBB\xBFBarcode,Variant SKU\n6291,VS-1\n")->assertOk()->assertJsonPath('column', 1);
+
+        // A bare list has no header to name its column by, and only one to pick.
+        $columns("AB-1\nAB-2\n")->assertOk()->assertExactJson([
+            'columns' => [['label' => 'Column A', 'count' => 2, 'sample' => ['AB-1', 'AB-2']]],
+            'column'  => 0,
+        ]);
+
+        $columns("SKU,Name\n")->assertStatus(422)
+            ->assertJsonPath('message', 'There are no SKUs in the file. Please check it and upload it again.');
+
+        $columns('')->assertStatus(422)->assertJsonPath('message', 'The file is empty. Please check it and upload it again.');
+    }
+
+    /**
      * A real .xlsx built by hand: shared and inline strings, rich text, a
      * barcode Excel stored in E-notation, empty cells left out of the file,
      * and the first sheet named by the workbook rather than by file name.
@@ -2452,6 +2544,28 @@ class ProductRequestTest extends TestCase
         } finally {
             @unlink($path);
             File::deleteDirectory(storage_path("app/product-requests/{$request->id}"));
+        }
+    }
+
+    public function test_the_column_picker_reads_an_excel_file(): void
+    {
+        $path = $this->xlsx();
+
+        try {
+            $this->actingAs($this->brandManager())->post(
+                route('product-requests.sku-file-columns'),
+                ['sku_csv' => new UploadedFile($path, 'skus.xlsx', null, null, true)],
+                ['Accept' => 'application/json'],
+            )->assertOk()->assertExactJson([
+                'columns' => [
+                    ['label' => 'Name',     'count' => 1, 'sample' => ['Linen shirt']],
+                    ['label' => 'Column B', 'count' => 0, 'sample' => []],
+                    ['label' => 'Item SKU', 'count' => 3, 'sample' => ['XL-1', '6291041500213', 'XL-3']],
+                ],
+                'column' => 2,
+            ]);
+        } finally {
+            @unlink($path);
         }
     }
 

@@ -710,8 +710,9 @@ class ProductRequestController extends Controller implements HasMiddleware
     {
         $request->validate([
             'store_id' => 'required|integer',
-            'sku_csv'  => 'nullable|file|mimes:csv,txt,xlsx|max:20480',
-            'skus'     => 'nullable|string',
+            'sku_csv'    => 'nullable|file|mimes:csv,txt,xlsx|max:20480',
+            'sku_column' => 'nullable|integer|min:0',
+            'skus'       => 'nullable|string',
         ]);
 
         $store = Store::selectableFor($user)->firstWhere('id', $request->integer('store_id'));
@@ -818,6 +819,7 @@ class ProductRequestController extends Controller implements HasMiddleware
             'category'                  => ['required', Rule::in(ProductRequest::CATEGORIES)],
             'skus'                      => 'nullable|string',
             'sku_csv'                   => 'nullable|file|mimes:csv,txt,xlsx|max:20480',
+            'sku_column'                => 'nullable|integer|min:0',
             'online_launch_date'        => 'required|date',
             'store_launch_date'         => 'nullable|date',
             'image_source'              => 'required|in:' . implode(',', array_keys(ProductRequest::selectableImageSources())),
@@ -948,8 +950,8 @@ class ProductRequestController extends Controller implements HasMiddleware
         // Reference images are attached from the request page, not at submission.
         $this->storeAttachments($request, $productRequest, $user, 'content_sheet', ProductRequestAttachment::KIND_CONTENT);
 
-        // Keep the SKU CSV as uploaded. Only its first column becomes SKUs, so
-        // the original is the only record of what the brand team actually sent.
+        // Keep the SKU CSV as uploaded. Only one column becomes SKUs, so the
+        // original is the only record of what the brand team actually sent.
         $this->storeAttachments($request, $productRequest, $user, 'sku_csv', ProductRequestAttachment::KIND_SKU_FILE);
 
         $this->workflow->log(
@@ -2470,7 +2472,8 @@ class ProductRequestController extends Controller implements HasMiddleware
         $skus = [];
 
         if ($request->hasFile('sku_csv')) {
-            $skus = $this->skusFromCsv($request->file('sku_csv'));
+            $column = $request->filled('sku_column') ? $request->integer('sku_column') : null;
+            $skus   = $this->skusFromCsv($request->file('sku_csv'), $column);
         }
 
         if ($request->filled('skus')) {
@@ -2485,7 +2488,7 @@ class ProductRequestController extends Controller implements HasMiddleware
     }
 
     /** Header names a SKU CSV may use for its SKU column, compared case-insensitively. */
-    private const SKU_CSV_HEADERS = ['sku', 'item sku'];
+    private const SKU_CSV_HEADERS = ['sku', 'item sku', 'variant sku'];
 
     /** Its copy column, most specific first. */
     private const COPY_CSV_HEADERS = ['long description', 'description'];
@@ -2500,12 +2503,76 @@ class ProductRequestController extends Controller implements HasMiddleware
     private ?array $csvCopy = null;
 
     /**
-     * Reads the SKUs from an Excel or CSV file: the "SKU" or "Item SKU" column
+     * The columns of a SKU file, for the new-request form to ask which one
+     * holds the SKUs when the file calls it something else — "Variant SKU",
+     * "Item Code". Read by the same rules as the submit, so the column it
+     * suggests is the one the submit would take on its own.
+     */
+    public function skuFileColumns(Request $request): JsonResponse
+    {
+        if ($problem = $this->rejectedUpload($request, ['sku_csv'])) {
+            return response()->json(['message' => $problem], 422);
+        }
+
+        // Answered here: outside api/* a failed check would redirect, not explain.
+        try {
+            $request->validate(['sku_csv' => 'required|file|mimes:csv,txt,xlsx|max:20480'], [
+                'sku_csv.mimes' => 'Please upload an Excel (.xlsx) or CSV file. An old .xls file can be saved as .xlsx from Excel.',
+                'sku_csv.max'   => 'The file is over 20 MB. Please split it and upload it again.',
+            ]);
+
+            $rows = $this->skuFileRows($request->file('sku_csv'));
+        } catch (ValidationException $e) {
+            return response()->json(['message' => $e->validator->errors()->first()], 422);
+        }
+
+        [$found, $hasHeader] = self::skuFileLayout($rows);
+        $body = $hasHeader ? array_slice($rows, 1) : $rows;
+
+        $width   = max(array_map('count', $rows));
+        $columns = [];
+        for ($i = 0; $i < $width; $i++) {
+            $name   = $hasHeader ? trim(preg_replace('/\s+/', ' ', (string) ($rows[0][$i] ?? ''))) : '';
+            $values = array_values(array_unique(array_filter(
+                array_map(fn ($row) => trim((string) ($row[$i] ?? '')), $body),
+                fn ($v) => $v !== '',
+            )));
+
+            $columns[] = [
+                'label'  => $name !== '' ? $name : 'Column ' . self::columnLetter($i),
+                'count'  => count($values),
+                'sample' => array_slice($values, 0, 3),
+            ];
+        }
+
+        if (!array_filter(array_column($columns, 'count'))) {
+            return response()->json(['message' => 'There are no SKUs in the file. Please check it and upload it again.'], 422);
+        }
+
+        return response()->json([
+            'columns' => $columns,
+            // The SKU header's column, or the only one there is. Otherwise
+            // nothing: the first column is too often a date or a barcode to
+            // pick it for them.
+            'column'  => $found ?? ($width === 1 ? 0 : null),
+        ]);
+    }
+
+    /** 0 → "A", 25 → "Z", 26 → "AA", as Excel names them. */
+    private static function columnLetter(int $index): string
+    {
+        $letter = '';
+        for ($n = $index + 1; $n > 0; $n = intdiv($n - 1, 26)) {
+            $letter = chr(65 + ($n - 1) % 26) . $letter;
+        }
+
+        return $letter;
+    }
+
+    /**
+     * Reads the SKUs from an Excel or CSV file: the column the person picked
+     * on the form, else the "SKU" / "Item SKU" / "Variant SKU" column
      * wherever it sits, otherwise the first column.
-     *
-     * Without a SKU header the first row is still taken for a header when it
-     * reads like one — "Item Code", "Barcode" — and for the first SKU when it
-     * does not, so a bare list of SKUs loses nothing.
      *
      * A CSV is read as CSV, not line by line: a Long Description often runs
      * over several lines inside quotes, and splitting on newlines would cut
@@ -2513,34 +2580,25 @@ class ProductRequestController extends Controller implements HasMiddleware
      *
      * @throws ValidationException
      */
-    private function skusFromCsv(UploadedFile $file): array
+    private function skusFromCsv(UploadedFile $file, ?int $column = null): array
     {
-        $rows = array_values(array_filter(
-            $this->rowsOf($file),
-            fn ($row) => trim(implode('', array_map('strval', $row)), " \t") !== '',
-        ));
-
-        if ($rows === []) {
-            throw ValidationException::withMessages(['sku_csv' => 'The file is empty. Please check it and upload it again.']);
-        }
-
-        $rows[0][0] = preg_replace('/^\xEF\xBB\xBF/', '', (string) ($rows[0][0] ?? ''));   // Excel's BOM
+        $rows = $this->skuFileRows($file);
 
         $headers = array_map(fn ($h) => strtolower(preg_replace('/\s+/', ' ', trim((string) $h))), $rows[0]);
 
-        $column = null;
-        foreach ($headers as $i => $header) {
-            if (in_array($header, self::SKU_CSV_HEADERS, true)) {
-                $column = $i;
-                break;
-            }
+        [$found, $hasHeader] = self::skuFileLayout($rows);
+
+        if ($column !== null && ($column < 0 || $column >= max(array_map('count', $rows)))) {
+            throw ValidationException::withMessages([
+                'sku_csv' => 'The SKU column picked is not in this file. Please upload it again and pick the column.',
+            ]);
         }
 
-        if ($column !== null || self::looksLikeHeader((string) ($rows[0][0] ?? ''))) {
+        if ($hasHeader) {
             array_shift($rows);
         }
 
-        $column ??= 0;
+        $column ??= $found ?? 0;
 
         $copyColumn = null;
         foreach (self::COPY_CSV_HEADERS as $name) {
@@ -2580,6 +2638,47 @@ class ProductRequestController extends Controller implements HasMiddleware
         $this->csvCopy = $copyColumn === null ? null : $copy;
 
         return $skus;
+    }
+
+    /**
+     * The rows of a SKU file with blank ones dropped and Excel's BOM removed.
+     *
+     * @throws ValidationException
+     */
+    private function skuFileRows(UploadedFile $file): array
+    {
+        $rows = array_values(array_filter(
+            $this->rowsOf($file),
+            fn ($row) => trim(implode('', array_map('strval', $row)), " \t") !== '',
+        ));
+
+        if ($rows === []) {
+            throw ValidationException::withMessages(['sku_csv' => 'The file is empty. Please check it and upload it again.']);
+        }
+
+        $rows[0][0] = preg_replace('/^\xEF\xBB\xBF/', '', (string) ($rows[0][0] ?? ''));   // Excel's BOM
+
+        return $rows;
+    }
+
+    /**
+     * [the column a SKU header names, or null; whether the first row is a header].
+     *
+     * Without a SKU header the first row is still taken for a header when it
+     * reads like one — "Item Code", "Barcode" — and for the first SKU when it
+     * does not, so a bare list of SKUs loses nothing.
+     */
+    private static function skuFileLayout(array $rows): array
+    {
+        $found = null;
+        foreach ($rows[0] as $i => $header) {
+            if (in_array(strtolower(preg_replace('/\s+/', ' ', trim((string) $header))), self::SKU_CSV_HEADERS, true)) {
+                $found = $i;
+                break;
+            }
+        }
+
+        return [$found, $found !== null || self::looksLikeHeader((string) ($rows[0][0] ?? ''))];
     }
 
     /**

@@ -304,23 +304,57 @@
                         <section class="bg-white/90 rounded-xl border border-white shadow-[0_8px_30px_-12px_rgba(15,23,42,.18)] p-4">
                             <h3 class="text-sm font-semibold text-gray-900 mb-3">Product list</h3>
 
-                            @include('product-requests.partials.sku-csv-check')
-                            {{-- A CSV is read as soon as it is picked, so an empty file is
-                               caught now rather than after the whole form is filled in. --}}
+                            {{-- The file is read by the server as soon as it is picked, so an
+                               empty file is caught now rather than after the whole form is
+                               filled in, and its columns come back for the person to say
+                               which one holds the SKUs — "Variant SKU", "Item Code" and the
+                               like are not guessed at. --}}
                             <div x-data="{
                                     fileName: '',
                                     over: false,
+                                    reading: false,
+                                    seq: 0,
                                     error: @js($errors->first('sku_csv') ?: null),
+                                    note: '',
+                                    columns: [],
+                                    column: null,
+                                    menu: false,
+                                    get chosen() { return this.column === null ? null : this.columns[this.column] },
                                     async pick(files) {
                                         const file = files[0];
-                                        this.error = await window.checkSkuCsv(file);
-                                        if (this.error) {
-                                            this.$refs.skuCsv.value = '';
-                                            this.fileName = '';
-                                        } else {
-                                            this.fileName = file?.name || '';
+                                        const mine = ++this.seq;   // a second file picked before the first is read wins
+                                        this.columns = []; this.column = null; this.error = null; this.note = '';
+                                        this.fileName = file?.name || '';
+                                        if (!file) return;
+
+                                        this.reading = true;
+                                        const body = new FormData();
+                                        body.append('sku_csv', file);
+                                        try {
+                                            const r = await fetch('{{ route('product-requests.sku-file-columns') }}', {
+                                                method: 'POST', body,
+                                                headers: { Accept: 'application/json', 'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]').content },
+                                            });
+                                            const data = await r.json().catch(() => null);
+                                            if (mine !== this.seq) return;
+
+                                            if (r.status === 422) {
+                                                this.error = data?.message || 'The file could not be read. Please check it and upload it again.';
+                                                this.$refs.skuCsv.value = '';
+                                                this.fileName = '';
+                                            } else if (r.ok && data) {
+                                                this.columns = data.columns;
+                                                this.column  = this.columns[data.column]?.count ? data.column : null;
+                                            } else {
+                                                throw new Error();
+                                            }
+                                        } catch (e) {
+                                            // Not a reason to lose the file: the submit still reads it.
+                                            if (mine === this.seq) this.note = 'The columns could not be listed. The SKU, Item SKU or Variant SKU column will be used, else the first column.';
+                                        } finally {
+                                            if (mine === this.seq) this.reading = false;
                                         }
-                                    }
+                                    },
                                  }">
                             <label @dragover.prevent="over = true" @dragleave.prevent="over = false"
                                    @drop.prevent="over = false; $refs.skuCsv.files = $event.dataTransfer.files; pick($refs.skuCsv.files)"
@@ -331,11 +365,63 @@
                                     <path x-show="fileName" x-cloak stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
                                 </svg>
                                 <span class="text-sm font-medium text-gray-800" x-text="fileName || 'Upload SKU file'"></span>
-                                <span class="text-xs text-gray-400" x-text="fileName ? 'Click to change' : 'Excel or CSV · SKU or Item SKU column, else the first column · drag and drop or click'"></span>
+                                <span class="text-xs text-gray-400" x-text="reading ? 'Reading the columns…' : (fileName ? 'Click to change' : 'Excel or CSV · you pick the SKU column next · drag and drop or click')"></span>
                                 <input type="file" name="sku_csv" accept=".xlsx,.csv,.txt" x-ref="skuCsv" required class="sr-only"
                                        @change="pick($el.files)">
                             </label>
                             <p x-show="error" x-cloak x-text="error" class="mt-2 text-xs text-red-600"></p>
+                            <p x-show="note" x-cloak x-text="note" class="mt-2 text-xs text-amber-700"></p>
+
+                            {{-- Which column holds the SKUs: the SKU / Item SKU / Variant SKU
+                                 column is picked already; anything else is the person's call. --}}
+                            <template x-if="columns.length">
+                                <div class="mt-3 rounded-lg border border-gray-200 bg-white p-3">
+                                    <label class="block text-xs font-medium text-gray-500 mb-1.5">SKU column</label>
+                                    <div class="relative sm:w-1/2" @click.outside="menu = false"
+                                         @keydown.escape="if (menu) { menu = false; $event.stopPropagation(); }">
+
+                                        {{-- Carries the value and the browser's "required" check. --}}
+                                        <input type="text" name="sku_column" :value="column ?? ''" required tabindex="-1" aria-hidden="true"
+                                               class="absolute inset-x-0 bottom-0 h-px opacity-0 pointer-events-none">
+
+                                        <button type="button" x-ref="columnBtn" @click="menu = !menu"
+                                                class="w-full flex items-center justify-between gap-2 rounded-lg border bg-white px-3 py-2 text-sm text-left transition focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent"
+                                                :class="menu ? 'border-transparent ring-2 ring-brand-500' : (chosen ? 'border-gray-300 hover:border-gray-400' : 'border-amber-300 hover:border-amber-400')">
+                                            <span class="truncate" :class="chosen ? 'text-gray-900' : 'text-gray-400'"
+                                                  x-text="chosen ? chosen.label : 'Pick the column with the SKUs'"></span>
+                                            <svg class="w-4 h-4 shrink-0 text-gray-400 transition-transform" :class="menu && 'rotate-180'"
+                                                 fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
+                                            </svg>
+                                        </button>
+
+                                        <div x-show="menu" x-cloak
+                                             x-transition:enter="transition ease-out duration-100" x-transition:enter-start="opacity-0 -translate-y-1" x-transition:enter-end="opacity-100 translate-y-0"
+                                             class="absolute z-30 mt-1.5 w-full max-h-72 overflow-y-auto rounded-xl border border-gray-200 bg-white p-1 shadow-lg">
+                                            <template x-for="(c, i) in columns" :key="i">
+                                                <button type="button" :disabled="!c.count"
+                                                        @click="column = i; menu = false; $refs.columnBtn.focus()"
+                                                        class="w-full flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-sm text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+                                                        :class="column === i ? 'bg-brand-50 text-brand-700' : 'text-gray-700 enabled:hover:bg-gray-100'">
+                                                    <span class="min-w-0">
+                                                        <span class="block truncate" :class="column === i && 'font-medium'" x-text="c.label"></span>
+                                                        <span class="block truncate text-xs text-gray-400"
+                                                              x-text="c.count ? c.count + (c.count === 1 ? ' value' : ' values') + ' · e.g. ' + c.sample.join(', ') : 'Empty'"></span>
+                                                    </span>
+                                                    <svg x-show="column === i" class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
+                                                    </svg>
+                                                </button>
+                                            </template>
+                                        </div>
+                                    </div>
+                                    <p x-show="chosen" class="mt-1.5 text-xs text-gray-500">
+                                        <span class="font-medium text-gray-700" x-text="chosen && (chosen.count + (chosen.count === 1 ? ' SKU' : ' SKUs'))"></span>
+                                        from this column · e.g. <span x-text="chosen && chosen.sample.join(', ')"></span>
+                                    </p>
+                                    <p x-show="!chosen" class="mt-1.5 text-xs text-amber-700">No column is called SKU, Item SKU or Variant SKU. Pick the one that holds the SKUs.</p>
+                                </div>
+                            </template>
                             </div>
                         </section>
 

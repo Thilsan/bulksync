@@ -290,6 +290,7 @@ Route::middleware('auth')->group(function () {
         Route::get('/my-tasks',                [ProductRequestController::class, 'myTasks'])->name('my-tasks');
         Route::get('/team-preview',            [ProductRequestController::class, 'teamPreview'])->name('team-preview');
         Route::post('/precheck',               [ProductRequestController::class, 'precheck'])->name('precheck');
+        Route::post('/sku-file-columns',       [ProductRequestController::class, 'skuFileColumns'])->name('sku-file-columns');
         Route::get('/precheck/variants',       [ProductRequestController::class, 'precheckVariants'])->name('precheck-variants');
 
         Route::get('/queue/{queue}',           [ProductRequestController::class, 'queue'])->name('queue')
