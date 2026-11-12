@@ -38,6 +38,17 @@ class SkuCheckSession extends Model
         return (int) min(100, round($this->variant_export_scanned / $this->variant_export_total * 100));
     }
 
+    /**
+     * A finished check whose result file is gone. The results live only in
+     * that CSV, and the daily export sweep deletes it 30 days after it was
+     * written — but this row stays, still reading Completed with its counts.
+     */
+    public function resultFileMissing(): bool
+    {
+        return $this->status === 'completed'
+            && !file_exists(storage_path("app/sku-checks/{$this->id}.csv"));
+    }
+
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);

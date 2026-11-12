@@ -213,7 +213,12 @@ class SkuCheckerController extends Controller
         abort_if($skuCheckSession->user_id !== auth()->id(), 403);
 
         $filePath = storage_path("app/sku-checks/{$skuCheckSession->id}.csv");
-        abort_unless(file_exists($filePath), 404, 'Result file not found.');
+
+        // Back to the page, which says why, rather than a bare 404.
+        if (!file_exists($filePath)) {
+            return redirect()->route('sku-checker.show', $skuCheckSession)
+                ->with('warning', 'This check\'s result file is no longer on the server, so there is nothing to download. Run the SKUs through a new check.');
+        }
 
         $filter   = $request->get('filter', 'all');
         $filename = "sku-check-{$skuCheckSession->id}-{$filter}.csv";
@@ -283,7 +288,11 @@ class SkuCheckerController extends Controller
         abort_if($skuCheckSession->user_id !== auth()->id(), 403);
 
         $filePath = storage_path("app/sku-checks/{$skuCheckSession->id}-variants.csv");
-        abort_unless(file_exists($filePath), 404, 'Variant export not found.');
+
+        if (!file_exists($filePath)) {
+            return redirect()->route('sku-checker.show', $skuCheckSession)
+                ->with('warning', 'The colours & sizes CSV is no longer on the server. Generate it again.');
+        }
 
         return response()->download(
             $filePath,
