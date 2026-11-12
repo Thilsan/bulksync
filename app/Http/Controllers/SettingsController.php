@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Setting;
+use App\Notifications\ProductRequestItSupportMapping;
 use App\Services\MailConfigurator;
 use App\Services\OneDriveService;
 use Illuminate\Http\RedirectResponse;
@@ -23,6 +24,7 @@ class SettingsController extends Controller
             'pcr_onedrive_secret_set'    => filled(Setting::get('pcr_onedrive_client_secret')),
             'pcr_onedrive_account'       => Setting::get('pcr_onedrive_account'),
             'pcr_onedrive_connected'     => filled(Setting::get('pcr_onedrive_refresh_token')),
+            'pcr_it_support_email'       => Setting::get(ProductRequestItSupportMapping::SETTING),
             'onedrive_tenant_id'     => Setting::get('onedrive_tenant_id'),
             'onedrive_client_id'     => Setting::get('onedrive_client_id'),
             'onedrive_client_secret' => Setting::get('onedrive_client_secret'),
@@ -169,6 +171,30 @@ class SettingsController extends Controller
         MailConfigurator::apply();
 
         return back()->with('success', 'Mail settings saved. Send a test email to confirm they work.');
+    }
+
+    /** Where a product request's "Email IT support" popup sends unmapped SKUs. */
+    public function updateItSupport(Request $request): RedirectResponse
+    {
+        if (!Auth::user()->is_super_admin) {
+            abort(403);
+        }
+
+        $list = trim((string) $request->validate([
+            'pcr_it_support_email' => ['nullable', 'string', 'max:500'],
+        ])['pcr_it_support_email'] ?? '');
+
+        $addresses = ProductRequestItSupportMapping::addresses($list);
+
+        if ($list !== '' && !$addresses) {
+            return back()->withInput()->withErrors([
+                'pcr_it_support_email' => 'That is not a valid email address. Several can be separated by commas.',
+            ]);
+        }
+
+        Setting::set(ProductRequestItSupportMapping::SETTING, $addresses ? implode(', ', $addresses) : null);
+
+        return back()->with('success', $addresses ? 'IT support email saved.' : 'IT support email cleared.');
     }
 
     public function testMail(Request $request): RedirectResponse

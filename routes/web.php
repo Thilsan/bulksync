@@ -223,6 +223,7 @@ Route::middleware('auth')->group(function () {
     Route::post('/settings/clear-cache',   [SettingsController::class, 'clearCache'])->name('settings.clear-cache');
     Route::put('/settings/mail',           [SettingsController::class, 'updateMail'])->name('settings.mail.update');
     Route::post('/settings/mail/test',     [SettingsController::class, 'testMail'])->name('settings.mail.test');
+    Route::put('/settings/it-support',     [SettingsController::class, 'updateItSupport'])->name('settings.it-support.update');
 
     // Stores
     Route::get('/stores',                     [StoreController::class, 'index'])->name('stores.index');
@@ -323,6 +324,7 @@ Route::middleware('auth')->group(function () {
         Route::post('/{productRequest}/image-request',     [ProductRequestController::class, 'decideImageRequest'])->name('image-request-decision');
         Route::post('/{productRequest}/images-received',   [ProductRequestController::class, 'imagesReceived'])->name('images-received');
         Route::post('/{productRequest}/chase-mapping',     [ProductRequestController::class, 'chaseMapping'])->name('chase-mapping');
+        Route::post('/{productRequest}/it-support',        [ProductRequestController::class, 'emailItSupport'])->name('it-support');
         Route::post('/{productRequest}/check-sheet-copy',  [ProductRequestController::class, 'checkSheetDescriptions'])->name('check-sheet-copy');
         Route::post('/{productRequest}/assign',            [ProductRequestController::class, 'assign'])->name('assign');
         Route::post('/{productRequest}/restaff',           [ProductRequestController::class, 'restaff'])->name('restaff');

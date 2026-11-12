@@ -6,6 +6,7 @@ use App\Models\ProductRequest;
 use App\Models\Setting;
 use App\Models\User;
 use App\Notifications\ProductRequestAssigned;
+use App\Notifications\ProductRequestItSupportMapping;
 use App\Services\MailConfigurator;
 use Illuminate\Contracts\Queue\Job;
 use Illuminate\Queue\Events\JobProcessing;
@@ -258,5 +259,26 @@ class MailSettingsTest extends TestCase
         ])->assertForbidden();
 
         $this->assertSame('', Setting::get('mail_host'));
+    }
+
+    public function test_a_super_admin_sets_where_it_support_emails_go(): void
+    {
+        $admin = $this->superAdmin();
+
+        $this->actingAs($admin)->put(route('settings.it-support.update'), [
+            'pcr_it_support_email' => ' it@example.test;desk@example.test ',
+        ])->assertSessionHasNoErrors();
+
+        $this->assertSame('it@example.test, desk@example.test', Setting::get(ProductRequestItSupportMapping::SETTING));
+
+        $this->actingAs($admin)->put(route('settings.it-support.update'), ['pcr_it_support_email' => 'IT desk'])
+            ->assertSessionHasErrors('pcr_it_support_email');
+        $this->assertSame('it@example.test, desk@example.test', Setting::get(ProductRequestItSupportMapping::SETTING));
+
+        $staff = User::create([
+            'name' => 'Staff', 'email' => 'staff@example.test', 'password' => 'password', 'is_active' => true,
+        ]);
+        $this->actingAs($staff)->put(route('settings.it-support.update'), ['pcr_it_support_email' => 'me@example.test'])
+            ->assertForbidden();
     }
 }

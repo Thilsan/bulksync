@@ -14,6 +14,9 @@ use App\Models\User;
 use App\Notifications\ProductRequestAssigned;
 use App\Notifications\ProductRequestCommented;
 use App\Notifications\ProductRequestHoldChanged;
+use App\Notifications\ProductRequestItSupportMapping;
+use App\Models\Setting;
+use App\Services\MailConfigurator;
 use App\Models\ProductRequestDraftProduct;
 use App\Services\ProductRequestDraftBuilder;
 use App\Services\ProductRequestDraftCsv;
@@ -1031,7 +1034,55 @@ class ProductRequestController extends Controller implements HasMiddleware
             'missingSkus'  => $productRequest->requiresMapping()
                 ? 0
                 : $productRequest->skus()->where('in_shopify', false)->count(),
+            'itSupport'    => $this->itSupportEmail($productRequest, $user),
         ]);
+    }
+
+    /**
+     * The "Email IT support" popup for SKUs a Cegid website still cannot see,
+     * or null when there are none. It opens by itself on the page a person's
+     * own Check SKUs reloads into, when that check left some unmapped.
+     */
+    private function itSupportEmail(ProductRequest $productRequest, User $user): ?array
+    {
+        $checking = in_array($productRequest->validation_status, ['pending', 'running'], true);
+
+        // Taken once the check has an answer, whatever it is, so the popup
+        // comes up after that one check and not on every visit after.
+        $justChecked = !$checking
+            && session()->pull(self::itSupportPromptKey($productRequest), false)
+            && $productRequest->validation_status === 'completed';
+
+        if (!$productRequest->hasSkuBalance()) {
+            return null;
+        }
+
+        $skus    = array_column(ProductRequestItSupportMapping::unmappedOf($productRequest), 'sku');
+        $count   = count($skus);
+        $website = $productRequest->store?->name ?? 'the website';
+
+        if ($count === 0) {
+            return null;
+        }
+
+        return [
+            'open'    => $justChecked,
+            'to'      => Setting::get(ProductRequestItSupportMapping::SETTING),
+            'subject' => ProductRequestItSupportMapping::subjectFor($productRequest, $count),
+            'skus'    => $skus,
+            'message' => "Hi IT Support,\n\n"
+                       . "The {$count} " . ($count === 1 ? 'SKU' : 'SKUs') . " listed below "
+                       . ($count === 1 ? 'is' : 'are') . " still not mapped in Cegid for {$website}, so "
+                       . ($count === 1 ? 'it is' : 'they are') . " not showing on Shopify. "
+                       . "Could you please check " . ($count === 1 ? 'it' : 'them') . "?\n\n"
+                       . "Thanks,\n{$user->name}",
+            'mailOff' => !MailConfigurator::effective()['sending'],
+        ];
+    }
+
+    private static function itSupportPromptKey(ProductRequest $productRequest): string
+    {
+        return "pcr_it_support_prompt.{$productRequest->id}";
     }
 
     /** Polled while validation runs so the detail page fills in without a refresh. */
@@ -1175,6 +1226,12 @@ class ProductRequestController extends Controller implements HasMiddleware
         );
 
         ValidateProductRequestSkusJob::dispatch($productRequest->id, $user->id)->onQueue(Queues::PRODUCT_REQUESTS);
+
+        // On a Cegid website, whatever this check leaves unmapped is offered to
+        // IT support once the page reloads with the answer — see show().
+        if ($productRequest->requiresMapping()) {
+            session()->put(self::itSupportPromptKey($productRequest), true);
+        }
 
         return back()->with('success', 'SKU validation started.');
     }
@@ -1792,6 +1849,64 @@ class ProductRequestController extends Controller implements HasMiddleware
         return back()->with($told ? 'success' : 'warning', $told
             ? "{$told->name} asked to map the remaining {$productRequest->balanceSkus()} SKU(s), with the list attached."
             : 'Nobody holds the brand manager role on this request, so there was no one to ask.');
+    }
+
+    /**
+     * Email IT support the SKUs a Cegid website still cannot see, with the
+     * note the person wrote in the popup and the list attached.
+     */
+    public function emailItSupport(Request $request, ProductRequest $productRequest, #[CurrentUser] User $user): RedirectResponse
+    {
+        $this->authorizeView($productRequest, $user);
+
+        if (!$productRequest->hasSkuBalance()) {
+            return back()->with('warning', 'Every SKU on this request is mapped — there is nothing to send to IT support.');
+        }
+
+        $data = $request->validate([
+            'it_support_to'      => 'required|string|max:500',
+            'it_support_message' => 'required|string|max:5000',
+        ], [
+            'it_support_to.required'      => 'Please enter IT support\'s email address.',
+            'it_support_message.required' => 'Please write a message for IT support.',
+        ]);
+
+        $to = ProductRequestItSupportMapping::addresses($data['it_support_to']);
+
+        if (!$to) {
+            return back()->withInput()->withErrors([
+                'it_support_to' => 'That is not a valid email address. Several can be separated by commas.',
+            ]);
+        }
+
+        // With the log mailer the email would only land in a log file, while
+        // the page said it had gone — say so instead.
+        if (!MailConfigurator::effective()['sending']) {
+            return back()->withInput()->withErrors([
+                'it_support_to' => 'Email is not set up on this server, so nothing was sent. An admin can turn it on in Settings → Mail.',
+            ]);
+        }
+
+        $notification = ProductRequestItSupportMapping::forRequest($productRequest, $user, $data['it_support_message']);
+
+        if (!$notification->unmapped) {
+            return back()->with('warning', 'No SKU on this request is waiting on Cegid — there is nothing to send to IT support.');
+        }
+
+        NotificationFacade::route('mail', $to)->notify($notification);
+
+        $count = count($notification->unmapped);
+        $list  = implode(', ', $to);
+
+        $this->workflow->log(
+            request:     $productRequest,
+            action:      'it_support_emailed',
+            description: "Emailed IT support ({$list}) about {$count} unmapped SKU(s)",
+            actor:       $user,
+            remarks:     $data['it_support_message'],
+        );
+
+        return back()->with('success', "Sent to {$list}: {$count} unmapped SKU(s), with the list attached.");
     }
 
     /**

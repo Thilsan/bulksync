@@ -87,6 +87,9 @@
         showHandover: false,
         showPublish: false,
         showPublishPreview: false,
+        // Opens by itself after a Check SKUs that left SKUs unmapped in Cegid,
+        // and again if a send came back with something to fix.
+        showItSupport: {{ ($itSupport['open'] ?? false) || $errors->hasAny(['it_support_to', 'it_support_message']) ? 'true' : 'false' }},
         validating: {{ in_array($request->validation_status, ['pending', 'running'], true) ? 'true' : 'false' }},
         poll() {
             if (!this.validating) return;
@@ -793,6 +796,13 @@
                                         Remind brand manager ({{ number_format($request->balanceSkus()) }} unmapped)
                                     </button>
                                 </form>
+
+                                @if($itSupport)
+                                    <button type="button" @click="showItSupport = true" class="{{ $small }} border border-gray-300 text-gray-700 hover:bg-gray-50">
+                                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+                                        Email IT support
+                                    </button>
+                                @endif
 
                                 @if($request->canContinueWithMapped())
                                     <form method="POST" action="{{ route('product-requests.continue-mapped', $request) }}" x-data="{ asked: false }" class="contents">
@@ -2086,6 +2096,103 @@
             </form>
         </div>
     </div>
+
+    {{-- Email IT support the SKUs Cegid still has not mapped --}}
+    @if($itSupport)
+    @php $shownSkus = array_slice($itSupport['skus'], 0, 30); @endphp
+    <div x-show="showItSupport" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4"
+         @keydown.escape.window="showItSupport = false">
+        <div class="absolute inset-0 bg-gray-900/40" @click="showItSupport = false"
+             x-show="showItSupport" x-transition.opacity></div>
+        <div class="relative bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[calc(100vh-2rem)] flex flex-col"
+             x-show="showItSupport"
+             x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0 translate-y-2 scale-[.98]" x-transition:enter-end="opacity-100 translate-y-0 scale-100">
+            <form method="POST" action="{{ route('product-requests.it-support', $request) }}" class="flex flex-col min-h-0"
+                  x-data="{ sending: false }" @submit="sending = true">
+                @csrf
+                <div class="px-5 py-4 border-b border-gray-100 flex items-start gap-3">
+                    <div class="w-9 h-9 rounded-lg bg-amber-50 text-amber-600 ring-1 ring-amber-100 flex items-center justify-center shrink-0">
+                        <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+                    </div>
+                    <div class="min-w-0 flex-1">
+                        <h3 class="text-base font-semibold text-gray-900">Email IT support</h3>
+                        <p class="text-sm text-gray-500 mt-0.5">
+                            {{ count($itSupport['skus']) }} {{ count($itSupport['skus']) === 1 ? 'SKU is' : 'SKUs are' }}
+                            still not mapped in Cegid for {{ $request->store?->name }}.
+                        </p>
+                    </div>
+                    <button type="button" @click="showItSupport = false" aria-label="Close" class="text-gray-400 hover:text-gray-600 -mr-1">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                    </button>
+                </div>
+
+                <div class="px-5 py-4 space-y-3 overflow-y-auto">
+                    <div class="grid grid-cols-[4.5rem_1fr] items-center gap-x-3 gap-y-2.5 text-sm">
+                        <label for="it-support-to" class="text-gray-500">To</label>
+                        <div>
+                            <input id="it-support-to" type="text" name="it_support_to" required maxlength="500"
+                                   value="{{ old('it_support_to', $itSupport['to']) }}" placeholder="it.support@example.com"
+                                   class="w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 {{ $errors->has('it_support_to') ? 'border-red-300' : 'border-gray-300' }}">
+                        </div>
+                        @error('it_support_to')
+                            <span></span><p class="-mt-1.5 text-xs text-red-600">{{ $message }}</p>
+                        @enderror
+                        @if(blank($itSupport['to']) && !$errors->has('it_support_to'))
+                            <span></span><p class="-mt-1.5 text-xs text-gray-400">No IT support address is saved yet — a super admin can add one in Settings.</p>
+                        @endif
+
+                        <span class="text-gray-500">Subject</span>
+                        <p class="text-gray-800 truncate" title="{{ $itSupport['subject'] }}">{{ $itSupport['subject'] }}</p>
+                    </div>
+
+                    <div>
+                        <textarea name="it_support_message" rows="7" required maxlength="5000" aria-label="Message"
+                                  class="w-full rounded-lg border px-3 py-2 text-sm text-gray-800 leading-relaxed focus:outline-none focus:ring-2 focus:ring-brand-500 resize-y {{ $errors->has('it_support_message') ? 'border-red-300' : 'border-gray-300' }}">{{ old('it_support_message', $itSupport['message']) }}</textarea>
+                        @error('it_support_message')
+                            <p class="mt-1 text-xs text-red-600">{{ $message }}</p>
+                        @enderror
+                    </div>
+
+                    <div class="rounded-lg border border-amber-200 bg-amber-50/60 px-3 py-2.5">
+                        <div class="flex items-center justify-between gap-2 mb-2">
+                            <p class="text-xs font-medium text-amber-900">Not mapped ({{ count($itSupport['skus']) }})</p>
+                            <p class="inline-flex items-center gap-1 text-xs text-amber-800">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/></svg>
+                                Attached as a CSV
+                            </p>
+                        </div>
+                        <div class="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto">
+                            @foreach($shownSkus as $sku)
+                                <span class="rounded-md bg-white px-2 py-0.5 font-mono text-xs text-gray-700 ring-1 ring-amber-200">{{ $sku }}</span>
+                            @endforeach
+                            @if(count($itSupport['skus']) > count($shownSkus))
+                                <span class="px-1 py-0.5 text-xs text-amber-800">+{{ count($itSupport['skus']) - count($shownSkus) }} more</span>
+                            @endif
+                        </div>
+                    </div>
+
+                    @if($itSupport['mailOff'])
+                        <p class="text-xs text-red-700 bg-red-50 rounded-lg px-3 py-2">
+                            Email is not set up on this server, so this cannot be sent yet. A super admin can turn it on in Settings → Mail.
+                        </p>
+                    @endif
+                </div>
+
+                <div class="px-5 py-4 bg-gray-50 border-t border-gray-100 rounded-b-xl flex items-center justify-between gap-3">
+                    <p class="text-xs text-gray-400">Replies come back to you.</p>
+                    <div class="flex gap-2">
+                        <button type="button" @click="showItSupport = false" class="{{ $btnAlt }}">Not now</button>
+                        <button type="submit" :disabled="sending" class="{{ $btnMain }} disabled:opacity-70">
+                            <svg x-show="!sending" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/></svg>
+                            <svg x-show="sending" x-cloak class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                            <span x-text="sending ? 'Sending…' : 'Send email'">Send email</span>
+                        </button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+    @endif
 
     {{-- Hand the current stage to someone else --}}
     <div x-show="showHandover" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4">

@@ -14,6 +14,9 @@ use App\Notifications\ProductRequestCommented;
 use App\Notifications\ProductRequestHandedOff;
 use App\Notifications\ProductRequestReminder;
 use App\Notifications\ProductRequestHoldChanged;
+use App\Notifications\ProductRequestItSupportMapping;
+use App\Models\Setting;
+use Illuminate\Notifications\AnonymousNotifiable;
 use App\Notifications\ProductRequestStatusChanged;
 use App\Services\ProductRequestWorkflow;
 use App\Services\SkuMappingService;
@@ -1037,6 +1040,99 @@ class ProductRequestTest extends TestCase
         $this->assertFileDoesNotExist($path);
         $this->assertSame(0, DB::table('notifications')
             ->where('data', 'like', '%"request_id":' . $request->id . ',%')->count());
+    }
+
+    // ── Emailing IT support about unmapped SKUs ──────────────────────────────
+
+    /**
+     * A Check SKUs that leaves SKUs unmapped on a Cegid website opens the IT
+     * support email on the page it reloads into — once, not on every visit.
+     */
+    public function test_a_check_that_leaves_skus_unmapped_offers_to_email_it_support(): void
+    {
+        Notification::fake();
+        Queue::fake();
+        Setting::set(ProductRequestItSupportMapping::SETTING, 'it@example.test');
+
+        $author  = $this->brandManager();
+        $request = $this->mapSome($this->submitFor($author, $this->mappingSite(), "BAL-1\nBAL-2\nBAL-3"), 1);
+        $show    = fn () => $this->actingAs($author)->get(route('product-requests.show', $request))->assertOk();
+
+        // There to open by hand, but nobody has checked yet.
+        $show()->assertViewHas('itSupport', fn ($it) => $it['open'] === false
+            && $it['skus'] === ['BAL-2', 'BAL-3']
+            && $it['to'] === 'it@example.test'
+            && str_contains($it['message'], 'The 2 SKUs listed below are still not mapped in Cegid for Bluesalon Website'));
+
+        $this->actingAs($author)->post(route('product-requests.revalidate', $request))->assertRedirect();
+
+        // Still checking: the answer is not in yet.
+        $show()->assertViewHas('itSupport', fn ($it) => $it['open'] === false);
+
+        $request->update(['validation_status' => 'completed']);
+
+        $show()->assertViewHas('itSupport', fn ($it) => $it['open'] === true)->assertSee('Email IT support');
+        $show()->assertViewHas('itSupport', fn ($it) => $it['open'] === false);
+    }
+
+    public function test_it_support_gets_the_unmapped_skus_and_the_note(): void
+    {
+        Notification::fake();
+
+        $author  = $this->brandManager();
+        $request = $this->mapSome($this->submitFor($author, $this->mappingSite(), "BAL-1\nBAL-2\nBAL-3"), 1);
+
+        $this->actingAs($author)->post(route('product-requests.it-support', $request), [
+            'it_support_to'      => 'it@example.test; desk@example.test',
+            'it_support_message' => "Please map these <today>.\nThanks",
+        ])->assertSessionHasNoErrors()->assertSessionHas('success');
+
+        $sent = null;
+        Notification::assertSentOnDemand(ProductRequestItSupportMapping::class, function ($notification, $channels, $notifiable) use (&$sent) {
+            $sent = $notification;
+
+            return $channels === ['mail'] && $notifiable->routes['mail'] === ['it@example.test', 'desk@example.test'];
+        });
+
+        $this->assertSame(['BAL-2', 'BAL-3'], array_column($sent->unmapped, 'sku'));
+
+        $mail = $sent->toMail(new AnonymousNotifiable());
+        $html = (string) $mail->render();
+
+        $this->assertSame("[{$request->reference}] 2 SKUs are not mapped in Cegid for Bluesalon Website", $mail->subject);
+        $this->assertSame([['brand@example.test', 'Brand Manager']], $mail->replyTo);
+        $this->assertStringContainsString('Please map these &lt;today&gt;.<br />', $html);
+        $this->assertStringContainsString('BAL-3', $html);
+        $this->assertSame("{$request->reference}-not-mapped.csv", $mail->rawAttachments[0]['name']);
+        $this->assertStringContainsString('BAL-2', $mail->rawAttachments[0]['data']);
+        $this->assertStringNotContainsString('BAL-1', $mail->rawAttachments[0]['data']);
+
+        $this->assertTrue($request->activities()->where('action', 'it_support_emailed')
+            ->where('description', 'like', '%it@example.test, desk@example.test%')->exists());
+    }
+
+    public function test_it_support_is_not_emailed_without_a_good_address_or_a_cegid_balance(): void
+    {
+        Notification::fake();
+
+        $author  = $this->brandManager();
+        $request = $this->submitFor($author, $this->mappingSite(), "BAL-1\nBAL-2");
+
+        $this->actingAs($author)->post(route('product-requests.it-support', $request), [
+            'it_support_to'      => 'it support',
+            'it_support_message' => 'Please map these.',
+        ])->assertSessionHasErrors('it_support_to');
+
+        // A website without Cegid has nothing to map, so no popup and no email.
+        $plain = $this->submitFor($author, $this->plainSite());
+
+        $this->actingAs($author)->get(route('product-requests.show', $plain))->assertViewHas('itSupport', fn ($it) => $it === null);
+        $this->actingAs($author)->post(route('product-requests.it-support', $plain), [
+            'it_support_to'      => 'it@example.test',
+            'it_support_message' => 'Please map these.',
+        ])->assertSessionHas('warning');
+
+        Notification::assertSentOnDemandTimes(ProductRequestItSupportMapping::class, 0);
     }
 
     // ── Carrying on with part of a request ───────────────────────────────────
