@@ -113,8 +113,6 @@ class SkuCheckItSupport extends Notification implements ShouldQueue
                     'Checked'    => $check->updated_at?->format('d M Y, H:i'),
                     'Run by'     => $check->user?->name,
                 ] : [],
-                'url'        => route('sku-checker.show', $this->sessionId),
-                'urlLabel'   => 'Open this check',
                 'source'     => 'the SKU Checker',
                 'subject'    => $subject,
                 'preheader'  => "{$count} " . ($count === 1 ? 'SKU' : 'SKUs') . " not showing on {$this->website} — list attached.",

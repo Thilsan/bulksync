@@ -110,7 +110,10 @@ class SkuCheckItSupportTest extends TestCase
         $this->assertSame([], $mail->cc);
         $this->assertStringContainsString('Please map these.<br />', $html);
         $this->assertStringContainsString('from the SKU Checker', $html);
-        $this->assertStringContainsString(route('sku-checker.show', $check), $html);
+        // Nothing to click into: IT support works from the attachment.
+        $this->assertStringNotContainsString(route('sku-checker.show', $check), $html);
+        $this->assertStringNotContainsString('Manage everything at', $html);
+        $this->assertStringContainsString('The full list is in the attached CSV', $html);
         $this->assertSame("sku-check-{$check->id}-not-mapped.csv", $mail->rawAttachments[0]['name']);
         $this->assertStringContainsString("Gaay,\"Not mapped\"", $mail->rawAttachments[0]['data']);
         $this->assertStringNotContainsString('GAT-1', $mail->rawAttachments[0]['data']);

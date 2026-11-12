@@ -164,8 +164,12 @@ class ProductRequestController extends Controller implements HasMiddleware
         $stores        = Store::selectableFor($user);
         $activeStoreId = Store::getActive($user->id)?->id;
 
+        // Sheet rows the sync could not bring in. Fixing them means editing the
+        // tracking sheet or the sync's config, which is a super admin's job.
+        $notSynced = $user->is_super_admin ? $this->sheetSync->notSynced() : null;
+
         return view('product-requests.index', compact(
-            'stats', 'breakdown', 'recent', 'deadlines', 'topBrands', 'activity', 'stores', 'activeStoreId'
+            'stats', 'breakdown', 'recent', 'deadlines', 'topBrands', 'activity', 'stores', 'activeStoreId', 'notSynced'
         ));
     }
 

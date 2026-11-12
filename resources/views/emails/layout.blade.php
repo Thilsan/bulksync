@@ -68,11 +68,19 @@
                             <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
                                 <tr><td style="border-top:1px solid #f3f4f6; height:1px; line-height:1px; font-size:0;">&nbsp;</td></tr>
                             </table>
-                            <p style="margin:16px 0 0 0; font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:12px; line-height:1.6; color:#9ca3af;">
-                                You are receiving this because you are involved in this product creation request.
-                                Manage everything at
-                                <a href="{{ $appUrl }}/product-requests" style="color:{{ $brand }}; text-decoration:underline;">{{ $appUrl }}</a>.
-                            </p>
+                            {{-- A message to someone outside the app — IT support — says
+                                 why they have it instead of pointing them at a login. --}}
+                            @hasSection('footer')
+                                <p style="margin:16px 0 0 0; font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:12px; line-height:1.6; color:#9ca3af;">
+                                    @yield('footer')
+                                </p>
+                            @else
+                                <p style="margin:16px 0 0 0; font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:12px; line-height:1.6; color:#9ca3af;">
+                                    You are receiving this because you are involved in this product creation request.
+                                    Manage everything at
+                                    <a href="{{ $appUrl }}/product-requests" style="color:{{ $brand }}; text-decoration:underline;">{{ $appUrl }}</a>.
+                                </p>
+                            @endif
                             <p style="margin:10px 0 0 0; font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:12px; color:#9ca3af;">
                                 Powered by the Abuissa Holding E-Commerce Department
                             </p>

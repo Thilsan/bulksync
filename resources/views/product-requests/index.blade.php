@@ -49,6 +49,44 @@
         </div>
     </div>
 
+    {{-- Super admins only (the controller passes null to everyone else). The
+         numbers are what the team searches the sheet for; the reason is a click
+         away rather than a hover, so it can be read on a tablet too. --}}
+    @if($me->is_super_admin)
+        @if($notSynced === null)
+            <p class="text-xs text-gray-400">Request Nos not synced from the sheet will show here after the next sync.</p>
+        @elseif(empty($notSynced['numbers']))
+            <p class="text-xs text-gray-500">Every sheet row synced &middot; last sync {{ $notSynced['at']->format('d M, H:i') }}</p>
+        @else
+            <div class="{{ $card }} px-6 py-4" x-data="{ open: null }">
+                <div class="flex flex-wrap items-baseline justify-between gap-2">
+                    <h3 class="text-sm font-semibold text-gray-900">
+                        {{ count($notSynced['numbers']) }} {{ count($notSynced['numbers']) === 1 ? 'Request No' : 'Request Nos' }} not synced from the sheet
+                    </h3>
+                    <p class="text-xs text-gray-400">Last sync {{ $notSynced['at']->format('d M, H:i') }} &middot; click a number for why</p>
+                </div>
+
+                <div class="mt-3 flex flex-wrap gap-1.5">
+                    @foreach($notSynced['numbers'] as $number => $reasons)
+                        <button type="button" @click="open = open === {{ $number }} ? null : {{ $number }}"
+                                :class="open === {{ $number }} ? 'bg-amber-600 text-white ring-amber-600' : 'bg-amber-50 text-amber-800 ring-amber-200 hover:ring-amber-400'"
+                                class="rounded-lg px-2.5 py-1 text-xs font-semibold tabular-nums ring-1 transition-colors">
+                            {{ $number }}
+                        </button>
+                    @endforeach
+                </div>
+
+                @foreach($notSynced['numbers'] as $number => $reasons)
+                    <div x-show="open === {{ $number }}" x-cloak class="mt-3 rounded-lg bg-gray-50 px-3.5 py-2.5 text-xs text-gray-600 space-y-1">
+                        @foreach($reasons as $reason)
+                            <p><span class="font-semibold text-gray-800">{{ $number }}</span> &middot; {{ $reason }}</p>
+                        @endforeach
+                    </div>
+                @endforeach
+            </div>
+        @endif
+    @endif
+
     @include('product-requests.partials.stat-cards')
 
     {{-- Recent requests, in the same row style as the full list --}}

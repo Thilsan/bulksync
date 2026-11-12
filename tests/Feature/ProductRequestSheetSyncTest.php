@@ -859,6 +859,87 @@ class ProductRequestSheetSyncTest extends TestCase
         $this->assertStringContainsString('the "Home" tab is not in the workbook', implode("\n", $result['log']));
     }
 
+    /** One row that syncs (17), one with no rows on its tab (18), one for no store (19). */
+    private function fakeWorkbookWithUnsynced(array $lingerieRows = [['05-Aug-26', 'AMADAMARIA', 'SKU-1']]): void
+    {
+        $this->fakeWorkbook(
+            [
+                ['Request No', 'Request Date', 'Requested By', 'Department', 'Brand', 'Website'],
+                ['17', '05-Aug-26', 'KAYCEE', 'LINGERIE', 'AMADAMARIA', 'BS'],
+                ['18', '05-Aug-26', 'KAYCEE', 'LINGERIE', 'DOREEN', 'BS'],
+                ['19', '05-Aug-26', 'KAYCEE', 'LINGERIE', 'AMADAMARIA', 'SS26'],
+            ],
+            ['Lingerie' => $lingerieRows],
+        );
+    }
+
+    /**
+     * "Which Request Nos didn't come in" was answered by pasting the server's
+     * dry run into chat. The last real run keeps the answer for the dashboard.
+     */
+    public function test_a_real_run_keeps_the_request_nos_it_could_not_bring_in(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+        $this->fakeWorkbookWithUnsynced();
+
+        $sync = app(ProductRequestSheetSyncService::class);
+
+        $sync->run(commit: false);
+        $this->assertNull($sync->notSynced(), 'A dry run would list rows it is about to create as never coming in.');
+
+        $sync->run(commit: true);
+        $notSynced = $sync->notSynced();
+
+        $this->assertSame([18, 19], array_keys($notSynced['numbers']), 'The row that synced is not on the list.');
+        $this->assertStringContainsString('BS · DOREEN: no row in "Lingerie"', $notSynced['numbers'][18][0]);
+        $this->assertStringContainsString('website token "SS26" has no store', $notSynced['numbers'][19][0]);
+    }
+
+    /**
+     * The ledger keeps a row's old failure after it is fixed on the sheet. The
+     * list is the last run's, so a fixed row leaves it.
+     */
+    public function test_a_row_fixed_on_the_sheet_leaves_the_list_on_the_next_run(): void
+    {
+        Queue::fake();
+        $this->syncUser();
+        $this->store();
+
+        $this->fakeWorkbookWithUnsynced();
+        app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $this->fakeWorkbookWithUnsynced([['05-Aug-26', 'AMADAMARIA', 'SKU-1'], ['05-Aug-26', 'DOREEN', 'SKU-2']]);
+        $sync = app(ProductRequestSheetSyncService::class);
+        $sync->run(commit: true);
+
+        $this->assertSame([19], array_keys($sync->notSynced()['numbers']));
+    }
+
+    public function test_only_a_super_admin_sees_the_unsynced_request_nos_on_the_dashboard(): void
+    {
+        Queue::fake();
+        $member = $this->syncUser();
+        $this->store();
+        $this->fakeWorkbookWithUnsynced();
+        app(ProductRequestSheetSyncService::class)->run(commit: true);
+
+        $admin = User::create([
+            'name' => 'Root', 'email' => 'root@example.test', 'password' => 'password',
+            'is_active' => true, 'is_super_admin' => true,
+        ]);
+
+        $this->actingAs($admin)->get(route('product-requests.index'))
+            ->assertOk()
+            ->assertSee('2 Request Nos not synced from the sheet')
+            ->assertSee('no row in "Lingerie"');
+
+        $this->actingAs($member)->get(route('product-requests.index'))
+            ->assertOk()
+            ->assertDontSee('not synced from the sheet');
+    }
+
     /**
      * DOREEN, SLOGGI, TRIUMPH and four more sat unsynced because the tab typed
      * their date as "21/10/26" and it was read as 21 Oct 0026.

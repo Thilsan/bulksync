@@ -1232,6 +1232,8 @@ class ProductRequestTest extends TestCase
         $this->assertSame([], $mail->cc);
         $this->assertStringContainsString('Please map these &lt;today&gt;.<br />', $html);
         $this->assertStringContainsString('BAL-3', $html);
+        $this->assertStringNotContainsString(route('product-requests.show', $request), $html);
+        $this->assertStringNotContainsString('Manage everything at', $html);
         $this->assertSame("{$request->reference}-not-mapped.csv", $mail->rawAttachments[0]['name']);
         $this->assertStringContainsString('BAL-2', $mail->rawAttachments[0]['data']);
         $this->assertStringNotContainsString('BAL-1', $mail->rawAttachments[0]['data']);

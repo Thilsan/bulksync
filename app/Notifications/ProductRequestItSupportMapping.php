@@ -134,7 +134,6 @@ class ProductRequestItSupportMapping extends Notification implements ShouldQueue
                 'count'      => $count,
                 'skus'       => array_column($this->unmapped, 'sku'),
                 'rows'       => $this->summaryRows($request),
-                'url'        => $this->requestUrl($this->requestId),
                 'subject'    => $subject,
                 'preheader'  => "{$count} " . ($count === 1 ? 'SKU' : 'SKUs') . " not showing on {$this->website} — list attached.",
             ])

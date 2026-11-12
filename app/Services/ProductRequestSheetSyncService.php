@@ -9,6 +9,7 @@ use App\Models\ProductRequestSheetSync;
 use App\Models\Store;
 use App\Models\User;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use App\Support\Queues;
 
 /**
@@ -25,6 +26,9 @@ use App\Support\Queues;
  */
 class ProductRequestSheetSyncService
 {
+    /** Where the last real run leaves the rows it could not bring in — see notSynced(). */
+    private const NOT_SYNCED_KEY = 'product-request-sheet-sync:not-synced';
+
     /**
      * Requests whose department is to be taken from the sheet even though it was
      * never recorded at import: null for none, [] for all, or these references.
@@ -113,6 +117,7 @@ class ProductRequestSheetSyncService
             'already_listed'        => 0,
             'swapped_dates'         => 0,
             'log'                   => [],
+            'not_synced'            => [],
         ];
 
         $sheetCache = [];
@@ -140,6 +145,7 @@ class ProductRequestSheetSyncService
                     if ($reused = $this->reusedNumber($existing->productRequest, $data, $deptConfig, $item, $sheetCache)) {
                         $result['conflicts']++;
                         $result['log'][] = "{$existing->productRequest->reference} — Request No {$requestNo} / {$token}: {$reused}";
+                        $this->leftOut($result, $numbers, $token, $data, $reused);
                         continue;
                     }
 
@@ -244,15 +250,18 @@ class ProductRequestSheetSyncService
                     $this->record($ledgerNo, $token, null, null, 'unmatched_department', ucfirst($why));
                     $result['unmatched_department']++;
                     $result['log'][] = "Skipped Request No {$requestNo} / {$token} ({$data['Brand']}): {$why}";
+                    $this->leftOut($result, $numbers, $token, $data, $why);
                     continue;
                 }
 
                 if (!$store) {
+                    $why = "website token \"{$token}\" has no store — add it to config/product_request_sync.php";
+
                     $this->record($ledgerNo, $token, null, null, 'unmatched_store',
                         "No store mapped for website token \"{$token}\"");
                     $result['unmatched_store']++;
-                    $result['log'][] = "Skipped Request No {$requestNo} / {$token} ({$data['Brand']}): "
-                        . "website token \"{$token}\" has no store — add it to config/product_request_sync.php";
+                    $result['log'][] = "Skipped Request No {$requestNo} / {$token} ({$data['Brand']}): {$why}";
+                    $this->leftOut($result, $numbers, $token, $data, $why);
                     continue;
                 }
 
@@ -265,6 +274,7 @@ class ProductRequestSheetSyncService
                     $this->record($ledgerNo, $token, $store->id, null, 'unmatched_skus', ucfirst($why));
                     $result['unmatched_skus']++;
                     $result['log'][] = "Skipped Request No {$requestNo} / {$token} ({$data['Brand']}): {$why}";
+                    $this->leftOut($result, $numbers, $token, $data, $why);
                     continue;
                 }
 
@@ -295,6 +305,7 @@ class ProductRequestSheetSyncService
                     $this->record($ledgerNo, $token, $store->id, null, 'unmatched_skus', ucfirst($why));
                     $result['unmatched_skus']++;
                     $result['log'][] = "Skipped Request No {$requestNo} / {$token} ({$data['Brand']}): {$why}";
+                    $this->leftOut($result, $numbers, $token, $data, $why);
                     continue;
                 }
 
@@ -335,11 +346,67 @@ class ProductRequestSheetSyncService
                     $this->record($ledgerNo, $token, $store->id, null, 'error', $e->getMessage());
                     $result['errors']++;
                     $result['log'][] = "ERROR on Request No {$requestNo} / {$token}: {$e->getMessage()}";
+                    $this->leftOut($result, $numbers, $token, $data, $e->getMessage());
                 }
             }
         }
 
+        // Only a real run says what is missing. A dry run leaves out the rows it
+        // would create, too, and would name them as never coming in.
+        if ($commit) {
+            Cache::forever(self::NOT_SYNCED_KEY, ['at' => now()->toIso8601String(), 'rows' => $result['not_synced']]);
+        }
+
         return $result;
+    }
+
+    /**
+     * The Request Nos the last real run could not bring in, with why — read
+     * from what that run saw, not from the ledger. The ledger keeps a row's
+     * old failure after its number or website changes on the sheet, or after
+     * it is listed by hand, and would go on naming rows nobody can find.
+     *
+     * Null until a run has finished.
+     *
+     * @return array{at: Carbon, numbers: array<int, array<int, string>>}|null
+     */
+    public function notSynced(): ?array
+    {
+        $saved = Cache::get(self::NOT_SYNCED_KEY);
+
+        if (!is_array($saved)) {
+            return null;
+        }
+
+        $numbers = [];
+
+        foreach ($saved['rows'] as $row) {
+            $reason = trim(implode(' · ', array_filter([$row['website'], $row['brand']])) . ': ' . $row['why'], ': ');
+
+            foreach ($row['numbers'] as $number) {
+                $numbers[$number][] = $reason;
+            }
+        }
+
+        ksort($numbers);
+
+        return ['at' => Carbon::parse($saved['at']), 'numbers' => $numbers];
+    }
+
+    /**
+     * Keeps a row the run left out for notSynced(). Every number of the row,
+     * not only the first: rows merged into one product fail together.
+     *
+     * @param  array<int, int>  $numbers
+     */
+    private function leftOut(array &$result, array $numbers, ?string $token, array $data, string $why): void
+    {
+        $result['not_synced'][] = [
+            'numbers' => $numbers,
+            'website' => $token,
+            'brand'   => trim((string) ($data['Brand'] ?? '')),
+            'why'     => $why,
+        ];
     }
 
     /**
@@ -1649,10 +1716,12 @@ class ProductRequestSheetSyncService
             // Two products under one number cannot both be the request it names.
             // Read in turn, each one renamed it — four brands in a single run.
             if (isset($shared[$requestNo])) {
-                $result['conflicts']++;
-                $result['log'][] = "Skipped Request No {$requestNo} ({$data['Brand']}): the sheet has it on "
-                    . count($shared[$requestNo]) . ' rows, for ' . implode(', ', $shared[$requestNo])
+                $why = 'the sheet has it on ' . count($shared[$requestNo]) . ' rows, for ' . implode(', ', $shared[$requestNo])
                     . ' — give each row a Request No of its own.';
+
+                $result['conflicts']++;
+                $result['log'][] = "Skipped Request No {$requestNo} ({$data['Brand']}): {$why}";
+                $this->leftOut($result, [$requestNo], null, $data, $why);
                 continue;
             }
 

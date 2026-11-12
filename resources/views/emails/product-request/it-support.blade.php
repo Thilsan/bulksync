@@ -19,13 +19,17 @@
                    . $count . ' ' . ($count === 1 ? 'SKU is' : 'SKUs are') . ' not showing on ' . e($website) . '</div>'
                    . '<div style="font-family:Menlo,Consolas,monospace; font-size:13px;">' . implode('<br>', array_map('e', $shown)) . '</div>'
                    . ($more > 0 ? '<div style="font-size:13px; margin-top:6px;">… and ' . $more . ' more.</div>' : '')
-                   . '<div style="font-size:13px; margin-top:6px;">The attached CSV lists every one.</div>',
+                   . '<div style="font-size:13px; margin-top:6px;">Please find the attached CSV above — it lists every one.</div>',
     ])
 
     @include('emails.partials.summary', ['rows' => $rows])
-    @include('emails.partials.button', ['url' => $url, 'label' => $urlLabel ?? 'Open this request'])
 
+    {{-- No link into the app: IT support works from the attached CSV, not from a login. --}}
     <p style="margin:14px 0 0 0; font-size:13px; color:#6b7280;">
         Sent by {{ $senderName }} from {{ $source ?? 'the product creation request' }}. Reply to this email to reach them.
     </p>
+@endsection
+
+@section('footer')
+    You are receiving this because {{ $senderName }} asked IT support to check these SKUs. The full list is in the attached CSV.
 @endsection
