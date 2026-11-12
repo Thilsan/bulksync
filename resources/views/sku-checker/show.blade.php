@@ -63,7 +63,7 @@
     @if ($skuCheckSession->resultFileMissing())
     <div class="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800">
         <strong>Results no longer available.</strong>
-        Result files are deleted 30 days after a check runs, and this one ran on {{ $skuCheckSession->created_at->format('d M Y') }}.
+        Result files are deleted {{ \App\Models\SkuCheckSession::RESULT_RETENTION_DAYS }} days after a check runs, and this one ran on {{ $skuCheckSession->created_at->format('d M Y') }}.
         The counts above are still right, but the SKU list behind them is gone — run the SKUs through a new check to download them.
     </div>
     @else

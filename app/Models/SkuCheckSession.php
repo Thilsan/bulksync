@@ -8,6 +8,9 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class SkuCheckSession extends Model
 {
+    /** How long the daily export sweep keeps a check's result files. */
+    public const RESULT_RETENTION_DAYS = 99;
+
     protected $fillable = [
         'user_id',
         'store_id',
@@ -40,8 +43,9 @@ class SkuCheckSession extends Model
 
     /**
      * A finished check whose result file is gone. The results live only in
-     * that CSV, and the daily export sweep deletes it 30 days after it was
-     * written — but this row stays, still reading Completed with its counts.
+     * that CSV, and the daily export sweep deletes it RESULT_RETENTION_DAYS
+     * after it was written — but this row stays, still reading Completed with
+     * its counts.
      */
     public function resultFileMissing(): bool
     {

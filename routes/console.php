@@ -9,6 +9,7 @@ use App\Models\PhotoEditSession;
 use App\Models\ProductRequest;
 use App\Models\ProductRequestAttachment;
 use App\Models\SeoAuditSession;
+use App\Models\SkuCheckSession;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
@@ -18,14 +19,19 @@ Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
 })->purpose('Display an inspiring quote');
 
-// CSV exports (store-sync, sku-checks) are never deleted otherwise — prune anything older than 30 days
+// CSV exports (store-sync, sku-checks) are never deleted otherwise — prune anything older than 30 days.
+// A SKU check's own results (182.csv, 182-variants.csv) are kept longer: they are the
+// check's only copy, and its page links to them. Everything else — including a Shopify
+// upload of up to 100 MB that a failed comparison leaves behind — still goes at 30.
 $pruneOldExports = function () {
-    $cutoff = now()->subDays(30)->timestamp;
+    $cutoff       = now()->subDays(30)->timestamp;
+    $resultCutoff = now()->subDays(SkuCheckSession::RESULT_RETENTION_DAYS)->timestamp;
     foreach (['store-sync', 'sku-checks'] as $dir) {
         $path = storage_path("app/{$dir}");
         if (!is_dir($path)) continue;
         foreach (glob("{$path}/*") as $file) {
-            if (is_file($file) && filemtime($file) < $cutoff) {
+            $isResult = $dir === 'sku-checks' && preg_match('/^\d+(-variants)?\.csv$/', basename($file));
+            if (is_file($file) && filemtime($file) < ($isResult ? $resultCutoff : $cutoff)) {
                 @unlink($file);
             }
         }
