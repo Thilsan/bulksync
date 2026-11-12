@@ -621,8 +621,9 @@
                             @if($missingProducts && ($createStep === 'check' || $usesMapping))
                                 <form method="POST" action="{{ route('product-requests.revalidate', $request) }}" x-data="{ busy: false }" @submit="busy = true">
                                     @csrf
-                                    <button type="submit" :disabled="busy" class="{{ $createStep === 'check' ? $btnMain : $btnAlt }} disabled:opacity-70">
-                                        <svg class="w-4 h-4" :class="busy && 'animate-spin'" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                                    {{-- The step everyone is waiting on, so it is the button that catches the eye. --}}
+                                    <button type="submit" :disabled="busy" class="group {{ $btnMain }} btn-attention disabled:opacity-70">
+                                        <svg class="w-4 h-4 transition-transform duration-500 group-hover:rotate-180" :class="busy && 'animate-spin'" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
                                         <span x-text="busy ? 'Checking…' : 'Check SKUs'">Check SKUs</span>
                                     </button>
                                 </form>

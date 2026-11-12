@@ -406,6 +406,31 @@
             100% { transform: scale(1.5);  opacity: 0 }
         }
 
+        /* The one button a page is waiting on: a halo breathes out of it and
+           a glint crosses it now and then. Still while hovered or busy, where
+           it already has the person's attention. */
+        .btn-attention { position: relative; overflow: hidden; animation: attention-halo 2.2s ease-out infinite; }
+        .btn-attention::after {
+            content: ''; position: absolute; inset: 0; pointer-events: none;
+            background: linear-gradient(100deg, transparent 30%, rgba(255,255,255,.5) 50%, transparent 70%);
+            transform: translateX(-120%);
+            animation: attention-glint 3.6s ease-in-out infinite;
+        }
+        .btn-attention:is(:hover, :disabled) { animation: none; }
+        .btn-attention:is(:hover, :disabled)::after { animation: none; opacity: 0; }
+        @keyframes attention-halo {
+            0%        { box-shadow: 0 0 0 0 rgba(var(--accent-rgb),.55), 0 6px 18px -8px rgba(var(--accent-rgb),.8); }
+            70%, 100% { box-shadow: 0 0 0 9px rgba(var(--accent-rgb),0), 0 6px 18px -8px rgba(var(--accent-rgb),.8); }
+        }
+        @keyframes attention-glint {
+            0%, 55%  { transform: translateX(-120%); }
+            85%, 100% { transform: translateX(120%); }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            .btn-attention { animation: none; box-shadow: 0 0 0 3px rgba(var(--accent-rgb),.3); }
+            .btn-attention::after { display: none; }
+        }
+
         /* Press: buttons give, rather than just changing colour. */
         main button:not(:disabled):active,
         main a[class*="rounded-lg"]:active { transform: translateY(.5px) scale(.985); }
