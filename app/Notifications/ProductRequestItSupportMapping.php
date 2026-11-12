@@ -17,7 +17,8 @@ use Illuminate\Notifications\Notification;
  * Sent by hand from the request page, after a check leaves SKUs unmapped: the
  * person checking writes the note, and IT gets it with the list attached. IT
  * is an address rather than a user, so this goes by mail only, and a reply
- * goes back to whoever sent it.
+ * goes back to whoever sent it. The request's brand manager and e-commerce
+ * owner are copied, so the people waiting on the mapping see that IT has it.
  */
 class ProductRequestItSupportMapping extends Notification implements ShouldQueue
 {
@@ -25,6 +26,9 @@ class ProductRequestItSupportMapping extends Notification implements ShouldQueue
 
     /** The Settings key holding IT support's address(es), set by a super admin. */
     public const SETTING = 'pcr_it_support_email';
+
+    /** The roles copied on the email, in the order they are listed. */
+    public const COPIED_ROLES = ['brand_manager_id', 'assigned_to'];
 
     /**
      * The addresses in a list typed as "a@x.com, b@x.com" (commas, semicolons
@@ -50,6 +54,7 @@ class ProductRequestItSupportMapping extends Notification implements ShouldQueue
 
     /**
      * @param  array<int, array{sku: string, status: string, note: string|null}>  $unmapped
+     * @param  array<int, array{name: string, email: string, role: string}>  $cc
      */
     public function __construct(
         public readonly int    $requestId,
@@ -59,12 +64,16 @@ class ProductRequestItSupportMapping extends Notification implements ShouldQueue
         public readonly string $senderEmail,
         public readonly string $note,
         public readonly array  $unmapped,
+        public readonly array  $cc = [],
     ) {
         $this->onQueue(Queues::PRODUCT_REQUESTS);
     }
 
-    public static function forRequest(ProductRequest $request, User $sender, string $note): self
+    /** @param  list<string>  $to  IT's addresses, so nobody is both sent and copied */
+    public static function forRequest(ProductRequest $request, User $sender, string $note, array $to = []): self
     {
+        $to = array_map('strtolower', $to);
+
         return new self(
             requestId:   $request->id,
             reference:   $request->reference,
@@ -73,7 +82,25 @@ class ProductRequestItSupportMapping extends Notification implements ShouldQueue
             senderEmail: $sender->email,
             note:        $note,
             unmapped:    self::unmappedOf($request),
+            cc:          array_values(array_filter(self::copiedOn($request), fn ($p) => !in_array($p['email'], $to, true))),
         );
+    }
+
+    /**
+     * Whoever holds the brand manager and e-commerce roles on the request now,
+     * once each. Someone deactivated, or with no address, is left out.
+     *
+     * @return list<array{name: string, email: string, role: string}>
+     */
+    public static function copiedOn(ProductRequest $request): array
+    {
+        return collect(self::COPIED_ROLES)
+            ->map(fn ($role) => ['user' => $request->ownerFor($role), 'role' => ProductRequest::ASSIGNMENT_ROLES[$role]])
+            ->filter(fn ($held) => $held['user']?->is_active && filled($held['user']->email))
+            ->map(fn ($held) => ['name' => $held['user']->name, 'email' => strtolower($held['user']->email), 'role' => $held['role']])
+            ->unique('email')
+            ->values()
+            ->all();
     }
 
     /** The SKUs still waiting on Cegid, in the order they were added. */
@@ -110,9 +137,15 @@ class ProductRequestItSupportMapping extends Notification implements ShouldQueue
             ? self::subjectFor($request, $count)
             : "[{$this->reference}] {$count} SKU(s) not mapped in Cegid for {$this->website}";
 
-        return (new MailMessage)
+        $mail = (new MailMessage)
             ->subject($subject)
-            ->replyTo($this->senderEmail, $this->senderName)
+            ->replyTo($this->senderEmail, $this->senderName);
+
+        foreach ($this->cc as $person) {
+            $mail->cc($person['email'], $person['name']);
+        }
+
+        return $mail
             ->view('emails.product-request.it-support', [
                 'note'       => $this->note,
                 'senderName' => $this->senderName,

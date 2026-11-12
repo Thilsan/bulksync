@@ -452,7 +452,7 @@
 
     {{-- IT support — super admin only --}}
     @if(auth()->user()->is_super_admin)
-    <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+    <div id="it-support" class="scroll-mt-24 bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
         <div class="px-6 py-4 border-b border-gray-100 flex items-start gap-3">
             <div class="w-9 h-9 rounded-lg bg-brand-50 text-brand-600 flex items-center justify-center shrink-0">
                 <svg style="width:1.125rem;height:1.125rem" fill="none" stroke="currentColor" viewBox="0 0 24 24">

@@ -790,13 +790,6 @@
                     @if($usesMapping && $request->total_skus > 0)
                         @if($request->hasSkuBalance())
                             <div class="flex flex-wrap items-center gap-2">
-                                <form method="POST" action="{{ route('product-requests.chase-mapping', $request) }}">
-                                    @csrf
-                                    <button type="submit" class="{{ $small }} border border-gray-300 text-gray-700 hover:bg-gray-50">
-                                        Remind brand manager ({{ number_format($request->balanceSkus()) }} unmapped)
-                                    </button>
-                                </form>
-
                                 @if($itSupport)
                                     <button type="button" @click="showItSupport = true" class="{{ $small }} border border-gray-300 text-gray-700 hover:bg-gray-50">
                                         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
@@ -2138,8 +2131,28 @@
                             <span></span><p class="-mt-1.5 text-xs text-red-600">{{ $message }}</p>
                         @enderror
                         @if(blank($itSupport['to']) && !$errors->has('it_support_to'))
-                            <span></span><p class="-mt-1.5 text-xs text-gray-400">No IT support address is saved yet — a super admin can add one in Settings.</p>
+                            <span></span>
+                            <p class="-mt-1.5 text-xs text-gray-400">
+                                @if($itSupport['settings'])
+                                    No IT support address is saved yet. <a href="{{ $itSupport['settings'] }}" class="font-medium text-brand-700 underline underline-offset-2 hover:text-brand-800">Save it in Settings</a> and it is filled in here every time.
+                                @else
+                                    No IT support address is saved yet — a super admin can save it in Settings so it is filled in here every time.
+                                @endif
+                            </p>
                         @endif
+
+                        {{-- The people waiting on the mapping see that IT has it. --}}
+                        <span class="text-gray-500 self-start pt-1">Cc</span>
+                        <div class="flex flex-wrap gap-1.5">
+                            @forelse($itSupport['cc'] as $person)
+                                <span class="inline-flex items-center gap-1.5 rounded-full bg-gray-100 pl-1 pr-2.5 py-0.5 text-xs text-gray-700" title="{{ $person['email'] }}">
+                                    <span class="grid h-5 w-5 place-items-center rounded-full bg-white text-[10px] font-semibold text-gray-600 ring-1 ring-gray-200">{{ mb_strtoupper(mb_substr($person['name'], 0, 1)) }}</span>
+                                    {{ $person['name'] }} <span class="text-gray-400">· {{ $person['role'] }}</span>
+                                </span>
+                            @empty
+                                <span class="pt-1 text-xs text-gray-400">Nobody — no brand manager or e-commerce owner is assigned yet.</span>
+                            @endforelse
+                        </div>
 
                         <span class="text-gray-500">Subject</span>
                         <p class="text-gray-800 truncate" title="{{ $itSupport['subject'] }}">{{ $itSupport['subject'] }}</p>
