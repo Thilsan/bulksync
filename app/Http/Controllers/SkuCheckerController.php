@@ -7,9 +7,14 @@ use App\Jobs\RunCsvCompareJob;
 use App\Jobs\RunSkuCheckJob;
 use App\Models\SkuCheckItem;
 use App\Models\SkuCheckSession;
+use App\Models\Setting;
 use App\Models\Store;
+use App\Notifications\ProductRequestItSupportMapping;
+use App\Notifications\SkuCheckItSupport;
+use App\Services\MailConfigurator;
 use App\Services\ShopifyService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Notification;
 use App\Support\Queues;
 
 class SkuCheckerController extends Controller
@@ -51,7 +56,87 @@ class SkuCheckerController extends Controller
     public function show(SkuCheckSession $skuCheckSession)
     {
         abort_if($skuCheckSession->user_id !== auth()->id(), 403);
-        return view('sku-checker.show', compact('skuCheckSession'));
+
+        return view('sku-checker.show', [
+            'skuCheckSession' => $skuCheckSession,
+            'itSupport'       => $this->itSupportEmail($skuCheckSession),
+        ]);
+    }
+
+    /**
+     * The "Email IT support" popup for the SKUs a finished check could not
+     * find, or null when there are none to report.
+     */
+    private function itSupportEmail(SkuCheckSession $check): ?array
+    {
+        if ($check->status !== 'completed') {
+            return null;
+        }
+
+        $skus  = SkuCheckItSupport::notMappedOf($check);
+        $count = count($skus);
+
+        if ($count === 0) {
+            return null;
+        }
+
+        $website = $check->store?->name ?? 'the website';
+        $user    = auth()->user();
+
+        return [
+            'to'       => Setting::get(ProductRequestItSupportMapping::SETTING),
+            'subject'  => SkuCheckItSupport::subjectFor($check, $count),
+            'skus'     => $skus,
+            'message'  => "Hi IT Support,\n\n"
+                        . "The {$count} " . ($count === 1 ? 'SKU' : 'SKUs') . " listed below "
+                        . ($count === 1 ? 'is' : 'are') . " not mapped in Cegid for {$website}, so "
+                        . ($count === 1 ? 'it is' : 'they are') . " not showing on Shopify. "
+                        . "Could you please check " . ($count === 1 ? 'it' : 'them') . "?\n\n"
+                        . "Thanks,\n{$user->name}",
+            'mailOff'  => !MailConfigurator::effective()['sending'],
+            'settings' => $user->is_super_admin ? route('settings.index') . '#it-support' : null,
+        ];
+    }
+
+    /** Email IT support the SKUs this check could not find, with the list attached. */
+    public function emailItSupport(SkuCheckSession $skuCheckSession, Request $request)
+    {
+        abort_if($skuCheckSession->user_id !== auth()->id(), 403);
+
+        $data = $request->validate([
+            'it_support_to'      => 'required|string|max:500',
+            'it_support_message' => 'required|string|max:5000',
+        ], [
+            'it_support_to.required'      => 'Please enter IT support\'s email address.',
+            'it_support_message.required' => 'Please write a message for IT support.',
+        ]);
+
+        $to = ProductRequestItSupportMapping::addresses($data['it_support_to']);
+
+        if (!$to) {
+            return back()->withInput()->withErrors([
+                'it_support_to' => 'That is not a valid email address. Several can be separated by commas.',
+            ]);
+        }
+
+        if (!MailConfigurator::effective()['sending']) {
+            return back()->withInput()->withErrors([
+                'it_support_to' => 'Email is not set up on this server, so nothing was sent. An admin can turn it on in Settings → Mail.',
+            ]);
+        }
+
+        $notification = SkuCheckItSupport::forCheck($skuCheckSession, auth()->user(), $data['it_support_message']);
+
+        if (!$notification->skus) {
+            return back()->with('warning', 'Every SKU in this check is mapped — there is nothing to send to IT support.');
+        }
+
+        Notification::route('mail', $to)->notify($notification);
+
+        $count = count($notification->skus);
+        $list  = implode(', ', $to);
+
+        return back()->with('success', "Sent to {$list}: {$count} not-mapped SKU(s), with the list attached.");
     }
 
     public function status(SkuCheckSession $skuCheckSession)

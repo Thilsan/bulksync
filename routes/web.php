@@ -149,6 +149,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/sku-checker/{skuCheckSession}/variants',   [SkuCheckerController::class, 'variants'])->name('sku-checker.variants');
     Route::get('/sku-checker/{skuCheckSession}/download',   [SkuCheckerController::class, 'download'])->name('sku-checker.download');
     Route::delete('/sku-checker/{skuCheckSession}',         [SkuCheckerController::class, 'destroy'])->name('sku-checker.destroy');
+    Route::post('/sku-checker/{skuCheckSession}/it-support', [SkuCheckerController::class, 'emailItSupport'])->name('sku-checker.it-support');
     Route::get('/upload/new',       [BulkUploadController::class, 'create'])->name('upload.create');
     Route::post('/upload',          [BulkUploadController::class, 'store'])->name('upload.store');
     Route::get('/upload/{session}',                       [BulkUploadController::class, 'show'])->name('upload.show');

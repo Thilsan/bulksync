@@ -23,9 +23,9 @@
     ])
 
     @include('emails.partials.summary', ['rows' => $rows])
-    @include('emails.partials.button', ['url' => $url, 'label' => 'Open this request'])
+    @include('emails.partials.button', ['url' => $url, 'label' => $urlLabel ?? 'Open this request'])
 
     <p style="margin:14px 0 0 0; font-size:13px; color:#6b7280;">
-        Sent by {{ $senderName }} from the product creation request. Reply to this email to reach them.
+        Sent by {{ $senderName }} from {{ $source ?? 'the product creation request' }}. Reply to this email to reach them.
     </p>
 @endsection
