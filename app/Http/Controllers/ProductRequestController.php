@@ -21,6 +21,7 @@ use App\Models\ProductRequestDraftProduct;
 use App\Services\ProductRequestDraftBuilder;
 use App\Services\ProductRequestDraftCsv;
 use App\Services\ProductRequestDraftPusher;
+use App\Services\ProductRequestFollowUp;
 use App\Services\ProductRequestSheetSyncService;
 use App\Services\ProductRequestWorkflow;
 use App\Services\SkuMappingService;
@@ -86,6 +87,7 @@ class ProductRequestController extends Controller implements HasMiddleware
         private readonly ProductRequestSheetSyncService $sheetSync,
         private readonly ProductRequestDraftBuilder $draftBuilder,
         private readonly ProductRequestDraftPusher $draftPusher,
+        private readonly ProductRequestFollowUp $followUp,
     ) {}
 
     public static function middleware(): array
@@ -1035,7 +1037,26 @@ class ProductRequestController extends Controller implements HasMiddleware
                 ? 0
                 : $productRequest->skus()->where('in_shopify', false)->count(),
             'itSupport'    => $this->itSupportEmail($productRequest, $user),
+            'followUp'     => $this->followUpOffer($productRequest),
         ]);
+    }
+
+    /**
+     * The "start a new request for the rest" offer on a published request, or
+     * null. It asks by itself the first time someone opens the request after
+     * it was published — once a session — when SKUs were set aside for it.
+     */
+    private function followUpOffer(ProductRequest $productRequest): ?array
+    {
+        if (!$productRequest->offersFollowUp()) {
+            return null;
+        }
+
+        $key  = "pcr_follow_up_asked.{$productRequest->id}";
+        $open = $productRequest->setAsideSkus() !== [] && !session()->has($key);
+        session()->put($key, true);
+
+        return ['skus' => $productRequest->followUpSkus(), 'open' => $open];
     }
 
     /**
@@ -1630,19 +1651,11 @@ class ProductRequestController extends Controller implements HasMiddleware
         $wants = $data['ai_content'] ?? null;
 
         $mapped  = (int) $productRequest->mapped_skus;
-        $balance = $productRequest->balanceSkus();
+        $total   = (int) $productRequest->total_skus;
+        $percent = $productRequest->skuCompletionPercent();
 
-        $this->workflow->transition(
-            $productRequest,
-            ProductRequest::SKU_VERIFIED,
-            $user,
-            "Continuing with {$mapped} of {$productRequest->total_skus} SKUs ({$productRequest->skuCompletionPercent()}%) — "
-                . "{$balance} still to map.",
-        );
-
-        $message = "Carrying on with {$mapped} SKUs. The remaining {$balance} stay on the SKUs tab and "
-            . 'you will be told as soon as they are mapped.';
-
+        // Recorded before the request moves on, so the stages it passes
+        // through already know where the copy is coming from.
         if ($wants) {
             $productRequest->update([
                 'ai_content_decision'   => $wants,
@@ -1658,7 +1671,29 @@ class ProductRequestController extends Controller implements HasMiddleware
                     : 'AI content skipped — the brand team supplies the copy',
                 actor:       $user,
             );
+        }
 
+        // The unmapped SKUs come off the request onto its record, so it goes
+        // on as an ordinary, fully mapped one; once it is published they are
+        // offered back as a new request of their own.
+        $setAside = $this->followUp->setAside($productRequest);
+        $count    = count($setAside);
+
+        $this->workflow->log(
+            request:     $productRequest,
+            action:      'sku_set_aside',
+            description: "Continuing with {$mapped} of {$total} SKUs ({$percent}%) — {$count} not mapped set aside for a new request",
+            actor:       $user,
+            remarks:     implode(', ', array_slice($setAside, 0, 50)) . ($count > 50 ? '…' : ''),
+        );
+
+        $productRequest = $productRequest->fresh();
+        $this->workflow->reconcileMapping($productRequest, $user);
+
+        $message = "Carrying on with {$mapped} SKUs. The {$count} not mapped are set aside — once this request is "
+            . 'published you will be asked to start a new request for them.';
+
+        if ($wants) {
             if ($wants === 'generate') {
                 $started  = $this->startAiContent($productRequest, $user);
                 $message .= $started
@@ -1670,6 +1705,40 @@ class ProductRequestController extends Controller implements HasMiddleware
         }
 
         return back()->with('success', $message);
+    }
+
+    /**
+     * Start a new request for the SKUs a published one never put live — set
+     * aside when it went ahead with the mapped ones, or left out as not mapped.
+     */
+    public function startFollowUp(Request $request, ProductRequest $productRequest, #[CurrentUser] User $user): RedirectResponse
+    {
+        $this->authorizeView($productRequest, $user);
+
+        if (!$productRequest->offersFollowUp()) {
+            return back()->with('warning', 'There are no SKUs left over from this request to start a new one for.');
+        }
+
+        $data = $request->validate([
+            'follow_up_name'        => 'nullable|string|max:255',
+            'follow_up_launch_date' => 'required|date',
+        ], [
+            'follow_up_launch_date.required' => 'Please pick the website go-live date for the new request.',
+        ]);
+
+        // The same rule as raising one by hand.
+        if (!Store::selectableFor($user)->contains('id', $productRequest->store_id)) {
+            return back()->withInput()->withErrors(['follow_up_launch_date' => 'You do not have access to this website, so you cannot raise a request on it.']);
+        }
+
+        $new = $this->followUp->start($productRequest, $user, [
+            'name'               => $data['follow_up_name'] ?? null,
+            'online_launch_date' => $data['follow_up_launch_date'],
+        ]);
+
+        return redirect()
+            ->route('product-requests.show', $new)
+            ->with('success', "Request {$new->reference} started for the {$new->total_skus} SKU(s) left over from {$productRequest->reference}.");
     }
 
     /**

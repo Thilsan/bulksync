@@ -90,6 +90,9 @@
         // Opens by itself after a Check SKUs that left SKUs unmapped in Cegid,
         // and again if a send came back with something to fix.
         showItSupport: {{ ($itSupport['open'] ?? false) || $errors->hasAny(['it_support_to', 'it_support_message']) ? 'true' : 'false' }},
+        // Asks by itself the first time a published request with SKUs set
+        // aside is opened, and again if starting the new one needs a fix.
+        showFollowUp: {{ ($followUp['open'] ?? false) || $errors->hasAny(['follow_up_name', 'follow_up_launch_date']) ? 'true' : 'false' }},
         validating: {{ in_array($request->validation_status, ['pending', 'running'], true) ? 'true' : 'false' }},
         poll() {
             if (!this.validating) return;
@@ -460,6 +463,37 @@
                 $current = $request->displayStageIndex();
                 $tint    = $onHold && !$closed ? 'border-red-200' : ($ownership === 'mine' ? 'border-brand-200' : 'border-gray-200');
             @endphp
+            {{-- What a published request left behind, and where it went --}}
+            @php
+                $followUpRefs = $request->followUpReferences();
+                $followUpIds  = $followUpRefs ? \App\Models\ProductRequest::whereIn('reference', $followUpRefs)->pluck('id', 'reference') : collect();
+            @endphp
+            @if($followUp)
+                <div class="rounded-2xl border border-amber-200 bg-amber-50/70 px-5 py-4 flex flex-wrap items-center justify-between gap-3">
+                    <div class="flex items-start gap-3 min-w-0">
+                        <div class="w-9 h-9 rounded-lg bg-white text-amber-600 ring-1 ring-amber-200 flex items-center justify-center shrink-0">
+                            <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                        </div>
+                        <div class="min-w-0">
+                            <p class="text-sm font-semibold text-gray-900">
+                                {{ count($followUp['skus']) }} {{ count($followUp['skus']) === 1 ? 'SKU' : 'SKUs' }} did not go live with this request
+                            </p>
+                            <p class="text-xs text-gray-600 mt-0.5">Not mapped in Cegid when it went ahead. Start a new request for them and it begins again from the mapping.</p>
+                        </div>
+                    </div>
+                    <button type="button" @click="showFollowUp = true" class="{{ $btnMain }}">Start a new request</button>
+                </div>
+            @endif
+            @if($followUpIds->isNotEmpty())
+                <div class="rounded-2xl border border-gray-200 bg-white px-5 py-3 text-sm text-gray-600 flex flex-wrap items-center gap-x-1.5">
+                    <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6"/></svg>
+                    The SKUs left over from this request went on to
+                    @foreach($followUpIds as $ref => $id)
+                        <a href="{{ route('product-requests.show', $id) }}" class="font-medium text-brand-700 hover:underline">{{ $ref }}</a>{{ $loop->last ? '.' : ',' }}
+                    @endforeach
+                </div>
+            @endif
+
             <div class="bg-white rounded-2xl border shadow-sm overflow-hidden {{ $tint }}">
 
                 @if($onHold && !$closed)
@@ -806,6 +840,9 @@
                                         {{-- Asked here because this is the moment the mapped half moves
                                              on: the copy is either written now or deliberately skipped. --}}
                                         <div x-show="asked" x-cloak class="w-full flex flex-wrap items-center gap-2 rounded-lg border border-gray-200 px-3 py-2.5">
+                                            <p class="w-full text-xs text-gray-500">
+                                                The {{ number_format($request->balanceSkus()) }} not mapped are set aside. Once this request is published you will be asked to start a new request for them.
+                                            </p>
                                             <span class="text-xs text-gray-700 font-medium mr-1">Generate AI content for these {{ number_format($request->mapped_skus) }}?</span>
                                             <button type="submit" name="ai_content" value="generate" class="{{ $small }} bg-brand-600 hover:bg-brand-700 text-white">Yes</button>
                                             <button type="submit" name="ai_content" value="skip" class="{{ $small }} border border-gray-300 text-gray-700 hover:bg-gray-50">No, brand team sends copy</button>
@@ -814,6 +851,14 @@
                                 @endif
                             </div>
                         @endif
+                    @endif
+
+                    @if(!$closed && ($setAside = $request->setAsideSkus()))
+                        <p class="flex flex-wrap items-center gap-x-1.5 rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                            <span class="font-medium">{{ count($setAside) }} {{ count($setAside) === 1 ? 'SKU' : 'SKUs' }} set aside</span>
+                            — not mapped in Cegid when this request went ahead. You will be asked to start a new request for them once this one is published.
+                            <button type="button" @click="tab = 'uploaded'; $nextTick(() => document.getElementById('tabs').scrollIntoView({ behavior: 'smooth' }))" class="font-medium underline underline-offset-2 hover:text-amber-700">See them</button>
+                        </p>
                     @endif
 
                 </div>
@@ -1331,19 +1376,23 @@
                 {{-- Tab: uploaded list — a record, not a worklist --}}
                 @php
                     $leftOutRows   = collect($request->left_out_skus ?? []);
-                    $leftNotMapped = $leftOutRows->where('reason', 'not_mapped')->pluck('sku');
-                    $leftUnticked  = $leftOutRows->where('reason', 'unticked')->pluck('sku');
+                    $stillLeft     = $leftOutRows->filter(fn ($row) => empty($row['moved_to']));
+                    $leftNotMapped = $stillLeft->where('reason', 'not_mapped')->pluck('sku');
+                    $leftSetAside  = $stillLeft->where('reason', \App\Models\ProductRequest::LEFT_SET_ASIDE)->pluck('sku');
+                    $leftUnticked  = $stillLeft->where('reason', 'unticked')->pluck('sku');
+                    $leftMoved     = $leftOutRows->filter(fn ($row) => !empty($row['moved_to']))->groupBy('moved_to');
                     $includedRows  = $request->skus()->orderBy('id')->get(['sku', 'in_shopify', 'shopify_price', 'shopify_stock']);
                     $includedSkus  = $includedRows->pluck('sku');
                     // Live but not sellable: no price, or nothing in stock.
                     $zeroPrice = $includedRows->filter(fn ($k) => $k->in_shopify && $k->shopify_price !== null && (float) $k->shopify_price <= 0)->count();
                     $zeroStock = $includedRows->filter(fn ($k) => $k->in_shopify && $k->shopify_stock !== null && (int) $k->shopify_stock <= 0)->count();
                     $uploadedTotal = $includedSkus->count() + $leftOutRows->count();
-                    $groups = array_filter([
+                    $groups = array_merge(array_filter([
                         ['In this request',                     $includedSkus,  'bg-green-500', 'bg-green-50 border-green-100 text-green-800', 'Being worked on — see the SKUs tab.'],
                         $leftNotMapped->isNotEmpty() ? ['Not mapped yet',      $leftNotMapped, 'bg-red-500',   'bg-red-50 border-red-100 text-red-700',      'Not mapped in Cegid when the request was created. Once mapped, add them with + Add SKUs on the SKUs tab.'] : null,
+                        $leftSetAside->isNotEmpty()  ? ['Set aside',           $leftSetAside,  'bg-amber-500', 'bg-amber-50 border-amber-100 text-amber-800', 'Not mapped in Cegid when the request went ahead with the mapped ones. Once it is published, they are offered as a new request.'] : null,
                         $leftUnticked->isNotEmpty()  ? ['Left out by choice',  $leftUnticked,  'bg-gray-400',  'bg-white border-gray-200 text-gray-600',     'Mapped, but unticked when the request was created.'] : null,
-                    ]);
+                    ]), $leftMoved->map(fn ($rows, $ref) => ['Moved to ' . $ref, $rows->pluck('sku'), 'bg-blue-400', 'bg-blue-50 border-blue-100 text-blue-800', "Not mapped when this request went ahead, so they went on to {$ref}."])->values()->all());
                 @endphp
                 <div x-show="tab === 'uploaded'" x-cloak class="px-6 py-5 space-y-5">
                     <div class="flex flex-wrap items-start justify-between gap-3">
@@ -2201,6 +2250,74 @@
                             <span x-text="sending ? 'Sending…' : 'Send email'">Send email</span>
                         </button>
                     </div>
+                </div>
+            </form>
+        </div>
+    </div>
+    @endif
+
+    {{-- Start a new request for the SKUs this one left behind --}}
+    @if($followUp)
+    @php $leftover = count($followUp['skus']); @endphp
+    <div x-show="showFollowUp" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4"
+         @keydown.escape.window="showFollowUp = false">
+        <div class="absolute inset-0 bg-gray-900/40" @click="showFollowUp = false" x-show="showFollowUp" x-transition.opacity></div>
+        <div class="relative bg-white rounded-xl shadow-2xl w-full max-w-lg"
+             x-show="showFollowUp"
+             x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0 translate-y-2 scale-[.98]" x-transition:enter-end="opacity-100 translate-y-0 scale-100">
+            <form method="POST" action="{{ route('product-requests.follow-up', $request) }}"
+                  x-data="{ launch: @js(old('follow_up_launch_date', '')), starting: false }" @submit="starting = true">
+                @csrf
+                <div class="px-5 py-4 border-b border-gray-100 flex items-start gap-3">
+                    <div class="w-9 h-9 rounded-lg bg-green-50 text-green-600 ring-1 ring-green-100 flex items-center justify-center shrink-0">
+                        <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                    </div>
+                    <div class="min-w-0 flex-1">
+                        <h3 class="text-base font-semibold text-gray-900">Published. What about the other {{ $leftover }}?</h3>
+                        <p class="text-sm text-gray-500 mt-0.5">
+                            {{ $leftover }} {{ $leftover === 1 ? 'SKU was' : 'SKUs were' }} not mapped in Cegid when this request went ahead.
+                            Start a new request for {{ $leftover === 1 ? 'it' : 'them' }} — same website, brand and category — and it begins again from the mapping.
+                        </p>
+                    </div>
+                    <button type="button" @click="showFollowUp = false" aria-label="Close" class="text-gray-400 hover:text-gray-600 -mr-1">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                    </button>
+                </div>
+
+                <div class="px-5 py-4 space-y-4">
+                    <div class="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto">
+                        @foreach(array_slice($followUp['skus'], 0, 30) as $sku)
+                            <span class="rounded-md bg-amber-50 px-2 py-0.5 font-mono text-xs text-amber-900 ring-1 ring-amber-200">{{ $sku }}</span>
+                        @endforeach
+                        @if($leftover > 30)
+                            <span class="px-1 py-0.5 text-xs text-gray-500">+{{ $leftover - 30 }} more</span>
+                        @endif
+                    </div>
+
+                    <div>
+                        <label class="block text-sm text-gray-700 mb-1">Request name</label>
+                        <input type="text" name="follow_up_name" maxlength="255"
+                               value="{{ old('follow_up_name', $request->displayName() . ' — remaining SKUs') }}"
+                               class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
+                    </div>
+
+                    <div>
+                        <label class="block text-sm text-gray-700 mb-1">Website Go-Live Date <span class="text-red-500">*</span></label>
+                        @include('product-requests.partials.date-picker', [
+                            'name' => 'follow_up_launch_date', 'model' => 'launch', 'placeholder' => 'Pick a date',
+                        ])
+                        @error('follow_up_launch_date')
+                            <p class="mt-1 text-xs text-red-600">{{ $message }}</p>
+                        @enderror
+                    </div>
+                </div>
+
+                <div class="px-5 py-4 bg-gray-50 border-t border-gray-100 rounded-b-xl flex items-center justify-end gap-2">
+                    <button type="button" @click="showFollowUp = false" class="{{ $btnAlt }}">Not now</button>
+                    <button type="submit" :disabled="starting" class="{{ $btnMain }} disabled:opacity-70">
+                        <svg x-show="starting" x-cloak class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                        <span x-text="starting ? 'Starting…' : 'Start new request'">Start new request</span>
+                    </button>
                 </div>
             </form>
         </div>

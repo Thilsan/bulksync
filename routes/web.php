@@ -320,6 +320,7 @@ Route::middleware('auth')->group(function () {
         Route::post('/{productRequest}/skus',              [ProductRequestController::class, 'addSkus'])->name('skus.add');
         Route::post('/{productRequest}/transition',        [ProductRequestController::class, 'transition'])->name('transition');
         Route::post('/{productRequest}/continue-mapped',   [ProductRequestController::class, 'continueWithMapped'])->name('continue-mapped');
+        Route::post('/{productRequest}/follow-up',         [ProductRequestController::class, 'startFollowUp'])->name('follow-up');
         Route::post('/{productRequest}/photoshoot',         [ProductRequestController::class, 'decidePhotoshoot'])->name('photoshoot-decision');
         Route::post('/{productRequest}/image-request',     [ProductRequestController::class, 'decideImageRequest'])->name('image-request-decision');
         Route::post('/{productRequest}/images-received',   [ProductRequestController::class, 'imagesReceived'])->name('images-received');

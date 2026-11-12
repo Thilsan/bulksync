@@ -1042,6 +1042,101 @@ class ProductRequestTest extends TestCase
             ->where('data', 'like', '%"request_id":' . $request->id . ',%')->count());
     }
 
+    // ── Going ahead with the mapped SKUs, then the rest ──────────────────────
+
+    /**
+     * Two of three not mapped: the one that is goes all the way, the two are
+     * set aside, and once it is published they are offered as a new request
+     * that starts again from the mapping.
+     */
+    public function test_the_unmapped_skus_are_set_aside_and_offered_as_a_new_request_once_published(): void
+    {
+        Notification::fake();
+        Queue::fake();
+
+        $author  = $this->brandManager();
+        $request = $this->mapSome($this->submitFor($author, $this->mappingSite(), "BAL-1\nBAL-2\nBAL-3"), 1);
+        $show    = fn (ProductRequest $r) => $this->actingAs($author)->get(route('product-requests.show', $r))->assertOk();
+
+        $this->actingAs($author)->post(route('product-requests.continue-mapped', $request), ['ai_content' => 'skip'])
+            ->assertSessionHas('success', fn ($m) => str_contains($m, 'The 2 not mapped are set aside'));
+
+        $request->refresh();
+        $this->assertSame(['BAL-1'], $request->skus()->pluck('sku')->all());
+        $this->assertSame(['BAL-2', 'BAL-3'], $request->setAsideSkus());
+        $this->assertTrue($request->activities()->where('action', 'sku_set_aside')
+            ->where('description', 'like', 'Continuing with 1 of 3 SKUs (33%)%2 not mapped set aside%')->exists());
+
+        // While it is being worked on, the set-aside two are mentioned, not offered.
+        $show($request)->assertViewHas('followUp', fn ($f) => $f === null)->assertSee('2 SKUs set aside');
+
+        app(ProductRequestWorkflow::class)->transition($request, ProductRequest::PUBLISHED, $author, 'Live', force: true);
+        $request->refresh();
+
+        // Published: it asks — once.
+        $show($request)->assertViewHas('followUp', fn ($f) => $f['open'] === true && $f['skus'] === ['BAL-2', 'BAL-3'])
+            ->assertSee('Published. What about the other 2?');
+        $show($request)->assertViewHas('followUp', fn ($f) => $f['open'] === false);
+
+        $this->actingAs($author)->post(route('product-requests.follow-up', $request), ['follow_up_name' => ''])
+            ->assertSessionHasErrors('follow_up_launch_date');
+
+        $this->actingAs($author)->post(route('product-requests.follow-up', $request), [
+            'follow_up_name'        => 'Samsonite — the other two',
+            'follow_up_launch_date' => now()->addDays(20)->format('Y-m-d H:i'),
+        ])->assertRedirect();
+
+        $new = ProductRequest::latest('id')->first();
+        $this->assertNotSame($request->id, $new->id);
+        $this->assertSame('Samsonite — the other two', $new->name);
+        $this->assertSame(['BAL-2', 'BAL-3'], $new->skus()->orderBy('id')->pluck('sku')->all());
+        $this->assertSame(ProductRequest::WAITING_MAPPING, $new->status);
+        $this->assertSame([$request->store_id, $request->brand, $request->category, $request->user_id, $request->image_source],
+            [$new->store_id, $new->brand, $new->category, $new->user_id, $new->image_source]);
+        $this->assertStringContainsString($request->reference, $new->notes);
+
+        // The original says where they went, and asks no more.
+        $request->refresh();
+        $this->assertFalse($request->offersFollowUp());
+        $this->assertSame([$new->reference], $request->followUpReferences());
+        $this->assertTrue($request->activities()->where('action', 'follow_up')->where('description', 'like', "Started {$new->reference}%")->exists());
+        $show($request)->assertViewHas('followUp', fn ($f) => $f === null)->assertSee("Moved to {$new->reference}");
+    }
+
+    /**
+     * Carried on the old way, with the balance still on it: it can be set
+     * aside now, and once published the leftovers come off it into the new one.
+     */
+    public function test_a_request_carried_on_the_old_way_can_still_set_its_balance_aside(): void
+    {
+        Notification::fake();
+        Queue::fake();
+
+        $author  = $this->brandManager();
+        $request = $this->carriedOnTheOldWay($this->mapSome($this->submitFor($author, $this->mappingSite(), "OLD-1\nOLD-2"), 1), $author);
+
+        $this->assertTrue($request->canContinueWithMapped());
+        $this->actingAs($author)->post(route('product-requests.continue-mapped', $request))->assertRedirect();
+        $this->assertSame(['OLD-2'], $request->fresh()->setAsideSkus());
+
+        // Published with its balance never set aside: offered, but not asked by itself.
+        $old = $this->carriedOnTheOldWay($this->mapSome($this->submitFor($author, $this->mappingSite(), "OLD-3\nOLD-4"), 1), $author);
+        app(ProductRequestWorkflow::class)->transition($old, ProductRequest::PUBLISHED, $author, 'Live', force: true);
+
+        $this->actingAs($author)->get(route('product-requests.show', $old))
+            ->assertViewHas('followUp', fn ($f) => $f['open'] === false && $f['skus'] === ['OLD-4']);
+
+        $this->actingAs($author)->post(route('product-requests.follow-up', $old), [
+            'follow_up_launch_date' => now()->addDays(20)->format('Y-m-d H:i'),
+        ])->assertRedirect();
+
+        $old->refresh();
+        $this->assertSame(['OLD-3'], $old->skus()->pluck('sku')->all());
+        $this->assertSame(1, $old->total_skus);
+        $this->assertFalse($old->offersFollowUp());
+        $this->assertSame(['OLD-4'], ProductRequest::latest('id')->first()->skus()->pluck('sku')->all());
+    }
+
     // ── Emailing IT support about unmapped SKUs ──────────────────────────────
 
     /**
@@ -1232,10 +1327,15 @@ class ProductRequestTest extends TestCase
 
         $request->refresh();
 
-        // The mapped half moves on; the balance is still recorded against it.
-        $this->assertSame(ProductRequest::SKU_VERIFIED, $request->status);
-        $this->assertSame(10, $request->balanceSkus());
-        $this->assertTrue($request->hasSkuBalance());
+        // The mapped half moves on as a request of its own: the other ten are
+        // set aside on its record, so nothing is left to hold it at mapping.
+        $this->assertPassedVerified($request, $request->status);
+        $this->assertNotSame(ProductRequest::WAITING_MAPPING, $request->status);
+        $this->assertSame(10, $request->total_skus);
+        $this->assertSame(0, $request->balanceSkus());
+        $this->assertFalse($request->hasSkusMissingFromShopify());
+        $this->assertSame(collect(range(11, 20))->map(fn ($i) => 'BAL-' . $i)->all(), $request->setAsideSkus());
+        $this->assertSame(collect(range(1, 10))->map(fn ($i) => 'BAL-' . $i)->all(), $request->skus()->orderBy('id')->pluck('sku')->all());
 
         // And the reason is on the record, percentage included.
         $this->assertTrue($request->activities()
@@ -1245,9 +1345,20 @@ class ProductRequestTest extends TestCase
     }
 
     /**
-     * Nobody records a mapping outcome by hand any more, so pressing Validate
-     * SKUs is how the balance arrives — and the people who carried on with the
-     * mapped half have to hear about it, since they are not on the SKUs tab.
+     * Carried on with before set-aside existed: the balance is still on the
+     * request, moved past mapping by hand, as the old Continue left it.
+     */
+    private function carriedOnTheOldWay(ProductRequest $request, User $actor): ProductRequest
+    {
+        app(ProductRequestWorkflow::class)->transition($request, ProductRequest::SKU_VERIFIED, $actor, 'Continuing with the mapped SKUs', force: true);
+
+        return $request->refresh();
+    }
+
+    /**
+     * A request carried on the old way still has its balance on it, so
+     * pressing Check SKUs is how that balance arrives — and the people waiting
+     * on it hear, since they are not on the SKUs tab.
      */
     public function test_validating_picks_up_the_balance_and_tells_the_people_waiting_on_it(): void
     {
@@ -1256,8 +1367,7 @@ class ProductRequestTest extends TestCase
         $author  = $this->brandManager();
         $request = $this->submitFor($author, $this->mappingSite(), "BAL-1\nBAL-2\nBAL-3\nBAL-4");
 
-        $request = $this->mapSome($request, 2);
-        $this->actingAs($author)->post(route('product-requests.continue-mapped', $request))->assertRedirect();
+        $request = $this->carriedOnTheOldWay($this->mapSome($request, 2), $author);
 
         // The brand manager finishes one in Cegid and it reaches Shopify.
         $this->appearsInShopify($request, 'BAL-3');
@@ -1306,8 +1416,7 @@ class ProductRequestTest extends TestCase
         // Somebody pressed Check SKUs, so the hourly check watches it from here.
         $request->update(['validation_status' => 'completed']);
 
-        $request = $this->mapSome($request, 1);
-        $this->actingAs($author)->post(route('product-requests.continue-mapped', $request))->assertRedirect();
+        $request = $this->carriedOnTheOldWay($this->mapSome($request, 1), $author);
 
         // The remaining SKU was never touched by hand, so the read-only Shopify
         // check owns it. Put every SKU in Shopify — that is what "created in

@@ -36,6 +36,15 @@ class ProductRequest extends Model
     public const CLOSED_STATUSES = [self::PUBLISHED, self::COMPLETED, self::CANCELLED];
 
     /**
+     * Why a SKU is in left_out_skus rather than on the request. Set aside: not
+     * mapped when the request went ahead with the mapped ones. A follow-up
+     * request picks up both of the reasons in FOLLOW_UP_REASONS; "unticked"
+     * was left out by choice.
+     */
+    public const LEFT_SET_ASIDE    = 'set_aside';
+    public const FOLLOW_UP_REASONS = [self::LEFT_SET_ASIDE, 'not_mapped'];
+
+    /**
      * Stages no longer part of the flow, kept only so historic requests work.
      *
      * Content and QA joined them because one person runs a request end to end:
@@ -1372,6 +1381,55 @@ class ProductRequest extends Model
     }
 
     /**
+     * SKUs set aside when the request went ahead with the mapped ones, and not
+     * yet moved on to a request of their own.
+     *
+     * @return list<string>
+     */
+    public function setAsideSkus(): array
+    {
+        return collect($this->left_out_skus ?? [])
+            ->filter(fn ($row) => ($row['reason'] ?? null) === self::LEFT_SET_ASIDE && empty($row['moved_to']))
+            ->pluck('sku')->values()->all();
+    }
+
+    /**
+     * What a follow-up request would pick up once this one is done: the SKUs
+     * set aside, those left out at submission as not mapped, and any still on
+     * it unmapped from before set-aside existed.
+     *
+     * @return list<string>
+     */
+    public function followUpSkus(): array
+    {
+        $left = collect($this->left_out_skus ?? [])
+            ->filter(fn ($row) => in_array($row['reason'] ?? null, self::FOLLOW_UP_REASONS, true) && empty($row['moved_to']))
+            ->pluck('sku');
+
+        $onIt = $this->requiresMapping()
+            ? $this->skus()->where('mapping_status', '!=', self::MAP_MAPPED)->orderBy('id')->pluck('sku')
+            : collect();
+
+        return $left->merge($onIt)->unique()->values()->all();
+    }
+
+    /** Published with SKUs that never went live: time to offer a new request for them. */
+    public function offersFollowUp(): bool
+    {
+        return in_array($this->status, [self::PUBLISHED, self::COMPLETED], true) && $this->followUpSkus() !== [];
+    }
+
+    /**
+     * The requests this one's leftover SKUs went on to, by reference.
+     *
+     * @return list<string>
+     */
+    public function followUpReferences(): array
+    {
+        return collect($this->left_out_skus ?? [])->pluck('moved_to')->filter()->unique()->values()->all();
+    }
+
+    /**
      * How much of the request can actually go live — mapped SKUs as a share of
      * the whole. This is the number to quote at the end: "18 of 20 (90%)" says
      * far more about where a launch stands than the stage name does.
@@ -1436,7 +1494,9 @@ class ProductRequest extends Model
      */
     public function canContinueWithMapped(): bool
     {
-        return $this->status === self::WAITING_MAPPING
+        // SKU Mapped too: a request carried on with before set-aside existed
+        // is sitting there with its balance still on it.
+        return in_array($this->status, [self::WAITING_MAPPING, self::SKU_VERIFIED], true)
             && $this->requiresMapping()
             && $this->mapped_skus > 0
             && $this->hasSkuBalance()
