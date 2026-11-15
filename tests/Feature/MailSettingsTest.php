@@ -6,6 +6,7 @@ use App\Models\ProductRequest;
 use App\Models\Setting;
 use App\Models\User;
 use App\Notifications\ProductRequestAssigned;
+use App\Notifications\ProductRequestBalanceMapped;
 use App\Notifications\ProductRequestItSupportMapping;
 use App\Services\MailConfigurator;
 use Illuminate\Contracts\Queue\Job;
@@ -242,20 +243,43 @@ class MailSettingsTest extends TestCase
 
         $this->assertSame(['database', 'mail'], $notification->via($user));
 
-        // A brand manager follows requests in the app only — unless they also
-        // oversee everything.
+        // Brand managers and the e-commerce team follow requests in the app only
+        // — overseeing everything, or being a super admin, does not bring the
+        // email back. "Every SKU is mapped" reached a brand manager that way.
         $brand = User::create([
             'name' => 'Brand', 'email' => 'brand@example.test', 'password' => 'password',
             'is_active' => true, 'pcr_role' => 'brand_manager',
         ]);
         $this->assertSame(['database'], $notification->via($brand));
         $this->assertSame(['database'], \App\Notifications\ProductRequestMappingNeeded::forRequest($request)->via($brand));
+        $this->assertSame(['database'], ProductRequestBalanceMapped::forRequest($request, 1)->via($brand));
 
         $brand->update(['is_super_admin' => true]);
-        $this->assertSame(['database', 'mail'], $notification->via($brand));
+        $this->assertSame(['database'], $notification->via($brand));
 
         $brand->update(['is_super_admin' => false, 'pcr_notify_all' => true]);
-        $this->assertSame(['database', 'mail'], $notification->via($brand));
+        $this->assertSame(['database'], $notification->via($brand));
+
+        $ecommerce = User::create([
+            'name' => 'Ecom', 'email' => 'ecom@example.test', 'password' => 'password',
+            'is_active' => true, 'pcr_role' => 'ecommerce', 'is_super_admin' => true,
+        ]);
+        $this->assertSame(['database'], $notification->via($ecommerce));
+        $this->assertSame(['database'], ProductRequestBalanceMapped::forRequest($request, 1)->via($ecommerce));
+
+        // The shared inbox copied on everything is the e-commerce team's, role or not.
+        $inbox = User::create([
+            'name' => 'Inbox', 'email' => 'inbox@example.test', 'password' => 'password',
+            'is_active' => true, 'pcr_notify_all' => true,
+        ]);
+        $this->assertSame(['database'], $notification->via($inbox));
+
+        // Everyone else on a request still gets the email.
+        $shoot = User::create([
+            'name' => 'Shoot', 'email' => 'shoot@example.test', 'password' => 'password',
+            'is_active' => true, 'pcr_role' => 'photographer',
+        ]);
+        $this->assertSame(['database', 'mail'], $notification->via($shoot));
     }
 
     public function test_only_super_admins_can_change_mail_settings(): void

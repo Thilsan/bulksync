@@ -17,14 +17,19 @@ trait BuildsRequestEmail
 {
     /**
      * In-app always. Email only when a mailer is actually configured — a "log"
-     * mailer in dev would pretend the team was told — and never to a brand
-     * manager: the brand side follows product requests in the app, not by
-     * email. Someone who also oversees everything still gets the email.
+     * mailer in dev would pretend the team was told — and never to the brand
+     * managers or the e-commerce team: both follow product requests in the app,
+     * not by email. That holds for a super admin in either role too — the
+     * exception made for them is how "every SKU is mapped" kept reaching a
+     * brand manager — and for the accounts copied on everything, which are the
+     * shared e-commerce inbox.
      */
     public function via(object $notifiable): array
     {
         $emails = config('mail.default') !== 'log'
-            && !($notifiable instanceof User && $notifiable->isBrandManagerOnly());
+            && !($notifiable instanceof User && (
+                in_array($notifiable->pcr_role, ['brand_manager', 'ecommerce'], true) || $notifiable->pcr_notify_all
+            ));
 
         return $emails ? ['database', 'mail'] : ['database'];
     }
