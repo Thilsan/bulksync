@@ -1286,6 +1286,17 @@ class EditPhotoItemJob implements ShouldQueue
         return [$named ? 'segmented' : 'none', $itemEdits];
     }
 
+    /*
+     * The two ends of the luggage scale on a baseline canvas, and the case
+     * heights they belong to. Named rather than written into the arithmetic
+     * so that moving the scale is one edit in one place: these four numbers
+     * are the whole rule.
+     */
+    private const BASELINE_CM_CABIN   = 55.0;
+    private const BASELINE_CM_LARGE   = 80.0;
+    private const BASELINE_FILL_CABIN = 0.80;
+    private const BASELINE_FILL_LARGE = 0.92;
+
     /**
      * How tall the case stands on a baseline canvas.
      *
@@ -1303,7 +1314,7 @@ class EditPhotoItemJob implements ShouldQueue
      */
     private function baselineFitHeight(array $edits): ?float
     {
-        return $this->caseFill($edits)
+        return $this->baselineCaseFill($edits)
             ?? (isset($edits['fit_height']) ? (float) $edits['fit_height'] : null);
     }
 
@@ -1327,6 +1338,43 @@ class EditPhotoItemJob implements ShouldQueue
         }
 
         return isset($edits['fit_width']) ? (float) $edits['fit_width'] : null;
+    }
+
+    /**
+     * How tall a case stands on the Samsonite and American Tourister canvas.
+     *
+     * Not the plain cm rule, which Blue Salon's 2000 square still uses. There
+     * a 55cm cabin fills 55% of the height and a 80cm large fills 80%, which
+     * is honest arithmetic and leaves a cabin with 40% of the canvas empty
+     * above it — Samsonite's own site frames exactly that way, and it was
+     * rejected: too much air for a brand whose reference shots fill the frame.
+     *
+     * The other extreme was rejected by measurement. The brand reference files
+     * each fill their own frame, at 89.1%, 92.9% and 94.2% for cabin, medium
+     * and large — five points across the whole range, so a cabin and a large
+     * look the same size side by side, which is the thing the size dropdown
+     * exists to prevent.
+     *
+     * So the sizes are kept apart, just not by as much: 80% for a cabin up to
+     * 92% for a large, interpolated for anything between and clamped either
+     * side. Twelve points is a difference you can see in a gallery row without
+     * the small cases floating in white.
+     */
+    private function baselineCaseFill(array $edits): ?float
+    {
+        $cm = $edits['case_height_cm'] ?? null;
+
+        if (!filled($cm) || (float) $cm <= 0) {
+            return null;
+        }
+
+        $fill = self::BASELINE_FILL_CABIN
+            + (((float) $cm - self::BASELINE_CM_CABIN) / (self::BASELINE_CM_LARGE - self::BASELINE_CM_CABIN))
+            * (self::BASELINE_FILL_LARGE - self::BASELINE_FILL_CABIN);
+
+        // A case typed well outside the three named sizes still has to fit on
+        // the canvas and still has to be visible.
+        return max(0.70, min(0.95, $fill));
     }
 
     private function caseFill(array $edits): ?float

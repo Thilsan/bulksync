@@ -722,7 +722,7 @@ class PhotoroomService
              * database carry, and what PRESETS_BY_STORE matches on.
              */
             'label' => 'Luggage',
-            'note'  => 'Samsonite\'s own canvas, 1600 wide by 2400 tall, with the case standing on a line 4.6% up from the bottom. Nothing is resized: the supplier\'s files already have the case at the size the brand wants it, and the only thing this corrects is how high it sits. Measured off 156523_1830_hi-res_FRONT34_1, where the case fills 55% of the height with the space above it.',
+            'note'  => 'Samsonite and American Tourister, 1600 wide by 2400 tall, with the case standing on a line 4.6% up from the bottom. Pick the case size below and a cabin fills 80% of the height, a medium 85% and a large 92% — far enough apart to see in a gallery row, without a cabin floating in white. Nothing is resized: the supplier\'s files already have the case at the size the brand wants it, and the only thing this corrects is how high it sits. Measured off 156523_1830_hi-res_FRONT34_1, where the case fills 55% of the height with the space above it.',
             'edits' => [
                 /*
                  * No width or height, deliberately.

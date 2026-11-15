@@ -42,25 +42,51 @@ class PhotoEditorLuggageSizesTest extends TestCase
 
     public function test_each_size_stands_at_its_own_height(): void
     {
-        foreach ([55 => 0.55, 65 => 0.65, 80 => 0.80] as $cm => $expected) {
-            [, $fitHeight] = $this->fit($this->preset() + ['case_height_cm' => $cm]);
+        $fills = [];
 
-            $this->assertSame($expected, $fitHeight, "a {$cm}cm case fills {$cm}% of the canvas");
+        foreach ([55, 65, 80] as $cm) {
+            [, $fills[$cm]] = $this->fit($this->preset() + ['case_height_cm' => $cm]);
         }
+
+        $this->assertEqualsWithDelta(0.80,  $fills[55], 0.001, 'a cabin fills 80% of the height');
+        $this->assertEqualsWithDelta(0.848, $fills[65], 0.001, 'a medium sits between the two');
+        $this->assertEqualsWithDelta(0.92,  $fills[80], 0.001, 'a large fills 92%');
     }
 
     /**
-     * The cabin lands where the reference already had it.
+     * Far enough apart to see, close enough not to float.
      *
-     * This is what makes the cm rule a generalisation of the measurement
-     * rather than a departure from it: 55% against the 55.25% measured off the
-     * finished frame, a quarter of a per cent apart on a 2400-tall canvas.
+     * Both ends of this were rejected by looking at them. The plain cm rule —
+     * 55% for a cabin, 80% for a large — is what Samsonite's own site does,
+     * and it leaves a cabin with 40% of the canvas empty above it. The brand
+     * reference files are the opposite: each fills its own frame at 89.1%,
+     * 92.9% and 94.2%, five points across the whole range, so a cabin and a
+     * large look the same size standing next to each other.
+     *
+     * Blue Salon's 2000 square still uses the plain rule. This is the
+     * baseline canvas only, which is why the change lives beside it and not
+     * in caseFill.
      */
-    public function test_the_cm_rule_agrees_with_the_measured_reference(): void
+    public function test_the_sizes_stay_visibly_apart_without_floating(): void
     {
         [, $cabin] = $this->fit($this->preset() + ['case_height_cm' => 55]);
+        [, $large] = $this->fit($this->preset() + ['case_height_cm' => 80]);
 
-        $this->assertEqualsWithDelta($this->preset()['fit_height'], $cabin, 0.005);
+        $spread = $large - $cabin;
+
+        $this->assertGreaterThan(0.051, $spread, 'wider than the reference files, which are indistinguishable');
+        $this->assertLessThan(0.25, $spread, 'narrower than the plain cm rule, which leaves cabins floating');
+        $this->assertGreaterThan(0.75, $cabin, 'and the smallest case still fills most of the frame');
+    }
+
+    /** A size well outside the three named ones still fits on the canvas. */
+    public function test_an_unusual_height_is_clamped_to_the_canvas(): void
+    {
+        [, $tiny] = $this->fit($this->preset() + ['case_height_cm' => 10]);
+        [, $huge] = $this->fit($this->preset() + ['case_height_cm' => 120]);
+
+        $this->assertSame(0.70, $tiny);
+        $this->assertSame(0.95, $huge);
     }
 
     /** With no size typed, the supplier's own files pass through as before. */
