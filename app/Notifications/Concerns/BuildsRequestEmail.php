@@ -3,7 +3,6 @@
 namespace App\Notifications\Concerns;
 
 use App\Models\ProductRequest;
-use App\Models\User;
 
 /**
  * Shared email data for Product Creation Request notifications.
@@ -16,22 +15,18 @@ use App\Models\User;
 trait BuildsRequestEmail
 {
     /**
-     * In-app always. Email only when a mailer is actually configured — a "log"
-     * mailer in dev would pretend the team was told — and never to the brand
-     * managers or the e-commerce team: both follow product requests in the app,
-     * not by email. That holds for a super admin in either role too — the
-     * exception made for them is how "every SKU is mapped" kept reaching a
-     * brand manager — and for the accounts copied on everything, which are the
-     * shared e-commerce inbox.
+     * In-app only. Nobody is emailed about product requests: the brand
+     * managers and the e-commerce team asked first, then everyone else on
+     * them — the photoshoot coordinator, the people with no role, the super
+     * admins. Everyone follows requests in the app.
+     *
+     * The emails themselves are kept — toMail() and the templates — so turning
+     * them back on is this method and nothing else. The IT-support emails set
+     * their own channels; they go to IT, not to the team.
      */
     public function via(object $notifiable): array
     {
-        $emails = config('mail.default') !== 'log'
-            && !($notifiable instanceof User && (
-                in_array($notifiable->pcr_role, ['brand_manager', 'ecommerce'], true) || $notifiable->pcr_notify_all
-            ));
-
-        return $emails ? ['database', 'mail'] : ['database'];
+        return ['database'];
     }
 
     protected function requestForEmail(int $id): ?ProductRequest

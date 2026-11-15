@@ -214,7 +214,12 @@ class MailSettingsTest extends TestCase
         $this->assertSame('send.smtp.com', config('mail.mailers.smtp.host'));
     }
 
-    public function test_notifications_include_the_mail_channel_once_smtp_is_configured(): void
+    /**
+     * Nobody is emailed about a product request — not the brand managers or the
+     * e-commerce team, who asked first, and not anyone else on it either. A
+     * working mailer must not bring it back: the IT-support emails need one.
+     */
+    public function test_product_request_notifications_are_in_app_only_for_everyone(): void
     {
         $user = $this->superAdmin();
 
@@ -229,57 +234,36 @@ class MailSettingsTest extends TestCase
             'validation_status' => 'completed',
         ]);
 
-        $notification = ProductRequestAssigned::forRequest($request, 'Photoshoot Coordinator', 'Tester');
-
-        // On the log driver, email is deliberately skipped rather than pretended.
-        config(['mail.default' => 'log']);
-        $this->assertSame(['database'], $notification->via($user));
-
-        // With SMTP configured, the mail channel joins in.
         Setting::set('mail_enabled', '1');
         Setting::set('mail_host', 'send.smtp.com');
         MailConfigurator::flush();
         MailConfigurator::apply();
 
-        $this->assertSame(['database', 'mail'], $notification->via($user));
+        $people = [
+            $user,
+            User::create(['name' => 'Brand', 'email' => 'brand@example.test', 'password' => 'password',
+                'is_active' => true, 'pcr_role' => 'brand_manager', 'is_super_admin' => true]),
+            User::create(['name' => 'Ecom', 'email' => 'ecom@example.test', 'password' => 'password',
+                'is_active' => true, 'pcr_role' => 'ecommerce']),
+            User::create(['name' => 'Inbox', 'email' => 'inbox@example.test', 'password' => 'password',
+                'is_active' => true, 'pcr_notify_all' => true]),
+            User::create(['name' => 'Shoot', 'email' => 'shoot@example.test', 'password' => 'password',
+                'is_active' => true, 'pcr_role' => 'photographer']),
+            User::create(['name' => 'Nobody', 'email' => 'none@example.test', 'password' => 'password',
+                'is_active' => true]),
+        ];
 
-        // Brand managers and the e-commerce team follow requests in the app only
-        // — overseeing everything, or being a super admin, does not bring the
-        // email back. "Every SKU is mapped" reached a brand manager that way.
-        $brand = User::create([
-            'name' => 'Brand', 'email' => 'brand@example.test', 'password' => 'password',
-            'is_active' => true, 'pcr_role' => 'brand_manager',
-        ]);
-        $this->assertSame(['database'], $notification->via($brand));
-        $this->assertSame(['database'], \App\Notifications\ProductRequestMappingNeeded::forRequest($request)->via($brand));
-        $this->assertSame(['database'], ProductRequestBalanceMapped::forRequest($request, 1)->via($brand));
+        $notifications = [
+            ProductRequestAssigned::forRequest($request, 'Photoshoot Coordinator', 'Tester'),
+            \App\Notifications\ProductRequestMappingNeeded::forRequest($request),
+            ProductRequestBalanceMapped::forRequest($request, 1),
+        ];
 
-        $brand->update(['is_super_admin' => true]);
-        $this->assertSame(['database'], $notification->via($brand));
-
-        $brand->update(['is_super_admin' => false, 'pcr_notify_all' => true]);
-        $this->assertSame(['database'], $notification->via($brand));
-
-        $ecommerce = User::create([
-            'name' => 'Ecom', 'email' => 'ecom@example.test', 'password' => 'password',
-            'is_active' => true, 'pcr_role' => 'ecommerce', 'is_super_admin' => true,
-        ]);
-        $this->assertSame(['database'], $notification->via($ecommerce));
-        $this->assertSame(['database'], ProductRequestBalanceMapped::forRequest($request, 1)->via($ecommerce));
-
-        // The shared inbox copied on everything is the e-commerce team's, role or not.
-        $inbox = User::create([
-            'name' => 'Inbox', 'email' => 'inbox@example.test', 'password' => 'password',
-            'is_active' => true, 'pcr_notify_all' => true,
-        ]);
-        $this->assertSame(['database'], $notification->via($inbox));
-
-        // Everyone else on a request still gets the email.
-        $shoot = User::create([
-            'name' => 'Shoot', 'email' => 'shoot@example.test', 'password' => 'password',
-            'is_active' => true, 'pcr_role' => 'photographer',
-        ]);
-        $this->assertSame(['database', 'mail'], $notification->via($shoot));
+        foreach ($notifications as $notification) {
+            foreach ($people as $person) {
+                $this->assertSame(['database'], $notification->via($person), class_basename($notification) . " emailed {$person->name}");
+            }
+        }
     }
 
     public function test_only_super_admins_can_change_mail_settings(): void

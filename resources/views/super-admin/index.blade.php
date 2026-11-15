@@ -267,7 +267,7 @@
                                  people. Named here, the website wins for that
                                  one pairing and the category list covers the
                                  rest — leaving the plain category set as well
-                                 keeps the emails coming from every website. --}}
+                                 keeps the notifications coming from every website. --}}
                             <template x-if="role === 'brand_manager'">
                             @php
                                 $brandStoreOptions = [];
@@ -297,7 +297,7 @@
                                 'help'     => 'For a category followed on one website but not the others — Leather Goods on '
                                             . 'Blue Salon without the Samsonite requests. Named here, this beats Brand '
                                             . 'Manager / Brand Coordinator for that website alone, and the category\'s '
-                                            . 'people are not copied on it. Clear the plain category above, or its emails '
+                                            . 'people are not copied on it. Clear the plain category above, or its notifications '
                                             . 'keep arriving from every website.',
                             ])
                             </template>
