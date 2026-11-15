@@ -48,7 +48,7 @@ class PhotoEditorLuggageSizesTest extends TestCase
             [, $fills[$cm]] = $this->fit($this->preset() + ['case_height_cm' => $cm]);
         }
 
-        $this->assertEqualsWithDelta(0.88, $fills[55], 0.001, 'a cabin fills 88% of the height');
+        $this->assertEqualsWithDelta(0.90, $fills[55], 0.001, 'a cabin fills 90% of the height');
         $this->assertEqualsWithDelta(0.92, $fills[65], 0.001, 'a medium 92%');
         $this->assertEqualsWithDelta(0.95, $fills[80], 0.001, 'a large 95%');
     }
@@ -97,7 +97,7 @@ class PhotoEditorLuggageSizesTest extends TestCase
         [, $tiny] = $this->fit($this->preset() + ['case_height_cm' => 10]);
         [, $huge] = $this->fit($this->preset() + ['case_height_cm' => 120]);
 
-        $this->assertEqualsWithDelta(0.88, $tiny, 0.001);
+        $this->assertEqualsWithDelta(0.90, $tiny, 0.001);
         $this->assertEqualsWithDelta(0.95, $huge, 0.001);
     }
 

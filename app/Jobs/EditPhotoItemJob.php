@@ -1295,7 +1295,7 @@ class EditPhotoItemJob implements ShouldQueue
      * named and anything between them is interpolated from its neighbours.
      */
     private const BASELINE_FILLS = [
-        55 => 0.88,
+        55 => 0.90,
         65 => 0.92,
         80 => 0.95,
     ];

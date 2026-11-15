@@ -722,7 +722,7 @@ class PhotoroomService
              * database carry, and what PRESETS_BY_STORE matches on.
              */
             'label' => 'Luggage',
-            'note'  => 'Samsonite and American Tourister, 1600 wide by 2400 tall, with every case standing on the same line, 4% up from the bottom. Pick the case size below and a cabin fills 88% of the height, a medium 92% and a large 95%. Nothing is stretched to reach it: the fit is to both edges, so a wide case reaches its height only if the frame has room for its width. Measured off 156523_1830_hi-res_FRONT34_1 for the canvas and the line; the three fills were chosen against gallery rows rather than measured.',
+            'note'  => 'Samsonite and American Tourister, 1600 wide by 2400 tall, with every case standing on the same line, 4% up from the bottom. Pick the case size below and a cabin fills 90% of the height, a medium 92% and a large 95%. Nothing is stretched to reach it: the fit is to both edges, so a wide case reaches its height only if the frame has room for its width. Measured off 156523_1830_hi-res_FRONT34_1 for the canvas and the line; the three fills were chosen against gallery rows rather than measured.',
             'edits' => [
                 /*
                  * No width or height, deliberately.
