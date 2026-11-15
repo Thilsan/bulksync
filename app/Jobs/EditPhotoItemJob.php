@@ -845,8 +845,8 @@ class EditPhotoItemJob implements ShouldQueue
                     ($itemEdits['background_mode'] ?? 'white') === 'transparent'
                         ? 'transparent'
                         : (string) ($itemEdits['background_color'] ?? 'FFFFFF'),
-                    isset($itemEdits['fit_width']) ? (float) $itemEdits['fit_width'] : null,
-                    isset($itemEdits['fit_height']) ? (float) $itemEdits['fit_height'] : null,
+                    $this->baselineFitWidth($itemEdits),
+                    $this->baselineFitHeight($itemEdits),
                     (string) ($itemEdits['v_align'] ?? 'bottom'),
                 );
             } elseif (!empty($itemEdits['framing_preset'])
@@ -1284,6 +1284,49 @@ class EditPhotoItemJob implements ShouldQueue
         $itemEdits['remove_background'] = true;
 
         return [$named ? 'segmented' : 'none', $itemEdits];
+    }
+
+    /**
+     * How tall the case stands on a baseline canvas.
+     *
+     * The preset's own fit_height is one size: 55.25% of the height, measured
+     * off 156523_1830_hi-res_FRONT34_1, which turns out to be a 55cm cabin
+     * case — the cm rule already used everywhere else, arrived at from the
+     * other direction. Left alone it applied to every case, so a cabin, a
+     * medium and a large all came back the same height and the size picked on
+     * the review screen changed nothing on this canvas.
+     *
+     * So the typed size wins when there is one. A cabin at 55 lands within a
+     * quarter of a per cent of where the reference already had it, which is
+     * why this is a generalisation of the measurement rather than a departure
+     * from it.
+     */
+    private function baselineFitHeight(array $edits): ?float
+    {
+        return $this->caseFill($edits)
+            ?? (isset($edits['fit_height']) ? (float) $edits['fit_height'] : null);
+    }
+
+    /**
+     * And how wide it may grow while doing it.
+     *
+     * The preset's fit_width is the cabin's shape too: 60.44% by 55.25% is
+     * the aspect of that one case, so a large case driven to 80% of the height
+     * would hit the cabin's width ceiling first and come back short — sized by
+     * a number that was never about it.
+     *
+     * A ceiling is still wanted, because the fit is to both edges and that is
+     * what stops a duffel overflowing the frame while reaching an upright's
+     * height. It is just a wide one: 92% leaves the margin the canvas needs
+     * and binds on nothing that stands up.
+     */
+    private function baselineFitWidth(array $edits): ?float
+    {
+        if ($this->caseFill($edits) !== null) {
+            return 0.92;
+        }
+
+        return isset($edits['fit_width']) ? (float) $edits['fit_width'] : null;
     }
 
     private function caseFill(array $edits): ?float

@@ -1758,6 +1758,19 @@ class PhotoroomService
      */
     public const PRESETS_BY_STORE = [
         'samsonite' => ['samsonite', 'samsonite_accessories'],
+
+        /*
+         * American Tourister is the same brand's canvas and the same base
+         * line, so it is pointed at the same two categories rather than given
+         * copies of them. One set of numbers means a correction measured on
+         * one site cannot drift away from the other.
+         *
+         * Two spellings because the word is written both ways in store names
+         * and myshopify domains, and a domain cannot hold the space.
+         */
+        'american tourister' => ['samsonite', 'samsonite_accessories'],
+        'american-tourister' => ['samsonite', 'samsonite_accessories'],
+        'americantourister'  => ['samsonite', 'samsonite_accessories'],
     ];
 
     public const PRODUCT_NOUNS = [
