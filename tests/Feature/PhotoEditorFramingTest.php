@@ -483,7 +483,7 @@ class PhotoEditorFramingTest extends TestCase
             // five shots of one sandal, 19.80% to 20.00%, 31% to 70% of the frame tall
             'footwear'   => ['verticalAlignment' => 'bottom', 'paddingBottom' => '0.2'],
             // Samsonite's own 1600x2400 canvas; the case stands on 4.6%
-            'samsonite'  => ['verticalAlignment' => 'bottom', 'paddingBottom' => '0.046'],
+            'samsonite'  => ['verticalAlignment' => 'bottom', 'paddingBottom' => '0.04'],
             // two catalogue shots, both with the chain running off the top
             'watches_jewellery/necklaces' => [
                 'verticalAlignment' => 'top',

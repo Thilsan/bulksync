@@ -65,7 +65,16 @@ class PhotoEditorSamsoniteTest extends TestCase
 
         $this->assertSame(1600, $edits['canvas_width']);
         $this->assertSame(2400, $edits['canvas_height']);
-        $this->assertSame(0.046, $edits['padding_bottom']);
+        /*
+         * 4%, not the 4.6% the brand's own frame measures.
+         *
+         * A large case fills 95% of the height, and the two numbers have to
+         * fit on one canvas. 4.6 and 95 leave four tenths of a per cent above
+         * the tallest case, which reads as the case touching the top edge, so
+         * the line gives the tenths back. Every size stands on it — a base
+         * line that moved with the case would not be one.
+         */
+        $this->assertSame(0.04, $edits['padding_bottom']);
         $this->assertTrue($edits['baseline_only']);
 
         /*

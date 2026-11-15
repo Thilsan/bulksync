@@ -841,7 +841,7 @@ class EditPhotoItemJob implements ShouldQueue
                     $edited,
                     (int) $itemEdits['canvas_width'],
                     (int) $itemEdits['canvas_height'],
-                    (float) ($itemEdits['padding_bottom'] ?? 0.0),
+                    $this->baselineGap($itemEdits),
                     ($itemEdits['background_mode'] ?? 'white') === 'transparent'
                         ? 'transparent'
                         : (string) ($itemEdits['background_color'] ?? 'FFFFFF'),
@@ -1287,15 +1287,18 @@ class EditPhotoItemJob implements ShouldQueue
     }
 
     /*
-     * The two ends of the luggage scale on a baseline canvas, and the case
-     * heights they belong to. Named rather than written into the arithmetic
-     * so that moving the scale is one edit in one place: these four numbers
-     * are the whole rule.
+     * How tall each case stands on a baseline canvas, as a fraction of the
+     * height. Chosen by eye against gallery rows, not derived.
+     *
+     * A straight line through these would miss: 55 to 65 climbs four points
+     * and 65 to 80 climbs five over half again the distance. So the three are
+     * named and anything between them is interpolated from its neighbours.
      */
-    private const BASELINE_CM_CABIN   = 55.0;
-    private const BASELINE_CM_LARGE   = 80.0;
-    private const BASELINE_FILL_CABIN = 0.80;
-    private const BASELINE_FILL_LARGE = 0.92;
+    private const BASELINE_FILLS = [
+        55 => 0.88,
+        65 => 0.92,
+        80 => 0.95,
+    ];
 
     /**
      * How tall the case stands on a baseline canvas.
@@ -1360,6 +1363,31 @@ class EditPhotoItemJob implements ShouldQueue
      * side. Twelve points is a difference you can see in a gallery row without
      * the small cases floating in white.
      */
+    /**
+     * How far up from the bottom the wheels sit.
+     *
+     * The preset says 4.6%, measured off the brand's own frame, and that is
+     * what a case gets whenever there is room for it. A large asked to fill
+     * 97% of the height does not leave room: 97 and 4.6 want 101.6% of a
+     * canvas that has 100, and the case would be scaled down to fit — sized
+     * by the gap beneath it rather than by the size that was typed.
+     *
+     * So the gap yields instead of the case. It is the smaller promise of the
+     * two: the sizes are what a customer compares across a gallery row, and
+     * the base line only has to be consistent among cases that share one.
+     */
+    private function baselineGap(array $edits): float
+    {
+        $gap  = (float) ($edits['padding_bottom'] ?? 0.0);
+        $fill = $this->baselineCaseFill($edits);
+
+        if ($fill === null) {
+            return $gap;
+        }
+
+        return max(0.0, min($gap, 1.0 - $fill));
+    }
+
     private function baselineCaseFill(array $edits): ?float
     {
         $cm = $edits['case_height_cm'] ?? null;
@@ -1368,13 +1396,31 @@ class EditPhotoItemJob implements ShouldQueue
             return null;
         }
 
-        $fill = self::BASELINE_FILL_CABIN
-            + (((float) $cm - self::BASELINE_CM_CABIN) / (self::BASELINE_CM_LARGE - self::BASELINE_CM_CABIN))
-            * (self::BASELINE_FILL_LARGE - self::BASELINE_FILL_CABIN);
+        $cm     = (float) $cm;
+        $points = self::BASELINE_FILLS;
+        $sizes  = array_keys($points);
 
-        // A case typed well outside the three named sizes still has to fit on
-        // the canvas and still has to be visible.
-        return max(0.70, min(0.95, $fill));
+        // Outside the named sizes the nearest one is used rather than the line
+        // through them extended: a 120cm trunk carried on would want 112% of
+        // the canvas, and a 10cm vanity case would vanish.
+        if ($cm <= $sizes[0]) {
+            return $points[$sizes[0]];
+        }
+
+        if ($cm >= end($sizes)) {
+            return $points[end($sizes)];
+        }
+
+        for ($i = 0; $i < count($sizes) - 1; $i++) {
+            [$low, $high] = [$sizes[$i], $sizes[$i + 1]];
+
+            if ($cm <= $high) {
+                return $points[$low]
+                    + (($cm - $low) / ($high - $low)) * ($points[$high] - $points[$low]);
+            }
+        }
+
+        return $points[end($sizes)];
     }
 
     private function caseFill(array $edits): ?float

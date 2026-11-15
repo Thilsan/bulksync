@@ -722,7 +722,7 @@ class PhotoroomService
              * database carry, and what PRESETS_BY_STORE matches on.
              */
             'label' => 'Luggage',
-            'note'  => 'Samsonite and American Tourister, 1600 wide by 2400 tall, with the case standing on a line 4.6% up from the bottom. Pick the case size below and a cabin fills 80% of the height, a medium 85% and a large 92% — far enough apart to see in a gallery row, without a cabin floating in white. Nothing is resized: the supplier\'s files already have the case at the size the brand wants it, and the only thing this corrects is how high it sits. Measured off 156523_1830_hi-res_FRONT34_1, where the case fills 55% of the height with the space above it.',
+            'note'  => 'Samsonite and American Tourister, 1600 wide by 2400 tall, with every case standing on the same line, 4% up from the bottom. Pick the case size below and a cabin fills 88% of the height, a medium 92% and a large 95%. Nothing is stretched to reach it: the fit is to both edges, so a wide case reaches its height only if the frame has room for its width. Measured off 156523_1830_hi-res_FRONT34_1 for the canvas and the line; the three fills were chosen against gallery rows rather than measured.',
             'edits' => [
                 /*
                  * No width or height, deliberately.
@@ -773,7 +773,21 @@ class PhotoroomService
                  * supplier file is worth measuring before this is trusted
                  * across a catalogue.
                  */
-                'padding_bottom' => 0.046,
+                /*
+                 * The line every case stands on, 4% up from the bottom.
+                 *
+                 * The brand's own frame measured 4.6% and that is where this
+                 * started. A large fills 97% of the height, and 97 and 4.6
+                 * want 101.6% of a canvas that has 100 — so one of the two had
+                 * to move. The large settled at 95% and the line at 4%, which
+                 * leaves a per cent above the tallest case rather than running
+                 * it to the very edge.
+                 *
+                 * The same for every size, which is the whole point of a base
+                 * line: a cabin and a large photographed on different days
+                 * stand on the same ground in a gallery row.
+                 */
+                'padding_bottom' => 0.04,
                 'v_align'        => 'bottom',
             ],
         ],

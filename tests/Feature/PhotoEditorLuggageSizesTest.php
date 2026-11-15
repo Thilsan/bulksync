@@ -48,45 +48,57 @@ class PhotoEditorLuggageSizesTest extends TestCase
             [, $fills[$cm]] = $this->fit($this->preset() + ['case_height_cm' => $cm]);
         }
 
-        $this->assertEqualsWithDelta(0.80,  $fills[55], 0.001, 'a cabin fills 80% of the height');
-        $this->assertEqualsWithDelta(0.848, $fills[65], 0.001, 'a medium sits between the two');
-        $this->assertEqualsWithDelta(0.92,  $fills[80], 0.001, 'a large fills 92%');
+        $this->assertEqualsWithDelta(0.88, $fills[55], 0.001, 'a cabin fills 88% of the height');
+        $this->assertEqualsWithDelta(0.92, $fills[65], 0.001, 'a medium 92%');
+        $this->assertEqualsWithDelta(0.95, $fills[80], 0.001, 'a large 95%');
     }
 
     /**
-     * Far enough apart to see, close enough not to float.
+     * Every size stands on the same line.
      *
-     * Both ends of this were rejected by looking at them. The plain cm rule —
-     * 55% for a cabin, 80% for a large — is what Samsonite's own site does,
-     * and it leaves a cabin with 40% of the canvas empty above it. The brand
-     * reference files are the opposite: each fills its own frame at 89.1%,
-     * 92.9% and 94.2%, five points across the whole range, so a cabin and a
-     * large look the same size standing next to each other.
-     *
-     * Blue Salon's 2000 square still uses the plain rule. This is the
-     * baseline canvas only, which is why the change lives beside it and not
-     * in caseFill.
+     * That is the whole point of a base line: a cabin and a large
+     * photographed on different days stand on the same ground in a gallery
+     * row. The brand's own frame measured 4.6% and a large fills 97% of the
+     * height, which together want 101.6% of a canvas that has 100 — so the
+     * line moved to 4% and the large to 95%, which leaves a per cent above the
+     * tallest case rather than running it to the very edge.
      */
-    public function test_the_sizes_stay_visibly_apart_without_floating(): void
+    public function test_the_base_line_is_the_same_for_every_size(): void
     {
-        [, $cabin] = $this->fit($this->preset() + ['case_height_cm' => 55]);
-        [, $large] = $this->fit($this->preset() + ['case_height_cm' => 80]);
+        $job = new \App\Jobs\EditPhotoItemJob(1);
+        $gap = new \ReflectionMethod($job, 'baselineGap');
+        $gap->setAccessible(true);
 
-        $spread = $large - $cabin;
+        $edits = $this->preset();
 
-        $this->assertGreaterThan(0.051, $spread, 'wider than the reference files, which are indistinguishable');
-        $this->assertLessThan(0.25, $spread, 'narrower than the plain cm rule, which leaves cabins floating');
-        $this->assertGreaterThan(0.75, $cabin, 'and the smallest case still fills most of the frame');
+        foreach ([10, 55, 65, 80, 120] as $cm) {
+            $this->assertEqualsWithDelta(
+                0.04,
+                $gap->invoke($job, $edits + ['case_height_cm' => $cm]),
+                0.0001,
+                "a {$cm}cm case stands on the same line as every other",
+            );
+
+            // And nothing runs off the canvas reaching it.
+            [, $fill] = $this->fit($edits + ['case_height_cm' => $cm]);
+
+            $this->assertLessThanOrEqual(1.0, $fill + 0.04, "a {$cm}cm case fits on the canvas");
+        }
     }
 
-    /** A size well outside the three named ones still fits on the canvas. */
-    public function test_an_unusual_height_is_clamped_to_the_canvas(): void
+    /**
+     * Beyond the named sizes the nearest one is used, not the line extended.
+     *
+     * Carried on, a 120cm trunk would want 112% of the canvas and a 10cm
+     * vanity case would shrink away to nothing.
+     */
+    public function test_an_unusual_height_holds_at_the_nearest_named_size(): void
     {
         [, $tiny] = $this->fit($this->preset() + ['case_height_cm' => 10]);
         [, $huge] = $this->fit($this->preset() + ['case_height_cm' => 120]);
 
-        $this->assertSame(0.70, $tiny);
-        $this->assertSame(0.95, $huge);
+        $this->assertEqualsWithDelta(0.88, $tiny, 0.001);
+        $this->assertEqualsWithDelta(0.95, $huge, 0.001);
     }
 
     /** With no size typed, the supplier's own files pass through as before. */
