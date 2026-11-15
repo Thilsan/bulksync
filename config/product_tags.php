@@ -2021,6 +2021,67 @@ return [
                     'scat: Niche Home Fragrance',
                 ],
 
+                /*
+                | Korean niche lines. These carry "Korean Products" but none of
+                | the Niche fragrances / Niche Perfumery / scat: Niche
+                | Fragrances tags the other niche types do, so they are kept
+                | apart rather than pushing "Korean Products" onto every niche
+                | bottle. Who: For Her / For Him are kept here because the
+                | export uses them as the gender split on these rows. Left
+                | out: 200-back-voucher, EID2026, Curated, Rare to find, New
+                | Brand, Gift Box (campaign tags), Collection: Perfumes.
+                */
+                'Korean Niche Fragrances (Women)' => [
+                    'Beauty',
+                    'Beauty Niche Fragrances',
+                    'Beauty Niche fragrances Fragrance',
+                    'Korean Products',
+                    'Who: For Her',
+                    'Women',
+                    'Womens',
+                ],
+
+                'Korean Niche Fragrances (Men)' => [
+                    'Beauty',
+                    'Beauty Niche Fragrances',
+                    'Beauty Niche fragrances Fragrance',
+                    'Korean Products',
+                    'Men',
+                    'Mens',
+                    'Who: For Him',
+                ],
+
+                'Korean Niche Fragrances (Unisex)' => [
+                    'Beauty',
+                    'Beauty Niche Fragrances',
+                    'Beauty Niche fragrances Fragrance',
+                    'Korean Products',
+                    'Men',
+                    'Mens',
+                    'Unisex',
+                    'Who: For Her',
+                    'Who: For Him',
+                    'Women',
+                    'Womens',
+                ],
+
+                'Korean Niche Gift Sets' => [
+                    'Beauty',
+                    'Beauty Niche Fragrances',
+                    'Beauty Niche fragrances Fragrance',
+                    'Beauty Niche fragrances Gift Set',
+                    'Gift Set',
+                    'Korean Products',
+                    'scat: Gift Set',
+                ],
+
+                'Korean Home Fragrance' => [
+                    'Beauty',
+                    'Beauty Niche fragrances Home Fragrance',
+                    'Korean Products',
+                    'scat: Niche Home Fragrance',
+                ],
+
             ],
         ],
 
@@ -2254,6 +2315,91 @@ return [
                     'Hair Care',
                     'Haircare',
                     'scat: Haircare',
+                    'Selfcare',
+                ],
+
+                /*
+                | K-Beauty. The Korean export carries "Korean Products" and
+                | "scat: K-Beauty" on every skin-care row, but pre-checking
+                | them on the plain Face Serums / Face Cream / Face Cleansers
+                | types would push them onto every non-Korean serum too, so
+                | the Korean lines get their own types. Left out, as above:
+                | 200-back-voucher, EID2026, Summer 2026, PROMOCEGID, New
+                | Brand, Gift Box, Collection: Make Up; "Beauty" is the base.
+                */
+                'K-Beauty Face Masks' => [
+                    'Beauty Selfcare',
+                    'Beauty Selfcare Skincare',
+                    'Face Mask',
+                    'Korean Products',
+                    'scat: Face Mask',
+                    'scat: K-Beauty',
+                    'scat: Skincare',
+                    'Selfcare',
+                ],
+
+                'K-Beauty Face Serums' => [
+                    'Beauty Selfcare',
+                    'Beauty Selfcare Skincare',
+                    'Korean Products',
+                    'scat: K-Beauty',
+                    'scat: Skincare',
+                    'Selfcare',
+                    'Serum',
+                    'Serum and Facial Treatment',
+                    'Serums',
+                ],
+
+                'K-Beauty Face Cream' => [
+                    'Beauty Selfcare',
+                    'Beauty Selfcare Skincare',
+                    'Creams & Treatments',
+                    'Face Cream',
+                    'Korean Products',
+                    'Moisturizing Cream',
+                    'scat: K-Beauty',
+                    'scat: Skincare',
+                    'Selfcare',
+                ],
+
+                'K-Beauty Face Cleansers' => [
+                    'Beauty Selfcare',
+                    'Beauty Selfcare Skincare',
+                    'Cleanser',
+                    'Facial Cleanser',
+                    'Korean Products',
+                    'scat: K-Beauty',
+                    'scat: Skincare',
+                    'Selfcare',
+                ],
+
+                'K-Beauty Toners' => [
+                    'Beauty Selfcare',
+                    'Beauty Selfcare Skincare',
+                    'Korean Products',
+                    'scat: K-Beauty',
+                    'scat: Skincare',
+                    'Selfcare',
+                    'Toner',
+                ],
+
+                'K-Beauty Sunscreen' => [
+                    'Beauty Selfcare',
+                    'Beauty Selfcare Skincare',
+                    'Korean Products',
+                    'scat: K-Beauty',
+                    'scat: Skincare',
+                    'Selfcare',
+                    'Sun Protection',
+                    'Sunscreen',
+                ],
+
+                'K-Beauty Skin Care Tools' => [
+                    'Beauty Selfcare',
+                    'Beauty Selfcare Skincare',
+                    'Korean Products',
+                    'scat: K-Beauty',
+                    'scat: Skincare',
                     'Selfcare',
                 ],
 
