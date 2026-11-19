@@ -6,10 +6,14 @@ use App\Exceptions\ShopifyRequestException;
 use App\Models\Store;
 use GuzzleHttp\Client;
 use GuzzleHttp\Exception\ClientException;
+use GuzzleHttp\HandlerStack;
+use GuzzleHttp\Middleware;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Psr\Http\Message\RequestInterface;
+use Psr\Http\Message\ResponseInterface;
 
 class ShopifyService
 {
@@ -39,7 +43,11 @@ class ShopifyService
         $this->shop  = rtrim($target?->shopify_domain ?? config('services.shopify.domain', ''), '/');
         $this->token = $target?->shopify_access_token ?? config('services.shopify.access_token', '');
 
+        $stack = HandlerStack::create();
+        $stack->push(self::retryWhenThrottled(), 'shopify_throttle_retry');
+
         $this->http = new Client([
+            'handler'  => $stack,
             'timeout'  => 30,
             'base_uri' => "https://{$this->shop}/",
             'headers'  => [
@@ -2864,6 +2872,38 @@ class ShopifyService
         }
 
         throw new \RuntimeException("Shopify GraphQL error in {$context}: {$detail}");
+    }
+
+    /**
+     * Waits and tries again when Shopify answers 429 Too Many Requests.
+     *
+     * throttle() only knows about this worker's own calls, but the store's
+     * allowance is shared with every other worker and person using the app, so
+     * a 429 still arrives now and then. It used to be final: a 499-SKU AI
+     * content push lost 75 products to it, each one a single refused call in
+     * the middle of an otherwise healthy run. Shopify says how long to wait in
+     * Retry-After; the backoff covers a response that leaves it out.
+     */
+    public static function retryWhenThrottled(int $maxRetries = 5): callable
+    {
+        return Middleware::retry(
+            function (int $retries, RequestInterface $request, ?ResponseInterface $response = null) use ($maxRetries): bool {
+                if ($retries >= $maxRetries || $response?->getStatusCode() !== 429) {
+                    return false;
+                }
+
+                // Empty the local bucket so the calls after this one slow down too.
+                self::$callBucket = 0.0;
+                Log::warning('Shopify 429 — retrying', ['url' => (string) $request->getUri(), 'attempt' => $retries + 1]);
+
+                return true;
+            },
+            function (int $retries, ?ResponseInterface $response = null): int {
+                $retryAfter = (float) ($response?->getHeaderLine('Retry-After') ?: 0);
+
+                return (int) (max($retryAfter, 2 ** ($retries - 1)) * 1000);
+            },
+        );
     }
 
     private function throttle(): void
