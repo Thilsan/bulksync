@@ -5,7 +5,7 @@
 
 @section('content')
 <div class="space-y-5"
-     x-data="aiContentShow({{ $aiContentSession->id }}, '{{ $aiContentSession->status }}', {{ Js::from($tagTaxonomy) }})"
+     x-data="aiContentShow({{ $aiContentSession->id }}, '{{ $aiContentSession->status }}', {{ Js::from($tagTaxonomy) }}, {{ Js::from(['progress' => $aiContentSession->progressPercent(), 'total' => $aiContentSession->total_items, 'processed' => $aiContentSession->processed_items]) }})"
      x-init="init()">
 
     {{-- Header --}}
@@ -31,18 +31,31 @@
         </div>
     </div>
 
+    {{-- Sending the reviewed content, before the job has started. Large
+         sessions take a few seconds to save, and without this the page looks
+         like the click did nothing. --}}
+    <div x-show="submitting" x-cloak
+         class="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/40">
+        <div class="bg-white rounded-xl shadow-lg px-8 py-6 text-center max-w-sm mx-4">
+            <div class="w-10 h-10 rounded-full border-4 border-brand-200 border-t-brand-600 animate-spin mx-auto mb-3"></div>
+            <p class="text-gray-700 font-medium" x-text="submittingLabel"></p>
+            <p class="text-sm text-gray-400 mt-1">Saving your edits — please keep this page open.</p>
+        </div>
+    </div>
+
     {{-- Processing indicator --}}
-    <div x-show="status === 'pending' || status === 'processing' || status === 'translating'" x-cloak
+    <div x-show="status === 'pending' || status === 'processing' || status === 'translating' || status === 'pushing'" x-cloak
          class="bg-white rounded-xl border border-gray-200 shadow-sm p-8 text-center">
         <div class="w-12 h-12 rounded-full border-4 border-brand-200 border-t-brand-600 animate-spin mx-auto mb-4"></div>
         <p class="text-gray-700 font-medium mb-1"
-           x-text="status === 'translating' ? 'Translating to Arabic…' : 'Generating AI content…'"></p>
+           x-text="status === 'pushing' ? 'Pushing to Shopify…' : (status === 'translating' ? 'Translating to Arabic…' : 'Generating AI content…')"></p>
         <p class="text-sm text-gray-400 mb-4"
-           x-text="status === 'translating' ? 'Translating descriptions, meta content and alt text with Fanar AI. This may take a few minutes.' : 'Analyzing product images and generating descriptions. This may take a few minutes.'"></p>
+           x-text="status === 'pushing' ? 'Updating descriptions, SEO fields, tags and alt text in Shopify. Large sessions take a while — you can leave this page.' : (status === 'translating' ? 'Translating descriptions, meta content and alt text with Fanar AI. This may take a few minutes.' : 'Analyzing product images and generating descriptions. This may take a few minutes.')"></p>
 
         <div class="max-w-xs mx-auto">
+            <p class="text-3xl font-semibold text-brand-600 mb-2" x-text="progress + '%'"></p>
             <div class="flex justify-between text-xs text-gray-500 mb-1">
-                <span>Progress</span>
+                <span x-text="status === 'pushing' ? 'Products pushed' : 'Progress'"></span>
                 <span x-text="processedItems + ' / ' + totalItems"></span>
             </div>
             <div class="h-2 bg-gray-100 rounded-full overflow-hidden">
@@ -72,23 +85,28 @@
 
     {{-- Ready — Items table --}}
     <div x-show="status === 'ready' || status === 'done'" x-cloak>
-        <form method="POST" action="{{ route('ai-content.push', $aiContentSession) }}" id="pushForm">
+        <form method="POST" action="{{ route('ai-content.push', $aiContentSession) }}" id="pushForm"
+              @submit.prevent="submit($event)">
             @csrf
 
             <div class="bg-white rounded-xl border border-gray-200 shadow-sm">
-                <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+                {{-- Sticky so Select All and the push buttons stay in reach while
+                     scrolling a few hundred items. Sticks to the top of <main>,
+                     which is the page's scroll container. --}}
+                <div class="sticky top-0 z-30 bg-white rounded-t-xl shadow-sm px-6 py-4 border-b border-gray-100 flex items-center justify-between gap-4">
                     <div>
                         <h2 class="text-base font-semibold text-gray-800">Review Generated Content</h2>
                         <p class="text-sm text-gray-500 mt-0.5">Edit content if needed, check the items you want to push, then click Push to Shopify.</p>
                     </div>
-                    <div class="flex items-center gap-3">
-                        <label class="flex items-center gap-2 text-sm text-gray-600 cursor-pointer select-none">
+                    <div class="flex shrink-0 items-center gap-3">
+                        <label class="flex items-center gap-2 text-sm text-gray-600 cursor-pointer select-none whitespace-nowrap">
                             <input type="checkbox" @change="toggleAll($event)"
                                 class="w-4 h-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500">
                             Select All
                         </label>
                         <button type="submit" formaction="{{ route('ai-content.translate', $aiContentSession) }}"
-                            class="inline-flex items-center gap-2 bg-white border border-brand-600 text-brand-700 hover:bg-brand-50 text-sm font-medium px-5 py-2 rounded-lg transition-colors">
+                            :disabled="submitting"
+                            class="inline-flex items-center gap-2 whitespace-nowrap bg-white border border-brand-600 text-brand-700 hover:bg-brand-50 text-sm font-medium px-5 py-2 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                     d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129"/>
@@ -96,7 +114,8 @@
                             Generate Arabic
                         </button>
                         <button type="submit"
-                            class="inline-flex items-center gap-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-5 py-2 rounded-lg transition-colors">
+                            :disabled="submitting"
+                            class="inline-flex items-center gap-2 whitespace-nowrap bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-5 py-2 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                     d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
@@ -437,7 +456,8 @@
                 {{-- Bottom action bar --}}
                 <div class="px-6 py-4 bg-gray-50 border-t border-gray-100 flex justify-end">
                     <button type="submit"
-                        class="inline-flex items-center gap-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-5 py-2 rounded-lg transition-colors">
+                        :disabled="submitting"
+                            class="inline-flex items-center gap-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-5 py-2 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                 d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
@@ -490,21 +510,23 @@ function searchSelect(getOptions, getValue, setValue, placeholder, isDisabled) {
     };
 }
 
-function aiContentShow(sessionId, initialStatus, tagTaxonomy) {
+function aiContentShow(sessionId, initialStatus, tagTaxonomy, initialProgress = {}) {
     return {
         sessionId,
         status: initialStatus,
         tagTaxonomy: tagTaxonomy || {},
-        progress: 0,
-        totalItems: 0,
-        processedItems: 0,
+        progress: initialProgress.progress || 0,
+        totalItems: initialProgress.total || 0,
+        processedItems: initialProgress.processed || 0,
         items: [],
         pollTimer: null,
         polling: false,
         itemsLoaded: false,
+        submitting: false,
+        submittingLabel: '',
 
         init() {
-            if (this.status === 'pending' || this.status === 'processing' || this.status === 'translating') {
+            if (this.status === 'pending' || this.status === 'processing' || this.status === 'translating' || this.status === 'pushing') {
                 this.poll();
             } else if (this.status === 'ready' || this.status === 'done') {
                 this.loadItems();
@@ -557,6 +579,64 @@ function aiContentShow(sessionId, initialStatus, tagTaxonomy) {
                 tag_type: '',
                 selected_tags: [],
             }));
+        },
+
+        // Sent as JSON from the page's own state rather than as a form post: a
+        // field per edit, alt text and tag runs a big session past PHP's
+        // max_input_vars, and PHP drops everything after the limit without a
+        // word — which is how half a 500-SKU push went missing.
+        async submit(event) {
+            if (this.submitting) return;
+
+            const form   = event.target;
+            const action = event.submitter?.formAction || form.action;
+            const count  = this.items.filter(i => i.confirmed && (i.status === 'done' || i.status === 'pushed')).length;
+
+            this.submittingLabel = action === form.action
+                ? `Sending ${count} product(s) to Shopify…`
+                : 'Starting Arabic translation…';
+            this.submitting = true;
+
+            const ids    = (map) => Object.fromEntries(this.items.map(i => [i.id, map(i)]));
+            const images = (field) => Object.fromEntries(
+                this.items.flatMap(i => (i.images || []).map(img => [img.id, img[field]]))
+            );
+
+            const payload = {
+                confirmed: this.items
+                    .filter(i => i.confirmed && (i.status === 'done' || i.status === 'pushed'))
+                    .map(i => i.id),
+                title:               ids(i => i.ai_title),
+                description:         ids(i => i.ai_description),
+                description_ar:      ids(i => i.ai_description_ar),
+                meta_title:          ids(i => i.ai_meta_title),
+                meta_title_ar:       ids(i => i.ai_meta_title_ar),
+                meta_description:    ids(i => i.ai_meta_description),
+                meta_description_ar: ids(i => i.ai_meta_description_ar),
+                overwrite_title:     ids(i => !!i.overwrite_title),
+                selected_tags:       ids(i => i.selected_tags),
+                image_alt:           images('ai_alt_text'),
+                image_alt_ar:        images('ai_alt_text_ar'),
+            };
+
+            try {
+                const res = await fetch(action, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                    },
+                    body: JSON.stringify(payload),
+                });
+
+                if (!res.ok) throw new Error(`Server responded ${res.status}`);
+
+                window.location.reload();
+            } catch (e) {
+                this.submitting = false;
+                alert('Could not send to the server: ' + e.message);
+            }
         },
 
         toggleAll(event) {

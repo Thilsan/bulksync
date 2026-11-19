@@ -3,15 +3,13 @@
 namespace App\Http\Controllers;
 
 use App\Jobs\GenerateAiContentJob;
+use App\Jobs\PushAiContentJob;
 use App\Jobs\TranslateAiContentJob;
 use App\Models\AiContentItem;
 use App\Models\AiContentSession;
-use App\Models\SeoContentPush;
 use App\Models\Store;
-use App\Services\ShopifyService;
 use App\Support\ProductTagTaxonomy;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Log;
 use App\Support\Queues;
 
 class AiContentController extends Controller
@@ -196,7 +194,7 @@ class AiContentController extends Controller
         abort_if($aiContentSession->user_id !== auth()->id(), 403);
 
         if ($aiContentSession->status === 'translating') {
-            return back()->with('warning', 'Translation is already in progress.');
+            return $this->respond($request, 'warning', 'Translation is already in progress.');
         }
 
         // Save any English edits from the review form first, so Arabic is
@@ -220,6 +218,10 @@ class AiContentController extends Controller
         $aiContentSession->update(['status' => 'translating']);
         TranslateAiContentJob::dispatch($aiContentSession->id)->onQueue(Queues::AI);
 
+        if ($request->expectsJson()) {
+            return $this->respond($request, 'success', 'Arabic translation started.');
+        }
+
         return redirect()->route('ai-content.show', $aiContentSession)
             ->with('success', 'Arabic translation started.');
     }
@@ -228,15 +230,18 @@ class AiContentController extends Controller
     {
         abort_if($aiContentSession->user_id !== auth()->id(), 403);
 
-        $store = Store::find($aiContentSession->store_id);
-        if (!$store) {
-            return back()->with('warning', 'No store associated with this session.');
+        if (!Store::find($aiContentSession->store_id)) {
+            return $this->respond($request, 'warning', 'No store associated with this session.');
         }
 
-        $shopify           = new ShopifyService($store);
-        $confirmed         = $request->input('confirmed', []);
-        $pushed            = 0;
-        $failed            = 0;
+        if ($aiContentSession->status === 'pushing') {
+            return $this->respond($request, 'warning', 'A push is already in progress.');
+        }
+
+        $confirmed         = array_map('intval', (array) $request->input('confirmed', []));
+        $itemIds           = [];
+        $overwriteTitleIds = [];
+        $selectedTags      = [];
 
         foreach ($confirmed as $itemId) {
             $item = AiContentItem::where('id', $itemId)
@@ -258,75 +263,59 @@ class AiContentController extends Controller
                 'is_confirmed'           => true,
             ]);
 
-            try {
-                $overwriteTitle = $request->boolean("overwrite_title.{$itemId}");
-
-                $shopify->updateProductContent(
-                    $item->shopify_product_id,
-                    $item->ai_description,
-                    $item->ai_meta_title,
-                    $item->ai_meta_description,
-                    $overwriteTitle ? ($item->ai_title ?? '') : '',
-                );
-
-                // Additive only — checked suggestions get added, nothing existing is ever removed or replaced
-                $selectedTags = array_values(array_filter((array) $request->input("selected_tags.{$itemId}", [])));
-                if (!empty($selectedTags)) {
-                    $shopify->addProductTags($item->shopify_product_id, $selectedTags);
-                }
-
-                foreach ($item->images as $image) {
-                    $altText   = $request->input("image_alt.{$image->id}", $image->ai_alt_text);
-                    $altTextAr = $request->input("image_alt_ar.{$image->id}", $image->ai_alt_text_ar);
-                    $image->update(['ai_alt_text' => $altText, 'ai_alt_text_ar' => $altTextAr]);
-
-                    if ($image->shopify_image_id && $altText) {
-                        try {
-                            $shopify->updateImageAlt($item->shopify_product_id, $image->shopify_image_id, $altText);
-                            $image->update(['status' => 'pushed']);
-                        } catch (\Throwable $e) {
-                            Log::error('AiContent image alt push failed', ['image' => $image->id, 'error' => $e->getMessage()]);
-                            $image->update(['status' => 'failed', 'error_message' => 'Push failed: ' . $e->getMessage()]);
-                        }
-                    }
-                }
-
-                // The record the impact report is later built from. Written
-                // only after Shopify accepted the content, so a failed push
-                // never becomes a data point — and with no extra API call, the
-                // handle being resolved in bulk when the measurement runs.
-                SeoContentPush::create([
-                    'user_id'          => auth()->id(),
-                    'store_id'         => $store?->id,
-                    'product_id'       => (string) $item->shopify_product_id,
-                    'product_title'    => $item->product_title,
-                    'meta_title'       => $item->ai_meta_title,
-                    'meta_description' => $item->ai_meta_description,
-                    'pushed_at'        => now(),
+            foreach ($item->images as $image) {
+                $image->update([
+                    'ai_alt_text'    => $request->input("image_alt.{$image->id}", $image->ai_alt_text),
+                    'ai_alt_text_ar' => $request->input("image_alt_ar.{$image->id}", $image->ai_alt_text_ar),
                 ]);
+            }
 
-                $item->update(['status' => 'pushed']);
-                $pushed++;
-            } catch (\Throwable $e) {
-                Log::error('AiContent push failed', ['item' => $item->id, 'error' => $e->getMessage()]);
-                $item->update(['error_message' => 'Push failed: ' . $e->getMessage()]);
-                $failed++;
+            $itemIds[] = $item->id;
+
+            if ($request->boolean("overwrite_title.{$itemId}")) {
+                $overwriteTitleIds[] = $item->id;
+            }
+
+            $tags = array_values(array_filter((array) $request->input("selected_tags.{$itemId}", [])));
+            if (!empty($tags)) {
+                $selectedTags[$item->id] = $tags;
             }
         }
 
-        if ($pushed > 0) {
-            $aiContentSession->update(['status' => 'done']);
-
-            // The copy is live, which is what the request's content stage was
-            // waiting for — move it on without anyone pressing a button.
-            \App\Models\ProductRequest::where('ai_content_session_id', $aiContentSession->id)->get()
-                ->each(fn ($r) => app(\App\Services\ProductRequestWorkflow::class)->autoAdvance($r, auth()->user()));
+        if (empty($itemIds)) {
+            return $this->respond($request, 'warning', 'No items selected to push.');
         }
 
-        $message = "{$pushed} product(s) updated in Shopify.";
-        if ($failed > 0) $message .= " {$failed} failed — check items below.";
+        // Shopify allows two calls a second and each product takes several, so
+        // a large session runs far longer than a web request is allowed to —
+        // the queue does the pushing and the page follows its progress.
+        $aiContentSession->update([
+            'status'          => 'pushing',
+            'total_items'     => count($itemIds),
+            'processed_items' => 0,
+        ]);
 
-        return back()->with('success', $message);
+        PushAiContentJob::dispatch($aiContentSession->id, auth()->id(), $itemIds, $overwriteTitleIds, $selectedTags)
+            ->onQueue(Queues::AI);
+
+        return $this->respond($request, 'success', count($itemIds) . ' product(s) are being pushed to Shopify.');
+    }
+
+    /**
+     * The review page posts JSON, because a form field per edit runs past PHP's
+     * max_input_vars on a large session and everything after the limit is
+     * silently dropped. It reloads itself afterwards, so the message is flashed
+     * for that next page view rather than returned.
+     */
+    private function respond(Request $request, string $level, string $message)
+    {
+        if ($request->expectsJson()) {
+            session()->flash($level, $message);
+
+            return response()->json(['message' => $message]);
+        }
+
+        return back()->with($level, $message);
     }
 
     public function destroy(AiContentSession $aiContentSession)
