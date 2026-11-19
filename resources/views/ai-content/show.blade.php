@@ -699,12 +699,13 @@ function aiContentShow(sessionId, initialStatus, tagTaxonomy, initialProgress = 
         async submit(event) {
             if (this.submitting) return;
 
-            // Path only, like the status and items calls that already work. A
-            // full URL carries a scheme and host, and when either differs from
-            // the page's the server redirects — and a redirected POST arrives
-            // as a GET, which these routes refuse with a 405.
+            // The attributes, not the formAction/action properties: a button
+            // with no formaction of its own reports the page's URL as its
+            // formAction, which sent Push to /ai-content/{id} — a GET-only
+            // route — and came back 405. Path only, like the status calls.
             const form      = event.target;
-            const path      = new URL(event.submitter?.formAction || form.action, window.location.href).pathname;
+            const target    = event.submitter?.getAttribute('formaction') || form.getAttribute('action');
+            const path      = new URL(target, window.location.href).pathname;
             const translate = path.endsWith('/translate');
             const count     = this.items.filter(i => i.confirmed && (i.status === 'done' || i.status === 'pushed')).length;
 
