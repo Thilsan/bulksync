@@ -1262,6 +1262,36 @@ class EditPhotoItemJob implements ShouldQueue
              */
             $prompt = trim((string) ($edits['apparel_prompt'] ?? ''));
 
+            /*
+             * Say whose body the garment is cut for.
+             *
+             * The redraw invents the body inside the garment, and until this
+             * nothing told it whose. A women's shirt came back on a man's
+             * build — square shoulders, straight sleeves, no waist — and both
+             * views were refused by the verifier for it.
+             *
+             * Taken from the category the operator already picked rather than
+             * asked for again, and skipped entirely once the field already
+             * names a fit, so a chip or a typed wording wins over the guess.
+             */
+            $fit = PhotoroomService::ghostMannequinFit($edits['framing_preset'] ?? null);
+
+            if ($fit !== null) {
+                $fitNamed = false;
+
+                foreach (PhotoroomService::GHOST_MANNEQUIN_FITS as $clause) {
+                    if (str_contains($prompt, $clause)) {
+                        $fitNamed = true;
+                        break;
+                    }
+                }
+
+                if (!$fitNamed) {
+                    $prompt = trim(rtrim($prompt, ". \t\n") . '. ' . $fit);
+                    $prompt = ltrim($prompt, '. ');
+                }
+            }
+
             if ($isBackView) {
                 $prompt = trim($prompt . ' This is the back of the garment. Keep the back view — '
                     . 'do not turn it round or show the front.');

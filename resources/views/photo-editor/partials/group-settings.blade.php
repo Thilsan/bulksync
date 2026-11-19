@@ -184,6 +184,11 @@
                 here, and add a line only if you see one specific thing drift — the redraw is generative, so
                 different garments answer the same words differently. Long lists of prohibitions do not work here;
                 this field tells the model what to make, not what to avoid. Clear it to send no hint at all.
+                <br>
+                The fit is added for you from the category — a <em>women/</em> category tells the redraw to draw a
+                woman's figure, <em>men/</em> a man's. The redraw invents the body inside the garment, and without
+                this it draws the average of everything it has seen, which is how a women's shirt comes back with
+                a man's shoulders. Click a fit chip below to say something different and yours is used instead.
             </p>
 
             {{-- Two wordings to start from, and clauses to add to them.
@@ -225,6 +230,9 @@
                     'Straight fit' => \App\Services\PhotoroomService::GHOST_MANNEQUIN_HINT_STRAIGHT,
                     'Keep colour'  => \App\Services\PhotoroomService::GHOST_MANNEQUIN_HINT_COLOUR,
                     'Keep fabric'  => \App\Services\PhotoroomService::GHOST_MANNEQUIN_HINT_FABRIC,
+                    "Women's fit" => \App\Services\PhotoroomService::GHOST_MANNEQUIN_FIT_WOMENS,
+                    "Men's fit"   => \App\Services\PhotoroomService::GHOST_MANNEQUIN_FIT_MENS,
+                    "Child's fit" => \App\Services\PhotoroomService::GHOST_MANNEQUIN_FIT_KIDS,
                 ] as $label => $clause)
                     <button type="button" title="{{ $clause }}" @click="toggle(@js($clause))"
                             :class="has(@js($clause))

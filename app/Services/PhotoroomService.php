@@ -1291,6 +1291,61 @@ class PhotoroomService
         . 'with natural volume: the chest filled out, the shoulders with width, the sleeves holding '
         . 'their shape and the collar standing open. Keep the exact colour, fabric, print and markings';
 
+    /*
+     * Whose body the redraw is filling.
+     *
+     * A women's printed shirt came back with a man's build — wide square
+     * shoulders, straight heavy sleeves, the waist gone. The redraw invents
+     * the body inside the garment, and nothing in the prompt had ever said
+     * whose body it is, so it drew the average of everything it has seen.
+     * Both views of that SKU were refused by the verifier for exactly this,
+     * at 15.8% and 30.6% against a 7% limit, and kept only because the
+     * operator had ticked the accept-recut override.
+     *
+     * We already know the answer without asking: the category the operator
+     * picked is "women/top" or "men/shirts", and the first segment of that
+     * key is the fit. So this is appended from the category rather than
+     * being one more chip to remember — the same way the back-view sentence
+     * is appended from a fact about the photograph.
+     *
+     * A chip for each still exists, and a wording the operator typed wins:
+     * nothing is appended once any of these three is already in the field,
+     * so a menswear-cut women's shirt can be told so by hand.
+     */
+    public const GHOST_MANNEQUIN_FIT_WOMENS = 'This is a woman\'s garment, cut for a woman\'s '
+        . 'figure: narrower shoulders, a narrower chest and slimmer sleeves, with the waist shaped. '
+        . 'Do not broaden it into a man\'s build';
+
+    public const GHOST_MANNEQUIN_FIT_MENS = 'This is a man\'s garment, cut for a man\'s build: '
+        . 'wider shoulders and a straighter, broader chest';
+
+    public const GHOST_MANNEQUIN_FIT_KIDS = 'This is a child\'s garment, cut for a child\'s '
+        . 'build: small, with narrow shoulders and a short body. Do not draw it on an adult';
+
+    /** Each fit clause by the first segment of a category key. */
+    public const GHOST_MANNEQUIN_FITS = [
+        'women' => self::GHOST_MANNEQUIN_FIT_WOMENS,
+        'men'   => self::GHOST_MANNEQUIN_FIT_MENS,
+        'kids'  => self::GHOST_MANNEQUIN_FIT_KIDS,
+    ];
+
+    /**
+     * The fit clause a category implies, or null where it implies none.
+     *
+     * Footwear, luggage, watches and the rest have no body to cut for, and
+     * they return null rather than a sentence about nobody.
+     */
+    public static function ghostMannequinFit(?string $key): ?string
+    {
+        if (blank($key)) {
+            return null;
+        }
+
+        $gender = strtok((string) $key, '/');
+
+        return self::GHOST_MANNEQUIN_FITS[$gender] ?? null;
+    }
+
     public const GHOST_MANNEQUIN_HINT_FINE = 'Remove the mannequin completely, including visible legs, '
         . 'while keeping the exact garment shape, orientation, lace, sleeves, hem, fabric details, '
         . 'and proportions unchanged';
