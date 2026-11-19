@@ -5,7 +5,7 @@
 
 @section('content')
 <div class="space-y-5"
-     x-data="aiContentShow({{ $aiContentSession->id }}, '{{ $aiContentSession->status }}', {{ Js::from($tagTaxonomy) }}, {{ Js::from(['progress' => $aiContentSession->progressPercent(), 'total' => $aiContentSession->total_items, 'processed' => $aiContentSession->processed_items]) }})"
+     x-data="aiContentShow({{ $aiContentSession->id }}, '{{ $aiContentSession->status }}', {{ Js::from($tagTaxonomy) }}, {{ Js::from(['progress' => $aiContentSession->progressPercent(), 'total' => $aiContentSession->total_items, 'processed' => $aiContentSession->processed_items, 'recheck' => $aiContentSession->seo_recheck]) }}, {{ Js::from(collect(\App\Models\SeoAuditItem::ISSUES)->map(fn ($issue) => $issue['label'])) }})"
      x-init="init()">
 
     {{-- Header --}}
@@ -44,18 +44,22 @@
     </div>
 
     {{-- Processing indicator --}}
-    <div x-show="status === 'pending' || status === 'processing' || status === 'translating' || status === 'pushing'" x-cloak
+    <div x-show="['pending', 'processing', 'translating', 'pushing', 'rechecking'].includes(status)" x-cloak
          class="bg-white rounded-xl border border-gray-200 shadow-sm p-8 text-center">
         <div class="w-12 h-12 rounded-full border-4 border-brand-200 border-t-brand-600 animate-spin mx-auto mb-4"></div>
         <p class="text-gray-700 font-medium mb-1"
-           x-text="status === 'pushing' ? 'Pushing to Shopify…' : (status === 'translating' ? 'Translating to Arabic…' : 'Generating AI content…')"></p>
+           x-text="({ pushing: 'Pushing to Shopify…', rechecking: 'Checking SEO in Shopify…', translating: 'Translating to Arabic…' })[status] || 'Generating AI content…'"></p>
         <p class="text-sm text-gray-400 mb-4"
-           x-text="status === 'pushing' ? 'Updating descriptions, SEO fields, tags and alt text in Shopify. Large sessions take a while — you can leave this page.' : (status === 'translating' ? 'Translating descriptions, meta content and alt text with Fanar AI. This may take a few minutes.' : 'Analyzing product images and generating descriptions. This may take a few minutes.')"></p>
+           x-text="({
+               pushing: 'Updating descriptions, SEO fields, tags and alt text in Shopify. Large sessions take a while — you can leave this page.',
+               rechecking: 'Reading the pushed products back from Shopify and grading them with the SEO audit\'s rules.',
+               translating: 'Translating descriptions, meta content and alt text with Fanar AI. This may take a few minutes.',
+           })[status] || 'Analyzing product images and generating descriptions. This may take a few minutes.'"></p>
 
         <div class="max-w-xs mx-auto">
             <p class="text-3xl font-semibold text-brand-600 mb-2" x-text="progress + '%'"></p>
             <div class="flex justify-between text-xs text-gray-500 mb-1">
-                <span x-text="status === 'pushing' ? 'Products pushed' : 'Progress'"></span>
+                <span x-text="({ pushing: 'Products pushed', rechecking: 'Products checked' })[status] || 'Progress'"></span>
                 <span x-text="processedItems + ' / ' + totalItems"></span>
             </div>
             <div class="h-2 bg-gray-100 rounded-full overflow-hidden">
@@ -82,6 +86,99 @@
             <p class="text-xs text-amber-600 mt-2">The items below generated successfully and can still be pushed.</p>
         </div>
     @endif
+
+    {{-- What the push actually changed, read back from Shopify and graded by
+         the SEO audit's own rules. --}}
+    <template x-if="recheck && status === 'done'">
+        <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-5 mb-4">
+            <template x-if="recheck.error">
+                <div class="bg-amber-50 border border-amber-200 rounded-lg p-4">
+                    <p class="text-amber-800 font-medium text-sm">The SEO re-check could not run</p>
+                    <p class="text-sm text-amber-700 mt-1" x-text="recheck.error"></p>
+                    <p class="text-xs text-amber-600 mt-2">The push itself went through — only the check after it failed.</p>
+                </div>
+            </template>
+
+            <template x-if="!recheck.error">
+                <div>
+                    <div class="flex items-start justify-between gap-4 flex-wrap mb-4">
+                        <div>
+                            <h2 class="text-base font-semibold text-gray-800">SEO re-check after push</h2>
+                            <p class="text-sm text-gray-500 mt-0.5">
+                                <span x-text="recheck.checked"></span> product(s) read back from Shopify and graded by the SEO audit's rules
+                                <span x-show="recheck.checked_at" x-text="'· ' + new Date(recheck.checked_at).toLocaleString()"></span>
+                            </p>
+                        </div>
+                        <template x-if="recheck.audit_id">
+                            <a :href="`/seo-audit/${recheck.audit_id}`" class="text-sm font-medium text-brand-600 hover:text-brand-700 whitespace-nowrap">Open the updated audit →</a>
+                        </template>
+                    </div>
+
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                        <div class="rounded-lg bg-gray-50 p-3">
+                            <p class="text-xs text-gray-500">Average SEO score</p>
+                            <p class="text-xl font-semibold text-gray-800">
+                                <span x-show="recheck.score_before !== null"><span x-text="recheck.score_before"></span> → </span><span class="text-brand-600" x-text="recheck.score_after ?? '—'"></span>
+                            </p>
+                        </div>
+                        <div class="rounded-lg bg-gray-50 p-3">
+                            <p class="text-xs text-gray-500">No issues left</p>
+                            <p class="text-xl font-semibold text-gray-800">
+                                <span x-show="recheck.score_before !== null"><span x-text="recheck.clean_before"></span> → </span><span class="text-emerald-600" x-text="recheck.clean_after"></span>
+                                <span class="text-sm font-normal text-gray-400" x-text="'of ' + recheck.checked"></span>
+                            </p>
+                        </div>
+                        <div class="rounded-lg bg-gray-50 p-3">
+                            <p class="text-xs text-gray-500">Issues fixed</p>
+                            <p class="text-xl font-semibold text-emerald-600" x-text="recheck.compared ? recheck.issues_fixed : '—'"></p>
+                        </div>
+                        <div class="rounded-lg bg-gray-50 p-3">
+                            <p class="text-xs text-gray-500">Still need work</p>
+                            <p class="text-xl font-semibold" :class="recheck.still_failing ? 'text-amber-600' : 'text-emerald-600'" x-text="recheck.still_failing"></p>
+                        </div>
+                    </div>
+
+                    <template x-if="!recheck.audit_id">
+                        <p class="text-xs text-gray-500 mt-3">No finished SEO audit for this store, so there is no "before" score and duplicate titles were not checked. Run an SEO audit to compare future pushes against it.</p>
+                    </template>
+                    <template x-if="recheck.not_found > 0">
+                        <p class="text-xs text-gray-500 mt-2"><span x-text="recheck.not_found"></span> pushed product(s) could not be read back — probably deleted from Shopify since.</p>
+                    </template>
+
+                    <template x-if="recheck.still_failing > 0">
+                        <div class="mt-4">
+                            <p class="text-sm font-medium text-gray-700 mb-2">What is still wrong</p>
+                            <div class="flex flex-wrap gap-2 mb-3">
+                                <template x-for="[code, count] in Object.entries(recheck.remaining || {})" :key="code">
+                                    <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-700 ring-1 ring-amber-200">
+                                        <span x-text="issueLabels[code] || code"></span>
+                                        <span class="font-semibold" x-text="count"></span>
+                                    </span>
+                                </template>
+                            </div>
+                            <p class="text-xs text-gray-500 mb-2">AI copy fixes meta titles, descriptions and alt text. No images, one-word titles left unchanged and missing tags need fixing in Shopify.</p>
+                            <div class="max-h-72 overflow-y-auto border border-gray-100 rounded-lg divide-y divide-gray-50">
+                                <template x-for="row in recheck.failing_items" :key="row.id">
+                                    <div class="px-3 py-2 text-sm flex items-start gap-3">
+                                        <span class="font-mono text-xs text-gray-700 shrink-0 w-28 truncate" x-text="row.sku"></span>
+                                        <span class="flex-1 min-w-0">
+                                            <span class="text-gray-700" x-text="row.title"></span>
+                                            <span class="block text-xs text-amber-700" x-text="row.issues.join(' · ')"></span>
+                                        </span>
+                                        <span class="text-xs text-gray-500 whitespace-nowrap">
+                                            <span x-show="row.before !== null" x-text="row.before + ' → '"></span><span class="font-semibold" x-text="row.after"></span>
+                                        </span>
+                                    </div>
+                                </template>
+                            </div>
+                            <p class="text-xs text-gray-400 mt-1" x-show="recheck.still_failing > recheck.failing_items.length"
+                               x-text="`Showing the ${recheck.failing_items.length} lowest-scoring of ${recheck.still_failing}.`"></p>
+                        </div>
+                    </template>
+                </div>
+            </template>
+        </div>
+    </template>
 
     {{-- Ready — Items table --}}
     <div x-show="status === 'ready' || status === 'done'" x-cloak>
@@ -173,11 +270,22 @@
                                             }"
                                             class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium">
                                         </span>
+                                        {{-- SEO score from the re-check after the push --}}
+                                        <template x-if="item.seo_score_after !== null && item.seo_score_after !== undefined">
+                                            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium"
+                                                :class="(item.seo_issues_after || []).length ? 'bg-amber-50 text-amber-700' : 'bg-emerald-50 text-emerald-700'"
+                                                :title="(item.seo_issues_after || []).map(c => issueLabels[c] || c).join(', ') || 'No SEO issues'"
+                                                x-text="'SEO ' + (item.seo_score_before !== null ? item.seo_score_before + ' → ' : '') + item.seo_score_after"></span>
+                                        </template>
                                     </div>
 
                                     {{-- Error message --}}
                                     <template x-if="item.status === 'failed'">
                                         <p class="text-xs text-red-500" x-text="item.error_message"></p>
+                                    </template>
+                                    {{-- A push that Shopify refused leaves the item ready to try again --}}
+                                    <template x-if="item.status === 'done' && item.error_message">
+                                        <p class="text-xs text-amber-600" x-text="item.error_message"></p>
                                     </template>
 
                                     {{-- Editable fields --}}
@@ -510,7 +618,7 @@ function searchSelect(getOptions, getValue, setValue, placeholder, isDisabled) {
     };
 }
 
-function aiContentShow(sessionId, initialStatus, tagTaxonomy, initialProgress = {}) {
+function aiContentShow(sessionId, initialStatus, tagTaxonomy, initialProgress = {}, issueLabels = {}) {
     return {
         sessionId,
         status: initialStatus,
@@ -518,6 +626,8 @@ function aiContentShow(sessionId, initialStatus, tagTaxonomy, initialProgress = 
         progress: initialProgress.progress || 0,
         totalItems: initialProgress.total || 0,
         processedItems: initialProgress.processed || 0,
+        recheck: initialProgress.recheck || null,
+        issueLabels: issueLabels || {},
         items: [],
         pollTimer: null,
         polling: false,
@@ -526,7 +636,7 @@ function aiContentShow(sessionId, initialStatus, tagTaxonomy, initialProgress = 
         submittingLabel: '',
 
         init() {
-            if (this.status === 'pending' || this.status === 'processing' || this.status === 'translating' || this.status === 'pushing') {
+            if (['pending', 'processing', 'translating', 'pushing', 'rechecking'].includes(this.status)) {
                 this.poll();
             } else if (this.status === 'ready' || this.status === 'done') {
                 this.loadItems();
@@ -549,6 +659,7 @@ function aiContentShow(sessionId, initialStatus, tagTaxonomy, initialProgress = 
                     this.progress       = data.progress;
                     this.totalItems     = data.total_items;
                     this.processedItems = data.processed_items;
+                    this.recheck        = data.seo_recheck;
 
                     if (this.status === 'ready' || this.status === 'done' || this.status === 'failed') {
                         clearInterval(this.pollTimer);
@@ -588,13 +699,18 @@ function aiContentShow(sessionId, initialStatus, tagTaxonomy, initialProgress = 
         async submit(event) {
             if (this.submitting) return;
 
-            const form   = event.target;
-            const action = event.submitter?.formAction || form.action;
-            const count  = this.items.filter(i => i.confirmed && (i.status === 'done' || i.status === 'pushed')).length;
+            // Path only, like the status and items calls that already work. A
+            // full URL carries a scheme and host, and when either differs from
+            // the page's the server redirects — and a redirected POST arrives
+            // as a GET, which these routes refuse with a 405.
+            const form      = event.target;
+            const path      = new URL(event.submitter?.formAction || form.action, window.location.href).pathname;
+            const translate = path.endsWith('/translate');
+            const count     = this.items.filter(i => i.confirmed && (i.status === 'done' || i.status === 'pushed')).length;
 
-            this.submittingLabel = action === form.action
-                ? `Sending ${count} product(s) to Shopify…`
-                : 'Starting Arabic translation…';
+            this.submittingLabel = translate
+                ? 'Starting Arabic translation…'
+                : `Sending ${count} product(s) to Shopify…`;
             this.submitting = true;
 
             const ids    = (map) => Object.fromEntries(this.items.map(i => [i.id, map(i)]));
@@ -620,7 +736,7 @@ function aiContentShow(sessionId, initialStatus, tagTaxonomy, initialProgress = 
             };
 
             try {
-                const res = await fetch(action, {
+                const res = await fetch(path, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -630,7 +746,16 @@ function aiContentShow(sessionId, initialStatus, tagTaxonomy, initialProgress = 
                     body: JSON.stringify(payload),
                 });
 
-                if (!res.ok) throw new Error(`Server responded ${res.status}`);
+                if (!res.ok) {
+                    // Everything needed to tell where it went wrong, in the one
+                    // place a person will actually look.
+                    const body = await res.json().catch(() => ({}));
+                    throw new Error(
+                        `Server responded ${res.status} from ${new URL(res.url).pathname}`
+                        + (res.redirected ? ' after being redirected' : '')
+                        + (body.message ? ` — ${body.message}` : '')
+                    );
+                }
 
                 window.location.reload();
             } catch (e) {

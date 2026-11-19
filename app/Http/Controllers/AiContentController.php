@@ -46,7 +46,7 @@ class AiContentController extends Controller
         ];
 
         $running = (clone $scope())
-            ->whereIn('status', ['pending', 'processing', 'translating', 'pushing'])
+            ->whereIn('status', ['pending', 'processing', 'translating', 'pushing', 'rechecking'])
             ->with('store')
             ->latest()
             ->limit(4)
@@ -177,6 +177,7 @@ class AiContentController extends Controller
             'processed_items'  => $aiContentSession->processed_items,
             'progress'         => $aiContentSession->progressPercent(),
             'error_message'    => $aiContentSession->error_message,
+            'seo_recheck'      => $aiContentSession->seo_recheck,
         ]);
     }
 
@@ -234,7 +235,7 @@ class AiContentController extends Controller
             return $this->respond($request, 'warning', 'No store associated with this session.');
         }
 
-        if ($aiContentSession->status === 'pushing') {
+        if (in_array($aiContentSession->status, ['pushing', 'rechecking'], true)) {
             return $this->respond($request, 'warning', 'A push is already in progress.');
         }
 

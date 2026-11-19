@@ -9,9 +9,12 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class AiContentSession extends Model
 {
     protected $fillable = [
-        'user_id', 'store_id', 'input_type', 'onedrive_link',
+        'user_id', 'store_id', 'seo_audit_session_id', 'input_type', 'onedrive_link',
         'sku_raw', 'skus_json', 'keywords', 'status', 'total_items', 'processed_items', 'error_message',
+        'seo_recheck',
     ];
+
+    protected $casts = ['seo_recheck' => 'array'];
 
     public function user(): BelongsTo  { return $this->belongsTo(User::class); }
     public function store(): BelongsTo { return $this->belongsTo(Store::class); }
@@ -35,6 +38,7 @@ class AiContentSession extends Model
             'ready'       => 'Ready to push to Shopify',
             'translating' => 'Translating',
             'pushing'     => 'Pushing to Shopify',
+            'rechecking'  => 'Checking SEO in Shopify',
             'done'        => 'Pushed to Shopify',
             'failed'      => 'Failed',
             default       => ucfirst($this->status),
@@ -44,6 +48,6 @@ class AiContentSession extends Model
     /** Statuses where work is still moving — used to decide whether to keep polling. */
     public function isWorking(): bool
     {
-        return in_array($this->status, ['pending', 'processing', 'translating', 'pushing'], true);
+        return in_array($this->status, ['pending', 'processing', 'translating', 'pushing', 'rechecking'], true);
     }
 }

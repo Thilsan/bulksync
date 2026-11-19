@@ -67,6 +67,16 @@
         </div>
     </div>
 
+    {{-- Figures below were moved by re-checks after AI content pushes, not by
+         a full re-run — said so, or the numbers improving overnight would look
+         like the audit had changed its mind. --}}
+    @if ($session->rechecked_at)
+        <div class="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 text-sm text-emerald-800">
+            Kept up to date after AI content pushes: {{ number_format($session->rechecked_products) }} product(s) re-checked in Shopify,
+            last {{ $session->rechecked_at->diffForHumans() }}. Everything else is as of the audit run on {{ $session->created_at->format('j M Y') }}.
+        </div>
+    @endif
+
     {{-- Headline numbers --}}
     <div class="grid grid-cols-2 lg:grid-cols-6 gap-4">
         <div class="bg-white rounded-xl border border-gray-200 p-5">

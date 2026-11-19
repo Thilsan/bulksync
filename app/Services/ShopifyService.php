@@ -1516,27 +1516,7 @@ class ShopifyService
             $connection = $data['data']['products'] ?? [];
             $edges      = $connection['edges'] ?? [];
 
-            $products = array_map(function (array $edge) {
-                $node = $edge['node'];
-
-                $images = array_map(
-                    fn ($imageEdge) => ['alt' => $imageEdge['node']['altText'] ?? null],
-                    $node['images']['edges'] ?? []
-                );
-
-                return [
-                    'id'               => $this->numericId($node['id'] ?? ''),
-                    'title'            => $node['title'] ?? '',
-                    'handle'           => $node['handle'] ?? '',
-                    'status'           => strtolower((string) ($node['status'] ?? '')),
-                    'tags'             => $node['tags'] ?? [],
-                    'description'      => $node['description'] ?? '',
-                    'meta_title'       => $node['seo']['title'] ?? null,
-                    'meta_description' => $node['seo']['description'] ?? null,
-                    'images'           => $images,
-                    'sku'              => $node['variants']['edges'][0]['node']['sku'] ?? null,
-                ];
-            }, $edges);
+            $products = array_map(fn (array $edge) => $this->seoAuditProduct($edge['node']), $edges);
 
             if (!empty($products)) {
                 $callback($products);
@@ -1546,6 +1526,65 @@ class ShopifyService
                 ? ($connection['pageInfo']['endCursor'] ?? null)
                 : null;
         } while ($cursor);
+    }
+
+    /**
+     * The same products streamProductsForSeoAudit() returns, for a given list
+     * of ids — what the re-check after an AI content push grades.
+     *
+     * Returned keyed by numeric product id. A product that has been deleted
+     * since is simply absent, which the caller reports rather than guesses at.
+     *
+     * @param  list<string|int>  $productIds
+     * @return array<string, array>
+     */
+    public function getProductsForSeoAudit(array $productIds): array
+    {
+        $products = [];
+        $fields   = $this->seoAuditProductFields();
+
+        foreach (array_chunk(array_values(array_unique(array_map('strval', $productIds))), self::SEO_PAGE) as $chunk) {
+            $this->throttle();
+
+            $response = $this->http->post("admin/api/{$this->apiVersion}/graphql.json", [
+                'json' => [
+                    'query'     => "query(\$ids: [ID!]!) { nodes(ids: \$ids) { ... on Product { {$fields} } } }",
+                    'variables' => ['ids' => array_map(fn ($id) => "gid://shopify/Product/{$id}", $chunk)],
+                ],
+            ]);
+
+            $data = json_decode((string) $response->getBody(), true);
+            $this->assertNoGraphQlErrors($data, 'getProductsForSeoAudit');
+
+            foreach ($data['data']['nodes'] ?? [] as $node) {
+                if (!empty($node['id'])) {
+                    $product = $this->seoAuditProduct($node);
+                    $products[$product['id']] = $product;
+                }
+            }
+        }
+
+        return $products;
+    }
+
+    /** One product node from an SEO audit query, in the shape the grader reads. */
+    private function seoAuditProduct(array $node): array
+    {
+        return [
+            'id'               => $this->numericId($node['id'] ?? ''),
+            'title'            => $node['title'] ?? '',
+            'handle'           => $node['handle'] ?? '',
+            'status'           => strtolower((string) ($node['status'] ?? '')),
+            'tags'             => $node['tags'] ?? [],
+            'description'      => $node['description'] ?? '',
+            'meta_title'       => $node['seo']['title'] ?? null,
+            'meta_description' => $node['seo']['description'] ?? null,
+            'images'           => array_map(
+                fn ($imageEdge) => ['alt' => $imageEdge['node']['altText'] ?? null],
+                $node['images']['edges'] ?? []
+            ),
+            'sku'              => $node['variants']['edges'][0]['node']['sku'] ?? null,
+        ];
     }
 
     /**
@@ -1756,29 +1795,26 @@ class ShopifyService
 
     private function seoAuditQuery(): string
     {
-        $page  = self::SEO_PAGE;
-        $imgs  = self::SEO_IMAGE_CAP;
+        $page = self::SEO_PAGE;
 
         return <<<GQL
         query(\$cursor: String) {
           products(first: {$page}, after: \$cursor) {
             pageInfo { hasNextPage endCursor }
-            edges {
-              node {
-                id
-                title
-                handle
-                status
-                tags
-                description
-                seo { title description }
-                images(first: {$imgs}) { edges { node { altText } } }
-                variants(first: 1) { edges { node { sku } } }
-              }
-            }
+            edges { node { {$this->seoAuditProductFields()} } }
           }
         }
         GQL;
+    }
+
+    /** The product fields every SEO audit query asks for. */
+    private function seoAuditProductFields(): string
+    {
+        $imgs = self::SEO_IMAGE_CAP;
+
+        return "id title handle status tags description seo { title description } "
+            . "images(first: {$imgs}) { edges { node { altText } } } "
+            . 'variants(first: 1) { edges { node { sku } } }';
     }
 
     /** "gid://shopify/Product/123" -> "123"; anything else passes through. */

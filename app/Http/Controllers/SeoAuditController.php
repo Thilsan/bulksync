@@ -392,6 +392,8 @@ class SeoAuditController extends Controller
         $session = AiContentSession::create([
             'user_id'     => auth()->id(),
             'store_id'    => $seoAuditSession->store_id,
+            // So the re-check after the push compares against this audit.
+            'seo_audit_session_id' => $seoAuditSession->id,
             'input_type'  => 'sku_list',
             'sku_raw'     => $skus->implode("\n"),
             'skus_json'   => json_encode($skus->all()),

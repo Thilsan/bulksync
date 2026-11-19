@@ -97,15 +97,22 @@ class PushAiContentJob implements ShouldQueue
             $session->increment('processed_items');
         }
 
-        $session->update(['status' => $pushed > 0 ? 'done' : 'ready']);
+        if ($pushed === 0) {
+            $session->update(['status' => 'ready']);
 
-        if ($pushed > 0) {
-            // The copy is live, which is what the request's content stage was
-            // waiting for — move it on without anyone pressing a button.
-            $actor = User::find($this->userId);
-            ProductRequest::where('ai_content_session_id', $session->id)->get()
-                ->each(fn ($r) => app(ProductRequestWorkflow::class)->autoAdvance($r, $actor));
+            return;
         }
+
+        // Read back what went live and grade it, rather than assume the push
+        // fixed what the audit found. The re-check marks the session done.
+        $session->update(['status' => 'rechecking']);
+        RecheckSeoAfterPushJob::dispatch($session->id)->onQueue(Queues::AI);
+
+        // The copy is live, which is what the request's content stage was
+        // waiting for — move it on without anyone pressing a button.
+        $actor = User::find($this->userId);
+        ProductRequest::where('ai_content_session_id', $session->id)->get()
+            ->each(fn ($r) => app(ProductRequestWorkflow::class)->autoAdvance($r, $actor));
     }
 
     /**

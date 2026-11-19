@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Jobs\PushAiContentJob;
+use App\Jobs\RecheckSeoAfterPushJob;
 use App\Models\AiContentImage;
 use App\Models\AiContentItem;
 use App\Models\AiContentSession;
@@ -80,6 +81,23 @@ class AiContentPushTest extends TestCase
         );
     }
 
+    public function test_generate_arabic_accepts_the_page_json(): void
+    {
+        Queue::fake();
+
+        $item = $this->item('1');
+
+        $this->actingAs($this->user)
+            ->postJson(route('ai-content.translate', $this->session), [
+                'confirmed'   => [$item->id],
+                'description' => [$item->id => '<p>Edited</p>'],
+            ])
+            ->assertOk();
+
+        $this->assertSame('<p>Edited</p>', $item->refresh()->ai_description);
+        $this->assertSame('translating', $this->session->refresh()->status);
+    }
+
     public function test_the_page_opens_on_the_pushing_progress_rather_than_zero(): void
     {
         $this->session->update(['status' => 'pushing', 'total_items' => 4, 'processed_items' => 1]);
@@ -93,6 +111,8 @@ class AiContentPushTest extends TestCase
 
     public function test_the_job_pushes_generated_items_and_never_blanks_a_failed_one(): void
     {
+        Queue::fake();
+
         $done   = $this->item('1');
         $failed = $this->item('2', 'failed');
         $broken = $this->item('3');
@@ -114,7 +134,11 @@ class AiContentPushTest extends TestCase
         $this->assertStringContainsString('429', $broken->error_message);
 
         $this->session->refresh();
-        $this->assertSame('done', $this->session->status);
         $this->assertSame(3, $this->session->processed_items);
+
+        // Something went live, so the push hands over to the SEO re-check
+        // rather than calling itself done.
+        $this->assertSame('rechecking', $this->session->status);
+        Queue::assertPushed(RecheckSeoAfterPushJob::class, fn ($job) => $job->sessionId === $this->session->id);
     }
 }

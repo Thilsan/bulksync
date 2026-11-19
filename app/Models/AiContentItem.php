@@ -14,6 +14,7 @@ class AiContentItem extends Model
         'ai_description_ar', 'ai_meta_title_ar', 'ai_meta_description_ar',
         'ai_title', 'ai_new_tags', 'ai_new_collections',
         'status', 'is_confirmed', 'error_message',
+        'seo_score_before', 'seo_score_after', 'seo_issues_before', 'seo_issues_after',
     ];
 
     protected function casts(): array
@@ -22,6 +23,8 @@ class AiContentItem extends Model
             'is_confirmed'       => 'boolean',
             'ai_new_tags'        => 'array',
             'ai_new_collections' => 'array',
+            'seo_issues_before'  => 'array',
+            'seo_issues_after'   => 'array',
         ];
     }
 

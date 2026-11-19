@@ -23,6 +23,7 @@
         'translating' => ['dot' => 'bg-brand-500',   'pill' => 'bg-brand-50 text-brand-700 ring-brand-200'],
         'ready'       => ['dot' => 'bg-amber-500',   'pill' => 'bg-amber-50 text-amber-700 ring-amber-200'],
         'pushing'     => ['dot' => 'bg-brand-500',   'pill' => 'bg-brand-50 text-brand-700 ring-brand-200'],
+        'rechecking'  => ['dot' => 'bg-brand-500',   'pill' => 'bg-brand-50 text-brand-700 ring-brand-200'],
         'done'        => ['dot' => 'bg-emerald-500', 'pill' => 'bg-emerald-50 text-emerald-700 ring-emerald-200'],
         'failed'      => ['dot' => 'bg-red-500',     'pill' => 'bg-red-50 text-red-700 ring-red-200'],
     ];
