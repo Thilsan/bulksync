@@ -618,6 +618,48 @@ class PhotoroomService
         ],
 
         /*
+         * Pens: Blue Salon and Paris Gallery, and the narrowest subject in the
+         * tree after ties.
+         *
+         * Its own top-level category rather than a line under an accessories
+         * one, for the same reason perfume is: every pen is framed the same
+         * way whatever it writes with, so a second level would be a menu with
+         * one item on it.
+         *
+         * Neither store is named in PRESETS_BY_STORE, so both are offered
+         * everything a store has not claimed — this included — and nothing
+         * needs adding there for Paris Gallery to see it.
+         */
+        'pens' => [
+            'label' => 'Pens',
+            'note'  => 'Measured off PERGR0001502_01 on a 2400 square: the pen sits 8.33% down, ends 8.29% up from the bottom, and fills 83.38% of the height. Carried to a 2000 square as 8.3% all round, which is what reproduces it — a pen is far taller than it is wide (7.8% of the width here), so the height decides the size on its own. Framed tighter than a tie, which holds 10% and 80.2%: a pen is the thinner object of the two and the extra 3% of height is what stops it reading as a line in the middle of an empty frame. One sample, so this is the entry to re-measure when there are three.',
+            'edits' => [
+                'width'  => 2000,
+                'height' => 2000,
+
+                /*
+                 * Plain padding, with nothing declared to bind, as on ties and
+                 * caps.
+                 *
+                 * The temptation is to pin the height at 0.8338 and be done.
+                 * That is right for every pen standing upright and wrong for
+                 * the one shot lying across the frame or next to its box —
+                 * a declared height would drive that one past both side edges
+                 * reaching a height its shape does not have. Fitting to
+                 * whichever edge runs out first costs nothing on this sample,
+                 * because the padding alone already lands it within half a
+                 * tenth of a per cent: 2 x 8.3 leaves 83.4% against the
+                 * 83.38% measured.
+                 *
+                 * Centred, and the sample agrees to within four pixels on a
+                 * 2400 canvas — 8.33 above against 8.29 below, 46.17 left
+                 * against 46.00 right.
+                 */
+                'padding' => 0.083,
+            ],
+        ],
+
+        /*
          * A main category with nothing under it, like perfume: a cabin case and
          * a large check-in are framed the same way, so a second level would be
          * a menu with one item on it.
@@ -1875,6 +1917,7 @@ class PhotoroomService
         'samsonite'                   => 'the suitcase',
         'samsonite_accessories'       => 'the travel accessory',
         'perfume'                     => 'the perfume bottle',
+        'pens'                        => 'the pen',
 
         'luggage'                     => 'the suitcase',
 
