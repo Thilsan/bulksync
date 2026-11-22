@@ -30,6 +30,14 @@ class PhotoEditorGarmentFitTest extends TestCase
         return $method->invoke(new EditPhotoItemJob(1), $edits, 900, 1600, $isBackView);
     }
 
+    /**
+     * The sleeves are the sentence, not the body.
+     *
+     * Two earlier drafts described a narrower chest and a shaped waist and
+     * mentioned sleeves in passing. A row of women's knitwear came back with
+     * thick arms held out clear of the body — which is what reads as male in
+     * a thumbnail, and what bluesalon.com's own womenswear never does.
+     */
     public function test_a_womens_category_asks_for_a_womans_figure(): void
     {
         [, $edits] = $this->route([
@@ -39,7 +47,8 @@ class PhotoEditorGarmentFitTest extends TestCase
         ]);
 
         $this->assertStringContainsString("woman's figure", $edits['apparel_prompt']);
-        $this->assertStringContainsString("Do not broaden it into a man's build", $edits['apparel_prompt']);
+        $this->assertStringContainsString('sleeves hanging straight down', $edits['apparel_prompt']);
+        $this->assertStringContainsString('do not hold the arms out away from the body', $edits['apparel_prompt']);
         $this->assertStringStartsWith(PhotoroomService::GHOST_MANNEQUIN_HINT, $edits['apparel_prompt']);
     }
 

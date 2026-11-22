@@ -1353,10 +1353,29 @@ class PhotoroomService
      * A chip for each still exists, and a wording the operator typed wins:
      * nothing is appended once any of these three is already in the field,
      * so a menswear-cut women's shirt can be told so by hand.
+     *
+     * The women's wording is on its third draft, and the first two were
+     * written from the failure rather than from the catalogue. They named a
+     * narrower chest and a shaped waist and mentioned sleeves in passing,
+     * and a row of women's knitwear came back with thick arms held out away
+     * from the body — a man standing with his arms clear of his sides.
+     *
+     * What bluesalon.com actually shows is the opposite and is the thing to
+     * describe: the sleeve hangs straight down beside the body, close to the
+     * side seam and parallel to it, the same narrow width its whole length,
+     * ending in a cuff. That is the sentence now, and the body is barely
+     * mentioned — the arms were always what reads as male in a thumbnail.
+     *
+     * It deliberately says nothing about the waist. GHOST_MANNEQUIN_HINT_
+     * STRAIGHT is the chip for a boxy knit and it forbids a tapered waist
+     * outright; a fit clause that argued with it would make the two chips
+     * cancel out, which is the bug the clauses were split up to avoid.
      */
     public const GHOST_MANNEQUIN_FIT_WOMENS = 'This is a woman\'s garment, cut for a woman\'s '
-        . 'figure: narrower shoulders, a narrower chest and slimmer sleeves, with the waist shaped. '
-        . 'Do not broaden it into a man\'s build';
+        . 'figure: narrow shoulders and a narrow chest, with the sleeves hanging straight down '
+        . 'beside the body, close to the side seams and parallel to them, narrow along their whole '
+        . 'length and ending in a cuff at the wrist. Do not give it a man\'s build: no broad square '
+        . 'shoulders, no thick muscled arms, and do not hold the arms out away from the body';
 
     public const GHOST_MANNEQUIN_FIT_MENS = 'This is a man\'s garment, cut for a man\'s build: '
         . 'wider shoulders and a straighter, broader chest';
