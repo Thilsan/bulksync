@@ -150,6 +150,44 @@
             </div>
         </div>
 
+        {{-- Every photo in the run, in one click.
+
+             Here rather than only on the first screen because that screen
+             asks the question before anyone has seen the photographs. This
+             one sits above them, and the thumbnails turn as it is clicked.
+
+             It writes the same per-photo answer the buttons on each card do,
+             rather than a setting of its own: a run turned right and then one
+             shot put back by hand has to stay that way, and a run-wide flag
+             would overrule it the next time anything re-read it. --}}
+        <div class="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-gray-200 bg-white px-5 py-3"
+             x-data="{ dir: '' }">
+            <span class="text-sm font-medium text-gray-700">Are any photos lying on their side?</span>
+            <span class="text-xs text-gray-500">Turn every photo in the run:</span>
+
+            <div class="flex flex-wrap items-center gap-1.5">
+                @foreach ([
+                    ''      => 'As they came',
+                    'right' => 'Right 90°',
+                    '180'   => 'Upside down',
+                    'left'  => 'Left 90°',
+                ] as $value => $label)
+                    <button type="button"
+                            @click.prevent="dir = @js((string) $value); $dispatch('photo-turn-all', dir)"
+                            :class="dir === @js((string) $value)
+                                ? 'bg-teal-500 text-white ring-teal-500'
+                                : 'bg-white text-gray-600 ring-gray-200 hover:ring-gray-300'"
+                            class="rounded-full px-3 py-1 text-xs font-medium ring-1 transition-colors">
+                        {{ $label }}
+                    </button>
+                @endforeach
+            </div>
+
+            <span class="w-full text-xs text-gray-400 sm:w-auto">
+                Sets every photo below. Turn a single one back on its own card afterwards if it was already upright.
+            </span>
+        </div>
+
         <div class="space-y-4">
             @foreach ($groups as $group)
                 @php
@@ -212,6 +250,7 @@
                          are given to Shopify, so the first one becomes the
                          product's main image. --}}
                     <div class="px-5 py-4"
+                         @photo-turn-all.window="turnEvery($event.detail)"
                          x-data="photoOrder(@js($groupPhotos->pluck('id')->all()))">
                         {{-- ── Case size ──────────────────────────────────
                              Here rather than in the settings panel below,
@@ -411,6 +450,24 @@
                                 <span x-show="!asIsCount && !keepBgCount" class="text-gray-400">
                                     Every photo cut out and reframed
                                 </span>
+
+                                {{-- A whole SKU at once, because a shoot turns
+                                     out sideways by the folder rather than by
+                                     the picture. It writes the same per-photo
+                                     answer the buttons below do, so one shot
+                                     that came off the camera the other way up
+                                     can still be put right on its own
+                                     afterwards. --}}
+                                <button type="button" @click.prevent="turnAll()"
+                                        :title="bulkTurn
+                                            ? 'Every photo in this SKU turned — click to keep turning, or round to leave them as they came'
+                                            : 'Turn every photo in this SKU'"
+                                        :class="bulkTurn
+                                            ? 'bg-teal-500 text-white ring-teal-500'
+                                            : 'bg-white text-gray-500 ring-gray-200 hover:ring-gray-300'"
+                                        class="rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 transition-colors">
+                                    <span x-text="bulkTurn ? `All turned ${bulkDegrees}°` : 'Turn all'"></span>
+                                </button>
                             </p>
                         </div>
 
@@ -819,6 +876,59 @@
             /* What the thumbnail is turned by, in CSS degrees. */
             degreesFor(id) {
                 return { right: 90, '180': 180, left: 270 }[this.rotation[id]] || 0;
+            },
+
+            /*
+             * What "Turn all" currently reads, which is a question about the
+             * photos rather than a setting of its own.
+             *
+             * Derived, not stored: turning one photo back by hand after a
+             * bulk turn has to show up here, and a remembered value would
+             * keep claiming the SKU was turned when one of its photos no
+             * longer is. Empty unless every photo agrees.
+             */
+            get bulkTurn() {
+                const all = this.order.map(id => this.rotation[id] || '');
+
+                return all.length && all.every(d => d && d === all[0]) ? all[0] : '';
+            },
+
+            get bulkDegrees() {
+                return { right: 90, '180': 180, left: 270 }[this.bulkTurn] || 0;
+            },
+
+            /*
+             * One click, every photo in the SKU.
+             *
+             * It steps on from whatever they already agree on, so a folder
+             * that is all a quarter turn out goes right on the first click.
+             * Where they disagree, bulkTurn is empty and the first click puts
+             * the whole SKU on the same quarter turn — which is the answer a
+             * person clicking "turn all" is asking for.
+             */
+            turnAll() {
+                const cycle = ['', 'right', '180', 'left'];
+                const next  = cycle[(cycle.indexOf(this.bulkTurn) + 1) % cycle.length];
+
+                this.order.forEach(id => { this.rotation[id] = next });
+            },
+
+            /*
+             * The run-wide turn, from the bar at the top of the screen.
+             *
+             * Set rather than stepped on: the bar has already decided which
+             * way round, and every SKU has to end up agreeing with it —
+             * otherwise "turn everything right" would turn each SKU on from
+             * wherever it happened to be.
+             */
+            turnEvery(direction) {
+                const known = ['', 'right', '180', 'left'];
+
+                if (!known.includes(direction)) {
+                    return;
+                }
+
+                this.order.forEach(id => { this.rotation[id] = direction });
             },
 
             toggleKeepBg(id) {

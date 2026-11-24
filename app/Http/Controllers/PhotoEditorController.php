@@ -959,7 +959,14 @@ class PhotoEditorController extends Controller implements HasMiddleware
         $scope()->update(['rotation' => null]);
 
         foreach ($rotations as $itemId => $direction) {
-            if (!array_key_exists((string) $direction, ImageProcessingService::INPUT_ROTATIONS) || $direction === '') {
+            /*
+             * blank(), not a comparison against ''. The empty option arrives
+             * here as null, because ConvertEmptyStringsToNull has already
+             * been over the request — and a cast of that to a string is ''
+             * written into the column, which reads as a direction rotate()
+             * does not know rather than as "follows the run".
+             */
+            if (blank($direction) || !array_key_exists((string) $direction, ImageProcessingService::INPUT_ROTATIONS)) {
                 continue;
             }
 

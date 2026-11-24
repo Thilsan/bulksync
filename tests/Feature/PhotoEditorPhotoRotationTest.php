@@ -155,6 +155,58 @@ class PhotoEditorPhotoRotationTest extends TestCase
         $this->assertSame('left', $theirs->refresh()->rotation);
     }
 
+    /**
+     * A whole SKU turned at once.
+     *
+     * "Turn all" and the run-wide bar are front-end shortcuts: they write the
+     * same per-photo answer the individual buttons do, rather than a setting
+     * of their own. So what arrives here is every id carrying the same
+     * direction, and one photo put back by hand afterwards survives it.
+     */
+    public function test_a_whole_sku_can_arrive_turned_together(): void
+    {
+        $user    = $this->editor();
+        $session = $this->newSession($user);
+        $group   = PhotoEditGroup::create(['photo_edit_session_id' => $session->id, 'sku' => 'A-1']);
+
+        $one   = $this->item($session, 'A-1', '0_0.jpg');
+        $two   = $this->item($session, 'A-1', '1_0.jpg');
+        $three = $this->item($session, 'A-1', '2_0.jpg');
+
+        $this->actingAs($user)
+            ->post(route('photo-editor.start', $session), [
+                'groups' => [$group->id => ['rotation' => [
+                    $one->id   => 'right',
+                    $two->id   => 'right',
+
+                    // The one that came off the camera the other way up and
+                    // was put back by hand after the bulk turn.
+                    $three->id => '',
+                ]]],
+            ])
+            ->assertRedirect();
+
+        $this->assertSame('right', $one->refresh()->rotation);
+        $this->assertSame('right', $two->refresh()->rotation);
+        $this->assertNull($three->refresh()->rotation, 'a photo turned back follows the run again');
+    }
+
+    /** The run-wide control is on the screen, above the SKU cards. */
+    public function test_the_screen_offers_a_run_wide_turn(): void
+    {
+        $user    = $this->editor();
+        $session = $this->newSession($user);
+        PhotoEditGroup::create(['photo_edit_session_id' => $session->id, 'sku' => 'A-1']);
+        $this->item($session, 'A-1', '0_0.jpg');
+
+        $this->actingAs($user)
+            ->get(route('photo-editor.configure', $session))
+            ->assertOk()
+            ->assertSee('Turn every photo in the run')
+            ->assertSee('photo-turn-all', false)
+            ->assertSee('Turn all');
+    }
+
     /** The four the cycle offers are the four the service can actually turn. */
     public function test_the_buttons_cycle_only_through_real_directions(): void
     {
