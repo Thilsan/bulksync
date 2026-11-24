@@ -47,7 +47,9 @@ class PhotoEditorGarmentFitTest extends TestCase
         ]);
 
         $this->assertStringContainsString("woman's figure", $edits['apparel_prompt']);
-        $this->assertStringContainsString('sleeves hanging straight down', $edits['apparel_prompt']);
+        $this->assertStringContainsString('drops vertically from the shoulder', $edits['apparel_prompt']);
+        $this->assertStringContainsString('cuff directly below the armhole', $edits['apparel_prompt']);
+        $this->assertStringContainsString('Do not angle the sleeves inwards towards the waist', $edits['apparel_prompt']);
         $this->assertStringContainsString('do not hold the arms out away from the body', $edits['apparel_prompt']);
         $this->assertStringStartsWith(PhotoroomService::GHOST_MANNEQUIN_HINT, $edits['apparel_prompt']);
     }

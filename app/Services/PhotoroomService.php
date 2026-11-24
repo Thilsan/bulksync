@@ -1361,10 +1361,20 @@ class PhotoroomService
      * from the body — a man standing with his arms clear of his sides.
      *
      * What bluesalon.com actually shows is the opposite and is the thing to
-     * describe: the sleeve hangs straight down beside the body, close to the
-     * side seam and parallel to it, the same narrow width its whole length,
-     * ending in a cuff. That is the sentence now, and the body is barely
-     * mentioned — the arms were always what reads as male in a thumbnail.
+     * describe, and the describing took two more goes.
+     *
+     * "Hanging straight down beside the body, close to the side seams and
+     * parallel to them" read as an instruction to pull the sleeves in: the
+     * knitwear came back with the arms angled inwards and the cuffs down by
+     * the hem, which is a person standing with their hands crossed in front
+     * of them. "Close to" and "parallel to" were doing the damage — a fitted
+     * sweater's side seam tapers, so a sleeve parallel to it tapers too.
+     *
+     * The catalogue sleeve is vertical, not parallel to anything. It drops
+     * from the shoulder, the cuff lands directly below the armhole, and the
+     * gap between sleeve and body is the same at the cuff as at the chest.
+     * That is the sentence now, and the body is barely mentioned — the arms
+     * were always what reads as male in a thumbnail.
      *
      * It deliberately says nothing about the waist. GHOST_MANNEQUIN_HINT_
      * STRAIGHT is the chip for a boxy knit and it forbids a tapered waist
@@ -1372,10 +1382,12 @@ class PhotoroomService
      * cancel out, which is the bug the clauses were split up to avoid.
      */
     public const GHOST_MANNEQUIN_FIT_WOMENS = 'This is a woman\'s garment, cut for a woman\'s '
-        . 'figure: narrow shoulders and a narrow chest, with the sleeves hanging straight down '
-        . 'beside the body, close to the side seams and parallel to them, narrow along their whole '
-        . 'length and ending in a cuff at the wrist. Do not give it a man\'s build: no broad square '
-        . 'shoulders, no thick muscled arms, and do not hold the arms out away from the body';
+        . 'figure: narrow shoulders and a narrow chest. Each sleeve drops vertically from the '
+        . 'shoulder and hangs straight down, with the cuff directly below the armhole and the '
+        . 'sleeve the same distance clear of the body the whole way down. Do not angle the sleeves '
+        . 'inwards towards the waist, do not bring the cuffs in near the hem, and do not curve the '
+        . 'sleeves around the torso. Do not give it a man\'s build: no broad square shoulders, no '
+        . 'thick muscled arms, and do not hold the arms out away from the body';
 
     public const GHOST_MANNEQUIN_FIT_MENS = 'This is a man\'s garment, cut for a man\'s build: '
         . 'wider shoulders and a straighter, broader chest';

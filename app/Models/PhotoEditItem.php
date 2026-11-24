@@ -18,6 +18,7 @@ class PhotoEditItem extends Model
         'skip_edit',
         'photoroom_requests',
         'back_view',
+        'rotation',
         'keep_background',
         'remove_handle',
         'onedrive_drive_id',

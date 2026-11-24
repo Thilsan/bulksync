@@ -419,6 +419,20 @@ class PhotoEditorController extends Controller implements HasMiddleware
             'groups.*.keep_bg.*'       => ['integer'],
             'groups.*.no_handle'       => ['nullable', 'array'],
             'groups.*.no_handle.*'     => ['integer'],
+
+            /*
+             * Posted as item id => direction, because a turn is not a flag:
+             * the other per-photo settings are lists of the ids that have
+             * them, and there is no list that can say which way round.
+             *
+             * The direction is checked against the four that exist rather
+             * than stored as typed. rotate() answers anything it does not
+             * recognise with no turn at all, so an unknown value here would
+             * be a photo that looks turned on the screen and arrives at
+             * Photoroom lying on its side.
+             */
+            'groups.*.rotation'        => ['nullable', 'array'],
+            'groups.*.rotation.*'      => ['nullable', 'string', Rule::in(array_keys(ImageProcessingService::INPUT_ROTATIONS))],
         ]);
 
         // The run's own settings, which every group follows unless it opted out.
@@ -459,6 +473,7 @@ class PhotoEditorController extends Controller implements HasMiddleware
             $this->saveBackViews($session, $group->sku, (array) ($input['back_view'] ?? []));
             $this->saveKeptBackgrounds($session, $group->sku, (array) ($input['keep_bg'] ?? []), (array) ($input['as_is'] ?? []));
             $this->saveRemovedHandles($session, $group->sku, (array) ($input['no_handle'] ?? []));
+            $this->saveRotations($session, $group->sku, (array) ($input['rotation'] ?? []));
             $group->update([
                 'pendant_closeup' => (bool) ($input['pendant_closeup'] ?? false),
 
@@ -921,6 +936,34 @@ class PhotoEditorController extends Controller implements HasMiddleware
 
         if ($itemIds) {
             $scope()->whereIn('id', $itemIds)->update(['back_view' => true]);
+        }
+    }
+
+    /**
+     * Record which way round each of a SKU's photos should be turned.
+     *
+     * Cleared for the whole SKU first, like the flags above, so turning a
+     * photo back to "as it came" takes effect — a map of the turned ones
+     * alone could add a turn but never remove one.
+     *
+     * Null is what clearing writes, and it means "nobody touched this photo":
+     * those keep following the run's own rotation setting. A photo with a
+     * direction here has been looked at, and overrides the run.
+     */
+    private function saveRotations(PhotoEditSession $session, string $sku, array $rotations): void
+    {
+        $scope = fn () => PhotoEditItem::where('photo_edit_session_id', $session->id)
+            ->where('sku_detected', $sku)
+            ->where('kind', 'cutout');
+
+        $scope()->update(['rotation' => null]);
+
+        foreach ($rotations as $itemId => $direction) {
+            if (!array_key_exists((string) $direction, ImageProcessingService::INPUT_ROTATIONS) || $direction === '') {
+                continue;
+            }
+
+            $scope()->where('id', (int) $itemId)->update(['rotation' => (string) $direction]);
         }
     }
 

@@ -170,6 +170,7 @@
                             'keepBg'   => (bool) $p->keep_background,
                             'noHandle' => (bool) $p->remove_handle,
                             'backView' => (bool) $p->back_view,
+                            'rotation' => $p->rotation,
                         ],
                     ])->all();
                 @endphp
@@ -443,8 +444,19 @@
                                              decides whether a shot is usable. --}}
                                         <div class="relative overflow-hidden rounded-xl border-2 bg-white transition-colors peer-checked:border-brand-500"
                                              :class="asIs[id] ? 'border-amber-400' : (keepBg[id] ? 'border-sky-400' : (index === 0 ? 'border-brand-300' : 'border-gray-200'))">
+                                            {{-- Turned here on the screen, so the
+                                                 answer can be seen before the
+                                                 run costs anything.
+
+                                                 A quarter turn inside a square
+                                                 box needs no scaling: the image
+                                                 is already fitted to the box
+                                                 with object-contain, so its
+                                                 long side is the box's edge
+                                                 whichever way round it is. --}}
                                             <img :src="photos[id].thumb" :alt="photos[id].filename" loading="lazy"
-                                                 class="aspect-square w-full bg-white object-contain">
+                                                 :style="`transform: rotate(${degreesFor(id)}deg)`"
+                                                 class="aspect-square w-full bg-white object-contain transition-transform duration-200">
 
                                             {{-- Position is the one number here
                                                  with a consequence on the shop:
@@ -521,6 +533,28 @@
                                                 class="rounded-lg px-2 py-1 text-[11px] font-semibold ring-1 transition-colors">
                                             Keep BG
                                         </button>
+
+                                        {{-- One button rather than four, cycling
+                                             a quarter turn at a time. The photo
+                                             above it moves as you click, so the
+                                             label never has to explain which way
+                                             "right" is.
+
+                                             Its own answer beats the run's: the
+                                             first screen asks the same question
+                                             of a whole folder and this is the
+                                             photograph that disagrees. Clicking
+                                             round to "Turn" hands it back. --}}
+                                        <button type="button" @click.prevent="turn(id)"
+                                                :title="rotation[id]
+                                                    ? 'Turned for this photo only — click to keep turning, or round to leave it as it came'
+                                                    : 'Following the run — click to turn this photo on its own'"
+                                                :class="rotation[id]
+                                                    ? 'bg-teal-500 text-white ring-teal-500'
+                                                    : 'bg-white text-gray-500 ring-gray-200 hover:ring-gray-300'"
+                                                class="rounded-lg px-2 py-1 text-[11px] font-semibold ring-1 transition-colors">
+                                            <span x-text="rotation[id] ? `${degreesFor(id)}°` : 'Turn'"></span>
+                                        </button>
                                     </div>
 
                                     <template x-if="asIs[id]">
@@ -537,6 +571,13 @@
 
                                     <template x-if="noHandle[id]">
                                         <input type="hidden" :name="`groups[{{ $group->id }}][no_handle][]`" :value="id">
+                                    </template>
+
+                                    {{-- Keyed by id, not a flat list: the others
+                                         post which photos have a setting, and a
+                                         turn has to post which way round too. --}}
+                                    <template x-if="rotation[id]">
+                                        <input type="hidden" :name="`groups[{{ $group->id }}][rotation][${id}]`" :value="rotation[id]">
                                     </template>
                                 </div>
                             </template>
@@ -699,6 +740,15 @@
             backView: Object.fromEntries(ids.map(id => [id, !! (photos[id] || {}).backView])),
             noHandle: Object.fromEntries(ids.map(id => [id, !! (photos[id] || {}).noHandle])),
 
+            /*
+             * '' is "nobody touched this photo", which is not the same as
+             * "no turn": the first follows the run's own rotation setting and
+             * the second would override it with none. The column behind this
+             * is nullable for that reason, and the cycle below comes back to
+             * '' rather than stopping at a fourth state.
+             */
+            rotation: Object.fromEntries(ids.map(id => [id, (photos[id] || {}).rotation || ''])),
+
             get asIsCount() {
                 return Object.values(this.asIs).filter(Boolean).length;
             },
@@ -750,6 +800,25 @@
              */
             toggleBackView(id) {
                 this.backView[id] = ! this.backView[id];
+            },
+
+            /*
+             * A quarter turn clockwise per click, back round to following the
+             * run on the fourth.
+             *
+             * Clockwise because that is what the button appears to do: the
+             * thumbnail turns with it, so a cycle that jumped from right to
+             * left would read as the picture going backwards.
+             */
+            turn(id) {
+                const cycle = ['', 'right', '180', 'left'];
+
+                this.rotation[id] = cycle[(cycle.indexOf(this.rotation[id] || '') + 1) % cycle.length];
+            },
+
+            /* What the thumbnail is turned by, in CSS degrees. */
+            degreesFor(id) {
+                return { right: 90, '180': 180, left: 270 }[this.rotation[id]] || 0;
             },
 
             toggleKeepBg(id) {

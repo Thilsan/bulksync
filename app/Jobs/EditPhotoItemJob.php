@@ -130,15 +130,29 @@ class EditPhotoItemJob implements ShouldQueue
             // leave the garment lying on its side.
             $raw = $imageService->normalizeOrientation($raw);
 
-            // EXIF only fixes what the camera flagged. A garment shot lying
-            // across the frame carries no flag, so the operator's own answer is
-            // applied here — before the "before" thumbnail, so the review
-            // screen compares against the image Photoroom was actually given.
-            $raw = $imageService->rotate(
-                $raw,
-                (string) ($edits['input_rotation'] ?? ''),
-                !empty($edits['rotate_wide_only']),
-            );
+            /*
+             * EXIF only fixes what the camera flagged. A garment shot lying
+             * across the frame carries no flag, so the operator's own answer
+             * is applied here — before the "before" thumbnail, so the review
+             * screen compares against the image Photoroom was actually given.
+             *
+             * A photo turned by hand on the review screen wins over the run's
+             * answer, and takes it whole: the run's "only the wide ones" rule
+             * is not applied on top, because a person looking at that
+             * thumbnail has already decided this one needs turning. The rule
+             * exists to guess at photos nobody has looked at.
+             *
+             * Null is "nobody touched this photo", not "no turn" — which is
+             * why the column is nullable and this reads filled() rather than
+             * falling back on an empty string.
+             */
+            $raw = filled($item->rotation)
+                ? $imageService->rotate($raw, (string) $item->rotation)
+                : $imageService->rotate(
+                    $raw,
+                    (string) ($edits['input_rotation'] ?? ''),
+                    !empty($edits['rotate_wide_only']),
+                );
 
             // Trimming comes after the turn on purpose: "the bottom" has to mean
             // the bottom of the upright photo the operator was picturing when
