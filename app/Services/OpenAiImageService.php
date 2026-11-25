@@ -134,40 +134,38 @@ class OpenAiImageService
      */
     public function buildPrompt(array $edits): string
     {
-        $lines = [
-            'Edit this product photograph for an online store catalogue. Keep the product exactly as '
-            . 'photographed: the same shape, proportions, colours, materials, texture, stitching, prints, '
-            . 'logos, labels and any text on it. Do not redraw, restyle, recolour, add or remove any part '
-            . 'of the product. Show the whole product, uncropped, centred, with clear space on every side.',
-        ];
+        /*
+         * Which side, first, and said twice for a back. Back shots came back
+         * as fronts even with the instruction lower down: a plain back of a
+         * t-shirt or a jumper looks to the model like a front it should
+         * complete, so it drew a front neckline on it. The opening line is
+         * the one it weighs most.
+         */
+        $back  = !empty($edits['back_view']);
+        $lines = [];
+
+        if ($back) {
+            $lines[] = 'BACK VIEW. This photo shows the BACK of the garment, and the result must show the back '
+                . 'of the garment too. Do not turn it into a front view: no front neckline or front collar '
+                . 'opening, and no buttons, zips, pockets, logos or labels that are not visible in this photo.';
+        }
+
+        $lines[] = 'Edit this product photograph for an online store catalogue. Keep the product exactly as '
+            . 'photographed: the same side facing the camera, the same angle, shape, proportions, colours, '
+            . 'materials, texture, stitching, trims, prints, logos, labels and any text on it. Do not turn it '
+            . 'around, flip or mirror it, and do not redraw, restyle, recolour, add or remove any part of it. '
+            . 'Show the whole product, uncropped, centred, with clear space on every side.';
 
         $noun = trim((string) ($edits['segmentation_prompt'] ?? ''));
         if ($noun !== '') {
             $lines[] = "The product is: {$noun}.";
         }
 
-        /*
-         * Always sent, because a back shot came back as a front: a plain back
-         * of a t-shirt looks to the model like a front it should complete,
-         * so it drew a front neckline on it. The photo marked "back" on the
-         * settings screen gets it said outright as well.
-         */
-        $back = !empty($edits['back_view']);
-
-        $lines[] = 'Keep the same side of the product facing the camera, at the same angle, as in the photo. '
-            . 'Do not turn it around, flip it or mirror it.';
-
-        if ($back) {
-            $lines[] = 'This photo shows the BACK of the garment. The result must show the back: a plain back '
-                . 'with the back of the collar, and no front neckline, buttons, pockets, logos or labels that '
-                . 'are not visible in this photo.';
-        }
-
         if (!empty($edits['ghost_mannequin'])) {
             $lines[] = 'Remove the mannequin, stand, hanger and any clamps completely, and show the garment as '
                 . 'if worn by an invisible body (a ghost mannequin shot), keeping its natural worn shape.'
                 . ($back
-                    ? ''
+                    ? ' Where the mannequin\'s neck was, show the back of the collar seen from behind.'
                     : ' Where the neck or openings show the inside, show the garment\'s own inside fabric there.');
         } elseif (!empty($edits['flat_lay'])) {
             $lines[] = 'Remove any hanger or mannequin and present the garment as a neat flat lay, seen from '
@@ -186,7 +184,26 @@ class OpenAiImageService
 
         $lines[] = $this->backgroundInstruction($edits);
 
+        if ($back) {
+            $lines[] = 'Remember: this is the back of the garment. Show the back.';
+        }
+
         return implode("\n\n", $lines);
+    }
+
+    /**
+     * The run's Shadow setting, as Photoroom gets it. "None" is the default and
+     * means none: the instruction used to allow a contact shadow regardless,
+     * and OpenAI took it, under a run set to no shadow.
+     */
+    private function shadowInstruction(array $edits): string
+    {
+        return match ((string) ($edits['shadow'] ?? '')) {
+            'ai.soft', 'ai.auto-with-overrides' => 'Add a soft, natural shadow under the product.',
+            'ai.hard'     => 'Add a crisp, defined shadow under the product.',
+            'ai.floating' => 'Add a soft shadow below the product, as if it is floating just above the ground.',
+            default       => 'No shadow of any kind: no drop shadow, contact shadow, floor shadow or reflection.',
+        };
     }
 
     private function backgroundInstruction(array $edits): string
@@ -201,11 +218,11 @@ class OpenAiImageService
                 . 'background, with no shadow.',
             'custom'      => 'Replace the background with a flat, even, solid colour #'
                 . ltrim((string) ($edits['background_color'] ?? 'FFFFFF'), '#')
-                . ', with no props, gradient or texture. A soft, natural contact shadow under the product is fine.',
+                . ', with no props, gradient or texture. ' . $this->shadowInstruction($edits),
             'blur'        => 'Keep the original scene behind the product but blur it softly so the product '
                 . 'stands out.',
             default       => 'Replace the background with pure, even studio white (#FFFFFF), with no props, '
-                . 'gradient or texture. A soft, natural contact shadow under the product is fine.',
+                . 'gradient or texture. ' . $this->shadowInstruction($edits),
         };
     }
 

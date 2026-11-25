@@ -505,7 +505,9 @@ class PhotoEditorOpenAiEngineTest extends TestCase
         );
 
         $prompt = $this->sentToOpenAi['prompt'];
-        $this->assertStringContainsString('BACK of the garment', $prompt);
+        // First thing it reads, and the last.
+        $this->assertStringStartsWith('BACK VIEW.', $prompt);
+        $this->assertStringEndsWith('Show the back.', $prompt);
         $this->assertStringContainsString('no front neckline', $prompt);
         // The inside-of-the-neck instruction is a front-view one, and is left out.
         $this->assertStringNotContainsString('inside fabric', $prompt);
@@ -515,7 +517,24 @@ class PhotoEditorOpenAiEngineTest extends TestCase
     {
         $prompt = app(OpenAiImageService::class)->buildPrompt(['remove_background' => true]);
 
-        $this->assertStringContainsString('same side of the product facing the camera', $prompt);
+        $this->assertStringContainsString('the same side facing the camera', $prompt);
         $this->assertStringNotContainsString('BACK of the garment', $prompt);
+    }
+
+    /** A run set to no shadow got one anyway: the prompt used to allow it regardless. */
+    public function test_no_shadow_is_asked_for_unless_the_run_wants_one(): void
+    {
+        $service = app(OpenAiImageService::class);
+
+        $none = $service->buildPrompt(['remove_background' => true, 'background_mode' => 'white', 'shadow' => '']);
+        $this->assertStringContainsString('No shadow of any kind', $none);
+        $this->assertStringNotContainsString('shadow is fine', $none);
+
+        $unset = $service->buildPrompt(['remove_background' => true, 'background_mode' => 'white']);
+        $this->assertStringContainsString('No shadow of any kind', $unset);
+
+        $soft = $service->buildPrompt(['remove_background' => true, 'background_mode' => 'white', 'shadow' => 'ai.soft']);
+        $this->assertStringContainsString('soft, natural shadow', $soft);
+        $this->assertStringNotContainsString('No shadow', $soft);
     }
 }
