@@ -923,7 +923,7 @@ class OrdersDashboardTest extends TestCase
     {
         $this->fakeOk();
 
-        foreach (['google_ads' => 'Google Ads', 'meta_ads' => 'Meta Ads', 'crm' => 'CRM', 'email' => 'Email Campaigns'] as $key => $label) {
+        foreach (['meta_ads' => 'Meta Ads', 'crm' => 'CRM', 'email' => 'Email Campaigns'] as $key => $label) {
             $this->actingAs($this->admin)
                 ->get(route('orders.dashboard', ['tab' => $key]))
                 ->assertOk()

@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Store;
 use App\Models\User;
 use App\Services\Ga4AnalyticsService;
+use App\Services\GoogleAdsViaGa4Service;
 use App\Services\OrderCancellationsService;
 use App\Services\OrdersSummaryService;
 use App\Services\ShopifyAnalyticsService;
@@ -131,9 +132,9 @@ class OrdersDashboardController extends Controller
      * Tabs that are on the bar but not built yet. They open a holding page and
      * call nothing, and like Studio they ignore the date range.
      */
-    public const COMING_SOON = ['google_ads', 'meta_ads', 'crm', 'email'];
+    public const COMING_SOON = ['meta_ads', 'crm', 'email'];
 
-    public function index(Request $request, OrdersSummaryService $orders, ShopifyAnalyticsService $analytics, Ga4AnalyticsService $sessions, #[CurrentUser] User $user): View
+    public function index(Request $request, OrdersSummaryService $orders, ShopifyAnalyticsService $analytics, Ga4AnalyticsService $sessions, GoogleAdsViaGa4Service $ads, #[CurrentUser] User $user): View
     {
         abort_unless($user->hasFeature('orders_dashboard'), 403);
 
@@ -231,6 +232,41 @@ class OrdersDashboardController extends Controller
                 'analyticsTotals' => null,
                 'sessions'        => $rows,
                 'sessionsTotals'  => $this->sessionsTotals($rows),
+                'integrating'     => self::INTEGRATING,
+            ]);
+        }
+
+        // Google Ads spend, read through each website's GA4 property rather
+        // than the Ads API, so it sits behind the same key and the same store
+        // access as Visitor Sessions — whoever sees one sees the other.
+        if ($tab === 'google_ads') {
+            $stores = Store::accessibleBy($user)->orderBy('name')->get();
+            $rows   = $ads->forStores($stores, $filters['from'], $filters['to'], $filters['compare']);
+
+            // Biggest spenders lead; a website with nothing to report has no
+            // spend to sort by and falls to the end.
+            $rows = collect($rows)
+                ->sortByDesc(fn ($row) => $row['status'] === 'ok' ? $row['current']['cost'] : -1)
+                ->values()
+                ->all();
+
+            return view('orders.dashboard', [
+                'tab'             => $tab,
+                'tabs'            => self::TABS,
+                'filters'         => $filters,
+                'presets'         => $this->presets(),
+                'bases'           => OrdersSummaryService::BASES,
+                'result'          => ['ok' => true, 'status' => 100, 'message' => '', 'data' => null],
+                'summary'         => null,
+                'platforms'       => $this->platformList(null, $filters['platforms']),
+                'fallback'        => null,
+                'workspace'       => null,
+                'analytics'       => null,
+                'analyticsTotals' => null,
+                'sessions'        => null,
+                'sessionsTotals'  => null,
+                'ads'             => $rows,
+                'adsTotals'       => $ads->totals($rows),
                 'integrating'     => self::INTEGRATING,
             ]);
         }

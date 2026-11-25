@@ -139,46 +139,61 @@ class Ga4AnalyticsService
         } catch (\Throwable $e) {
             Log::warning("GA4 analytics failed for store {$store->id}: " . $e->getMessage());
 
-            // The key is gitignored and so does not travel with a deploy.
-            // Matched on the wording Ga4Client throws, which is two files
-            // away in this same codebase.
-            if (str_contains($e->getMessage(), 'No Google Analytics credentials')) {
-                $path = (string) config('services.ga4.credentials');
-
-                return $base + [
-                    'status'  => 'no_credentials',
-                    // An empty path is not a missing file: it is a config that
-                    // never loaded, which on a deployed server means a config
-                    // cache built before this setting existed. Saying "copy
-                    // the key" there sends somebody to check a file that is
-                    // already sitting exactly where they put it.
-                    'message' => $path === ''
-                        ? 'No Google Analytics key path is configured. This is usually a cached config built before the setting existed — run config:clear and config:cache on this server.'
-                        : "The Google Analytics key could not be read at {$path}. Copy the service account JSON there, check the web user can read it and traverse the folders above it, or point GA4_CREDENTIALS_PATH somewhere else.",
-                ];
-            }
-
-            // Google answers both "never shared with this account" and "that
-            // is not a property id" with the same 403, so the message names
-            // both rather than guessing at which one it was.
-            if ($e->getCode() === 403 || str_contains($e->getMessage(), 'HTTP 403')) {
-                return $base + [
-                    'status'  => 'no_access',
-                    'message' => 'Add the service account as a Viewer on this property, and check the ID is the GA4 property ID rather than a Universal Analytics one.',
-                ];
-            }
-
-            // Blocked egress, a clock too far out for Google to accept the
-            // signed request, and a rejected query all land here and read
-            // identically without it. Trimmed, because a Guzzle failure runs
-            // to paragraphs and this is a line on a card.
-            return $base + [
-                'status'  => 'unavailable',
-                'message' => 'Google Analytics could not be reached: ' . Str::limit($e->getMessage(), 240),
-            ];
+            return $base + self::describeFailure($e);
         }
 
         return $base + $data + ['status' => 'ok', 'excluded_countries' => $excluded];
+    }
+
+    /**
+     * What a card should say about a property that could not answer.
+     *
+     * Public and static because the Google Ads tab reads the same properties
+     * through the same client, and its cards have to fail in the same words:
+     * a missing key or an unshared property is one fact about the website,
+     * not two that happen to be phrased differently on neighbouring tabs.
+     *
+     * @return array{status: string, message: string}
+     */
+    public static function describeFailure(\Throwable $e): array
+    {
+        // The key is gitignored and so does not travel with a deploy.
+        // Matched on the wording Ga4Client throws, which is two files
+        // away in this same codebase.
+        if (str_contains($e->getMessage(), 'No Google Analytics credentials')) {
+            $path = (string) config('services.ga4.credentials');
+
+            return [
+                'status'  => 'no_credentials',
+                // An empty path is not a missing file: it is a config that
+                // never loaded, which on a deployed server means a config
+                // cache built before this setting existed. Saying "copy
+                // the key" there sends somebody to check a file that is
+                // already sitting exactly where they put it.
+                'message' => $path === ''
+                    ? 'No Google Analytics key path is configured. This is usually a cached config built before the setting existed — run config:clear and config:cache on this server.'
+                    : "The Google Analytics key could not be read at {$path}. Copy the service account JSON there, check the web user can read it and traverse the folders above it, or point GA4_CREDENTIALS_PATH somewhere else.",
+            ];
+        }
+
+        // Google answers both "never shared with this account" and "that
+        // is not a property id" with the same 403, so the message names
+        // both rather than guessing at which one it was.
+        if ($e->getCode() === 403 || str_contains($e->getMessage(), 'HTTP 403')) {
+            return [
+                'status'  => 'no_access',
+                'message' => 'Add the service account as a Viewer on this property, and check the ID is the GA4 property ID rather than a Universal Analytics one.',
+            ];
+        }
+
+        // Blocked egress, a clock too far out for Google to accept the
+        // signed request, and a rejected query all land here and read
+        // identically without it. Trimmed, because a Guzzle failure runs
+        // to paragraphs and this is a line on a card.
+        return [
+            'status'  => 'unavailable',
+            'message' => 'Google Analytics could not be reached: ' . Str::limit($e->getMessage(), 240),
+        ];
     }
 
     /**

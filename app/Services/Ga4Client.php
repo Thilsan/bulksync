@@ -81,6 +81,42 @@ class Ga4Client
     }
 
     /**
+     * Ask a property which of these dimensions and metrics can go in one report.
+     *
+     * Used by the ads probe, not by any screen. The advertiser* cost metrics
+     * only join to the handful of dimensions Google Ads itself reports by, and
+     * one incompatible field fails the whole batch it travels in, so this is
+     * how a report is checked before it is trusted with a card.
+     *
+     * @param  array<string, mixed>  $request  dimensions, metrics, dimensionFilter, as a report takes them
+     * @return array{dimensionCompatibilities?: list<array>, metricCompatibilities?: list<array>}
+     */
+    public function checkCompatibility(string $propertyId, array $request): array
+    {
+        $body = array_intersect_key($request, array_flip(['dimensions', 'metrics', 'dimensionFilter', 'metricFilter']));
+
+        $response = $this->http->post(
+            "https://analyticsdata.googleapis.com/v1beta/properties/{$propertyId}:checkCompatibility",
+            [
+                'headers' => ['Authorization' => 'Bearer ' . $this->token()],
+                'json'    => $body,
+            ],
+        );
+
+        $status  = $response->getStatusCode();
+        $decoded = json_decode((string) $response->getBody(), true);
+
+        if ($status !== 200) {
+            throw new \RuntimeException(
+                'GA4 compatibility check failed (HTTP ' . $status . '): ' . ($decoded['error']['message'] ?? 'no message'),
+                $status,
+            );
+        }
+
+        return $decoded ?? [];
+    }
+
+    /**
      * A bearer token, kept between requests.
      *
      * Without this every website on the screen would pay for its own token

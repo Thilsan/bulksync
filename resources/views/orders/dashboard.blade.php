@@ -96,6 +96,10 @@
         <div data-tab="sessions" class="space-y-5">
             @include('orders.sessions', ['rows' => $sessions, 'totals' => $sessionsTotals])
         </div>
+    @elseif($tab === 'google_ads')
+        <div data-tab="google_ads" class="space-y-5">
+            @include('orders.google-ads', ['rows' => $ads, 'totals' => $adsTotals])
+        </div>
     @else
 
     {{-- ── Filters ──────────────────────────────────────────────────────────
