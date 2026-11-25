@@ -354,6 +354,11 @@
                          next — and which is gone along with the rest of the
                          classification. What is left is what actually happened to the
                          photo, which is the half worth showing anyway. --}}
+                    {{-- Which engine made it, shown only for OpenAI: it redraws the
+                         whole photo, so its results are the ones to check closely. --}}
+                    <template x-if="item.edit_engine === 'openai'">
+                        <span class="pointer-events-none absolute bottom-2 right-2 rounded-md bg-violet-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-700">OpenAI</span>
+                    </template>
                     <template x-if="item.apparel_mode_applied && item.apparel_mode_applied !== 'none'">
                         <span class="pointer-events-none absolute bottom-2 left-2 rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
                               :class="['cutout_unnamed', 'ghost_redraw_kept', 'ghost_recut_accepted'].includes(item.apparel_mode_applied) ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'"

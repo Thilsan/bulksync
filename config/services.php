@@ -88,6 +88,23 @@ return [
         'retention_days' => (int) env('BARCODE_IMAGES_RETENTION_DAYS', 14),
     ],
 
+    /*
+     * OpenAI's image edit endpoint: the second photo-editing engine, chosen
+     * per run (or per SKU) on the photo editor's settings screen.
+     *
+     * gpt-image-2 because it is the model that takes an arbitrary output size
+     * (multiples of 16, up to 3840x2160), so the result can keep the photo's own
+     * shape instead of being forced into a 1024 square. Quality is the main
+     * cost lever: high is several times the price of medium.
+     */
+    'openai' => [
+        'api_key'       => env('OPENAI_API_KEY'),
+        'image_model'   => env('OPENAI_IMAGE_MODEL') ?: 'gpt-image-2',
+        'image_quality' => env('OPENAI_IMAGE_QUALITY') ?: 'high',   // low | medium | high
+        'image_edge'    => (int) (env('OPENAI_IMAGE_EDGE') ?: 2048), // longest side requested, px
+        'timeout'       => (int) (env('OPENAI_IMAGE_TIMEOUT') ?: 240),
+    ],
+
     'photoroom' => [
         /*
          * The two faces the catalogue uses for on-model shots.

@@ -17,6 +17,7 @@ class PhotoEditItem extends Model
         'position',
         'skip_edit',
         'photoroom_requests',
+        'edit_engine',
         'back_view',
         'rotation',
         'keep_background',

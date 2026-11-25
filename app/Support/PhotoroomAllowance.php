@@ -49,7 +49,10 @@ class PhotoroomAllowance
 
         $since = now()->subHours($hours);
 
+        // Photos OpenAI edited spent nothing here. Null is every row from
+        // before the engine was recorded, which were all Photoroom.
         $items = PhotoEditItem::where('updated_at', '>=', $since)
+            ->where(fn ($q) => $q->whereNull('edit_engine')->orWhere('edit_engine', '!=', 'openai'))
             ->get(['status', 'error_message', 'apparel_mode_applied', 'photoroom_requests', 'updated_at']);
 
         $succeeded = $items->whereIn('status', self::SUCCEEDED);

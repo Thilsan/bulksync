@@ -87,6 +87,27 @@
         : array_key_first(array_filter($framingTree, fn ($m) => isset($m['subcategories'])));
 @endphp
 
+{{-- Which service does the edit. The settings below are read by both: OpenAI
+     gets them written out as an instruction rather than as switches. --}}
+<div class="mb-5">
+    <span class="mb-2 block text-xs font-semibold uppercase tracking-wide text-gray-500">Editing engine</span>
+    <div class="grid gap-3 sm:grid-cols-2">
+        @foreach (\App\Services\OpenAiImageService::ENGINES as $engineKey => $engineLabel)
+            <label class="flex cursor-pointer items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm hover:border-gray-300 has-[:checked]:border-brand-500 has-[:checked]:bg-brand-50/60">
+                <input type="radio" name="{{ $name('engine') }}" value="{{ $engineKey }}"
+                       @checked(\App\Services\OpenAiImageService::engineFor((array) $edits) === $engineKey)
+                       class="h-3.5 w-3.5 border-gray-300 text-brand-600 focus:ring-brand-500">
+                <span class="text-gray-800">{{ $engineLabel }}</span>
+            </label>
+        @endforeach
+    </div>
+    <p class="mt-1 text-xs text-gray-500">
+        OpenAI redraws the whole photo from an instruction, so check prints, logos and small text on
+        the first few results. Photos set to go on a virtual model, plus lifestyle and angle shots,
+        still use Photoroom.
+    </p>
+</div>
+
 <div x-data="{ bg: @js($bg) }">
     <span class="mb-2 block text-xs font-semibold uppercase tracking-wide text-gray-500">Background</span>
     <div class="grid gap-3 sm:grid-cols-4">

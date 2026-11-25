@@ -813,6 +813,12 @@ class PhotoEditorController extends Controller implements HasMiddleware
             $input['ironing_mode'] = $input['ironing_mode'] === 'guided' ? 'guided' : '';
         }
 
+        // Which service edits the photos. Only the two that exist; anything
+        // else would reach the job and silently mean Photoroom.
+        if (array_key_exists('engine', $input)) {
+            $input['engine'] = \App\Services\OpenAiImageService::engineFor($input);
+        }
+
         foreach (['width', 'height', 'max_width', 'max_height', 'lifestyle_count'] as $key) {
             if (array_key_exists($key, $input)) {
                 $input[$key] = filled($input[$key]) ? (int) $input[$key] : null;
@@ -1086,6 +1092,7 @@ class PhotoEditorController extends Controller implements HasMiddleware
             'status_label'          => $i->statusLabel(),
             'status_color'          => $i->statusColor(),
             'apparel_mode_applied'  => $i->apparel_mode_applied,
+            'edit_engine'           => $i->edit_engine,
 
             // Photoroom's own confidence in the cutout, so the reviewer's
             // attention lands on the ones it was unsure about rather than

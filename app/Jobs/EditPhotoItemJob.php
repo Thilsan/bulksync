@@ -9,6 +9,7 @@ use App\Services\GhostCompositeService;
 use App\Services\GhostPrintTransplantService;
 use App\Services\ImageProcessingService;
 use App\Services\OneDriveService;
+use App\Services\OpenAiImageService;
 use App\Services\PhotoroomService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -83,6 +84,26 @@ class EditPhotoItemJob implements ShouldQueue
         // Settings belong to the SKU group, not the run: a folder of dresses
         // and a folder of watches were configured separately.
         $edits = $item->resolvedEdits();
+
+        /*
+         * Which service does the edit, chosen on the settings screen.
+         *
+         * A photo going on a virtual model stays on Photoroom whatever was
+         * picked: that is Photoroom's own preset models, and OpenAI has no
+         * equivalent here. Recorded on the row straight away, so that even a
+         * failure is not charged to Photoroom's allowance when OpenAI made it.
+         */
+        $engine = OpenAiImageService::engineFor($edits);
+
+        if ($engine === OpenAiImageService::ENGINE_OPENAI && !empty($edits['virtual_model'])) {
+            Log::info('EditPhotoItemJob: on-model photo sent to Photoroom, which OpenAI cannot do', [
+                'item' => $this->itemId,
+            ]);
+            $engine = OpenAiImageService::ENGINE_PHOTOROOM;
+        }
+
+        $item->update(['edit_engine' => $engine]);
+        $onPhotoroom = $engine === OpenAiImageService::ENGINE_PHOTOROOM;
 
         try {
             /*
@@ -179,7 +200,8 @@ class EditPhotoItemJob implements ShouldQueue
              * whole edit over it would be the worse outcome, so it is logged
              * and the photo goes on without it.
              */
-            if (!empty($edits['remove_price_tag'])) {
+            // OpenAI is asked for this in the same prompt as the edit itself.
+            if ($onPhotoroom && !empty($edits['remove_price_tag'])) {
                 try {
                     $raw = $photoroom->eraseObject(
                         $raw,
@@ -392,7 +414,7 @@ class EditPhotoItemJob implements ShouldQueue
             // Whether to upscale is the operator's call. What is settled here is
             // how: which model can take an input this size, and what it should
             // be upscaled to.
-            if (!$photoroom->generatesOwnCanvas($itemEdits)) {
+            if ($onPhotoroom && !$photoroom->generatesOwnCanvas($itemEdits)) {
                 $itemEdits = $this->tuneUpscale($input, $itemEdits);
             }
 
@@ -414,7 +436,7 @@ class EditPhotoItemJob implements ShouldQueue
              * monogram as rings. Worth comparing against plain ironing on a
              * real garment; not worth assuming it wins.
              */
-            if (!empty($itemEdits['ironing']) && ($itemEdits['ironing_mode'] ?? '') === 'guided') {
+            if ($onPhotoroom && !empty($itemEdits['ironing']) && ($itemEdits['ironing_mode'] ?? '') === 'guided') {
                 try {
                     $input = $photoroom->eraseObject(
                         $input,
@@ -456,7 +478,8 @@ class EditPhotoItemJob implements ShouldQueue
              * 1,015,104 was what we were sending. It never fired, because at
              * 268,800 pixels there was nothing to shrink.
              */
-            if (!empty($itemEdits['ironing'])
+            if ($onPhotoroom
+                && !empty($itemEdits['ironing'])
                 && !empty($itemEdits['width'])
                 && !empty($itemEdits['height'])) {
                 Log::info('Ironing at the photo\'s own size; the canvas is applied locally', [
@@ -471,8 +494,12 @@ class EditPhotoItemJob implements ShouldQueue
                 $itemEdits['output_size_mode'] = 'originalImage';
             }
 
-            $edited = $photoroom->edit($input, $itemEdits, $item->filename);
-            $requests++;
+            if ($onPhotoroom) {
+                $edited = $photoroom->edit($input, $itemEdits, $item->filename);
+                $requests++;
+            } else {
+                $edited = app(OpenAiImageService::class)->edit($input, $itemEdits, $item->filename);
+            }
 
             /*
              * The canvas, handed back now the request has gone.
@@ -544,7 +571,9 @@ class EditPhotoItemJob implements ShouldQueue
              * A cutout that ran on Photoroom's own matting is still left alone —
              * there is no prompt to blame and nothing to retry without.
              */
-            if (filled($itemEdits['segmentation_prompt'] ?? null) && $imageService->looksUncut($edited)) {
+            if ($onPhotoroom
+                && filled($itemEdits['segmentation_prompt'] ?? null)
+                && $imageService->looksUncut($edited)) {
                 $guess = (string) $itemEdits['segmentation_prompt'];
 
                 Log::warning('EditPhotoItemJob: the named cutout kept the whole frame', [
@@ -590,7 +619,12 @@ class EditPhotoItemJob implements ShouldQueue
              * The photograph still holds the real product, so the redraw is
              * used only to the extent it can be shown to agree with it.
              */
-            if ($appliedMode === 'ghost_mannequin') {
+            /*
+             * The composite check below re-cuts through Photoroom, so it only
+             * runs on Photoroom's own ghost mannequin. OpenAI's result is
+             * shown for review as it came back.
+             */
+            if ($onPhotoroom && $appliedMode === 'ghost_mannequin') {
                 /*
                  * The redraw is used only where it can be shown to agree with
                  * the photograph. Where it cannot, the photograph is used and
@@ -1031,7 +1065,7 @@ class EditPhotoItemJob implements ShouldQueue
                  * key does not become safe to publish because somebody has since
                  * switched the key over.
                  */
-                'sandbox'              => $photoroom->isSandbox(),
+                'sandbox'              => $onPhotoroom && $photoroom->isSandbox(),
 
                 /*
                  * Not a failure — the image is usable and the mannequin is gone.
@@ -1044,7 +1078,7 @@ class EditPhotoItemJob implements ShouldQueue
 
                 // Read straight after the edit it belongs to — the service
                 // keeps only the most recent call's score.
-                'uncertainty_score'    => $photoroom->lastUncertaintyScore(),
+                'uncertainty_score'    => $onPhotoroom ? $photoroom->lastUncertaintyScore() : null,
             ]);
 
         } catch (\Throwable $e) {
