@@ -1153,6 +1153,231 @@ class ImageProcessingService
      * False when it cannot tell. Refusing an image it failed to read would stop
      * work over a decoding hiccup.
      */
+    /**
+     * Turn a generated studio background into a real one: pure white, or
+     * transparent.
+     *
+     * Photoroom hands back exact #FFFFFF or real transparency, which is what
+     * subjectBox() looks for. OpenAI paints its background, so it comes back
+     * at 245 rather than 255, or as a soft grey vignette. Then nothing is
+     * background, frameToStandard() sees no product and the photo leaves at
+     * OpenAI's own size. That was a 1360x2048 shirt on a run framed to
+     * 2000x2000.
+     *
+     * Background is found by flooding inward from the edges across light,
+     * near-grey pixels that change gently from one to the next. A white
+     * garment is protected by its own outline, which is the shading change
+     * the flood stops at, rather than by its colour.
+     *
+     * Left unchanged when the edges are not a light studio background, so a
+     * kept scene or a brand colour is never touched.
+     */
+    public function cleanGeneratedBackground(string $imageContent, bool $transparent = false): string
+    {
+        try {
+            $img = @imagecreatefromstring($imageContent);
+
+            if (!$img) {
+                return $imageContent;
+            }
+
+            if (!imageistruecolor($img)) {
+                imagepalettetotruecolor($img);
+            }
+
+            $w = imagesx($img);
+            $h = imagesy($img);
+
+            // The flood runs on a small proxy; the full-size pixels are then
+            // tested one by one only inside the cells it reached.
+            $scale = min(1.0, 500 / max($w, $h));
+            $pw    = max(1, (int) round($w * $scale));
+            $ph    = max(1, (int) round($h * $scale));
+            $proxy = imagecreatetruecolor($pw, $ph);
+            imagealphablending($proxy, false);
+            imagecopyresampled($proxy, $img, 0, 0, 0, 0, $pw, $ph, $w, $h);
+
+            $isLight = static function (int $rgba): bool {
+                if ((($rgba >> 24) & 0x7F) > 100) {
+                    return true; // already transparent
+                }
+
+                $r = ($rgba >> 16) & 0xFF;
+                $g = ($rgba >> 8) & 0xFF;
+                $b = $rgba & 0xFF;
+
+                return min($r, $g, $b) >= 205 && (max($r, $g, $b) - min($r, $g, $b)) <= 18;
+            };
+
+            // Most of the border has to be studio-light, or this is a scene.
+            $border = 0;
+            $light  = 0;
+            for ($x = 0; $x < $pw; $x++) {
+                foreach ([0, $ph - 1] as $y) {
+                    $border++;
+                    $light += $isLight(imagecolorat($proxy, $x, $y)) ? 1 : 0;
+                }
+            }
+            for ($y = 0; $y < $ph; $y++) {
+                foreach ([0, $pw - 1] as $x) {
+                    $border++;
+                    $light += $isLight(imagecolorat($proxy, $x, $y)) ? 1 : 0;
+                }
+            }
+
+            if ($border === 0 || $light / $border < 0.85) {
+                imagedestroy($proxy);
+                imagedestroy($img);
+
+                return $imageContent;
+            }
+
+            // Flood from every light border pixel.
+            $mask  = str_repeat("\0", $pw * $ph);
+            $queue = new \SplQueue();
+
+            $seed = function (int $x, int $y) use ($proxy, $isLight, $pw, &$mask, $queue) {
+                $i = $y * $pw + $x;
+                if ($mask[$i] === "\0" && $isLight(imagecolorat($proxy, $x, $y))) {
+                    $mask[$i] = "\1";
+                    $queue->enqueue($i);
+                }
+            };
+
+            for ($x = 0; $x < $pw; $x++) { $seed($x, 0); $seed($x, $ph - 1); }
+            for ($y = 0; $y < $ph; $y++) { $seed(0, $y); $seed($pw - 1, $y); }
+
+            $luma = static fn (int $c) => ((($c >> 16) & 0xFF) * 3 + (($c >> 8) & 0xFF) * 6 + ($c & 0xFF)) / 10;
+
+            while (!$queue->isEmpty()) {
+                $i  = $queue->dequeue();
+                $x  = $i % $pw;
+                $y  = intdiv($i, $pw);
+                $here = $luma(imagecolorat($proxy, $x, $y));
+
+                foreach ([[1, 0], [-1, 0], [0, 1], [0, -1]] as [$dx, $dy]) {
+                    $nx = $x + $dx;
+                    $ny = $y + $dy;
+
+                    if ($nx < 0 || $ny < 0 || $nx >= $pw || $ny >= $ph) {
+                        continue;
+                    }
+
+                    $j = $ny * $pw + $nx;
+                    if ($mask[$j] !== "\0") {
+                        continue;
+                    }
+
+                    $c = imagecolorat($proxy, $nx, $ny);
+                    if ($isLight($c) && abs($luma($c) - $here) <= 6) {
+                        $mask[$j] = "\1";
+                        $queue->enqueue($j);
+                    }
+                }
+            }
+
+            imagedestroy($proxy);
+
+            // Full size: every light pixel in a reached cell, or touching one,
+            // becomes background. Touching, so the edge of the product is
+            // decided pixel by pixel rather than in proxy-sized steps.
+            $reached = static function (int $px, int $py) use ($mask, $pw, $ph): bool {
+                for ($dy = -1; $dy <= 1; $dy++) {
+                    for ($dx = -1; $dx <= 1; $dx++) {
+                        $x = $px + $dx;
+                        $y = $py + $dy;
+                        if ($x >= 0 && $y >= 0 && $x < $pw && $y < $ph && $mask[$y * $pw + $x] === "\1") {
+                            return true;
+                        }
+                    }
+                }
+
+                return false;
+            };
+
+            imagealphablending($img, false);
+            imagesavealpha($img, true);
+            $fill = $transparent
+                ? imagecolorallocatealpha($img, 255, 255, 255, 127)
+                : imagecolorallocatealpha($img, 255, 255, 255, 0);
+
+            $cellCache = [];
+            for ($y = 0; $y < $h; $y++) {
+                $py = min($ph - 1, (int) ($y * $scale));
+                for ($x = 0; $x < $w; $x++) {
+                    $px  = min($pw - 1, (int) ($x * $scale));
+                    $key = $py * $pw + $px;
+                    $cellCache[$key] ??= $reached($px, $py);
+
+                    if ($cellCache[$key] && $isLight(imagecolorat($img, $x, $y))) {
+                        imagesetpixel($img, $x, $y, $fill);
+                    }
+                }
+            }
+
+            ob_start();
+            imagepng($img);
+            imagedestroy($img);
+
+            return (string) ob_get_clean();
+        } catch (\Throwable $e) {
+            Log::warning('ImageProcessingService: could not clean the generated background: ' . $e->getMessage());
+
+            return $imageContent;
+        }
+    }
+
+    /**
+     * Place an image on an exact canvas, scaled to fit inside the padding and
+     * centred. The fallback for a result frameToStandard() could not frame, so
+     * the photo still leaves at the size the run asked for.
+     */
+    public function fitOntoCanvas(
+        string $imageContent,
+        int $width,
+        int $height,
+        float $padding = 0.10,
+        bool $transparent = false,
+        string $colour = 'FFFFFF',
+    ): string {
+        $src = @imagecreatefromstring($imageContent);
+
+        if (!$src || $width < 1 || $height < 1) {
+            return $imageContent;
+        }
+
+        $sw = imagesx($src);
+        $sh = imagesy($src);
+
+        $padding = max(0.0, min(0.45, $padding));
+        $scale   = min(($width * (1 - 2 * $padding)) / $sw, ($height * (1 - 2 * $padding)) / $sh);
+        $dw      = max(1, (int) round($sw * $scale));
+        $dh      = max(1, (int) round($sh * $scale));
+
+        $canvas = imagecreatetruecolor($width, $height);
+        imagealphablending($canvas, false);
+        imagesavealpha($canvas, true);
+        $hex = ltrim($colour, '#');
+        $hex = preg_match('/^[0-9a-fA-F]{6}$/', $hex) ? $hex : 'FFFFFF';
+        imagefill($canvas, 0, 0, imagecolorallocatealpha(
+            $canvas,
+            hexdec(substr($hex, 0, 2)),
+            hexdec(substr($hex, 2, 2)),
+            hexdec(substr($hex, 4, 2)),
+            $transparent ? 127 : 0,
+        ));
+        imagealphablending($canvas, true);
+
+        imagecopyresampled($canvas, $src, intdiv($width - $dw, 2), intdiv($height - $dh, 2), 0, 0, $dw, $dh, $sw, $sh);
+        imagedestroy($src);
+
+        ob_start();
+        imagepng($canvas);
+        imagedestroy($canvas);
+
+        return (string) ob_get_clean();
+    }
+
     public function looksUncut(string $imageContent): bool
     {
         try {

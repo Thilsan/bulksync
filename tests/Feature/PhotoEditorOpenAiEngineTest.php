@@ -36,6 +36,9 @@ class PhotoEditorOpenAiEngineTest extends TestCase
 
     private int $photoroomCalls = 0;
 
+    /** What the fake OpenAI hands back; null means a 1024 square on pure white. */
+    private ?string $openAiReturns = null;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -80,7 +83,7 @@ class PhotoEditorOpenAiEngineTest extends TestCase
                 }
 
                 return Http::response([
-                    'data'  => [['b64_json' => base64_encode($this->png(1024, 1024))]],
+                    'data'  => [['b64_json' => base64_encode($this->openAiReturns ?? $this->png(1024, 1024))]],
                     'usage' => ['total_tokens' => 1],
                 ]);
             },
@@ -296,5 +299,176 @@ class PhotoEditorOpenAiEngineTest extends TestCase
 
         $this->assertSame('transparent', $this->sentToOpenAi['background']);
         $this->assertSame('png', $this->sentToOpenAi['output_format']);
+    }
+
+    /**
+     * What OpenAI actually sends: its own portrait size, on a painted white
+     * that is not quite white, with a soft grey vignette towards the edges.
+     */
+    private function generatedShirt(int $w = 1360, int $h = 2048, int $shirt = 0x3C5A8C, int $outline = -1): string
+    {
+        $img = imagecreatetruecolor($w, $h);
+        $cx = $w / 2;
+        $cy = $h / 2;
+        $maxD = sqrt($cx * $cx + $cy * $cy);
+        for ($y = 0; $y < $h; $y += 2) {
+            for ($x = 0; $x < $w; $x += 2) {
+                $v = (int) round(247 - 14 * (sqrt(($x - $cx) ** 2 + ($y - $cy) ** 2) / $maxD));
+                imagefilledrectangle($img, $x, $y, $x + 1, $y + 1, imagecolorallocate($img, $v, $v, $v));
+            }
+        }
+        if ($outline >= 0) {
+            imagefilledrectangle($img, (int) ($w * 0.2) - 6, (int) ($h * 0.25) - 6, (int) ($w * 0.8) + 6, (int) ($h * 0.75) + 6, $outline);
+        }
+        imagefilledrectangle($img, (int) ($w * 0.2), (int) ($h * 0.25), (int) ($w * 0.8), (int) ($h * 0.75), $shirt);
+        ob_start();
+        imagepng($img);
+        imagedestroy($img);
+
+        return ob_get_clean();
+    }
+
+    private function publishedImage(PhotoEditItem $item): \GdImage
+    {
+        return imagecreatefromstring(file_get_contents(storage_path('app/' . $item->edited_path)));
+    }
+
+    public function test_an_openai_result_is_framed_onto_the_runs_canvas(): void
+    {
+        $this->openAiReturns = $this->generatedShirt();
+
+        $item = $this->editWith(PhotoroomService::applyFramingPreset([
+            'engine'            => 'openai',
+            'remove_background' => true,
+            'background_mode'   => 'white',
+            'ghost_mannequin'   => true,
+        ], 'men/t-shirt'));
+
+        $this->assertSame('edited', $item->status, (string) $item->error_message);
+
+        $img = $this->publishedImage($item);
+        $this->assertSame(2000, imagesx($img));
+        $this->assertSame(2000, imagesy($img));
+
+        // Framed, not merely padded: the shirt fills the preset's 80% of the height.
+        $column = [];
+        for ($y = 0; $y < 2000; $y += 4) {
+            $c = imagecolorat($img, 1000, $y);
+            $column[] = (($c >> 16) & 0xFF) < 150 ? $y : null;
+        }
+        $rows = array_values(array_filter($column, fn ($v) => $v !== null));
+        $this->assertEqualsWithDelta(0.80, (end($rows) - $rows[0]) / 2000, 0.03);
+
+        // And the painted grey is gone: the corners are true white.
+        foreach ([[5, 5], [1994, 5], [5, 1994], [1994, 1994]] as [$x, $y]) {
+            $this->assertSame(0xFFFFFF, imagecolorat($img, $x, $y) & 0xFFFFFF);
+        }
+    }
+
+    public function test_a_white_garment_is_not_erased_with_the_background(): void
+    {
+        // A white shirt (250) on painted off-white, held apart by its shading edge.
+        $this->openAiReturns = $this->generatedShirt(shirt: 0xFAFAFA, outline: 0xB4B4B4);
+
+        $item = $this->editWith(PhotoroomService::applyFramingPreset([
+            'engine'            => 'openai',
+            'remove_background' => true,
+            'background_mode'   => 'white',
+        ], 'men/t-shirt'));
+
+        $img = $this->publishedImage($item);
+        $this->assertSame(0xFAFAFA, imagecolorat($img, 1000, 1000) & 0xFFFFFF, 'the shirt itself was whitened');
+    }
+
+    public function test_a_result_that_cannot_be_framed_still_reaches_the_canvas_size(): void
+    {
+        // A busy scene edge to edge: nothing to find, so it is fitted instead.
+        $img = imagecreatetruecolor(1360, 2048);
+        for ($i = 0; $i < 400; $i++) {
+            imagefilledellipse($img, random_int(0, 1360), random_int(0, 2048), 200, 200,
+                imagecolorallocate($img, random_int(0, 255), random_int(0, 255), random_int(0, 255)));
+        }
+        ob_start();
+        imagepng($img);
+        $this->openAiReturns = ob_get_clean();
+
+        $item = $this->editWith([
+            'engine'            => 'openai',
+            'remove_background' => true,
+            'background_mode'   => 'white',
+            'width'             => 2000,
+            'height'            => 2000,
+        ]);
+
+        $out = $this->publishedImage($item);
+        $this->assertSame([2000, 2000], [imagesx($out), imagesy($out)]);
+    }
+
+    public function test_a_transparent_run_gets_real_transparency_from_a_painted_white(): void
+    {
+        $this->openAiReturns = $this->generatedShirt();
+
+        $item = $this->editWith(PhotoroomService::applyFramingPreset([
+            'engine'            => 'openai',
+            'remove_background' => true,
+            'background_mode'   => 'transparent',
+        ], 'men/t-shirt'));
+
+        $img = $this->publishedImage($item);
+        $this->assertSame([2000, 2000], [imagesx($img), imagesy($img)]);
+        $this->assertSame(127, (imagecolorat($img, 5, 5) >> 24) & 0x7F);
+        $this->assertSame(0, (imagecolorat($img, 1000, 1000) >> 24) & 0x7F);
+    }
+
+    /**
+     * Every category's framing applies to OpenAI the same as to Photoroom.
+     *
+     * The framing is done here after the edit, not by Photoroom: padding, base
+     * line, height fill and the Samsonite canvas are all applied locally. So
+     * an OpenAI result has to be framed by that same step, not just padded
+     * onto the canvas by the fallback.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('everyCategory')]
+    public function test_every_category_frames_an_openai_result(string $preset): void
+    {
+        // Half size: the framing is proportional, and 42 of these add up.
+        $this->openAiReturns = $this->generatedShirt(680, 1024);
+
+        // Records whether the fallback had to step in.
+        $spy = new class extends ImageProcessingService {
+            public bool $fellBack = false;
+
+            public function fitOntoCanvas(string $imageContent, int $width, int $height, float $padding = 0.10,
+                bool $transparent = false, string $colour = 'FFFFFF'): string
+            {
+                $this->fellBack = true;
+
+                return parent::fitOntoCanvas($imageContent, $width, $height, $padding, $transparent, $colour);
+            }
+        };
+        $this->app->instance(ImageProcessingService::class, $spy);
+
+        $edits = PhotoroomService::applyFramingPreset([
+            'engine'            => 'openai',
+            'remove_background' => true,
+            'background_mode'   => 'white',
+        ], $preset);
+
+        $item = $this->editWith($edits);
+        $this->assertSame('edited', $item->status, (string) $item->error_message);
+
+        $img = $this->publishedImage($item);
+        $this->assertSame(
+            [(int) ($edits['canvas_width'] ?? $edits['width']), (int) ($edits['canvas_height'] ?? $edits['height'])],
+            [imagesx($img), imagesy($img)],
+        );
+        $this->assertFalse($spy->fellBack, 'the category framing did not run; the photo was only padded');
+    }
+
+    public static function everyCategory(): array
+    {
+        $keys = array_keys(PhotoroomService::framingPresetsFlat());
+
+        return array_combine($keys, array_map(fn ($k) => [$k], $keys));
     }
 }

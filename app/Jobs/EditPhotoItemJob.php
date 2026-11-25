@@ -499,6 +499,17 @@ class EditPhotoItemJob implements ShouldQueue
                 $requests++;
             } else {
                 $edited = app(OpenAiImageService::class)->edit($input, $itemEdits, $item->filename);
+
+                /*
+                 * OpenAI paints its white rather than cutting to it, so it comes
+                 * back off-white and the framing below cannot find the product.
+                 * Made exact here, for the two backgrounds that are meant to be
+                 * empty; a brand colour or a kept scene is left as drawn.
+                 */
+                $bgMode = (string) ($itemEdits['background_mode'] ?? 'white');
+                if (!empty($itemEdits['remove_background']) && in_array($bgMode, ['white', 'transparent'], true)) {
+                    $edited = $imageService->cleanGeneratedBackground($edited, $bgMode === 'transparent');
+                }
             }
 
             /*
@@ -928,6 +939,29 @@ class EditPhotoItemJob implements ShouldQueue
                     bodyFill: $this->caseFill($itemEdits),
                     heightFill: isset($itemEdits['height_fill']) ? (float) $itemEdits['height_fill'] : null,
                 );
+            }
+
+            /*
+             * Photoroom builds the canvas itself; OpenAI returns its own size.
+             * If the framing above could not place it, it is still put on the
+             * canvas the run asked for, rather than leaving at 1360x2048 on a
+             * run of 2000 squares.
+             */
+            $targetW = (int) ($itemEdits['width'] ?? $itemEdits['canvas_width'] ?? 0);
+            $targetH = (int) ($itemEdits['height'] ?? $itemEdits['canvas_height'] ?? 0);
+            if (!$onPhotoroom && $targetW > 0 && $targetH > 0) {
+                $got = @getimagesizefromstring($edited);
+                if ((int) ($got[0] ?? 0) !== $targetW || (int) ($got[1] ?? 0) !== $targetH) {
+                    $bgMode = (string) ($itemEdits['background_mode'] ?? 'white');
+                    $edited = $imageService->fitOntoCanvas(
+                        $edited,
+                        $targetW,
+                        $targetH,
+                        (float) ($itemEdits['padding'] ?? 0.10),
+                        !empty($itemEdits['remove_background']) && $bgMode === 'transparent',
+                        $bgMode === 'custom' ? (string) ($itemEdits['background_color'] ?? 'FFFFFF') : 'FFFFFF',
+                    );
+                }
             }
 
             /*
