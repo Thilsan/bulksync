@@ -155,7 +155,8 @@ class PhotoEditorOpenAiEngineTest extends TestCase
         $this->assertSame('opaque', $this->sentToOpenAi['background']);
         $this->assertStringContainsString('#FFFFFF', $this->sentToOpenAi['prompt']);
         $this->assertStringContainsString('price tag', $this->sentToOpenAi['prompt']);
-        $this->assertStringContainsString('wrinkles', $this->sentToOpenAi['prompt']);
+        $this->assertStringContainsString('wrinkle', $this->sentToOpenAi['prompt']);
+        $this->assertStringContainsString('steamed and pressed', $this->sentToOpenAi['prompt']);
     }
 
     public function test_photoroom_is_still_the_default(): void

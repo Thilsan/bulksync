@@ -173,8 +173,12 @@ class OpenAiImageService
         }
 
         if (!empty($edits['ironing'])) {
-            $lines[] = 'Smooth out the wrinkles and creases in the fabric, as if freshly pressed, while keeping '
-                . 'every seam, print, trim and button exactly where it is.';
+            $lines[] = 'Make the garment look freshly steamed and pressed, ready for a premium online store: '
+                . 'remove every wrinkle, crease, fold line, crumple and puckering from the body, sleeves, '
+                . 'collar and hem. Hems and cuffs lie straight and even, the collar sits flat and round, and '
+                . 'the left and right sides hang symmetrically. Keep the fabric\'s own texture and sheen, so '
+                . 'it still looks like real cloth, not plastic, and keep every seam, print, trim, label and '
+                . 'button exactly where it is.';
         }
 
         if (!empty($edits['remove_price_tag'])) {
