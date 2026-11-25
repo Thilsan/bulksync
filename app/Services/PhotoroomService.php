@@ -584,6 +584,11 @@ class PhotoroomService
                         'padding' => 0.10,
                     ],
                 ],
+                'belts'    => [
+                    'label' => 'Belts',
+                    'note'  => 'The womenswear belts numbers carried across: 11% around a 2000 square, the width binding. Not separately sampled — womenswear measured 11.0% and 10.8% left and right, and sunglasses landed on 11.1% and 11.7% from an unrelated sample, which is the same figure twice for the two categories that are wider than they are tall. A belt is a belt in either department: laid out flat or coiled, it is the same shape on the same canvas. Measure a men\'s sample anyway when one is finished.',
+                    'edits' => ['width' => 2000, 'height' => 2000, 'padding' => 0.11],
+                ],
                 'socks'    => [
                     'label' => 'Socks',
                     'note'  => 'The womenswear socks numbers carried across: 10% around a 2000 square, height binding. Not separately sampled — the one sock sample in hand, CHH123ACC00447_0, is a women\'s pack, and it measured 10.00% / 10.00% / 80.00% exactly. Socks are sold packaged on a backing card in both departments and the card is the same shape either way, so there is nothing in a men\'s pack that would move these numbers; measure one anyway when one is finished, since that is the only way this note stops being an assumption.',
@@ -1968,6 +1973,7 @@ class PhotoroomService
         'men/ties'        => 'the tie',
         'men/jeans'       => 'the jeans',
         'men/bags'        => 'the bag',
+        'men/belts'       => 'the belt',
         'men/socks'       => 'the socks',
 
         'kids/dresses'    => 'the dress',
