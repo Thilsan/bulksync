@@ -231,6 +231,19 @@ class PhotoEditorFramingTest extends TestCase
              * this pair of numbers is what to change.
              */
             'women/sunglasses' => ['0.11', 'center'],
+
+            /*
+             * 10.00% top and 10.00% bottom off CHH123ACC00447_0 on a 2000
+             * square, the pack filling exactly 80.00% of the height and 29.9%
+             * of the width. The house rule to the pixel, and the first sample
+             * in this table that is not a garment: socks arrive packaged on a
+             * backing card with a hanger hook, so the card is what the frame
+             * measures, and it is a tall card.
+             *
+             * The men's entry was written from this same reading. If this one
+             * is ever corrected, correct that one with it.
+             */
+            'women/socks'     => ['0.1',  'center'],
             'footwear'        => ['0.1', 'bottom'], // five shots of one sandal; the base line is 20%, below
         ];
 

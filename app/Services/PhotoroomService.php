@@ -468,6 +468,26 @@ class PhotoroomService
                     'note'  => 'Measured: 11.1% and 11.7% left and right, the product filling 77% of the width and 27% of the height. The width is what holds a pair of sunglasses, as it holds a belt — and belts measured 11.0% and 10.8% independently, which is the same number twice from two unrelated samples. Centred vertically: the one sample sat low, 53.3% above and 20.1% below, but nothing in it explains why and a single supplier crop is not a house rule. If sunglasses are meant to hang low, this is the entry to correct.',
                     'edits' => ['width' => 2000, 'height' => 2000, 'padding' => 0.11],
                 ],
+                'socks' => [
+                    'label' => 'Socks',
+                    'note'  => 'Measured off CHH123ACC00447_0 on a 2000 square: the pack sits exactly 10.00% down, ends exactly 10.00% up from the bottom, and fills 80.00% of the height. The house rule to the pixel, on a sample that is not a garment at all — socks arrive packaged, on a backing card with a hanger hook, and the card is what the frame actually measures. It fills 29.9% of the width, so the height binds on its own and the padding alone holds it, as on ties and pens. The sample is a women\'s pack (women\'s shoe size 4–10 on the band), which is why this entry is the measured one and men below carries the same numbers across.',
+                    'edits' => [
+                        'width'   => 2000,
+                        'height'  => 2000,
+
+                        /*
+                         * Nothing declared to bind, as on ties and pens.
+                         *
+                         * A packaged sock is a tall card: 80.0% of the height
+                         * against 29.9% of the width, so the height decides
+                         * the size unaided. A loose pair laid flat would be
+                         * the other shape — if socks ever arrive unpackaged
+                         * and come out small, pinning height_fill here is the
+                         * correction, the way shorts needed it.
+                         */
+                        'padding' => 0.10,
+                    ],
+                ],
             ],
         ],
 
@@ -561,6 +581,15 @@ class PhotoroomService
                          * as deliberate placement next to the brim's own
                          * asymmetry, and every other category is centred.
                          */
+                        'padding' => 0.10,
+                    ],
+                ],
+                'socks'    => [
+                    'label' => 'Socks',
+                    'note'  => 'The womenswear socks numbers carried across: 10% around a 2000 square, height binding. Not separately sampled — the one sock sample in hand, CHH123ACC00447_0, is a women\'s pack, and it measured 10.00% / 10.00% / 80.00% exactly. Socks are sold packaged on a backing card in both departments and the card is the same shape either way, so there is nothing in a men\'s pack that would move these numbers; measure one anyway when one is finished, since that is the only way this note stops being an assumption.',
+                    'edits' => [
+                        'width'   => 2000,
+                        'height'  => 2000,
                         'padding' => 0.10,
                     ],
                 ],
@@ -1928,6 +1957,7 @@ class PhotoroomService
         'women/bags'      => 'the bag',
         'women/belts'     => 'the belt',
         'women/sunglasses' => 'the sunglasses',
+        'women/socks'     => 'the socks',
 
         'men/shirts'      => 'the shirt',
         'men/jacket'      => 'the jacket',
@@ -1938,6 +1968,7 @@ class PhotoroomService
         'men/ties'        => 'the tie',
         'men/jeans'       => 'the jeans',
         'men/bags'        => 'the bag',
+        'men/socks'       => 'the socks',
 
         'kids/dresses'    => 'the dress',
         'kids/long-dresses' => 'the dress',
