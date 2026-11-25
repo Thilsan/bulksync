@@ -146,10 +146,29 @@ class OpenAiImageService
             $lines[] = "The product is: {$noun}.";
         }
 
+        /*
+         * Always sent, because a back shot came back as a front: a plain back
+         * of a t-shirt looks to the model like a front it should complete,
+         * so it drew a front neckline on it. The photo marked "back" on the
+         * settings screen gets it said outright as well.
+         */
+        $back = !empty($edits['back_view']);
+
+        $lines[] = 'Keep the same side of the product facing the camera, at the same angle, as in the photo. '
+            . 'Do not turn it around, flip it or mirror it.';
+
+        if ($back) {
+            $lines[] = 'This photo shows the BACK of the garment. The result must show the back: a plain back '
+                . 'with the back of the collar, and no front neckline, buttons, pockets, logos or labels that '
+                . 'are not visible in this photo.';
+        }
+
         if (!empty($edits['ghost_mannequin'])) {
             $lines[] = 'Remove the mannequin, stand, hanger and any clamps completely, and show the garment as '
-                . 'if worn by an invisible body (a ghost mannequin shot): keep its natural worn shape, and where '
-                . 'the neck or openings show the inside, show the garment\'s own inside fabric there.';
+                . 'if worn by an invisible body (a ghost mannequin shot), keeping its natural worn shape.'
+                . ($back
+                    ? ''
+                    : ' Where the neck or openings show the inside, show the garment\'s own inside fabric there.');
         } elseif (!empty($edits['flat_lay'])) {
             $lines[] = 'Remove any hanger or mannequin and present the garment as a neat flat lay, seen from '
                 . 'directly above.';

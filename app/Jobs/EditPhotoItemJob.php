@@ -498,7 +498,11 @@ class EditPhotoItemJob implements ShouldQueue
                 $edited = $photoroom->edit($input, $itemEdits, $item->filename);
                 $requests++;
             } else {
-                $edited = app(OpenAiImageService::class)->edit($input, $itemEdits, $item->filename);
+                $edited = app(OpenAiImageService::class)->edit(
+                    $input,
+                    $itemEdits + ['back_view' => (bool) $item->back_view],
+                    $item->filename,
+                );
 
                 /*
                  * OpenAI paints its white rather than cutting to it, so it comes

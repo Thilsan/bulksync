@@ -471,4 +471,51 @@ class PhotoEditorOpenAiEngineTest extends TestCase
 
         return array_combine($keys, array_map(fn ($k) => [$k], $keys));
     }
+
+    /** A back shot came back as a front: OpenAI is told which side it is looking at. */
+    public function test_a_photo_marked_as_the_back_is_kept_as_the_back(): void
+    {
+        $this->mock(OneDriveService::class, function ($mock) {
+            $mock->shouldReceive('setUser')->andReturnSelf();
+            $mock->shouldReceive('downloadFileById')->andReturn($this->jpeg(1200, 1600));
+        });
+        $this->fakeApis();
+
+        $session = PhotoEditSession::create([
+            'user_id'       => User::factory()->create(['is_active' => true])->id,
+            'name'          => 'Run',
+            'onedrive_link' => 'https://example.com',
+            'edits'         => ['engine' => 'openai', 'remove_background' => true, 'ghost_mannequin' => true],
+        ]);
+        $item = PhotoEditItem::create([
+            'photo_edit_session_id' => $session->id,
+            'filename'              => '1_0.jpg',
+            'status'                => 'pending',
+            'back_view'             => true,
+            'onedrive_drive_id'     => 'drive-1',
+            'onedrive_item_id'      => 'item-1',
+        ]);
+
+        (new EditPhotoItemJob($item->id))->handle(
+            app(OneDriveService::class),
+            app(ImageProcessingService::class),
+            app(PhotoroomService::class),
+            app(GhostPrintTransplantService::class),
+            app(GhostCompositeService::class),
+        );
+
+        $prompt = $this->sentToOpenAi['prompt'];
+        $this->assertStringContainsString('BACK of the garment', $prompt);
+        $this->assertStringContainsString('no front neckline', $prompt);
+        // The inside-of-the-neck instruction is a front-view one, and is left out.
+        $this->assertStringNotContainsString('inside fabric', $prompt);
+    }
+
+    public function test_every_photo_is_told_to_keep_its_side_and_angle(): void
+    {
+        $prompt = app(OpenAiImageService::class)->buildPrompt(['remove_background' => true]);
+
+        $this->assertStringContainsString('same side of the product facing the camera', $prompt);
+        $this->assertStringNotContainsString('BACK of the garment', $prompt);
+    }
 }
