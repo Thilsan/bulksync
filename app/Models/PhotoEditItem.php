@@ -46,6 +46,9 @@ class PhotoEditItem extends Model
         'shopify_image_id',
         'replaces_image_id',
         'error_message',
+        'queued_at',
+        'dispatched_at',
+        'lane_variant',
     ];
 
     protected function casts(): array
@@ -62,6 +65,8 @@ class PhotoEditItem extends Model
             'mannequin_visible' => 'boolean',
             'stand_visible_after_edit' => 'boolean',
             'uncertainty_score' => 'float',
+            'queued_at'         => 'datetime',
+            'dispatched_at'     => 'datetime',
         ];
     }
 

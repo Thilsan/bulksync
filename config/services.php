@@ -284,6 +284,17 @@ return [
         'rpm' => (int) env('PHOTOROOM_RPM', 50),
 
         /*
+         * How many of one person's photos may sit in the queue at once.
+         *
+         * The rest wait in their own lane (App\Support\PhotoLane) and go in as
+         * these finish, so two people editing at the same time take turns
+         * instead of the second waiting for the first's whole batch. Set it
+         * to about the number of workers photos get: lower leaves workers
+         * idle when one person is running alone, higher brings back the wait.
+         */
+        'lane_window' => (int) env('PHOTO_LANE_WINDOW', 3),
+
+        /*
          * Edited images have to sit on disk between editing and review, which
          * is the one part of this feature that grows on its own. Full-size
          * edits are dropped as soon as they reach Shopify; whatever is left is

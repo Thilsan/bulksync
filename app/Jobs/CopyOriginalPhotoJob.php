@@ -37,6 +37,12 @@ class CopyOriginalPhotoJob implements ShouldQueue
     public int $tries   = 2;
     public int $backoff = 30;
 
+    /** Sends this person's next photo when this one is done. See PhotoLane. */
+    public function middleware(): array
+    {
+        return [new \App\Jobs\Middleware\FeedsPhotoLane];
+    }
+
     public function __construct(
         public readonly int $itemId,
     ) {}

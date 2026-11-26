@@ -24,9 +24,9 @@ namespace App\Support;
  *
  * What that costs is the thing the split was for. 'bulkupload' also carries
  * image and SEO audits, which run long, so a photo edit can now queue behind
- * one. The staggered release in PhotoEditorController keeps the ready list
- * short, which limits the wait to whatever is already running rather than a
- * whole batch — but it is a real trade, and the way back is to add the worker
+ * one. PhotoLane keeps only a few of each person's photos in the queue at
+ * once, so people take turns rather than waiting for a whole batch — but it
+ * is a real trade, and the way back is to add the worker
  * in Cloudways first and then point PHOTOS at its own name again.
  *
  * To give a shared feature its own queue later: point its constant at the new

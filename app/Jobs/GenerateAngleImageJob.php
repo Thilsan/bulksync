@@ -41,6 +41,12 @@ class GenerateAngleImageJob implements ShouldQueue
     public int $tries   = 2;
     public int $backoff = 30;
 
+    /** Sends this person's next photo when this one is done. See PhotoLane. */
+    public function middleware(): array
+    {
+        return [new \App\Jobs\Middleware\FeedsPhotoLane];
+    }
+
     private const MAX_OUTPUT_BYTES = 1_000_000;
 
     public function __construct(

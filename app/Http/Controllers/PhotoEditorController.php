@@ -2,11 +2,8 @@
 
 namespace App\Http\Controllers;
 
-use App\Jobs\CopyOriginalPhotoJob;
 use App\Jobs\EditPhotoItemJob;
 use App\Jobs\PushEditedPhotoJob;
-use App\Jobs\GenerateAngleImageJob;
-use App\Jobs\GenerateLifestyleImageJob;
 use App\Jobs\ScanPhotoEditFolderJob;
 use App\Jobs\ScanShopifySkusJob;
 use App\Models\PhotoEditGroup;
@@ -28,6 +25,7 @@ use Illuminate\Routing\Controllers\Middleware;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
+use App\Support\PhotoLane;
 use App\Support\Queues;
 
 /**
@@ -610,55 +608,23 @@ class PhotoEditorController extends Controller implements HasMiddleware
         $session->update(['status' => 'processing']);
 
         /*
-         * Two routes, one queue. A photo marked "as is" is fetched and filed
-         * without ever reaching Photoroom — it ends in the same state as an
-         * edited one, so the review screen and the push cannot tell them apart
-         * and do not need to.
+         * Nothing is sent to the queue directly. Every photo goes into its
+         * owner's lane (PhotoLane), which keeps only a few of each person's
+         * photos in the shared queue at once — so a colleague who starts a run
+         * mid-way through this one takes turns with it instead of waiting for
+         * all of it. The lane also picks the job: a photo marked "as is" is
+         * copied without reaching Photoroom, and ends in the same state as an
+         * edited one.
+         *
+         * Collected and handed over at the end, cutouts first, so a run's
+         * main images are made before its extras.
          */
-        /*
-         * Released at the rate Photoroom will accept them, not all at once.
-         *
-         * A run used to put every one of its edits into the queue the instant
-         * it started. The queue is first-come, so the next person to click
-         * Fetch photos landed behind the lot of them and watched an empty page
-         * until the run was over — their scan was seconds of work sitting
-         * hundreds of places down the line.
-         *
-         * The obvious fix is a second queue drained first, and that is what
-         * this did until the server turned out to have no supervisor access to
-         * add one. So the queue is kept short instead: each edit is delayed by
-         * the gap the fleet-wide pacing already imposes (services.photoroom.rpm),
-         * which leaves the ready list nearly empty while the delayed set holds
-         * the rest. Anything arriving mid-run waits on a handful of jobs rather
-         * than the whole batch.
-         *
-         * It costs no throughput. The gap is the API's own ceiling: those jobs
-         * would have spent the same time asleep in throttle() with a worker
-         * held open, rather than waiting in Redis where they cost nothing.
-         *
-         * Only the Photoroom-bound edits are spaced. An "as is" copy never
-         * reaches the API, is not paced, and would only be slowed for nothing.
-         */
-        $gap  = 60 / max(1, (int) config('services.photoroom.rpm', 50));
-        $slot = 0;
-
-        PhotoEditItem::where('photo_edit_session_id', $session->id)
+        $lane = PhotoEditItem::where('photo_edit_session_id', $session->id)
             ->where('kind', 'cutout')
             ->where('status', 'pending')
-            ->select('id', 'skip_edit')
-            ->chunkById(500, function ($items) use ($gap, &$slot) {
-                foreach ($items as $item) {
-                    if ($item->skip_edit) {
-                        CopyOriginalPhotoJob::dispatch($item->id)->onQueue(Queues::PHOTOS);
-
-                        continue;
-                    }
-
-                    EditPhotoItemJob::dispatch($item->id)
-                        ->onQueue(Queues::PHOTOS)
-                        ->delay(now()->addSeconds((int) floor($slot++ * $gap)));
-                }
-            });
+            ->orderBy('id')
+            ->pluck('id')
+            ->all();
 
         /*
          * A second photograph of the pendant, for the SKUs that asked for one.
@@ -695,7 +661,7 @@ class PhotoEditorController extends Controller implements HasMiddleware
                 'onedrive_download_url' => $source->onedrive_download_url,
             ]);
 
-            EditPhotoItemJob::dispatch($item->id)->onQueue(Queues::PHOTOS);
+            $lane[] = $item->id;
         }
 
         foreach (PhotoEditGroup::whereIn('id', $groupIds)->where('lifestyle_count', '>', 0)->get() as $group) {
@@ -714,9 +680,10 @@ class PhotoEditorController extends Controller implements HasMiddleware
                     'sku_detected'          => $group->sku,
                     'status'                => 'pending',
                     'selected'              => false, // generated, so opted into rather than out of
+                    'lane_variant'          => (string) $i,
                 ]);
 
-                GenerateLifestyleImageJob::dispatch($item->id, $i)->onQueue(Queues::PHOTOS);
+                $lane[] = $item->id;
             }
         }
 
@@ -773,11 +740,14 @@ class PhotoEditorController extends Controller implements HasMiddleware
                     'sku_detected'          => $group->sku,
                     'status'                => 'pending',
                     'selected'              => false,
+                    'lane_variant'          => $angle,
                 ]);
 
-                GenerateAngleImageJob::dispatch($item->id, $angle)->onQueue(Queues::PHOTOS);
+                $lane[] = $item->id;
             }
         }
+
+        PhotoLane::enqueue($lane);
 
         $session->update([
             'total_files' => PhotoEditItem::where('photo_edit_session_id', $session->id)->count(),
@@ -1511,9 +1481,15 @@ class PhotoEditorController extends Controller implements HasMiddleware
         // Reset away from a terminal status: EditPhotoItemJob refuses to
         // touch an item that already reads 'edited'/'pushed'/'skipped', on
         // the assumption that status means the work is done.
+        //
+        // Sent straight to the queue, not through PhotoLane: one photo someone
+        // is waiting on, and always a full edit (even of an "as is" photo),
+        // which the lane would turn back into a copy. dispatched_at makes it
+        // count against their lane and keeps the lane from sending it again.
         $item->update([
             'status'        => 'pending',
             'error_message' => null,
+            'dispatched_at' => now(),
         ]);
 
         EditPhotoItemJob::dispatch($item->id)->onQueue(Queues::PHOTOS);

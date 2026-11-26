@@ -2,7 +2,6 @@
 
 namespace App\Support;
 
-use App\Jobs\EditPhotoItemJob;
 use App\Jobs\GenerateAiContentJob;
 use App\Jobs\ProcessUploadItemJob;
 use App\Jobs\RunCsvCompareJob;
@@ -173,10 +172,13 @@ class SessionResumer
     }
 
     /**
-     * EditPhotoItemJob refuses anything already 'edited'/'pushed'/'skipped', so
-     * only genuinely unfinished photos are sent. An item stuck on 'editing' is
+     * Only genuinely unfinished photos are sent. An item stuck on 'editing' is
      * one a dead worker was holding, and needs resetting before the job will
      * take it.
+     *
+     * Through the owner's lane, which picks the right job for each kind of
+     * photo (this used to send lifestyle and angle shots to the cutout job)
+     * and sends them a few at a time like any other run.
      */
     private static function resumePhotoEdit(PhotoEditSession $session): string
     {
@@ -186,11 +188,10 @@ class SessionResumer
 
         $items = PhotoEditItem::where('photo_edit_session_id', $session->id)
             ->where('status', 'pending')
+            ->orderBy('id')
             ->pluck('id');
 
-        foreach ($items as $itemId) {
-            EditPhotoItemJob::dispatch($itemId)->onQueue(Queues::PHOTOS);
-        }
+        PhotoLane::enqueue($items);
 
         $session->update(['status' => 'processing']);
 

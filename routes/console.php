@@ -497,3 +497,10 @@ Schedule::call($pruneProductSales)->daily()->name('prune-product-sales')->withou
 // Horizon's wait-time and throughput graphs are built from these snapshots.
 // Bounded: config('horizon.metrics.trim_snapshots') keeps only the last 24.
 Schedule::command('horizon:snapshot')->everyFiveMinutes();
+
+// Photo lanes normally refill themselves as each photo finishes (PhotoLane).
+// This catches a job that ended without calling back — a worker killed
+// mid-photo — so that person's run never sits half-sent. Reads only; it sends
+// nothing that is already in the queue.
+Schedule::call(fn () => \App\Support\PhotoLane::feedAll())
+    ->everyMinute()->name('photo-lane-feed')->withoutOverlapping();

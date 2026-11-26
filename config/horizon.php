@@ -201,14 +201,15 @@ return [
     */
 
     /*
-    | Two supervisors, sized for a server with under two gigabytes of memory.
+    | Two supervisors. The server had under 2 GB until 2026-11; it now has
+    | 4 GB, and "main" was raised from 4 processes to 6 to match.
     |
     | "main" replaces the per-feature Cloudways workers. With 'auto' balancing
     | every queue keeps at least one process of its own, so a one-SKU check is
     | never stuck behind an hour-long audit, and the spare processes go to
     | whichever queue has the longest wait. maxProcesses is the cap across all
-    | three queues together — raise it after the server gets more memory, not
-    | before: each process is a full copy of the app.
+    | three queues together (up to 256 MB each, see 'memory') — raise it
+    | only with memory to spare: each process is a full copy of the app.
     |
     | "maintenance" stays apart with exactly one process so cleanup and sweeps
     | always run, whatever the users have queued.
@@ -233,7 +234,7 @@ return [
             'balance' => 'auto',
             'autoScalingStrategy' => 'time',
             'minProcesses' => 1,
-            'maxProcesses' => (int) env('HORIZON_MAX_PROCESSES', 4),
+            'maxProcesses' => (int) env('HORIZON_MAX_PROCESSES', 6),
             'balanceMaxShift' => 1,
             'balanceCooldown' => 3,
             'maxTime' => 3600,
